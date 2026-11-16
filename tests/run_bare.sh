@@ -15,7 +15,9 @@ run_kernel() {
     # адреса в сообщении об аварии меняются от сборки к сборке — их убираем
     # на Mac нет команды timeout: ограничение по времени через perl (он есть везде)
     perl -e 'alarm shift; exec @ARGV' 60 qemu-system-i386 -no-reboot -kernel "${1%.tb}.elf" -serial stdio -display none \
-        -device isa-debug-exit,iobase=0xf4,iosize=0x04 2> /dev/null | tr -d '\r' | sed -E 's/ \(0x[0-9a-f]+, 0x[0-9a-f]+\)$//'
+        -device isa-debug-exit,iobase=0xf4,iosize=0x04 2> "$work/qemu.txt" < /dev/null | tr -d '\r' | sed -E 's/ \(0x[0-9a-f]+, 0x[0-9a-f]+\)$//'
+    # QEMU ничего не напечатал — покажем, что он сказал сам
+    [ -s "$work/qemu.txt" ] && sed 's/^/qemu: /' "$work/qemu.txt" | head -3
     rm -f "${1%.tb}.elf" "${1%.tb}.c"
 }
 for f in tests/bare/*.tb; do
