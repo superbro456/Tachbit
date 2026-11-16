@@ -1,0 +1,30 @@
+obj Item
+    name: text
+    price: int
+    left: int
+
+// ищет товар по имени: отдаёт номер в списке или -1
+func find_item(items: list Item, name: text)
+    count i from 0 to len(items) - 1
+        if items[i].name == name
+            return i
+    return -1
+
+// сумма корзины: сколько штук каждого товара
+func cart_total(items: list Item, cart: dict text int)
+    total = int 0
+    each name in cart
+        at = find_item(items, name)
+        if at >= 0
+            total += items[at].price * cart[name]
+    return total
+
+func main()
+    items = list Item
+    items.add(Item(name: "Чай", price: 120, left: 10))
+    items.add(Item(name: "Кофе", price: 200, left: 4))
+
+    cart = dict text int
+    cart["Чай"] = 2
+    cart["Кофе"] = 1
+    print("К оплате:", cart_total(items, cart), "сом")

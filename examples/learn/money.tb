@@ -1,0 +1,9 @@
+// всё про деньги: скидка и налог
+modpub func with_discount(sum: int, percent: int)
+    return sum - sum * percent / 100
+
+modpub func with_tax(sum: int)
+    return sum + tax(sum)
+
+modpri func tax(sum: int)
+    return sum * 12 / 100

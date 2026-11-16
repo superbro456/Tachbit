@@ -1,0 +1,33 @@
+obj Item
+    name: text
+    price: int
+    left: int
+
+// сохранить: одна строка на товар, части через ;
+func save(items: list Item, path: text)
+    out = ""
+    each it in items
+        out += it.name + ";" + it.price + ";" + it.left + "\n"
+    try write_file(path, out)
+
+// загрузить: разрезать текст обратно на товары
+func load(path: text) gives items: list Item
+    content = try read_file(path)
+    each line in split(content, "\n")
+        if trim(line) == ""
+            skip
+        parts = split(line, ";")
+        price = try to_int(parts[1])
+        left = try to_int(parts[2])
+        items.add(Item(name: parts[0], price: price, left: left))
+
+func main()
+    items = list Item
+    items.add(Item(name: "Чай", price: 120, left: 10))
+    items.add(Item(name: "Кофе", price: 200, left: 4))
+    try save(items, "shop.txt")
+
+    again = try load("shop.txt")
+    print("Из файла:", len(again), "товара")
+    each it in again
+        print("  " + it.name + ": " + it.price + " сом")

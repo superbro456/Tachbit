@@ -1,0 +1,7 @@
+use money
+
+func main()
+    sum = 1000
+    after = money.with_discount(sum, 10)
+    print("со скидкой 10%:", after)
+    print("с налогом:", money.with_tax(after))

@@ -1,0 +1,35 @@
+obj Item
+    name: text
+    price: int
+    left: int
+
+func find_item(items: list Item, name: text)
+    count i from 0 to len(items) - 1
+        if items[i].name == name
+            return i
+    return -1
+
+// купить: если товара нет или мало — ошибка с понятным текстом
+func buy(items: list Item, name: text, many: int)
+    at = find_item(items, name)
+    if at < 0
+        fail "нет такого товара: " + name
+    if items[at].left < many
+        fail "осталось только " + items[at].left + " шт. товара " + name
+    items[at].left -= many
+    return items[at].price * many
+
+func main()
+    items = list Item
+    items.add(Item(name: "Чай", price: 120, left: 10))
+    items.add(Item(name: "Кофе", price: 200, left: 4))
+
+    paid = buy(items, "Чай", 3) else err
+        print("не вышло:", err)
+    print("заплатили", paid)
+
+    paid2 = buy(items, "Кофе", 9) else err
+        print("не вышло:", err)
+
+    paid3 = buy(items, "Пирог", 1) or 0
+    print("за пирог:", paid3)

@@ -1,0 +1,17 @@
+obj Item
+    name: text
+    price: int
+    left: int
+
+func main()
+    items = list Item
+    items.add(Item(name: "Чай", price: 120, left: 10))
+    items.add(Item(name: "Кофе", price: 200, left: 4))
+    items.add(Item(name: "Сок", price: 90, left: 0))
+
+    print("Товары:")
+    each it in items
+        if it.left > 0
+            print("  " + it.name + " — " + it.price + " сом, осталось " + it.left)
+        else
+            print("  " + it.name + " — нет в наличии")

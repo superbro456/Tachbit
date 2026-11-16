@@ -1,0 +1,7 @@
+func main()
+    shop = "Колибри"
+    price = 120
+    many = 3
+    total = price * many
+    print("Добро пожаловать в магазин", shop)
+    print(many, "чашки чая стоят", total, "сом")

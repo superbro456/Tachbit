@@ -139,6 +139,252 @@ func main()
 
 Программа начинается с `func main()`. Блоки задаются отступом, как в Python.
 
+## Учебник: пишем магазин по шагам
+
+Одна программа растёт от «привет» до магазина с корзиной, файлом, модулями и всеми ядрами.
+Каждый шаг лежит в `examples/learn/` и запускается сразу:
+```
+tb run examples/learn/1_hello.tb
+```
+Совет: не копируй, а набери код сам и поменяй что‑нибудь — так запоминается в разы лучше.
+
+### Шаг 1. Переменные и вывод
+
+```
+func main()
+    shop = "Колибри"
+    price = 120
+    many = 3
+    total = price * many
+    print("Добро пожаловать в магазин", shop)
+    print(many, "чашки чая стоят", total, "сом")
+```
+- Программа всегда начинается с `func main()`.
+- `shop = "Колибри"` — переменная. Тип (`text`, `int`) Tachbit понимает сам.
+- Блоки задаются отступом в 4 пробела, как в Python. Скобок `{ }` нет.
+- `print` печатает всё через пробел.
+
+Вывод:
+```
+Добро пожаловать в магазин Колибри
+3 чашки чая стоят 360 сом
+```
+
+### Шаг 2. Свой тип товара: obj и список
+
+```
+obj Item
+    name: text
+    price: int
+    left: int
+
+func main()
+    items = list Item
+    items.add(Item(name: "Чай", price: 120, left: 10))
+    items.add(Item(name: "Кофе", price: 200, left: 4))
+    items.add(Item(name: "Сок", price: 90, left: 0))
+
+    print("Товары:")
+    each it in items
+        if it.left > 0
+            print("  " + it.name + " — " + it.price + " сом, осталось " + it.left)
+        else
+            print("  " + it.name + " — нет в наличии")
+```
+- `obj Item` — свой тип с качествами `name`, `price`, `left`. Пишется снаружи функций.
+- `Item(name: "Чай", price: 120, left: 10)` — создать товар.
+- `items = list Item` — пустой список товаров, `.add(...)` кладёт в конец.
+- `each it in items` — пройти по каждому товару. `it.left` — качество товара.
+- `if / else` — условие. Текст склеивается через `+`, числа в нём превращаются в цифры сами.
+
+### Шаг 3. Функции и корзина (dict)
+
+```
+obj Item
+    name: text
+    price: int
+    left: int
+
+// ищет товар по имени: отдаёт номер в списке или -1
+func find_item(items: list Item, name: text)
+    count i from 0 to len(items) - 1
+        if items[i].name == name
+            return i
+    return -1
+
+// сумма корзины: сколько штук каждого товара
+func cart_total(items: list Item, cart: dict text int)
+    total = int 0
+    each name in cart
+        at = find_item(items, name)
+        if at >= 0
+            total += items[at].price * cart[name]
+    return total
+
+func main()
+    items = list Item
+    items.add(Item(name: "Чай", price: 120, left: 10))
+    items.add(Item(name: "Кофе", price: 200, left: 4))
+
+    cart = dict text int
+    cart["Чай"] = 2
+    cart["Кофе"] = 1
+    print("К оплате:", cart_total(items, cart), "сом")
+```
+- `func find_item(items: list Item, name: text)` — функция с параметрами. Тип параметра пишется после `:`.
+- `return` отдаёт ответ. Тип ответа Tachbit тоже понимает сам.
+- `count i from 0 to len(items) - 1` — счётчик, последнее число тоже входит.
+- `cart = dict text int` — словарь «название → сколько штук». `cart["Чай"] = 2` кладёт, `cart[name]` достаёт.
+- `each name in cart` идёт по ключам словаря.
+- `total = int 0` — переменная с явным типом (полезно, когда начинаешь с нуля).
+
+### Шаг 4. Ошибки: fail, else err, or
+
+```
+obj Item
+    name: text
+    price: int
+    left: int
+
+func find_item(items: list Item, name: text)
+    count i from 0 to len(items) - 1
+        if items[i].name == name
+            return i
+    return -1
+
+// купить: если товара нет или мало — ошибка с понятным текстом
+func buy(items: list Item, name: text, many: int)
+    at = find_item(items, name)
+    if at < 0
+        fail "нет такого товара: " + name
+    if items[at].left < many
+        fail "осталось только " + items[at].left + " шт. товара " + name
+    items[at].left -= many
+    return items[at].price * many
+
+func main()
+    items = list Item
+    items.add(Item(name: "Чай", price: 120, left: 10))
+    items.add(Item(name: "Кофе", price: 200, left: 4))
+
+    paid = buy(items, "Чай", 3) else err
+        print("не вышло:", err)
+    print("заплатили", paid)
+
+    paid2 = buy(items, "Кофе", 9) else err
+        print("не вышло:", err)
+
+    paid3 = buy(items, "Пирог", 1) or 0
+    print("за пирог:", paid3)
+```
+- `fail "текст"` — функция заканчивается ошибкой.
+- Такую функцию нельзя вызвать «просто так»: компилятор попросит решить, что делать с ошибкой.
+  - `x = f() else err` и блок ниже — свой ответ на ошибку, в `err` её текст;
+  - `x = f() or 0` — при ошибке взять запасное значение;
+  - `x = try f()` — передать ошибку выше (в `main` программа остановится с текстом ошибки).
+- `items[at].left -= many` меняет товар прямо в списке.
+
+Вывод:
+```
+заплатили 360
+не вышло: осталось только 4 шт. товара Кофе
+за пирог: 0
+```
+
+### Шаг 5. Сохранить в файл и загрузить
+
+```
+obj Item
+    name: text
+    price: int
+    left: int
+
+// сохранить: одна строка на товар, части через ;
+func save(items: list Item, path: text)
+    out = ""
+    each it in items
+        out += it.name + ";" + it.price + ";" + it.left + "\n"
+    try write_file(path, out)
+
+// загрузить: разрезать текст обратно на товары
+func load(path: text) gives items: list Item
+    content = try read_file(path)
+    each line in split(content, "\n")
+        if trim(line) == ""
+            skip
+        parts = split(line, ";")
+        price = try to_int(parts[1])
+        left = try to_int(parts[2])
+        items.add(Item(name: parts[0], price: price, left: left))
+
+func main()
+    items = list Item
+    items.add(Item(name: "Чай", price: 120, left: 10))
+    items.add(Item(name: "Кофе", price: 200, left: 4))
+    try save(items, "shop.txt")
+
+    again = try load("shop.txt")
+    print("Из файла:", len(again), "товара")
+    each it in again
+        print("  " + it.name + ": " + it.price + " сом")
+```
+- `write_file(путь, текст)` и `read_file(путь)` могут сломаться (нет места, нет файла), поэтому перед ними `try`.
+- `func load(path: text) gives items: list Item` — у функции есть именованный выход `items`. Он уже пустой список, его можно сразу наполнять, а `return` в конце не нужен.
+- `split(текст, ";")` режет текст на части, `trim` убирает пробелы, `to_int` превращает «120» в 120, `skip` — перейти к следующему шагу цикла.
+
+### Шаг 6. Модули: программа из нескольких файлов
+
+`money.tb`:
+```
+// всё про деньги: скидка и налог
+modpub func with_discount(sum: int, percent: int)
+    return sum - sum * percent / 100
+
+modpub func with_tax(sum: int)
+    return sum + tax(sum)
+
+modpri func tax(sum: int)
+    return sum * 12 / 100
+```
+`6_modules.tb`:
+```
+use money
+
+func main()
+    sum = 1000
+    after = money.with_discount(sum, 10)
+    print("со скидкой 10%:", after)
+    print("с налогом:", money.with_tax(after))
+```
+- `use money` подключает `money.tb` из той же папки.
+- `modpub` — функцию видно другим файлам, `modpri` — только внутри своего.
+- Для своего проекта: `tb new shop` сделает папку с `main.tb`, модули кладёшь рядом, запуск `tb start shop`.
+
+### Шаг 7. Быстро: на всех ядрах
+
+```
+// миллион продаж: сколько из них крупных (дороже 900 сом)
+func main()
+    sales = list int
+    count i from 1 to 1000000
+        sales.add(i * 7919 % 1000)
+
+    shared big = int 0
+    each s in sales on all cores
+        if s > 900
+            big += 1
+    print("крупных продаж:", big)
+```
+- `on all cores` в конце строки цикла — и он идёт сразу на всех ядрах процессора.
+- `shared big = int 0` — общая переменная: каждое ядро считает своё, в конце всё складывается.
+- Компилятор сам проверяет, что ядра не мешают друг другу (подробнее в разделе «Все ядра»).
+
+### Что дальше
+
+- Таблица «Что умеет» ниже — справочник по всем словам языка.
+- Готовые примеры: `examples/` (объекты, ошибки, dict, модули), приложение `apps/folders`, ядро `examples/kernel`.
+- Попробуй сам: добавь в магазин команду «покупатель вводит товар с клавиатуры» — пригодится `input()`.
+
 ## Что умеет
 
 | Что | Как пишется |

@@ -1,0 +1,11 @@
+// миллион продаж: сколько из них крупных (дороже 900 сом)
+func main()
+    sales = list int
+    count i from 1 to 1000000
+        sales.add(i * 7919 % 1000)
+
+    shared big = int 0
+    each s in sales on all cores
+        if s > 900
+            big += 1
+    print("крупных продаж:", big)
