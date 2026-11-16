@@ -1,0 +1,16 @@
+// 0.7: цепочка a + b + c склеивается за один раз
+func name(x: int)
+    return "n" + x
+
+func main()
+    a = -5
+    print("a=" + a + ", b=" + 2.5 + ", ok=" + true + ", " + name(-0) + (name(7) + "|" + ("x" + 1)) + "")
+    print("" + "")
+    big = -9223372036854775807 - 1
+    print("min " + big)
+    s = "t"
+    print(s + s + s)
+    temp
+        z = "z" + 1 + "z"
+        print(z)
+    print("Бишкек " + 2026)

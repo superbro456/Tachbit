@@ -332,6 +332,48 @@ func emit_list(c: Comp, n: Node)
         emit_as(c, n.kids[i], elem_ty)
     put(c, "})")
 
+// все части цепочки a + b + (c + d): по порядку слева направо
+func concat_parts(c: Comp, n: Node, parts: list Node)
+    if n.kind == "binop" and n.value == "+" and kind_of(c, n.ty) == "text"
+        concat_parts(c, n.kids[0], parts)
+        concat_parts(c, n.kids[1], parts)
+    else
+        parts.add(n)
+
+// a + b + c + d: склеить за один раз. Сначала каждая часть и её длина
+// (числа — цифрами в маленький буфер на стеке, готовый текст — длина известна заранее),
+// потом одна память ровно под результат и копирование всех частей подряд.
+func emit_concat(c: Comp, n: Node)
+    parts = list Node
+    concat_parts(c, n, parts)
+    c.label += 1
+    id = "" + c.label
+    put(c, "({ ")
+    total = ""
+    count i from 0 to len(parts) - 1
+        part = parts[i]
+        v = "tb_c" + id + "_" + i
+        k = kind_of(c, part.ty)
+        if k == "int"
+            put(c, "char " + v + "d[24]; long long " + v + "n; const char *" + v + " = tb_digits(")
+            emit_expr(c, part)
+            put(c, ", " + v + "d, &" + v + "n); ")
+        else if part.kind == "string"
+            put(c, "const char *" + v + " = " + part.value + "; long long " + v + "n = sizeof(" + part.value + ") - 1; ")
+        else
+            put(c, "const char *" + v + " = ")
+            emit_as_text(c, part)
+            put(c, "; long long " + v + "n = (long long)strlen(" + v + "); ")
+        if i > 0
+            total = total + " + "
+        total = total + v + "n"
+    r = "tb_c" + id + "r"
+    put(c, "char *" + r + " = tb_mem(" + total + " + 1), *" + r + "w = " + r + "; ")
+    count i from 0 to len(parts) - 1
+        v = "tb_c" + id + "_" + i
+        put(c, "memcpy(" + r + "w, " + v + ", " + v + "n); " + r + "w += " + v + "n; ")
+    put(c, "*" + r + "w = 0; (const char *)" + r + "; })")
+
 func emit_binop(c: Comp, n: Node)
     op = n.value
     a = n.kids[0]
@@ -345,11 +387,7 @@ func emit_binop(c: Comp, n: Node)
         put(c, ") : tb_t" + n.temp_no + ")")
         return
     if kind_of(c, n.ty) == "text"
-        put(c, "tb_cat(")
-        emit_as_text(c, a)
-        put(c, ", ")
-        emit_as_text(c, b)
-        put(c, ")")
+        emit_concat(c, n)
         return
     if kind_of(c, a.ty) == "text" and (op == "==" or op == "!=") and (short_literal(b) or short_literal(a))
         // ch == ","  —  сравнить байты прямо, без strcmp (часто в циклах по тексту)
