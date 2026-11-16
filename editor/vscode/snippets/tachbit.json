@@ -1,0 +1,10 @@
+{
+  "main": { "prefix": "main", "body": ["func main()", "    ${1:print(\"Привет!\")}"], "description": "главная функция" },
+  "func": { "prefix": "func", "body": ["func ${1:name}(${2:x: int}) gives ${3:r: int}", "    ${0:r = x}"], "description": "функция" },
+  "obj": { "prefix": "obj", "body": ["obj ${1:Point}", "    ${2:x: dec}", "    ${3:y: dec}"], "description": "объект" },
+  "each": { "prefix": "each", "body": ["each ${1:x} in ${2:nums}", "    $0"], "description": "по каждому элементу" },
+  "cores": { "prefix": "cores", "body": ["each ${1:x} in ${2:nums} on all cores", "    $0"], "description": "на всех ядрах" },
+  "count": { "prefix": "count", "body": ["count ${1:i} from ${2:0} to ${3:9}", "    $0"], "description": "счёт от и до" },
+  "if": { "prefix": "if", "body": ["if ${1:x > 0}", "    $0"], "description": "условие" },
+  "background": { "prefix": "bg", "body": ["${1:a} = background ${2:work}(${3})", "${4:b} = ${1:a}.wait"], "description": "работа в фоне" }
+}

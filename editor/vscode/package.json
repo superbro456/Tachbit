@@ -1,0 +1,53 @@
+{
+  "name": "tachbit",
+  "displayName": "Tachbit",
+  "description": "Язык Tachbit: цвета, запуск по F5 и ошибки прямо в коде",
+  "version": "0.7.0",
+  "publisher": "tachbit",
+  "engines": { "vscode": "^1.75.0" },
+  "categories": ["Programming Languages"],
+  "main": "./extension.js",
+  "activationEvents": ["onLanguage:tachbit"],
+  "contributes": {
+    "languages": [{
+      "id": "tachbit",
+      "aliases": ["Tachbit", "tachbit"],
+      "extensions": [".tb"],
+      "configuration": "./language-configuration.json",
+      "icon": { "light": "./icon.svg", "dark": "./icon.svg" }
+    }],
+    "grammars": [{
+      "language": "tachbit",
+      "scopeName": "source.tachbit",
+      "path": "./syntaxes/tachbit.tmLanguage.json"
+    }],
+    "snippets": [{ "language": "tachbit", "path": "./snippets/tachbit.json" }],
+    "commands": [
+      { "command": "tachbit.run", "title": "Tachbit: запустить файл", "icon": "$(play)" },
+      { "command": "tachbit.check", "title": "Tachbit: проверить файл" },
+      { "command": "tachbit.showC", "title": "Tachbit: показать C-код" }
+    ],
+    "keybindings": [
+      { "command": "tachbit.run", "key": "f5", "when": "editorLangId == tachbit" },
+      { "command": "tachbit.run", "key": "ctrl+enter", "mac": "cmd+enter", "when": "editorLangId == tachbit" }
+    ],
+    "menus": {
+      "editor/title/run": [{ "command": "tachbit.run", "when": "editorLangId == tachbit", "group": "navigation" }]
+    },
+    "configuration": {
+      "title": "Tachbit",
+      "properties": {
+        "tachbit.path": {
+          "type": "string",
+          "default": "",
+          "description": "Где лежит команда tb. Пусто — ~/.tachbit/bin/tb (её ставит tools/install.sh)."
+        },
+        "tachbit.checkOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Проверять файл при сохранении и подчёркивать ошибки."
+        }
+      }
+    }
+  }
+}
