@@ -66,7 +66,7 @@ print(r // (1024 * 1024) if sys.platform == 'darwin' else r // 1024)" "$@"
 cc -O2 -o temp_c temp_pure.c || exit 1
 echo "== temp  (ответ: $(./temp))"
 echo "   Tachbit с temp:   $(best ./temp) с, память $(mem ./temp) МБ"
-echo "   Tachbit без temp: $(best ./notemp) с, память $(mem ./notemp) МБ"
+echo "   Tachbit без temp: $(best ./notemp) с, память $(mem ./notemp) МБ  (память шага отдаётся сама)"
 echo "   C (malloc/free):  $(best ./temp_c) с, память $(mem ./temp_c) МБ"
 if command -v python3 > /dev/null; then
     echo "   Python:  $(seconds python3 temp.py) с"
@@ -172,3 +172,11 @@ echo "   Tachbit (все ядра):  $(best ./append_cores) с"
 echo "   Tachbit (одно ядро): $(best ./noappend_cores) с"
 echo "   C (одно ядро):       $(best ./append_cores_c) с"
 rm -f append_cores append_cores.c noappend_cores noappend_cores.c append_cores_c
+
+# память цикла без temp: компилятор сам отдаёт память каждого шага (наружу уходит только число)
+../tachbit-tb build automem.tb > /dev/null || exit 1
+cc -O2 -o automem_c automem_pure.c || exit 1
+echo "== automem  (ответ: $(./automem))"
+echo "   Tachbit:          $(best ./automem) с, память $(mem ./automem) МБ"
+echo "   C (malloc/free):  $(best ./automem_c) с, память $(mem ./automem_c) МБ"
+rm -f automem automem.c automem_c

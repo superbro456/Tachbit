@@ -1,0 +1,78 @@
+// 0.7: память шага цикла отдаётся сама, если ничего не уходит наружу
+obj User
+    name: text
+    age: int
+
+func label(u: User)
+    return u.name + ":" + u.age
+
+func tag(x: int)
+    return "t" + x
+
+func main()
+    // ничего не уходит наружу: память шага отдаётся
+    total = 0
+    counts = {1: 0}
+    count i from 0 to 9999
+        s = tag(i) + "," + (i % 7)
+        parts = split(s, ",")
+        if parts[1] == "3"
+            skip
+        total += len(parts[0])
+        if counts.has(i % 5)
+            counts[i % 5] += 1
+        else
+            counts[i % 5] = 1
+        each w in parts
+            if w == "t5"
+                stop
+    print(total, counts)
+    // уходит наружу: здесь память не трогаем
+    keep = list text
+    users = list User
+    log = ""
+    count i from 1 to 3
+        keep.add("k" + i)
+        users.add(User(name: "u" + i, age: i))
+        log += "[" + i + "]"
+    print(keep, log)
+    // obj снаружи передаётся в функцию: тоже не трогаем
+    out = list text
+    each u in users
+        u.name = u.name + "!"
+    each u in users
+        n = label(u)
+        out.add(n)
+    print(out)
+    best = ""
+    repeat 3 times
+        cand = "c" + len(best)
+        if len(cand) > 0
+            best = cand
+    print(best)
+    k = 0
+    repeat while k < 5
+        t = "x" + k
+        k += len(t) - 1
+    print(k)
+    // ссылки наружу через переменную шага: память не трогаем
+    people = [User(name: "a", age: 1), User(name: "b", age: 2)]
+    count i from 0 to 1
+        p = people[i]
+        p.name = p.name + "#" + i
+    print(label(people[0]), label(people[1]))
+    shelf = list text
+    holder = [shelf]
+    count i from 0 to 2
+        box = holder[0]
+        box.add("s" + i)
+    print(shelf)
+    // свежий список шага: память отдаётся
+    sum = 0
+    repeat 3 times
+        lines = list text
+        count i from 1 to 1000
+            lines.add("строка " + i)
+        each s in lines
+            sum += len(s)
+    print(sum)
