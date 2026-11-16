@@ -1,0 +1,4 @@
+use money
+
+func main()
+    print(money.tax(100.0))

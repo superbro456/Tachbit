@@ -1,4 +1,4 @@
-// Tachbit 0.2 — общие типы для всех слоёв компилятора.
+// Tachbit 0.3 — общие типы для всех слоёв компилятора.
 // Код написан простым C (функции, if, циклы, struct, массивы), чтобы потом
 // переписать его строчка в строчку на сам Tachbit (самосборка).
 #ifndef TACHBIT_AST_H
@@ -42,13 +42,15 @@ enum {
     TY_UNKNOWN, TY_NONE, TY_INT, TY_DEC, TY_BOOL, TY_TEXT,
     TY_LIST,    // список: elem — тип элементов
     TY_OBJ,     // объект: obj — его объявление (N_OBJ)
-    TY_MULTI    // несколько выходов gives: func — функция
+    TY_MULTI,   // несколько выходов gives: func — функция
+    TY_DICT     // словарь: key — тип ключа, elem — тип значения
 };
 
 typedef struct Node Node;
 typedef struct Type Type;
 struct Type {
     int kind;
+    Type *key;
     Type *elem;
     Node *obj;
     Node *func;
@@ -83,7 +85,12 @@ enum {
     N_UNARY,        // value = "-" или "not", kids[0]
     N_INDEX,        // kids[0][kids[1]]  —  nums[2]
     N_FIELD,        // kids[0].name  —  u.age
-    N_METHOD        // kids[0].name(аргументы kids[1..])  —  nums.add(5)
+    N_METHOD,       // kids[0].name(аргументы kids[1..])  —  nums.add(5)
+    N_DICT,         // {k: v, ...}: kids парами — ключ, значение
+    N_USE,          // use money  (name)
+    N_FAIL,         // fail "текст": kids[0]
+    N_TRY,          // try вызов: kids[0]
+    N_ELSE_ERR      // вызов else err: kids[0] = вызов, name = имя ошибки, kids[1] = блок
 };
 
 struct Node {
@@ -97,6 +104,11 @@ struct Node {
     int is_link;     // параметр link hp  /  имя, которое является ярлыком
     int creates;     // проверка: это присваивание создаёт новую переменную
     Node *ref;       // проверка: для вызова — функция или obj, для имени — объявление
+    char *mod;       // у объявлений верхнего уровня: модуль (имя файла без .tb)
+    char *file;      // и путь к файлу — для ошибок
+    int is_pub;      // modpub
+    int can_fail;    // у функции: внутри есть fail или try
+    int temp;        // вывод C: номер скрытой переменной tb_t<N> (для  f() or 0)
     Node **kids;
     int nkids;
     int cap;
@@ -111,14 +123,18 @@ char *node_kind_name(int kind);
 // ---------- проверка (check.c) ----------
 void check(Node *program);
 char *type_name(Type *t);
+Type *make_type_key(int kind, Type *key, Type *elem, Node *obj, Node *func);
 extern Type *all_types[];
 extern int type_count;
+extern Type *temp_types[];   // типы скрытых переменных tb_t1, tb_t2 ... для  f() or 0
+extern int temp_count;
 
 // ---------- вывод C (emit_c.c) ----------
 void emit_c(Node *program, FILE *out);
 
 // ---------- общее ----------
 int same(char *a, char *b);
+extern char *file_name;   // файл, о котором сейчас говорят ошибки
 void fail(int line, char *message, char *detail);
 
 #endif

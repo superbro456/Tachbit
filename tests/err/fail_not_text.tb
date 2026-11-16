@@ -1,0 +1,5 @@
+func f()
+    fail 5
+
+func main()
+    try f()

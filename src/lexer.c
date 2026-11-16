@@ -12,9 +12,9 @@ static char *commands[] = {
     "func", "return", "gives", "if", "else", "each", "in", "count", "from", "to",
     "repeat", "times", "while", "skip", "stop", "const", "shared", "obj", "link",
     "int", "dec", "text", "bool", "and", "or", "not", "true", "false", "use",
-    "modpub", "modpri", "temp", "together", "danger", "by", "list", "dict"
+    "modpub", "modpri", "temp", "together", "danger", "by", "list", "dict", "fail", "try"
 };
-static int command_count = 37;
+static int command_count = 39;
 
 static int is_letter(char c) {
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
@@ -64,7 +64,7 @@ static int two_char_sign(char a, char b) {
 }
 
 static int one_char_sign(char c) {
-    char *signs = "()[],:=+-*/%<>.";
+    char *signs = "()[]{},:=+-*/%<>.";
     for (int i = 0; signs[i] != 0; i++) {
         if (signs[i] == c) {
             return 1;
@@ -79,6 +79,7 @@ void lex(char *src, int size) {
     indents[0] = 0;
     int pos = 0;
     int line = 1;
+    token_count = 0;   // каждый файл (модуль) читается заново
 
     while (pos < size) {
         // 1) отступ в начале строки

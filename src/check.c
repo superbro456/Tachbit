@@ -8,13 +8,19 @@
 // Каждый тип хранится один раз: два "list int" — это один и тот же Type.
 // Поэтому типы можно сравнивать простым ==.
 
+Type *make_type_key(int kind, Type *key, Type *elem, Node *obj, Node *func);
+
 Type *all_types[1000];
 int type_count = 0;
 
 static Type *make_type(int kind, Type *elem, Node *obj, Node *func) {
+    return make_type_key(kind, 0, elem, obj, func);
+}
+
+Type *make_type_key(int kind, Type *key, Type *elem, Node *obj, Node *func) {
     for (int i = 0; i < type_count; i++) {
         Type *t = all_types[i];
-        if (t->kind == kind && t->elem == elem && t->obj == obj && t->func == func) {
+        if (t->kind == kind && t->key == key && t->elem == elem && t->obj == obj && t->func == func) {
             return t;
         }
     }
@@ -23,6 +29,7 @@ static Type *make_type(int kind, Type *elem, Node *obj, Node *func) {
     }
     Type *t = arena_alloc(sizeof(Type));
     t->kind = kind;
+    t->key = key;
     t->elem = elem;
     t->obj = obj;
     t->func = func;
@@ -42,6 +49,10 @@ static Type *list_of(Type *elem) {
     return make_type(TY_LIST, elem, 0, 0);
 }
 
+static Type *dict_of(Type *key, Type *value) {
+    return make_type_key(TY_DICT, key, value, 0, 0);
+}
+
 char *type_name(Type *t) {
     if (t == 0) {
         return "?";
@@ -51,6 +62,16 @@ char *type_name(Type *t) {
         char *s = arena_alloc(strlen(inner) + 6);
         strcpy(s, "list ");
         strcat(s, inner);
+        return s;
+    }
+    if (t->kind == TY_DICT) {
+        char *k = type_name(t->key);
+        char *v = type_name(t->elem);
+        char *s = arena_alloc(strlen(k) + strlen(v) + 7);
+        strcpy(s, "dict ");
+        strcat(s, k);
+        strcat(s, " ");
+        strcat(s, v);
         return s;
     }
     if (t->kind == TY_OBJ) {
@@ -97,6 +118,7 @@ static int fits(Type *to, Type *from) {
 
 typedef struct {
     char *name;
+    char *mod;
     Node *node;
     int state;   // 0 — ещё не проверена, 1 — проверяется сейчас, 2 — готова
 } Func;
@@ -106,8 +128,54 @@ static int func_count = 0;
 static Node *objs[500];
 static int obj_count = 0;
 
-static char *builtins[] = {"print", "len", "round", "code", "char", "cut", "to_int"};
-static int builtin_count = 7;
+static char *builtins[] = {
+    "print", "len", "round", "code", "char", "cut", "to_int", "to_dec",
+    "read_file", "write_file", "input", "args",
+    "split", "join", "find", "replace", "upper", "lower", "trim", "starts_with", "ends_with",
+    "sort", "abs", "min", "max", "sqrt"
+};
+static int builtin_count = 26;
+
+// встроенные функции, которые могут закончиться ошибкой
+static int builtin_can_fail(char *name) {
+    return same(name, "to_int") || same(name, "to_dec") || same(name, "read_file") ||
+           same(name, "write_file") || same(name, "input");
+}
+
+// ---------- модули ----------
+// use money: модуль main видит modpub-функции модуля money
+
+typedef struct {
+    char *mod;
+    char *used;
+} Use;
+
+static Use uses[500];
+static int use_count = 0;
+static char *cur_mod = "";
+static char *all_mods[200];
+static int mod_count = 0;
+
+static int is_module(char *name) {
+    for (int i = 0; i < mod_count; i++) {
+        if (same(all_mods[i], name)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int module_uses(char *mod, char *other) {
+    if (same(mod, other)) {
+        return 1;
+    }
+    for (int i = 0; i < use_count; i++) {
+        if (same(uses[i].mod, mod) && same(uses[i].used, other)) {
+            return 1;
+        }
+    }
+    return 0;
+}
 
 static int is_builtin(char *name) {
     for (int i = 0; i < builtin_count; i++) {
@@ -118,13 +186,46 @@ static int is_builtin(char *name) {
     return 0;
 }
 
-static Func *find_func(char *name) {
+static Func *find_func_in(char *name, char *mod) {
     for (int i = 0; i < func_count; i++) {
-        if (same(funcs[i].name, name)) {
+        if (same(funcs[i].name, name) && same(funcs[i].mod, mod)) {
             return &funcs[i];
         }
     }
     return 0;
+}
+
+// функция, которую видно из текущего модуля: своя или modpub из модуля после use
+static Func *find_func(char *name) {
+    Func *own = find_func_in(name, cur_mod);
+    if (own != 0) {
+        return own;
+    }
+    Func *found = 0;
+    for (int i = 0; i < func_count; i++) {
+        Func *f = &funcs[i];
+        if (same(f->name, name) && f->node->is_pub && module_uses(cur_mod, f->mod)) {
+            if (found != 0) {
+                fail(f->node->line, "функция с таким именем есть в двух модулях, напиши модуль: money.total(...)", name);
+            }
+            found = f;
+        }
+    }
+    return found;
+}
+
+// почему функцию не видно: подсказка для ошибки
+static void explain_missing_func(Node *n) {
+    for (int i = 0; i < func_count; i++) {
+        Func *f = &funcs[i];
+        if (same(f->name, n->name)) {
+            if (!f->node->is_pub) {
+                fail(n->line, "эта функция спрятана в своём модуле: поставь перед ней modpub", f->mod);
+            }
+            fail(n->line, "функция лежит в другом модуле: добавь в начало файла  use", f->mod);
+        }
+    }
+    fail(n->line, "нет такой функции", n->name);
 }
 
 static Node *find_obj(char *name) {
@@ -160,6 +261,9 @@ static Type *resolve_type(Node *t) {
     }
     if (same(t->name, "list")) {
         return list_of(resolve_type(t->kids[0]));
+    }
+    if (same(t->name, "dict")) {
+        return dict_of(resolve_type(t->kids[0]), resolve_type(t->kids[1]));
     }
     Node *obj = find_obj(t->name);
     if (obj == 0) {
@@ -251,8 +355,31 @@ static Type *check_value(Node *n) {
     return t;
 }
 
+static int can_fail_call(Node *n);
+static Type *check_dict(Node *n);
+static Type *check_handled(Node *n, char *how);
+
 static Type *check_binop(Node *n) {
     char *op = n->value;
+    if (same(op, "or") && can_fail_call(n->kids[0])) {
+        // f() or запасное: если f сломалась, берём запасное
+        Type *a = check_handled(n->kids[0], "or");
+        Type *b = check_value(n->kids[1]);
+        if (!fits(a, b)) {
+            fail(n->line, "запасное значение после or другого типа", type_name(a));
+        }
+        if (a == t_none) {
+            fail(n->line, "у функции нет значения, тут подходит  try  или  else err", 0);
+        }
+        if (temp_count == 2000) {
+            fail(n->line, "слишком много or", 0);
+        }
+        temp_count += 1;
+        temp_types[temp_count] = a;
+        n->temp = temp_count;
+        n->value = "orelse";
+        return a;
+    }
     Type *a = check_value(n->kids[0]);
     Type *b = check_value(n->kids[1]);
     if (same(op, "and") || same(op, "or")) {
@@ -326,10 +453,42 @@ static Type *builtin_arg(Node *n, int i) {
     return t;
 }
 
-static void need_count(Node *n, int count) {
+static int is_dict(Type *t) {
+    return t != 0 && t->kind == TY_DICT;
+}
+
+// проверка аргументов встроенной функции по строке-шаблону:
+// "t" text, "i" int, "n" число, "l" список, "L" список text, "s" список для sort, "x" список/текст/dict
+static void builtin_args(Node *n, char *pattern, char *usage) {
+    int count = (int)strlen(pattern);
     if (n->nkids != count) {
-        fail(n->line, "не то количество значений в вызове", n->name);
+        fail(n->line, "не то количество значений, правильно так", usage);
     }
+    for (int i = 0; i < count; i++) {
+        Type *t = builtin_arg(n, i);
+        char c = pattern[i];
+        int ok = 1;
+        if (c == 't') {
+            ok = t == t_text;
+        } else if (c == 'i') {
+            ok = t == t_int;
+        } else if (c == 'n') {
+            ok = is_number(t);
+        } else if (c == 'L') {
+            ok = is_list(t) && t->elem == t_text;
+        } else if (c == 's') {
+            ok = is_list(t) && (t->elem == t_int || t->elem == t_dec || t->elem == t_text);
+        } else if (c == 'x') {
+            ok = is_list(t) || is_dict(t) || t == t_text;
+        }
+        if (!ok) {
+            fail(n->line, "не тот тип значения, правильно так", usage);
+        }
+    }
+}
+
+static Type *arg_type(Node *n, int i) {
+    return n->kids[i]->ty;
 }
 
 static Type *check_builtin(Node *n) {
@@ -340,43 +499,92 @@ static Type *check_builtin(Node *n) {
         }
         return t_none;
     }
-    if (same(name, "cut")) {
-        need_count(n, 3);
-        if (builtin_arg(n, 0) != t_text || builtin_arg(n, 1) != t_int || builtin_arg(n, 2) != t_int) {
-            fail(n->line, "cut(текст, с какого номера, по какой номер)", 0);
-        }
-        return t_text;
-    }
-    need_count(n, 1);
-    Type *t = builtin_arg(n, 0);
     if (same(name, "len")) {
-        if (!is_list(t) && t != t_text) {
-            fail(n->line, "len считает длину списка или текста", 0);
-        }
+        builtin_args(n, "x", "len(список, текст или dict)");
         return t_int;
     }
     if (same(name, "round")) {
-        if (!is_number(t)) {
-            fail(n->line, "round округляет только число", 0);
-        }
+        builtin_args(n, "n", "round(число)");
         return t_int;
     }
     if (same(name, "code")) {
-        if (t != t_text) {
-            fail(n->line, "code даёт номер первой буквы текста", 0);
-        }
+        builtin_args(n, "t", "code(\"A\")  →  65");
         return t_int;
     }
     if (same(name, "char")) {
-        if (t != t_int) {
-            fail(n->line, "char делает букву из номера int", 0);
-        }
+        builtin_args(n, "i", "char(66)  →  \"B\"");
         return t_text;
     }
-    if (t != t_text) {
-        fail(n->line, "to_int превращает текст в число", 0);
+    if (same(name, "cut")) {
+        builtin_args(n, "tii", "cut(текст, с какого номера, по какой номер)");
+        return t_text;
     }
-    return t_int;
+    if (same(name, "to_int")) {
+        builtin_args(n, "t", "to_int(\"42\")");
+        return t_int;
+    }
+    if (same(name, "to_dec")) {
+        builtin_args(n, "t", "to_dec(\"9.5\")");
+        return t_dec;
+    }
+    if (same(name, "read_file")) {
+        builtin_args(n, "t", "read_file(\"путь\")");
+        return t_text;
+    }
+    if (same(name, "write_file")) {
+        builtin_args(n, "tt", "write_file(\"путь\", текст)");
+        return t_none;
+    }
+    if (same(name, "input")) {
+        builtin_args(n, "", "input()");
+        return t_text;
+    }
+    if (same(name, "args")) {
+        builtin_args(n, "", "args()");
+        return list_of(t_text);
+    }
+    if (same(name, "split")) {
+        builtin_args(n, "tt", "split(текст, разделитель)");
+        return list_of(t_text);
+    }
+    if (same(name, "join")) {
+        builtin_args(n, "Lt", "join(список text, разделитель)");
+        return t_text;
+    }
+    if (same(name, "find")) {
+        builtin_args(n, "tt", "find(текст, что ищем)  →  номер или -1");
+        return t_int;
+    }
+    if (same(name, "replace")) {
+        builtin_args(n, "ttt", "replace(текст, что, на что)");
+        return t_text;
+    }
+    if (same(name, "upper") || same(name, "lower") || same(name, "trim")) {
+        builtin_args(n, "t", "upper(текст)");
+        return t_text;
+    }
+    if (same(name, "starts_with") || same(name, "ends_with")) {
+        builtin_args(n, "tt", "starts_with(текст, начало)");
+        return t_bool;
+    }
+    if (same(name, "sort")) {
+        builtin_args(n, "s", "sort(список int, dec или text)");
+        return t_none;
+    }
+    if (same(name, "abs")) {
+        builtin_args(n, "n", "abs(число)");
+        return arg_type(n, 0);
+    }
+    if (same(name, "sqrt")) {
+        builtin_args(n, "n", "sqrt(число)");
+        return t_dec;
+    }
+    // min и max
+    builtin_args(n, "nn", "min(a, b)");
+    if (arg_type(n, 0) == t_int && arg_type(n, 1) == t_int) {
+        return t_int;
+    }
+    return t_dec;
 }
 
 // приводит аргументы к порядку параметров:  add(b: 3, a: 2)  →  add(2, 3)
@@ -415,8 +623,20 @@ static void order_args(Node *call, Node *params, int allow_missing) {
     call->cap = params->nkids + 1;
 }
 
-// то, на что можно повесить ярлык или что можно менять: x, u.age, nums[2]
+// то, на что можно повесить ярлык или что можно менять: x, u.age, nums[2], d[k]
+static void need_place_for(Node *n, char *why, int for_link);
+
 static void need_place(Node *n, char *why) {
+    need_place_for(n, why, 0);
+}
+
+static void need_place_for(Node *n, char *why, int for_link) {
+    if (n->kind == N_INDEX && is_dict(n->kids[0]->ty)) {
+        if (for_link) {
+            fail(n->line, "ярлык на значение в dict нельзя: dict может переложить значения", 0);
+        }
+        return;
+    }
     if (n->kind == N_NAME) {
         Var *v = find_var(n->name);
         if (v != 0 && v->is_const) {
@@ -453,8 +673,13 @@ static Type *check_new_obj(Node *n, Node *obj) {
     return make_type(TY_OBJ, 0, obj, 0);
 }
 
+static Type *check_user_call(Node *n, Func *f);
+
 static Type *check_call(Node *n) {
     if (is_builtin(n->name)) {
+        if (builtin_can_fail(n->name) && !n->creates) {
+            fail(n->line, "это может закончиться ошибкой: напиши  try ...,  ... or запасное  или  ... else err", n->name);
+        }
         return check_builtin(n);
     }
     if (find_var(n->name) != 0) {
@@ -466,10 +691,18 @@ static Type *check_call(Node *n) {
     }
     Func *f = find_func(n->name);
     if (f == 0) {
-        fail(n->line, "нет такой функции", n->name);
+        explain_missing_func(n);
     }
+    return check_user_call(n, f);
+}
+
+// вызов функции программиста (f уже найдена: по имени или как money.total)
+static Type *check_user_call(Node *n, Func *f) {
     if (same(n->name, "main")) {
         fail(n->line, "main запускается сама, её нельзя вызывать", 0);
+    }
+    if (f->node->can_fail && !n->creates) {
+        fail(n->line, "функция может закончиться ошибкой: напиши  try f(),  f() or запасное  или  f() else err", n->name);
     }
     n->ref = f->node;
     Node *params = f->node->kids[0];
@@ -479,7 +712,7 @@ static Type *check_call(Node *n) {
         Node *value = n->kids[i]->kids[0];
         Type *t = check_value(value);
         if (p->is_link) {
-            need_place(value, "в ярлык link можно передать только переменную, u.age или nums[i]");
+            need_place_for(value, "в ярлык link можно передать только переменную, u.age или nums[i]", 1);
             if (p->ty == 0) {
                 p->ty = t;   // тип ярлыка узнаём по первому вызову
             } else if (p->ty != t) {
@@ -497,9 +730,13 @@ static Type *check_call(Node *n) {
         int saved_vars = var_count;
         int saved_depth = depth;
         int saved_base = var_base;
+        char *saved_mod = cur_mod;
+        char *saved_file = file_name;
         var_base = var_count;
         check_func(f);
         var_base = saved_base;
+        cur_mod = saved_mod;
+        file_name = saved_file;
         current = saved_current;
         loop_depth = saved_loops;
         var_count = saved_vars;
@@ -511,16 +748,74 @@ static Type *check_call(Node *n) {
     return f->node->ty;
 }
 
+// money.total(...)  —  вызов функции из модуля по имени модуля
+static Type *check_module_call(Node *n) {
+    char *mod = n->kids[0]->name;
+    if (!module_uses(cur_mod, mod)) {
+        fail(n->line, "этот модуль не подключён: добавь в начало файла  use", mod);
+    }
+    Func *f = find_func_in(n->name, mod);
+    if (f == 0) {
+        fail(n->line, "в этом модуле нет такой функции", n->name);
+    }
+    if (!f->node->is_pub && !same(mod, cur_mod)) {
+        fail(n->line, "эта функция спрятана в своём модуле: поставь перед ней modpub", n->name);
+    }
+    // превращаем в обычный вызов: аргументы — kids после модуля
+    n->kind = N_CALL;
+    for (int i = 1; i < n->nkids; i++) {
+        n->kids[i - 1] = n->kids[i];
+    }
+    n->nkids -= 1;
+    return check_user_call(n, f);
+}
+
+static Type *check_dict_method(Node *n, Type *t) {
+    int args = n->nkids - 1;
+    if (same(n->name, "has") || same(n->name, "remove")) {
+        if (args != 1) {
+            fail(n->line, "нужен ровно один ключ", n->name);
+        }
+        Type *k = check_value(n->kids[1]->kids[0]);
+        if (k != t->key) {
+            fail(n->line, "ключ у этого dict другого типа", type_name(t->key));
+        }
+        n->kids[1]->ty = t->key;
+        if (same(n->name, "has")) {
+            return t_bool;
+        }
+        return t_none;
+    }
+    if (same(n->name, "keys") || same(n->name, "values")) {
+        if (args != 0) {
+            fail(n->line, "пишется без значений", n->name);
+        }
+        if (same(n->name, "keys")) {
+            return list_of(t->key);
+        }
+        return list_of(t->elem);
+    }
+    fail(n->line, "у dict нет такого метода (есть .has .remove .keys .values)", n->name);
+    return 0;
+}
+
 static Type *check_method(Node *n) {
-    Type *t = check_value(n->kids[0]);
+    Node *base = n->kids[0];
+    if (base->kind == N_NAME && find_var(base->name) == 0 && is_module(base->name)) {
+        return check_module_call(n);
+    }
+    Type *t = check_value(base);
     int args = n->nkids - 1;
     for (int i = 1; i < n->nkids; i++) {
         if (n->kids[i]->name != 0) {
-            fail(n->line, "у .add и .pop аргументы пишутся без имён", 0);
+            fail(n->line, "у методов аргументы пишутся без имён", 0);
         }
     }
+    if (is_dict(t)) {
+        return check_dict_method(n, t);
+    }
     if (!is_list(t)) {
-        fail(n->line, "у этого значения нет методов, они есть у списков: .add .pop", n->name);
+        fail(n->line, "у этого значения нет методов: они есть у списков (.add .pop) и dict (.has .remove .keys .values)", n->name);
     }
     if (same(n->name, "add")) {
         if (args != 1) {
@@ -541,6 +836,66 @@ static Type *check_method(Node *n) {
     }
     fail(n->line, "у списка нет такого метода (есть .add и .pop)", n->name);
     return 0;
+}
+
+static Type *check_dict(Node *n) {
+    if (n->nkids == 0) {
+        fail(n->line, "пустой dict пишется с типом: d = dict text int", 0);
+    }
+    Type *key = check_value(n->kids[0]);
+    Type *value = check_value(n->kids[1]);
+    if (key != t_text && key != t_int) {
+        fail(n->line, "ключ у dict бывает text или int", 0);
+    }
+    for (int i = 2; i + 1 < n->nkids; i += 2) {
+        if (check_value(n->kids[i]) != key) {
+            fail(n->kids[i]->line, "все ключи одного типа", type_name(key));
+        }
+        Type *v = check_value(n->kids[i + 1]);
+        if (fits(value, v)) {
+            continue;
+        }
+        if (value == t_int && v == t_dec) {
+            value = t_dec;
+            continue;
+        }
+        fail(n->kids[i + 1]->line, "все значения одного типа", type_name(value));
+    }
+    return dict_of(key, value);
+}
+
+// вызов, который может закончиться ошибкой (для  f() or 0,  try f(),  f() else err)
+static int can_fail_call(Node *n) {
+    if (n->kind == N_CALL) {
+        if (is_builtin(n->name)) {
+            return builtin_can_fail(n->name);
+        }
+        if (find_var(n->name) != 0 || find_obj(n->name) != 0) {
+            return 0;
+        }
+        Func *f = find_func(n->name);
+        return f != 0 && f->node->can_fail;
+    }
+    if (n->kind == N_METHOD && n->kids[0]->kind == N_NAME && find_var(n->kids[0]->name) == 0 && is_module(n->kids[0]->name)) {
+        Func *f = find_func_in(n->name, n->kids[0]->name);
+        return f != 0 && f->node->can_fail;
+    }
+    return 0;
+}
+
+// скрытые переменные для  f() or 0  (вывод C объявляет их заранее)
+Type *temp_types[2000];
+int temp_count = 0;
+
+static void check_block(Node *block);
+
+// вызов, ошибку которого кто-то ловит (or / try / else err)
+static Type *check_handled(Node *n, char *how) {
+    if (!can_fail_call(n)) {
+        fail(n->line, "этот вызов не может закончиться ошибкой, здесь не нужно", how);
+    }
+    n->creates = 1;
+    return check_expr(n);
 }
 
 static Type *check_expr(Node *n) {
@@ -569,6 +924,16 @@ static Type *check_expr(Node *n) {
         t = v->type;
     } else if (k == N_LIST) {
         t = check_list(n);
+    } else if (k == N_DICT) {
+        t = check_dict(n);
+    } else if (k == N_TRY) {
+        t = check_handled(n->kids[0], "try");
+    } else if (k == N_ELSE_ERR) {
+        t = check_handled(n->kids[0], "else");
+        open_scope();
+        add_var(n->name, t_text, 1, 0, n->line);
+        check_block(n->kids[1]);
+        close_scope();
     } else if (k == N_CALL) {
         t = check_call(n);
     } else if (k == N_METHOD) {
@@ -588,6 +953,12 @@ static Type *check_expr(Node *n) {
             }
             t = inner;
         }
+    } else if (k == N_INDEX && is_dict(check_value(n->kids[0]))) {
+        Type *base = n->kids[0]->ty;
+        if (check_value(n->kids[1]) != base->key) {
+            fail(n->line, "ключ у этого dict другого типа", type_name(base->key));
+        }
+        t = base->elem;
     } else if (k == N_INDEX) {
         Type *base = check_value(n->kids[0]);
         Type *index = check_value(n->kids[1]);
@@ -704,11 +1075,15 @@ static void check_linkdecl(Node *n) {
 }
 
 static void check_multi(Node *n) {
-    Node *call = n->kids[n->nkids - 1];
-    if (call->kind != N_CALL) {
+    Node *value = n->kids[n->nkids - 1];
+    Node *call = value;
+    if (value->kind == N_TRY || value->kind == N_ELSE_ERR) {
+        call = value->kids[0];
+    }
+    if (call->kind != N_CALL && call->kind != N_METHOD) {
         fail(n->line, "справа должен быть вызов функции с gives", 0);
     }
-    Type *t = check_expr(call);
+    Type *t = check_expr(value);
     int names = n->nkids - 1;
     if (t->kind != TY_MULTI) {
         fail(n->line, "у этой функции один выход, пиши  x = ...", call->name);
@@ -784,8 +1159,10 @@ static void check_statement(Node *n) {
         Type *elem = t_text;
         if (is_list(t)) {
             elem = t->elem;
+        } else if (is_dict(t)) {
+            elem = t->key;
         } else if (t != t_text) {
-            fail(n->line, "each ходит по списку или по буквам текста", 0);
+            fail(n->line, "each ходит по списку, по ключам dict или по буквам текста", 0);
         }
         open_scope();
         add_var(n->name, elem, 1, 0, n->line);
@@ -817,9 +1194,17 @@ static void check_statement(Node *n) {
         }
     } else if (k == N_RETURN) {
         check_return(n);
+    } else if (k == N_FAIL) {
+        if (check_value(n->kids[0]) != t_text) {
+            fail(n->line, "после fail пишется текст ошибки: fail \"нет файла\"", 0);
+        }
     } else if (k == N_EXPR_STMT) {
         Node *e = n->kids[0];
-        if (e->kind != N_CALL && e->kind != N_METHOD) {
+        Node *inner = e;
+        if (e->kind == N_TRY || e->kind == N_ELSE_ERR) {
+            inner = e->kids[0];
+        }
+        if (inner->kind != N_CALL && inner->kind != N_METHOD) {
             fail(n->line, "строка ничего не делает", 0);
         }
         Type *t = check_expr(e);
@@ -839,6 +1224,8 @@ static void check_block(Node *block) {
 
 static void check_func(Func *f) {
     current = f;
+    cur_mod = f->mod;
+    file_name = f->node->file;
     f->state = 1;
     loop_depth = 0;
     open_scope();
@@ -870,7 +1257,7 @@ static void check_func(Func *f) {
 }
 
 static void register_obj(Node *o) {
-    if (find_obj(o->name) != 0 || find_func(o->name) != 0 || is_builtin(o->name)) {
+    if (find_obj(o->name) != 0 || is_builtin(o->name)) {
         fail(o->line, "это имя уже занято", o->name);
     }
     if (obj_count == 500) {
@@ -881,16 +1268,34 @@ static void register_obj(Node *o) {
 }
 
 static void register_func(Node *fn) {
-    if (find_func(fn->name) != 0 || find_obj(fn->name) != 0 || is_builtin(fn->name)) {
+    if (find_func_in(fn->name, fn->mod) != 0 || find_obj(fn->name) != 0 || is_builtin(fn->name)) {
         fail(fn->line, "это имя уже занято", fn->name);
     }
+
     if (func_count == 1000) {
         fail(fn->line, "слишком много функций", 0);
     }
     funcs[func_count].name = fn->name;
+    funcs[func_count].mod = fn->mod;
     funcs[func_count].node = fn;
     funcs[func_count].state = 0;
     func_count += 1;
+}
+
+// есть ли внутри fail или try: тогда функция может закончиться ошибкой
+static int has_fail(Node *n) {
+    if (n == 0) {
+        return 0;
+    }
+    if (n->kind == N_FAIL || n->kind == N_TRY) {
+        return 1;
+    }
+    for (int i = 0; i < n->nkids; i++) {
+        if (has_fail(n->kids[i])) {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 static int links_known(Node *fn) {
@@ -924,21 +1329,47 @@ void check(Node *program) {
     t_bool = make_type(TY_BOOL, 0, 0, 0);
     t_text = make_type(TY_TEXT, 0, 0, 0);
 
+    // 0) модули и их use
+    char *main_mod = "";
+    if (program->nkids > 0) {
+        main_mod = program->kids[0]->mod;
+    }
+    for (int i = 0; i < program->nkids; i++) {
+        Node *top = program->kids[i];
+        if (!is_module(top->mod)) {
+            all_mods[mod_count] = top->mod;
+            mod_count += 1;
+        }
+        if (top->kind == N_USE) {
+            if (use_count == 500) {
+                fail(top->line, "слишком много use", 0);
+            }
+            uses[use_count].mod = top->mod;
+            uses[use_count].used = top->name;
+            use_count += 1;
+        }
+    }
     // 1) имена всех obj и функций — чтобы их можно было использовать до объявления
     for (int i = 0; i < program->nkids; i++) {
         Node *top = program->kids[i];
+        file_name = top->file;
         if (top->kind == N_OBJ) {
             register_obj(top);
-        } else {
+        } else if (top->kind == N_FUNC) {
             register_func(top);
+            top->can_fail = has_fail(top->kids[1]);
+            if (same(top->name, "main") && !same(top->mod, main_mod)) {
+                fail(top->line, "main бывает только в главном файле, в модуле её быть не должно", 0);
+            }
         }
     }
     // 2) типы качеств, параметров и выходов
     for (int i = 0; i < program->nkids; i++) {
         Node *top = program->kids[i];
+        file_name = top->file;
         if (top->kind == N_OBJ) {
             resolve_params(top);
-        } else {
+        } else if (top->kind == N_FUNC) {
             resolve_params(top->kids[0]);
             resolve_params(top->kids[2]);
             Node *outputs = top->kids[2];
@@ -949,7 +1380,10 @@ void check(Node *program) {
             }
         }
     }
-    Func *main_func = find_func("main");
+    Func *main_func = find_func_in("main", main_mod);
+    if (program->nkids > 0) {
+        file_name = program->kids[0]->file;
+    }
     if (main_func == 0) {
         fail(0, "нет функции main: программа начинается с func main()", 0);
     }
@@ -975,6 +1409,7 @@ void check(Node *program) {
     }
     for (int i = 0; i < func_count; i++) {
         if (funcs[i].state == 0) {
+            file_name = funcs[i].node->file;
             fail(funcs[i].node->line, "функция с link ни разу не вызвана, поэтому тип ярлыка неизвестен", funcs[i].name);
         }
     }

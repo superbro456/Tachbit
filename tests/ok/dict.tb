@@ -1,0 +1,23 @@
+// dict: записная книжка по ключу
+func main()
+    phones = {"Ali": "555-1234", "Vali": "555-9999"}
+    phones["Hasan"] = "555-0000"
+    print(phones)
+    print("Ali:", phones["Ali"], "всего:", len(phones))
+
+    if phones.has("Vali")
+        phones.remove("Vali")
+    print("без Vali:", phones.keys())
+
+    // считаем слова
+    words = split("кот пёс кот рыба кот пёс", " ")
+    counts = dict text int
+    each w in words
+        counts[w] += 1
+    each w in counts
+        print(w, counts[w])
+
+    squares = dict int int
+    count i from 1 to 5
+        squares[i] = i * i
+    print(squares, squares.values())

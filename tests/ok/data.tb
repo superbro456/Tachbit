@@ -44,4 +44,4 @@ func main()
     each c in word
         backwards = c + backwards
     print(backwards)
-    print(to_int("42") + 1)
+    print((to_int("42") or 0) + 1)

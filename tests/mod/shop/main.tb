@@ -1,0 +1,7 @@
+// Модули: use подключает файл money.tb из этой же папки
+use money
+
+func main()
+    price = dec 100
+    print("с налогом:", money.total(price))
+    print("и так тоже можно:", total(price))

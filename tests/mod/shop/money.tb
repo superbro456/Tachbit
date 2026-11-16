@@ -1,0 +1,6 @@
+// modpub — видно из других файлов, modpri (или ничего) — только внутри этого файла
+modpub func total(price: dec)
+    return price + tax(price)
+
+modpri func tax(price: dec)
+    return price * 0.12

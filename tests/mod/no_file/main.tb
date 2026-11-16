@@ -1,0 +1,4 @@
+use nothing
+
+func main()
+    print(1)

@@ -1,0 +1,5 @@
+func g()
+    return 1
+
+func main()
+    y = try g()

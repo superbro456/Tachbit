@@ -1,0 +1,25 @@
+// Стандартная библиотека 0.3
+func main()
+    s = "  Hello, Tachbit  "
+    t = trim(s)
+    print("[" + t + "]", upper(t), lower(t))
+    print(find(t, "Tach"), find(t, "xyz"), starts_with(t, "Hello"), ends_with(t, "bit"))
+    print(replace(t, "Hello", "Привет"))
+
+    parts = split("a,b,c", ",")
+    print(parts, join(parts, " + "))
+
+    nums = [5, 3, 9, 1]
+    sort(nums)
+    names = ["Vali", "Ali", "Hasan"]
+    sort(names)
+    print(nums, names)
+
+    print(abs(-7), abs(-2.5), min(3, 8), max(3, 8.5), sqrt(16))
+    print(to_dec("2.5") or 0.0)
+
+    try write_file("hello.txt", "строка 1\nстрока 2\n")
+    content = try read_file("hello.txt")
+    print(split(trim(content), "\n"))
+
+    print("слова запуска:", args())

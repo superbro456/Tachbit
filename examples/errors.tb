@@ -1,0 +1,42 @@
+// Ошибки: fail, try, or, else err
+func safe_divide(a: int, b: int)
+    if b == 0
+        fail "делить на ноль нельзя"
+    return a / b
+
+func average(nums: list int)
+    if len(nums) == 0
+        fail "список пустой"
+    total = try sum(nums)
+    return total / len(nums)
+
+func sum(nums: list int)
+    total = int 0
+    each n in nums
+        if n < 0
+            fail "отрицательное число: " + n
+        total += n
+    return total
+
+func main()
+    // or: если сломалось — берём запасное значение
+    x = safe_divide(a: 10, b: 0) or -1
+    print("10 / 0 →", x)
+
+    // else err: свой блок на случай ошибки
+    y = safe_divide(a: 10, b: 2) else err
+        print("не вышло:", err)
+    print("10 / 2 →", y)
+
+    z = average(nums: [4, -2, 9]) else err
+        print("average сломалась:", err)
+
+    n = to_int("сорок") or 0
+    print("to_int(\"сорок\") →", n)
+
+    content = read_file("нет-такого-файла.txt") else err
+        print(err)
+
+    // try в main: при ошибке программа останавливается с текстом ошибки
+    a = try average(nums: [2, 4, 6])
+    print("среднее:", a)

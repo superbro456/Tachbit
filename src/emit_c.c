@@ -10,111 +10,7 @@ static FILE *out = 0;
 static int label = 0;        // счётчик для скрытых имён: tb_i1, tb_i2 ...
 static Node *cur_func = 0;
 
-static char *runtime =
-    "#include <stdio.h>\n"
-    "#include <stdlib.h>\n"
-    "#include <string.h>\n"
-    "\n"
-    "// подсказки для clang / gcc: ошибка бывает редко, а tb_crash не возвращается\n"
-    "#if defined(__GNUC__)\n"
-    "#define TB_RARE(x) __builtin_expect(!!(x), 0)\n"
-    "#define TB_COLD __attribute__((cold, noreturn, noinline))\n"
-    "#else\n"
-    "#define TB_RARE(x) (x)\n"
-    "#define TB_COLD\n"
-    "#endif\n"
-    "\n"
-    "// список: кусок памяти, len элементов по size байт, место на cap\n"
-    "typedef struct { char *data; long long len; long long cap; long long size; } tb_list;\n"
-    "\n"
-    "TB_COLD static void tb_crash(int line, const char *msg) {\n"
-    "    fflush(stdout);\n"
-    "    fprintf(stderr, \"строка %d: %s\\n\", line, msg);\n"
-    "    exit(1);\n"
-    "}\n"
-    "static void *tb_mem(long long n) {\n"
-    "    void *p = malloc(n > 0 ? n : 1);\n"
-    "    if (p == 0) tb_crash(0, \"не хватило памяти\");\n"
-    "    return p;\n"
-    "}\n"
-    "static tb_list *tb_list_new(long long size) {\n"
-    "    tb_list *l = tb_mem(sizeof(tb_list));\n"
-    "    l->len = 0; l->cap = 4; l->size = size; l->data = tb_mem(size * 4);\n"
-    "    return l;\n"
-    "}\n"
-    "static tb_list *tb_list_from(long long n, long long size, const void *src) {\n"
-    "    tb_list *l = tb_mem(sizeof(tb_list));\n"
-    "    l->len = n; l->cap = n; l->size = size; l->data = tb_mem(size * n);\n"
-    "    memcpy(l->data, src, size * n);\n"
-    "    return l;\n"
-    "}\n"
-    "// size передаётся как sizeof(T): после встраивания C знает его заранее\n"
-    "static inline void *tb_at(tb_list *l, long long i, long long size, int line) {\n"
-    "    // одно сравнение вместо двух: отрицательный номер как unsigned становится огромным\n"
-    "    if (TB_RARE((unsigned long long)i >= (unsigned long long)l->len)) tb_crash(line, \"номер за пределами списка\");\n"
-    "    return l->data + i * size;\n"
-    "}\n"
-    "static inline void *tb_grow(tb_list *l) {\n"
-    "    if (TB_RARE(l->len == l->cap)) {\n"
-    "        l->cap = l->cap * 2 + 4;\n"
-    "        // realloc часто растит большой кусок на месте, без копирования\n"
-    "        l->data = realloc(l->data, l->cap * l->size);\n"
-    "        if (l->data == 0) tb_crash(0, \"не хватило памяти\");\n"
-    "    }\n"
-    "    l->len += 1;\n"
-    "    return l->data + (l->len - 1) * l->size;\n"
-    "}\n"
-    "static void *tb_pop(tb_list *l, int line) {\n"
-    "    if (l->len == 0) tb_crash(line, \".pop() у пустого списка\");\n"
-    "    l->len -= 1;\n"
-    "    return l->data + l->len * l->size;\n"
-    "}\n"
-    "static void *tb_nn(void *p, int line) {\n"
-    "    if (p == 0) tb_crash(line, \"obj пустой: его ещё не создали\");\n"
-    "    return p;\n"
-    "}\n"
-    "static const char *tb_cat(const char *a, const char *b) {\n"
-    "    size_t la = strlen(a), lb = strlen(b);\n"
-    "    char *s = tb_mem(la + lb + 1);\n"
-    "    memcpy(s, a, la);\n"
-    "    memcpy(s + la, b, lb + 1);\n"
-    "    return s;\n"
-    "}\n"
-    "static const char *tb_itos(long long x) { char *s = tb_mem(32); snprintf(s, 32, \"%lld\", x); return s; }\n"
-    "static const char *tb_dtos(double x) { char *s = tb_mem(40); snprintf(s, 40, \"%g\", x); return s; }\n"
-    "static const char *tb_btos(int x) { return x ? \"true\" : \"false\"; }\n"
-    "static const char *tb_chr(long long c) { char *s = tb_mem(2); s[0] = (char)c; s[1] = 0; return s; }\n"
-    "static const char *tb_char_at(const char *s, long long i, int line) {\n"
-    "    if (i < 0 || i >= (long long)strlen(s)) tb_crash(line, \"номер за пределами текста\");\n"
-    "    return tb_chr((unsigned char)s[i]);\n"
-    "}\n"
-    "static const char *tb_cut(const char *s, long long from, long long to, int line) {\n"
-    "    long long n = (long long)strlen(s);\n"
-    "    if (from < 0 || to >= n || from > to + 1) tb_crash(line, \"cut: номера за пределами текста\");\n"
-    "    char *r = tb_mem(to - from + 2);\n"
-    "    memcpy(r, s + from, to - from + 1);\n"
-    "    r[to - from + 1] = 0;\n"
-    "    return r;\n"
-    "}\n"
-    "static long long tb_code(const char *s, int line) {\n"
-    "    if (s[0] == 0) tb_crash(line, \"code: текст пустой\");\n"
-    "    return (unsigned char)s[0];\n"
-    "}\n"
-    "static long long tb_to_int(const char *s, int line) {\n"
-    "    long long v = 0; int i = 0, minus = 0;\n"
-    "    if (s[0] == '-') { minus = 1; i = 1; }\n"
-    "    if (s[i] == 0) tb_crash(line, \"to_int: это не число\");\n"
-    "    for (; s[i]; i++) {\n"
-    "        if (s[i] < '0' || s[i] > '9') tb_crash(line, \"to_int: это не число\");\n"
-    "        v = v * 10 + (s[i] - '0');\n"
-    "    }\n"
-    "    return minus ? -v : v;\n"
-    "}\n"
-    "static long long tb_div(long long a, long long b, int line) { if (b == 0) tb_crash(line, \"деление на ноль\"); return a / b; }\n"
-    "static long long tb_mod(long long a, long long b, int line) { if (b == 0) tb_crash(line, \"остаток от деления на ноль\"); return a % b; }\n"
-    "static long long tb_round(double x) { return (long long)(x < 0 ? x - 0.5 : x + 0.5); }\n"
-    "static void tb_ps(const char *s) { fputs(s, stdout); }\n"
-    "\n";
+extern char *runtime_text;   // src/runtime_text.c (из src/runtime.h)
 
 // ---------- типы C ----------
 
@@ -124,6 +20,19 @@ static char *join(char *a, char *b, char *c) {
     strcat(s, b);
     strcat(s, c);
     return s;
+}
+
+// имя функции в C: f_<модуль>__<имя>, чтобы две modpri-функции из разных файлов не столкнулись
+static char *fname(Node *f) {
+    char *mod = arena_copy(f->mod, (int)strlen(f->mod));
+    for (int i = 0; mod[i] != 0; i++) {
+        char c = mod[i];
+        int ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+        if (!ok) {
+            mod[i] = '_';
+        }
+    }
+    return join(join("f_", mod, "__"), f->name, "");
 }
 
 static char *c_type(Type *t) {
@@ -143,11 +52,14 @@ static char *c_type(Type *t) {
     if (k == TY_LIST) {
         return "tb_list *";
     }
+    if (k == TY_DICT) {
+        return "tb_dict *";
+    }
     if (k == TY_OBJ) {
         return join("tb_o_", t->obj->name, " *");
     }
     if (k == TY_MULTI) {
-        return join("tb_r_", t->func->name, "");
+        return join("tb_r_", fname(t->func), "");
     }
     return "void";
 }
@@ -168,14 +80,31 @@ static void emit_default(Type *t) {
         fprintf(out, "\"\"");
     } else if (k == TY_LIST) {
         fprintf(out, "tb_list_new(sizeof(%s))", c_type(t->elem));
+    } else if (k == TY_DICT) {
+        fprintf(out, "tb_dict_new(%d, sizeof(%s))", t->key->kind == TY_TEXT, c_type(t->elem));
     } else {
         fprintf(out, "0");
     }
 }
 
+static void emit_expr(Node *n);
+
+static int is_simple(Type *t) {
+    int k = t->kind;
+    return k == TY_INT || k == TY_DEC || k == TY_BOOL || k == TY_TEXT;
+}
+
+// &(K){ключ} — ключ dict как адрес
+static void emit_key(Type *dict, Node *key) {
+    fprintf(out, "&(%s){", c_type(dict->key));
+    emit_expr(key);
+    fprintf(out, "}");
+}
+
 // ---------- выражения ----------
 
 static void emit_expr(Node *n);
+static void emit_as(Node *n, Type *to);
 
 // значение там, где нужен тип to (int → dec)
 static void emit_as(Node *n, Type *to) {
@@ -223,10 +152,32 @@ static void emit_print(Node *n) {
     fprintf(out, "tb_ps(\"\\n\"))");
 }
 
+// встроенные функции: имя → функция из runtime.h и её аргументы
+static void emit_args(Node *n, int with_line) {
+    for (int i = 0; i < n->nkids; i++) {
+        if (i > 0) {
+            fprintf(out, ", ");
+        }
+        emit_expr(n->kids[i]->kids[0]);
+    }
+    if (with_line) {
+        fprintf(out, "%s%d", n->nkids > 0 ? ", " : "", n->line);
+    }
+    fprintf(out, ")");
+}
+
 static void emit_builtin(Node *n) {
     char *name = n->name;
     if (same(name, "print")) {
         emit_print(n);
+        return;
+    }
+    if (same(name, "args")) {
+        fprintf(out, "tb_args");
+        return;
+    }
+    if (same(name, "input")) {
+        fprintf(out, "tb_input()");
         return;
     }
     Node *a = n->kids[0]->kids[0];
@@ -235,37 +186,68 @@ static void emit_builtin(Node *n) {
             fprintf(out, "(long long)strlen(");
             emit_expr(a);
             fprintf(out, ")");
+        } else if (a->ty->kind == TY_DICT) {
+            fprintf(out, "(");
+            emit_expr(a);
+            fprintf(out, ")->keys->len");
         } else {
             fprintf(out, "(");
             emit_expr(a);
             fprintf(out, ")->len");
         }
-    } else if (same(name, "round")) {
-        fprintf(out, "tb_round(");
-        emit_expr(a);
-        fprintf(out, ")");
-    } else if (same(name, "char")) {
-        fprintf(out, "tb_chr(");
-        emit_expr(a);
-        fprintf(out, ")");
-    } else if (same(name, "cut")) {
-        fprintf(out, "tb_cut(");
-        emit_expr(a);
-        fprintf(out, ", ");
-        emit_expr(n->kids[1]->kids[0]);
-        fprintf(out, ", ");
-        emit_expr(n->kids[2]->kids[0]);
-        fprintf(out, ", %d)", n->line);
-    } else {
-        // code и to_int
-        if (same(name, "code")) {
-            fprintf(out, "tb_code(");
-        } else {
-            fprintf(out, "tb_to_int(");
-        }
-        emit_expr(a);
-        fprintf(out, ", %d)", n->line);
+        return;
     }
+    if (same(name, "sort")) {
+        int k = a->ty->elem->kind;
+        fprintf(out, "tb_sort_list(");
+        emit_expr(a);
+        fprintf(out, ", %s)", k == TY_INT ? "tb_cmp_int" : (k == TY_DEC ? "tb_cmp_dec" : "tb_cmp_text"));
+        return;
+    }
+    if (same(name, "abs")) {
+        fprintf(out, a->ty->kind == TY_INT ? "tb_absi(" : "fabs(");
+        emit_expr(a);
+        fprintf(out, ")");
+        return;
+    }
+    if (same(name, "sqrt")) {
+        fprintf(out, "tb_sqrt((double)(");
+        emit_expr(a);
+        fprintf(out, "), %d)", n->line);
+        return;
+    }
+    if (same(name, "min") || same(name, "max")) {
+        int ints = n->ty->kind == TY_INT;
+        fprintf(out, "tb_%s%s(", name, ints ? "i" : "d");
+        if (ints) {
+            emit_expr(a);
+            fprintf(out, ", ");
+            emit_expr(n->kids[1]->kids[0]);
+        } else {
+            emit_as(a, n->ty);
+            fprintf(out, ", ");
+            emit_as(n->kids[1]->kids[0], n->ty);
+        }
+        fprintf(out, ")");
+        return;
+    }
+    // остальные: просто имя функции из runtime.h; с номером строки — те, что могут упасть
+    char *c_names[] = {
+        "round", "tb_round", "0", "char", "tb_chr", "0", "cut", "tb_cut", "1", "code", "tb_code", "1",
+        "to_int", "tb_to_int", "0", "to_dec", "tb_to_dec", "0", "read_file", "tb_read_file", "0",
+        "write_file", "tb_write_file", "0", "split", "tb_split", "1", "join", "tb_join", "0",
+        "find", "tb_find", "0", "replace", "tb_replace", "1", "upper", "tb_upper", "0",
+        "lower", "tb_lower", "0", "trim", "tb_trim", "0", "starts_with", "tb_starts", "0",
+        "ends_with", "tb_ends", "0"
+    };
+    for (int i = 0; i < 51; i += 3) {
+        if (same(c_names[i], name)) {
+            fprintf(out, "%s(", c_names[i + 1]);
+            emit_args(n, same(c_names[i + 2], "1"));
+            return;
+        }
+    }
+    fprintf(out, "/* неизвестная встроенная %s */0", name);
 }
 
 static void emit_call(Node *n) {
@@ -290,7 +272,7 @@ static void emit_call(Node *n) {
         return;
     }
     Node *params = n->ref->kids[0];
-    fprintf(out, "f_%s(", n->name);
+    fprintf(out, "%s(", fname(n->ref));
     for (int i = 0; i < n->nkids; i++) {
         if (i > 0) {
             fprintf(out, ", ");
@@ -304,6 +286,47 @@ static void emit_call(Node *n) {
         }
     }
     fprintf(out, ")");
+}
+
+static void emit_method(Node *n);
+
+static void emit_dict(Node *n) {
+    Type *t = n->ty;
+    char *kt = c_type(t->key);
+    char *vt = c_type(t->elem);
+    fprintf(out, "tb_dict_from(%d, sizeof(%s), %d, (%s[]){", t->key->kind == TY_TEXT, vt, n->nkids / 2, kt);
+    for (int i = 0; i < n->nkids; i += 2) {
+        fprintf(out, "%s", i > 0 ? ", " : "");
+        emit_expr(n->kids[i]);
+    }
+    fprintf(out, "}, (%s[]){", vt);
+    for (int i = 1; i < n->nkids; i += 2) {
+        fprintf(out, "%s", i > 1 ? ", " : "");
+        emit_as(n->kids[i], t->elem);
+    }
+    fprintf(out, "})");
+}
+
+// .pop()  и методы dict; .add пишется отдельной строкой (emit_statement)
+static void emit_method(Node *n) {
+    Node *base = n->kids[0];
+    if (base->ty->kind == TY_DICT) {
+        if (same(n->name, "keys") || same(n->name, "values")) {
+            fprintf(out, "tb_copy((");
+            emit_expr(base);
+            fprintf(out, ")->%s)", same(n->name, "keys") ? "keys" : "vals");
+            return;
+        }
+        fprintf(out, "%s(", same(n->name, "has") ? "tb_dhas" : "tb_dremove");
+        emit_expr(base);
+        fprintf(out, ", ");
+        emit_key(base->ty, n->kids[1]->kids[0]);
+        fprintf(out, ")");
+        return;
+    }
+    fprintf(out, "(*(%s *)tb_pop(", c_type(n->ty));
+    emit_expr(base);
+    fprintf(out, ", %d))", n->line);
 }
 
 static void emit_list(Node *n) {
@@ -322,6 +345,15 @@ static void emit_binop(Node *n) {
     char *op = n->value;
     Node *a = n->kids[0];
     Node *b = n->kids[1];
+    if (same(op, "orelse")) {
+        // f() or запасное: (tb_t = f(), tb_err ? (tb_err = 0, запасное) : tb_t)
+        fprintf(out, "(tb_t%d = ", n->temp);
+        emit_expr(a);
+        fprintf(out, ", tb_err ? (tb_err = 0, ");
+        emit_as(b, n->ty);
+        fprintf(out, ") : tb_t%d)", n->temp);
+        return;
+    }
     if (n->ty->kind == TY_TEXT) {
         fprintf(out, "tb_cat(");
         emit_as_text(a);
@@ -383,19 +415,27 @@ static void emit_expr(Node *n) {
         }
     } else if (k == N_LIST) {
         emit_list(n);
+    } else if (k == N_DICT) {
+        emit_dict(n);
+    } else if (k == N_TRY || k == N_ELSE_ERR) {
+        // значение уже посчитано строкой выше (emit_pre)
+        fprintf(out, "tb_v%d", n->creates);
     } else if (k == N_CALL) {
         emit_call(n);
     } else if (k == N_METHOD) {
-        // .pop(); .add пишется отдельной строкой (emit_statement)
-        fprintf(out, "(*(%s *)tb_pop(", c_type(n->ty));
-        emit_expr(n->kids[0]);
-        fprintf(out, ", %d))", n->line);
+        emit_method(n);
     } else if (k == N_BINOP) {
         emit_binop(n);
     } else if (k == N_UNARY) {
         fprintf(out, "(%s", same(n->value, "not") ? "!" : "-");
         emit_expr(n->kids[0]);
         fprintf(out, ")");
+    } else if (k == N_INDEX && n->kids[0]->ty->kind == TY_DICT) {
+        fprintf(out, "(*(%s *)tb_dget(", c_type(n->ty));
+        emit_expr(n->kids[0]);
+        fprintf(out, ", ");
+        emit_key(n->kids[0]->ty, n->kids[1]);
+        fprintf(out, ", %d))", n->line);
     } else if (k == N_INDEX) {
         if (n->kids[0]->ty->kind == TY_TEXT) {
             fprintf(out, "tb_char_at(");
@@ -422,7 +462,84 @@ static void emit_expr(Node *n) {
 
 static void emit_block(Node *block, int depth);
 
+// что отдать, если функция ломается: обычный return с пустым значением
+static void emit_bail(void) {
+    Node *outputs = cur_func->kids[2];
+    if (same(cur_func->name, "main")) {
+        fprintf(out, "tb_die(tb_err);");
+    } else if (outputs->nkids == 1) {
+        fprintf(out, "return v_%s;", outputs->kids[0]->name);
+    } else if (outputs->nkids > 1) {
+        fprintf(out, "return (%s){", c_type(cur_func->ty));
+        for (int i = 0; i < outputs->nkids; i++) {
+            fprintf(out, "%sv_%s", i > 0 ? ", " : "", outputs->kids[i]->name);
+        }
+        fprintf(out, "};");
+    } else if (cur_func->ty->kind == TY_NONE) {
+        fprintf(out, "return;");
+    } else {
+        fprintf(out, "return ");
+        emit_default(cur_func->ty);
+        fprintf(out, ";");
+    }
+}
+
+// try f()  и  f() else err: вызов отдельной строкой, потом проверка tb_err
+static void emit_pre(Node *v, int depth) {
+    if (v == 0 || (v->kind != N_TRY && v->kind != N_ELSE_ERR)) {
+        return;
+    }
+    Node *call = v->kids[0];
+    label += 1;
+    v->creates = label;
+    indent(depth);
+    if (call->ty->kind != TY_NONE) {
+        fprintf(out, "%s tb_v%d = ", c_type(call->ty), label);
+    }
+    emit_expr(call);
+    fprintf(out, ";\n");
+    indent(depth);
+    if (v->kind == N_TRY) {
+        fprintf(out, "if (TB_RARE(tb_err != 0)) { ");
+        emit_bail();
+        fprintf(out, " }\n");
+        return;
+    }
+    fprintf(out, "if (tb_err != 0) {\n");
+    indent(depth + 1);
+    fprintf(out, "const char * const v_%s = tb_err;\n", v->name);
+    indent(depth + 1);
+    fprintf(out, "tb_err = 0;\n");
+    emit_block(v->kids[1], depth + 1);
+    indent(depth);
+    fprintf(out, "}\n");
+}
+
+// цель для  =  и  +=: у dict ключ создаётся, если его нет
+static void emit_target(Node *t) {
+    if (t->kind == N_INDEX && t->kids[0]->ty->kind == TY_DICT) {
+        Type *d = t->kids[0]->ty;
+        char *vt = c_type(d->elem);
+        fprintf(out, "(*(%s *)tb_dput(", vt);
+        emit_expr(t->kids[0]);
+        fprintf(out, ", ");
+        emit_key(d, t->kids[1]);
+        if (is_simple(d->elem)) {
+            fprintf(out, ", &(%s){", vt);
+            emit_default(d->elem);
+            fprintf(out, "}))");
+        } else {
+            fprintf(out, ", 0))");
+        }
+        return;
+    }
+    emit_expr(t);
+}
+
 static void emit_assign(Node *n, int depth) {
+    if (n->nkids == 1) {
+        emit_pre(n->kids[0], depth);
+    }
     indent(depth);
     if (n->creates) {
         fprintf(out, "%s ", c_type(n->ty));
@@ -443,37 +560,47 @@ static void emit_assign(Node *n, int depth) {
     fprintf(out, ";\n");
 }
 
+// цель = значение: сначала значение, потом адрес цели (значение может менять список)
 static void emit_set(Node *n, int depth) {
     Node *target = n->kids[0];
     Node *value = n->kids[1];
     char *op = n->value;
+    char *t = c_type(n->ty);
+    emit_pre(value, depth);
+    label += 1;
+    int id = label;
     indent(depth);
-    emit_expr(target);
-    if (same(op, "=")) {
-        fprintf(out, " = ");
-        emit_as(value, n->ty);
-    } else if (n->ty->kind == TY_TEXT) {
-        fprintf(out, " = tb_cat(");
-        emit_expr(target);
-        fprintf(out, ", ");
+    fprintf(out, "{ ");
+    if (n->ty->kind == TY_TEXT && !same(op, "=")) {
+        fprintf(out, "const char *tb_v%d = ", id);
         emit_as_text(value);
-        fprintf(out, ")");
-    } else if (n->ty->kind == TY_INT && same(op, "/=")) {
-        fprintf(out, " = tb_div(");
-        emit_expr(target);
-        fprintf(out, ", ");
-        emit_expr(value);
-        fprintf(out, ", %d)", n->line);
     } else {
-        fprintf(out, " %s ", op);
-        emit_expr(value);
+        fprintf(out, "%s tb_v%d = ", same(op, "=") ? t : c_type(value->ty), id);
+        if (same(op, "=")) {
+            emit_as(value, n->ty);
+        } else {
+            emit_expr(value);
+        }
     }
-    fprintf(out, ";\n");
+    fprintf(out, "; %s *tb_p%d = &(", t, id);
+    emit_target(target);
+    fprintf(out, "); ");
+    if (same(op, "=")) {
+        fprintf(out, "*tb_p%d = tb_v%d;", id, id);
+    } else if (n->ty->kind == TY_TEXT) {
+        fprintf(out, "*tb_p%d = tb_cat(*tb_p%d, tb_v%d);", id, id, id);
+    } else if (n->ty->kind == TY_INT && same(op, "/=")) {
+        fprintf(out, "*tb_p%d = tb_div(*tb_p%d, tb_v%d, %d);", id, id, id, n->line);
+    } else {
+        fprintf(out, "*tb_p%d %s tb_v%d;", id, op, id);
+    }
+    fprintf(out, " }\n");
 }
 
 static void emit_multi(Node *n, int depth) {
     int names = n->nkids - 1;
     Node *call = n->kids[names];
+    emit_pre(call, depth);
     label += 1;
     for (int i = 0; i < names; i++) {
         if (n->kids[i]->creates) {
@@ -525,9 +652,16 @@ static void emit_each(Node *n, int depth) {
     indent(depth);
     fprintf(out, "{\n");
     indent(depth + 1);
-    fprintf(out, "%s tb_l%d = ", c_type(t), id);
-    emit_expr(n->kids[0]);
-    fprintf(out, ";\n");
+    if (t->kind == TY_DICT) {
+        fprintf(out, "tb_list * tb_l%d = (", id);
+        emit_expr(n->kids[0]);
+        fprintf(out, ")->keys;\n");
+        t = make_type_key(TY_LIST, 0, t->key, 0, 0);
+    } else {
+        fprintf(out, "%s tb_l%d = ", c_type(t), id);
+        emit_expr(n->kids[0]);
+        fprintf(out, ";\n");
+    }
     indent(depth + 1);
     if (t->kind == TY_TEXT) {
         fprintf(out, "for (long long tb_i%d = 0; tb_l%d[tb_i%d] != 0; tb_i%d++) {\n", id, id, id, id);
@@ -625,7 +759,17 @@ static void emit_statement(Node *n, int depth) {
     } else if (k == N_STOP) {
         indent(depth);
         fprintf(out, "break;\n");
+    } else if (k == N_FAIL) {
+        indent(depth);
+        fprintf(out, "{ tb_err = ");
+        emit_expr(n->kids[0]);
+        fprintf(out, "; ");
+        emit_bail();
+        fprintf(out, " }\n");
     } else if (k == N_RETURN) {
+        if (n->nkids == 1) {
+            emit_pre(n->kids[0], depth);
+        }
         if (cur_func->kids[2]->nkids > 0) {
             emit_gives_return(depth);
         } else if (n->nkids == 1) {
@@ -639,8 +783,12 @@ static void emit_statement(Node *n, int depth) {
         }
     } else if (k == N_EXPR_STMT) {
         Node *e = n->kids[0];
+        if (e->kind == N_TRY || e->kind == N_ELSE_ERR) {
+            emit_pre(e, depth);
+            return;
+        }
         indent(depth);
-        if (e->kind == N_METHOD) {
+        if (e->kind == N_METHOD && same(e->name, "add")) {
             // list.add(x): сначала значение, потом место под него
             Type *elem = e->kids[0]->ty->elem;
             label += 1;
@@ -666,7 +814,7 @@ static void emit_block(Node *block, int depth) {
 
 static void emit_signature(Node *f) {
     Node *params = f->kids[0];
-    fprintf(out, "static %s f_%s(", c_type(f->ty), f->name);
+    fprintf(out, "static %s %s(", c_type(f->ty), fname(f));
     if (params->nkids == 0) {
         fprintf(out, "void");
     }
@@ -733,6 +881,17 @@ static void emit_show(Type *t) {
         fprintf(out, "        tb_show_%d(((%s *)x->data)[i]);\n", t->elem->id, elem);
         fprintf(out, "    }\n");
         fprintf(out, "    tb_ps(\"]\");\n");
+    } else if (k == TY_DICT) {
+        char *kt = c_type(t->key);
+        char *vt = c_type(t->elem);
+        fprintf(out, "    tb_ps(\"{\");\n");
+        fprintf(out, "    for (long long i = 0; i < x->keys->len; i++) {\n");
+        fprintf(out, "        if (i > 0) tb_ps(\", \");\n");
+        fprintf(out, "        tb_show_%d(((%s *)x->keys->data)[i]);\n", t->key->id, kt);
+        fprintf(out, "        tb_ps(\": \");\n");
+        fprintf(out, "        tb_show_%d(((%s *)x->vals->data)[i]);\n", t->elem->id, vt);
+        fprintf(out, "    }\n");
+        fprintf(out, "    tb_ps(\"}\");\n");
     } else if (k == TY_OBJ) {
         Node *obj = t->obj;
         fprintf(out, "    if (x == 0) { tb_ps(\"пусто\"); return; }\n");
@@ -776,8 +935,8 @@ static void emit_constructor(Node *obj) {
 void emit_c(Node *program, FILE *file) {
     out = file;
     label = 0;
-    fprintf(out, "// Сделано компилятором Tachbit 0.2. Не правь руками: правь файл .tb\n");
-    fprintf(out, "%s", runtime);
+    fprintf(out, "// Сделано компилятором Tachbit 0.3. Не правь руками: правь файл .tb\n");
+    fprintf(out, "%s", runtime_text);
 
     // obj: сначала имена, потом устройство (obj может хранить другой obj)
     for (int i = 0; i < program->nkids; i++) {
@@ -799,7 +958,7 @@ void emit_c(Node *program, FILE *file) {
             for (int j = 0; j < top->kids[2]->nkids; j++) {
                 fprintf(out, " %s o%d;", c_type(top->kids[2]->kids[j]->ty), j);
             }
-            fprintf(out, " } tb_r_%s;\n", top->name);
+            fprintf(out, " } tb_r_%s;\n", fname(top));
         }
     }
     for (int i = 0; i < type_count; i++) {
@@ -807,6 +966,9 @@ void emit_c(Node *program, FILE *file) {
         if (k != TY_NONE && k != TY_MULTI && k != TY_UNKNOWN) {
             fprintf(out, "static void tb_show_%d(%s x);\n", all_types[i]->id, c_type(all_types[i]));
         }
+    }
+    for (int i = 1; i <= temp_count; i++) {
+        fprintf(out, "static %s tb_t%d;   // для  f() or запасное\n", c_type(temp_types[i]), i);
     }
     for (int i = 0; i < program->nkids; i++) {
         if (program->kids[i]->kind == N_OBJ) {
@@ -828,5 +990,15 @@ void emit_c(Node *program, FILE *file) {
             emit_func(program->kids[i]);
         }
     }
-    fprintf(out, "\nint main(void) {\n    f_main();\n    return 0;\n}\n");
+    Node *main_func = 0;
+    for (int i = 0; i < program->nkids; i++) {
+        Node *top = program->kids[i];
+        if (top->kind == N_FUNC && same(top->name, "main") && same(top->mod, program->kids[0]->mod)) {
+            main_func = top;
+        }
+    }
+    fprintf(out, "\nint main(int argc, char **argv) {\n");
+    fprintf(out, "    tb_args = tb_list_new(sizeof(const char *));\n");
+    fprintf(out, "    for (int i = 1; i < argc; i++) *(const char **)tb_grow(tb_args) = argv[i];\n");
+    fprintf(out, "    %s();\n    return 0;\n}\n", fname(main_func));
 }

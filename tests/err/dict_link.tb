@@ -1,0 +1,6 @@
+func hit(link hp)
+    hp += 1
+
+func main()
+    d = {"a": 1}
+    hit(d["a"])

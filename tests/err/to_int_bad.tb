@@ -1,2 +1,3 @@
 func main()
-    print(to_int("12a"))
+    x = try to_int("12a")
+    print(x)
