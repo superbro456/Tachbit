@@ -230,6 +230,11 @@ func close_scope(c: Comp)
 
 // ---------- on all cores ----------
 
+func loop_word(c: Comp)
+    if c.par_vec
+        return "by vec"
+    return "on all cores"
+
 // внутри on all cores, и переменная номер v — снаружи цикла (но в этой же функции)
 func outside_par(c: Comp, v: int)
     return c.par_base >= 0 and v >= 0 and v < c.par_base
@@ -246,9 +251,9 @@ func root_var(c: Comp, n: Node) gives r: int
 func capture(c: Comp, v: int)
     var = c.vars[v]
     each old in c.par_node.caps
-        if old.name == var.name
+        if old.name == var.name and (not c.par_vec or not old.is_shared)
             return
-    c.par_node.caps.add(Var(name: var.name, type: var.type, is_link: var.is_link, is_shared: var.is_shared))
+    c.par_node.caps.add(Var(name: var.name, type: var.type, is_link: var.is_link, is_shared: var.is_shared and not c.par_vec))
 
 // ---------- temp ----------
 // Внутри temp видны только такие переменные снаружи, через которые нельзя
@@ -273,7 +278,7 @@ func temp_keep_out(c: Comp, line: int, name: text)
 
 func no_outside_change(c: Comp, n: Node)
     if outside_par(c, root_var(c, n))
-        error_at(c, n.line, "внутри on all cores нельзя менять списки и obj снаружи цикла (свои, созданные внутри, — можно)", "")
+        error_at(c, n.line, "внутри " + loop_word(c) + " нельзя менять списки и obj снаружи цикла (свои, созданные внутри, — можно)", "")
 
 // ---------- выражения ----------
 
@@ -742,7 +747,8 @@ func check_expr(c: Comp, n: Node) gives r: int
         if outside_par(c, v)
             if c.vars[v].is_shared and not c.shared_ok
                 error_at(c, n.line, "shared внутри on all cores можно только менять через += или -=, а читать — после цикла", n.name)
-            capture(c, v)
+            if not (c.par_vec and c.shared_ok)
+                capture(c, v)
         n.is_link = c.vars[v].is_link
         t = c.vars[v].type
     else if k == "list"
@@ -751,7 +757,7 @@ func check_expr(c: Comp, n: Node) gives r: int
         t = check_dict(c, n)
     else if k == "try"
         if c.par_base >= 0
-            error_at(c, n.line, "внутри on all cores try нельзя: ядро не может остановить всю функцию, пиши  or  или  else err", "")
+            error_at(c, n.line, "внутри " + loop_word(c) + " try нельзя: ядро не может остановить всю функцию, пиши  or  или  else err", "")
         if c.temp_base >= 0
             error_at(c, n.line, "внутри temp try нельзя: пиши  or  или  else err", "")
         t = check_handled(c, n.kids[0], "try")
@@ -842,9 +848,11 @@ func check_assign(c: Comp, n: Node)
     if outside_temp(c, v) and not is_plain(c.vars[v].type)
         temp_keep_out(c, n.line, n.name)
     if outside_par(c, v)
+        if c.par_vec
+            error_at(c, n.line, "внутри by vec нельзя менять переменную снаружи: копи её через += или -=", n.name)
         if c.vars[v].is_shared
             error_at(c, n.line, "shared внутри on all cores меняется только через += или -=", n.name)
-        error_at(c, n.line, "внутри on all cores нельзя менять переменную снаружи: сделай её shared и меняй через += или -=", n.name)
+        error_at(c, n.line, "внутри " + loop_word(c) + " нельзя менять переменную снаружи: сделай её shared и меняй через += или -=", n.name)
     if n.is_const or declared >= 0
         error_at(c, n.line, "переменная уже есть: тип и const пишутся только в первый раз", n.name)
     if c.vars[v].is_const
@@ -864,11 +872,25 @@ func check_set(c: Comp, n: Node)
     r = root_var(c, target)
     if outside_temp(c, r) and target.kind == "name" and not is_plain(c.vars[r].type)
         temp_keep_out(c, n.line, target.name)
-    if outside_par(c, r)
+    if outside_par(c, r) and c.par_vec
         if target.kind != "name"
-            error_at(c, n.line, "внутри on all cores нельзя менять списки и obj снаружи цикла (свои, созданные внутри, — можно)", "")
+            error_at(c, n.line, "внутри by vec нельзя менять списки и obj снаружи цикла", "")
+        var = c.vars[r]
+        if (op != "+=" and op != "-=") or not is_number(var.type)
+            error_at(c, n.line, "внутри by vec число снаружи можно только копить через += или -=", target.name)
+        found = false
+        each old in c.par_node.caps
+            if old.name == var.name and old.is_shared
+                found = true
+                if old.op != op
+                    error_at(c, n.line, "в by vec одну переменную копят одним знаком: или +=, или -=", target.name)
+        if not found
+            c.par_node.caps.add(Var(name: var.name, type: var.type, is_link: var.is_link, is_shared: true, op: op))
+    else if outside_par(c, r)
+        if target.kind != "name"
+            error_at(c, n.line, "внутри " + loop_word(c) + " нельзя менять списки и obj снаружи цикла (свои, созданные внутри, — можно)", "")
         if not c.vars[r].is_shared
-            error_at(c, n.line, "внутри on all cores нельзя менять переменную снаружи: сделай её shared и меняй через += или -=", target.name)
+            error_at(c, n.line, "внутри " + loop_word(c) + " нельзя менять переменную снаружи: сделай её shared и меняй через += или -=", target.name)
         if op != "+=" and op != "-="
             error_at(c, n.line, "shared внутри on all cores меняется только через += или -=", target.name)
     t = check_value(c, n.kids[1])
@@ -919,7 +941,7 @@ func check_multi(c: Comp, n: Node)
             add_var(c, name.name, out, false, false, name.line)
         else
             if outside_par(c, v)
-                error_at(c, name.line, "внутри on all cores нельзя менять переменную снаружи: сделай её shared и меняй через += или -=", name.name)
+                error_at(c, name.line, "внутри " + loop_word(c) + " нельзя менять переменную снаружи: сделай её shared и меняй через += или -=", name.name)
             if outside_temp(c, v) and not is_plain(c.vars[v].type)
                 temp_keep_out(c, name.line, name.name)
             if c.vars[v].is_const
@@ -981,6 +1003,8 @@ func check_statement(c: Comp, n: Node)
             error_at(c, n.line, "each ходит по списку, по ключам dict или по буквам текста", "")
         if n.is_par and not is_list(c, t)
             error_at(c, n.line, "on all cores ходит по списку (или count from ... to ...)", "")
+        if n.by_vec and not (is_list(c, t) and is_number(c.types[t].elem))
+            error_at(c, n.line, "by vec ходит по списку чисел: list int или list dec", "")
         open_scope(c)
         add_var(c, n.name, elem, true, false, n.line)
         check_loop_body(c, n, n.kids[1])
@@ -1017,13 +1041,13 @@ func check_statement(c: Comp, n: Node)
             error_at(c, n.line, "skip и stop внутри temp работают только для циклов внутри temp", "")
     else if k == "return"
         if c.par_base >= 0
-            error_at(c, n.line, "внутри on all cores return нельзя", "")
+            error_at(c, n.line, "внутри " + loop_word(c) + " return нельзя", "")
         if c.temp_base >= 0
             error_at(c, n.line, "внутри temp return нельзя: сохрани число в переменную снаружи и выйди из блока", "")
         check_return(c, n)
     else if k == "fail"
         if c.par_base >= 0
-            error_at(c, n.line, "внутри on all cores fail нельзя: пиши  or  или  else err", "")
+            error_at(c, n.line, "внутри " + loop_word(c) + " fail нельзя: пиши  or  или  else err", "")
         if c.temp_base >= 0
             error_at(c, n.line, "внутри temp fail нельзя: пиши  or  или  else err", "")
         if check_value(c, n.kids[0]) != 4
@@ -1043,15 +1067,23 @@ func check_statement(c: Comp, n: Node)
 // всё, что объявлено раньше, — снаружи и только для чтения (кроме shared)
 func check_loop_body(c: Comp, n: Node, body: Node)
     c.loop_depth += 1
-    if n.is_par
+    if n.is_par or n.by_vec
         if c.par_base >= 0
-            error_at(c, n.line, "on all cores внутри другого on all cores нельзя", "")
+            error_at(c, n.line, "on all cores и by vec внутри другого on all cores или by vec нельзя", "")
         c.par_base = len(c.vars) - 1
         c.par_node = n
+        c.par_vec = n.by_vec
         // на какой глубине циклов стоит сам цикл: stop в нём нельзя, во вложенных — можно
         n.temp_no = c.loop_depth
         check_block(c, body)
         c.par_base = -1
+        c.par_vec = false
+        if n.by_vec
+            // то, что копится, нельзя читать внутри: порядок сложения в by vec другой
+            each a in n.caps
+                each b in n.caps
+                    if a.name == b.name and a.is_shared and not b.is_shared
+                        error_at(c, n.line, "в by vec переменную, которую копишь через += или -=, нельзя читать внутри цикла", a.name)
     else
         check_block(c, body)
     c.loop_depth -= 1

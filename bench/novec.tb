@@ -1,0 +1,11 @@
+// Сумма квадратов 10 млн дробей, 20 раз.
+// без by vec: по одному числу.
+func main()
+    nums = list dec
+    count i from 0 to 9999999
+        nums.add((i % 1000) / 1000.0)
+    total = 0.0
+    repeat 20 times
+        each x in nums
+            total += x * x
+    print(total)

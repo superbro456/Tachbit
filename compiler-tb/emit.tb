@@ -371,6 +371,8 @@ func emit_expr(c: Comp, n: Node)
             put(c, "1")
         else
             put(c, "0")
+    else if k == "name" and len(c.vec_names) > 0 and vec_index(c, n.name) >= 0
+        put(c, c.vec_repl[vec_index(c, n.name)])
     else if k == "name"
         if n.is_link
             put(c, "(*v_" + n.name + ")")
@@ -708,7 +710,84 @@ func emit_par(c: Comp, n: Node, depth: int)
     indent(c, depth)
     put(c, "}\n")
 
+func vec_index(c: Comp, name: text)
+    count i from 0 to len(c.vec_names) - 1
+        if c.vec_names[i] == name
+            return i
+    return -1
+
+// each x in nums by vec: 8 независимых копилок вместо одной.
+// Так процессор считает 8 чисел сразу (SIMD), а не ждёт каждое сложение.
+func emit_vec(c: Comp, n: Node, depth: int)
+    c.label += 1
+    id = "" + c.label
+    elem = c_type(c, c.types[n.kids[0].ty].elem)
+    d = depth + 1
+    indent(c, depth)
+    put(c, "{\n")
+    indent(c, d)
+    put(c, "tb_list *tb_l" + id + " = ")
+    emit_expr(c, n.kids[0])
+    put(c, ";\n")
+    indent(c, d)
+    put(c, elem + " *tb_d" + id + " = (" + elem + " *)tb_l" + id + "->data;\n")
+    indent(c, d)
+    put(c, "long long tb_n" + id + " = tb_l" + id + "->len, tb_i" + id + " = 0;\n")
+    each v in n.caps
+        if v.is_shared
+            indent(c, d)
+            put(c, c_type(c, v.type) + " tb_a" + id + "_" + v.name + "[8] = {0};\n")
+    // 1) по 8 чисел
+    indent(c, d)
+    put(c, "for (; tb_i" + id + " + 8 <= tb_n" + id + "; tb_i" + id + " += 8) {\n")
+    indent(c, d + 1)
+    put(c, "for (int tb_k" + id + " = 0; tb_k" + id + " < 8; tb_k" + id + "++) {\n")
+    indent(c, d + 2)
+    put(c, elem + " const v_" + n.name + " = tb_d" + id + "[tb_i" + id + " + tb_k" + id + "];\n")
+    each v in n.caps
+        if v.is_shared
+            c.vec_names.add(v.name)
+            c.vec_repl.add("tb_a" + id + "_" + v.name + "[tb_k" + id + "]")
+    emit_block(c, n.kids[1], d + 2)
+    fresh_names = list text
+    fresh_repl = list text
+    c.vec_names = fresh_names
+    c.vec_repl = fresh_repl
+    indent(c, d + 1)
+    put(c, "}\n")
+    indent(c, d)
+    put(c, "}\n")
+    // 2) хвост: последние 0–7 чисел по одному
+    indent(c, d)
+    put(c, "for (; tb_i" + id + " < tb_n" + id + "; tb_i" + id + "++) {\n")
+    indent(c, d + 1)
+    put(c, elem + " const v_" + n.name + " = tb_d" + id + "[tb_i" + id + "];\n")
+    each v in n.caps
+        if v.is_shared
+            c.vec_names.add(v.name)
+            c.vec_repl.add("tb_a" + id + "_" + v.name + "[0]")
+    emit_block(c, n.kids[1], d + 1)
+    fresh_names2 = list text
+    fresh_repl2 = list text
+    c.vec_names = fresh_names2
+    c.vec_repl = fresh_repl2
+    indent(c, d)
+    put(c, "}\n")
+    // 3) сложить копилки
+    each v in n.caps
+        if v.is_shared
+            target = "v_" + v.name
+            if v.is_link
+                target = "(*v_" + v.name + ")"
+            indent(c, d)
+            put(c, "for (int tb_k = 0; tb_k < 8; tb_k++) " + target + " += tb_a" + id + "_" + v.name + "[tb_k];\n")
+    indent(c, depth)
+    put(c, "}\n")
+
 func emit_each(c: Comp, n: Node, depth: int)
+    if n.by_vec
+        emit_vec(c, n, depth)
+        return
     if n.is_par
         emit_par(c, n, depth)
         return

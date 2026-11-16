@@ -1,0 +1,5 @@
+// 0.7
+func main()
+    names = ["a"]
+    each x in names by vec
+        print(x)

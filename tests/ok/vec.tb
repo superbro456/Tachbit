@@ -1,0 +1,18 @@
+// 0.7: each ... by vec
+func main()
+    nums = list dec
+    ints = list int
+    count i from 1 to 21
+        nums.add(i * 0.5)
+        ints.add(i)
+    total = 0.0
+    neg = 0
+    odd = 0
+    each x in nums by vec
+        total += x * 2.0
+    each k in ints by vec
+        neg -= k
+        if k % 2 == 1
+            odd += 1
+            skip
+    print(total, neg, odd)

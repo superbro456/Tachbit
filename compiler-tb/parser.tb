@@ -314,6 +314,15 @@ func parse_each(c: Comp) gives result: Node
     expect_cmd(c, "in")
     add_kid(n, parse_expr(c))
     parse_on_all_cores(c, n)
+    if is_cmd(c, "by")
+        // each x in nums by vec: SIMD, одна команда процессора на 4–8 чисел
+        next(c)
+        if now(c).kind != "name" or now(c).word != "vec"
+            error_at(c, line_now(c), "после each ... by пишется vec: each x in nums by vec", "")
+        next(c)
+        n.by_vec = true
+        if n.is_par
+            error_at(c, n.line, "on all cores и by vec вместе пока нельзя", "")
     expect_newline(c)
     add_kid(n, parse_block(c))
     return n
@@ -670,6 +679,8 @@ modpub func tree_lines(n: Node, depth: int, out: list text)
         s = s + " (on all cores)"
     if n.by_cols
         s = s + " (by columns)"
+    if n.by_vec
+        s = s + " (by vec)"
     out.add(s)
     if n.has_tsyn
         tree_lines(n.tsyn, depth + 1, out)

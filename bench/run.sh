@@ -77,3 +77,17 @@ if command -v python3 > /dev/null; then
     echo "   Python:  $(seconds python3 temp.py) с"
 fi
 rm -f temp temp.c notemp notemp.c temp_c
+
+# by vec: сумма квадратов 10 млн дробей, 20 раз
+../tachbit-tb build vec.tb > /dev/null || exit 1
+../tachbit-tb build novec.tb > /dev/null || exit 1
+cc -O2 -o vec_c vec_pure.c || exit 1
+echo "== vec  (ответ: $(./vec))"
+echo "   Tachbit by vec:    $(best ./vec) с"
+echo "   Tachbit без vec:   $(best ./novec) с"
+echo "   C (обычный цикл):  $(best ./vec_c) с"
+if command -v python3 > /dev/null; then
+    py=$(seconds python3 vec.py)
+    echo "   Python:  $(awk "BEGIN { print $py * 10 }") с   (считал 1 млн чисел, время ×10)"
+fi
+rm -f vec vec.c novec novec.c vec_c

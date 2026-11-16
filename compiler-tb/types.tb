@@ -39,6 +39,8 @@ obj Node
     is_shared: bool
     // obj Point by columns
     by_cols: bool
+    // each x in nums by vec
+    by_vec: bool
     // переменные снаружи, которые видит цикл on all cores
     caps: list Var
 
@@ -74,6 +76,8 @@ obj Var
     is_link: bool
     depth: int
     is_shared: bool
+    // by vec: как копится (+= или -=)
+    op: text
 
 // состояние всего компилятора
 obj Comp
@@ -103,9 +107,14 @@ obj Comp
     temp_base: int
     temp_loops: int
     shared_ok: bool
+    // цикл by vec (у него те же правила «снаружи», что у on all cores)
+    par_vec: bool
     // вывод C
     out: list text
     label: int
     cur_func: Node
     // функции-работники для on all cores: пишутся перед остальными функциями
     workers: list text
+    // by vec: имена, которые в теле цикла пишутся иначе (y → tb_a7_y[tb_k])
+    vec_names: list text
+    vec_repl: list text
