@@ -44,6 +44,10 @@ obj Node
     // each piece in data by 64: размер куска
     by_piece: bool
     piece_size: Node
+    // заказ наперёд: в цикле есть data[x] (each x in idx) или data[idx[i]] (count i):
+    // pre_bases — data, pre_idx — idx (у each — пустой узел)
+    pre_bases: list Node
+    pre_idx: list Node
     // переменные снаружи, которые видит цикл on all cores
     caps: list Var
 
@@ -129,3 +133,5 @@ obj Comp
     safe_keys: list text
     safe_vals: list int
     safe_busy: int
+    // циклы each / count вокруг текущего места (для заказа наперёд)
+    loops: list Node

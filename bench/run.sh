@@ -116,3 +116,13 @@ echo "   Tachbit background:     $(best ./background) с"
 echo "   Tachbit по очереди:     $(best ./nobackground) с"
 echo "   C (по очереди):         $(best ./background_c) с"
 rm -f background background.c nobackground nobackground.c background_c
+
+# заказ наперёд: data[x] по плану idx, 16 млн случайных номеров, 3 раза
+../tachbit-tb build prefetch.tb > /dev/null || exit 1
+../tachbit-tb build noprefetch.tb > /dev/null || exit 1
+cc -O2 -o prefetch_c prefetch_pure.c || exit 1
+echo "== prefetch  (ответ: $(./prefetch))"
+echo "   Tachbit с заказом наперёд: $(best ./prefetch) с"
+echo "   Tachbit без него:          $(best ./noprefetch) с"
+echo "   C (обычный цикл):          $(best ./prefetch_c) с"
+rm -f prefetch prefetch.c noprefetch noprefetch.c prefetch_c

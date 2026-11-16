@@ -1,0 +1,27 @@
+// 0.7: заказ наперёд — data[x] по плану idx
+func main()
+    data = list int
+    count i from 0 to 99
+        data.add(i * i)
+    idx = list int
+    count i from 0 to 49
+        idx.add((i * 37) % 100)
+    s1 = 0
+    each x in idx
+        s1 += data[x]
+    s2 = 0
+    count i from 0 to len(idx) - 1
+        s2 += data[idx[i]]
+    d = dict int int
+    count i from 0 to 99
+        d[i * 3] = i
+    s3 = 0
+    each x in idx
+        if d.has(x * 3)
+            s3 += d[x * 3]
+    names = {"a": 1, "b": 2}
+    order = ["b", "a", "b"]
+    s4 = 0
+    each w in order
+        s4 += names[w]
+    print(s1, s2, s3, s4)

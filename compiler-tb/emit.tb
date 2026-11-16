@@ -841,6 +841,7 @@ func emit_each(c: Comp, n: Node, depth: int)
             put(c, elem + " const v_" + n.name + " = {tb_l" + id + ", tb_i" + id + "};\n")
         else
             put(c, elem + " const v_" + n.name + " = ((" + elem + " *)tb_l" + id + "->data)[tb_i" + id + "];\n")
+            emit_prefetch(c, n, depth + 2, "tb_l" + id, "tb_i" + id, elem)
     emit_block(c, n.kids[1], depth + 2)
     indent(c, depth + 1)
     put(c, "}\n")
@@ -1002,6 +1003,37 @@ func emit_together(c: Comp, n: Node, depth: int)
     each s in block.kids
         emit_statement(c, s, depth)
 
+// заказ наперёд на 16 шагов: следующий номер берём из плана (список, по которому идёт цикл,
+// или idx в data[idx[i]]) и просим память принести data[номер] заранее.
+// Если номер окажется за пределами — не страшно: подсказка памяти ничего не ломает.
+func emit_prefetch(c: Comp, n: Node, depth: int, list_c: text, i_c: text, elem: text)
+    count j from 0 to len(n.pre_bases) - 1
+        c.label += 1
+        f = "tb_f" + c.label
+        plan = list_c
+        indent(c, depth)
+        if n.pre_idx[j].kind == "name"
+            put(c, "{ tb_list *tb_q" + c.label + " = ")
+            emit_expr(c, n.pre_idx[j])
+            put(c, "; ")
+            plan = "tb_q" + c.label
+        else
+            put(c, "{ ")
+        put(c, "if ((unsigned long long)(" + i_c + " + 16) < (unsigned long long)" + plan + "->len) { ")
+        el = elem
+        if n.pre_idx[j].kind == "name"
+            el = c_type(c, c.types[n.pre_idx[j].ty].elem)
+        put(c, el + " " + f + " = ((" + el + " *)" + plan + "->data)[" + i_c + " + 16]; ")
+        base = n.pre_bases[j]
+        if kind_of(c, base.ty) == "dict"
+            put(c, "(void)tb_dpre1(")
+            emit_expr(c, base)
+            put(c, ", &" + f + "); } }\n")
+        else
+            put(c, "tb_lpre(")
+            emit_expr(c, base)
+            put(c, ", " + f + "); } }\n")
+
 func emit_count(c: Comp, n: Node, depth: int)
     if n.is_par
         emit_par(c, n, depth)
@@ -1018,6 +1050,7 @@ func emit_count(c: Comp, n: Node, depth: int)
     put(c, "for (long long v_" + n.name + " = ")
     emit_expr(c, n.kids[0])
     put(c, "; v_" + n.name + " <= tb_end" + id + "; v_" + n.name + "++) {\n")
+    emit_prefetch(c, n, depth + 2, "", "v_" + n.name, "long long")
     emit_block(c, n.kids[2], depth + 2)
     indent(c, depth + 1)
     put(c, "}\n")

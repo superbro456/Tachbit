@@ -599,12 +599,16 @@ func check_user_call(c: Comp, n: Node, fi: int) gives r: int
         saved_temp = c.temp_base
         saved_temp_loops = c.temp_loops
         saved_pieces = c.piece_depth
+        saved_loop_stack = c.loops
+        fresh_loops = list Node
+        c.loops = fresh_loops
         c.par_base = -1
         c.temp_base = -1
         c.piece_depth = 0
         c.var_base = len(c.vars)
         check_func(c, fi)
         c.piece_depth = saved_pieces
+        c.loops = saved_loop_stack
         c.par_base = saved_par
         c.temp_base = saved_temp
         c.temp_loops = saved_temp_loops
@@ -827,7 +831,46 @@ func check_expr(c: Comp, n: Node) gives r: int
             error_at(c, n.line, "у этого obj нет такого качества", n.name)
         t = o.kids[field].ty
     n.ty = t
+    if k == "index"
+        note_prefetch(c, n)
     return t
+
+// Заказ наперёд (как склад, который собирает детали по плану завода заранее):
+// в  each x in idx  с  data[x]  или в  count i  с  data[idx[i]]  следующий адрес
+// известен из плана idx, и цикл заранее просит память принести data[idx[i + 16]].
+func note_prefetch(c: Comp, n: Node)
+    if len(c.loops) == 0
+        return
+    loop = c.loops[len(c.loops) - 1]
+    if loop.is_par or loop.by_vec or loop.by_piece
+        return
+    a = n.kids[0]
+    if a.kind != "name" or not declared_before(c, a.name, loop.name)
+        return
+    if not ((is_list(c, a.ty) and not is_cols_list(c, a.ty)) or is_dict(c, a.ty))
+        return
+    i = n.kids[1]
+    plan = Node(kind: "missing")
+    if loop.kind == "each"
+        if not is_name_of(i, loop.name) or not is_list(c, loop.kids[0].ty) and not is_dict(c, loop.kids[0].ty)
+            return
+    else
+        if i.kind != "index" or not is_name_of(i.kids[1], loop.name)
+            return
+        plan = i.kids[0]
+        if plan.kind != "name" or not declared_before(c, plan.name, loop.name) or not is_list(c, plan.ty) or is_cols_list(c, plan.ty)
+            return
+    count j from 0 to len(loop.pre_bases) - 1
+        if loop.pre_bases[j].name == a.name and loop.pre_idx[j].name == plan.name
+            return
+    loop.pre_bases.add(a)
+    loop.pre_idx.add(plan)
+
+// переменная name заведена раньше переменной цикла loop_var (то есть видна в начале цикла)
+func declared_before(c: Comp, name: text, loop_var: text)
+    a = find_var(c, name)
+    b = find_var(c, loop_var)
+    return a >= 0 and b >= 0 and a < b
 
 func need_bool(c: Comp, n: Node)
     if check_value(c, n) != 3
@@ -1028,14 +1071,18 @@ func check_statement(c: Comp, n: Node)
         else
             open_scope(c)
             add_var(c, n.name, elem, true, false, n.line)
+            c.loops.add(n)
             check_loop_body(c, n, n.kids[1])
+            gone = c.loops.pop()
             close_scope(c)
     else if k == "count"
         need_int(c, n.kids[0], "from")
         need_int(c, n.kids[1], "to")
         open_scope(c)
         add_var(c, n.name, 1, true, false, n.line)
+        c.loops.add(n)
         check_loop_body(c, n, n.kids[2])
+        gone = c.loops.pop()
         close_scope(c)
     else if k == "repeat_times" or k == "repeat_while"
         if k == "repeat_times"

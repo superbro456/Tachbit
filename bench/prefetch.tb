@@ -1,0 +1,17 @@
+// Заказ наперёд: сумма data[x] по плану idx (16 млн случайных номеров в списке на 128 МБ), 3 раза.
+// Следующий номер известен из idx, и цикл заранее просит память принести data[idx[i + 16]].
+func main()
+    n = 16000000
+    data = list int
+    count i from 0 to n - 1
+        data.add(i % 1000)
+    idx = list int
+    seed = 12345
+    count i from 0 to n - 1
+        seed = (seed * 1103515245 + 12345) % 2147483648
+        idx.add(seed % n)
+    total = 0
+    repeat 3 times
+        each x in idx
+            total += data[x]
+    print(total)

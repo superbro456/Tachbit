@@ -1,0 +1,19 @@
+// То же без заказа наперёд: data[x] спрятан в функцию, и компилятор не видит план.
+func pick(data: list int, x: int) gives r: int
+    r = data[x]
+
+func main()
+    n = 16000000
+    data = list int
+    count i from 0 to n - 1
+        data.add(i % 1000)
+    idx = list int
+    seed = 12345
+    count i from 0 to n - 1
+        seed = (seed * 1103515245 + 12345) % 2147483648
+        idx.add(seed % n)
+    total = 0
+    repeat 3 times
+        each x in idx
+            total += pick(data, x)
+    print(total)
