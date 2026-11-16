@@ -1,0 +1,33 @@
+// 0.7: count i from A to B проверяет края списка один раз до цикла
+func twice(x: int)
+    return x * 2
+
+func main()
+    xs = list int
+    count i from 0 to 9
+        xs.add(i * i)
+    // соседи: xs[i - 1] и xs[i + 1]
+    s = 0
+    count i from 1 to 8
+        s += xs[i - 1] + xs[i] + xs[i + 1]
+    print("соседи:", s)
+    // запись и своя функция с числом
+    count i from 0 to 9
+        xs[i] = twice(xs[i])
+    print("удвоили:", xs[9])
+    // пустой цикл
+    count i from 5 to 2
+        xs[i] = 0
+    print("пусто:", xs[5])
+    // вложенные: внешний номер во внутреннем цикле
+    t = 0
+    count i from 0 to 3
+        count j from 0 to 3
+            t += xs[i] + xs[j]
+    print("вложенные:", t)
+    // список меняется в цикле — обычная проверка на каждом шаге
+    ys = list int
+    ys.add(1)
+    count i from 0 to 4
+        ys.add(ys[i] + 1)
+    print("растёт:", ys[5])

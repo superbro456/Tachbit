@@ -1,0 +1,9 @@
+// 0.7: края проверены до цикла и не прошли — ошибка в той же строке, на том же шаге
+func main()
+    xs = list int
+    count i from 0 to 4
+        xs.add(i)
+    total = 0
+    count i from 0 to 5
+        total += xs[i]
+        print(total)

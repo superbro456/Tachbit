@@ -533,6 +533,14 @@ func emit_expr(c: Comp, n: Node)
             put(c, ", ")
             emit_expr(c, n.kids[1])
             put(c, ", " + n.line + ")")
+        else if fast_index(c, n)
+            // граница проверена до цикла: прямо в память, без проверки на каждом шаге
+            t = c_type(c, n.ty)
+            put(c, "(((" + t + " *)(")
+            emit_expr(c, n.kids[0])
+            put(c, ")->data)[")
+            emit_expr(c, n.kids[1])
+            put(c, "])")
         else
             t = c_type(c, n.ty)
             put(c, "(*(" + t + " *)tb_at(")
@@ -1232,10 +1240,117 @@ func short_literal(n: Node)
             return false
     return true
 
+// ---------- проверка границ один раз до цикла ----------
+// count i from A to B, а в теле xs[i], xs[i + 1], xs[i - 1]: если список внутри не может
+// стать короче, проверяем A и B один раз. Не прошло — тот же цикл с проверкой на каждом шаге,
+// и ошибка будет в той же строке, что и раньше.
+
+// номер в квадратных скобках: i, i + 3 или i - 3. Отдаёт сдвиг; ok = false, если не такой
+func index_shift(n: Node, var_name: text) gives ok: bool, shift: int
+    if n.kind == "name" and n.name == var_name
+        ok = true
+        return
+    if n.kind == "binop" and (n.value == "+" or n.value == "-") and n.kids[0].kind == "name" and n.kids[0].name == var_name and n.kids[1].kind == "number"
+        v = to_int(n.kids[1].value) or 1000000
+        if v > 1000
+            return
+        ok = true
+        shift = v
+        if n.value == "-"
+            shift = 0 - v
+
+// можно ли этот список читать без проверки: обычный список (не текст, не биты, не колонки)
+func plain_list_index(c: Comp, n: Node)
+    if n.kind != "index" or n.kids[0].kind != "name"
+        return false
+    t = n.kids[0].ty
+    return kind_of(c, t) == "list" and not is_bits(c, t) and not is_cols_list(c, t)
+
+func fast_index(c: Comp, n: Node)
+    if c.fast_depth == 0 or not plain_list_index(c, n)
+        return false
+    each key in c.fast_lists
+        cut_at = find(key, "\t")
+        if cut(key, cut_at + 1, len(key) - 1) == n.kids[0].name
+            ok, shift = index_shift(n.kids[1], cut(key, 0, cut_at - 1))
+            if ok
+                return true
+    return false
+
+func has_index(n: Node)
+    if n.kind == "index"
+        return true
+    each kid in n.kids
+        if has_index(kid)
+            return true
+    return false
+
+func has_text(names: list text, name: text)
+    each x in names
+        if x == name
+            return true
+    return false
+
+// тело цикла не может укоротить список и сменить номер: нет вызовов своих функций,
+// методов (.add, .remove ...), вложенных циклов, danger, background; список и номер не меняют
+func fast_body_ok(c: Comp, n: Node, var_name: text, names: list text)
+    k = n.kind
+    if k == "method" or k == "danger" or k == "background" or k == "together" or k == "lock" or k == "linkdecl" or k == "multi" or k == "temp"
+        return false
+    if (k == "each" or k == "count") and (n.is_par or n.by_piece or n.by_vec)
+        return false
+    if k == "call" and n.name == "sort"
+        return false
+    // своя функция не дотянется до списка, если ей дают только числа и да/нет
+    if k == "call" and n.has_ref
+        if n.ref.kind != "func" and n.ref.kind != "obj"
+            return false
+        each arg in n.kids
+            if not is_plain_ty(arg.kids[0].ty)
+                return false
+    if k == "assign" and (n.name == var_name or has_text(names, n.name))
+        return false
+    if k == "set" and n.kids[0].kind == "name" and (n.kids[0].name == var_name or has_text(names, n.kids[0].name))
+        return false
+    each kid in n.kids
+        if not fast_body_ok(c, kid, var_name, names)
+            return false
+    return true
+
+// все xs[i ± число] в теле: имена списков и самый малый и самый большой сдвиг у каждого
+func fast_collect(c: Comp, n: Node, var_name: text, names: list text, nodes: list Node, lo: list int, hi: list int)
+    if plain_list_index(c, n)
+        ok, shift = index_shift(n.kids[1], var_name)
+        if ok
+            name = n.kids[0].name
+            found = false
+            count j from 0 to len(names) - 1
+                if names[j] == name
+                    found = true
+                    lo[j] = min(lo[j], shift)
+                    hi[j] = max(hi[j], shift)
+            if not found
+                names.add(name)
+                nodes.add(n.kids[0])
+                lo.add(shift)
+                hi.add(shift)
+    each kid in n.kids
+        fast_collect(c, kid, var_name, names, nodes, lo, hi)
+
 func emit_count(c: Comp, n: Node, depth: int)
     if n.is_par
         emit_par(c, n, depth)
         return
+    if c.fast_depth < 2 and not c.bare
+        names = list text
+        nodes = list Node
+        lo = list int
+        hi = list int
+        fast_collect(c, n.kids[2], n.name, names, nodes, lo, hi)
+        // границы из списка (count p from starts[k] to ...): шагов обычно мало, проверка до цикла не окупится
+        if len(names) > 0 and not has_index(n.kids[0]) and not has_index(n.kids[1]) and fast_body_ok(c, n.kids[2], n.name, names)
+            emit_count_fast(c, n, depth, names, nodes, lo, hi)
+            return
     c.label += 1
     id = "" + c.label
     indent(c, depth)
@@ -1250,6 +1365,60 @@ func emit_count(c: Comp, n: Node, depth: int)
     put(c, "; v_" + n.name + " <= tb_end" + id + "; v_" + n.name + "++) {\n")
     emit_prefetch(c, n, depth + 2, "", "v_" + n.name, "long long")
     emit_loop_body(c, n.kids[2], depth + 2)
+    indent(c, depth + 1)
+    put(c, "}\n")
+    indent(c, depth)
+    put(c, "}\n")
+
+// два цикла: быстрый (границы проверены до него) и обычный, если проверка не прошла
+func emit_count_fast(c: Comp, n: Node, depth: int, names: list text, nodes: list Node, lo: list int, hi: list int)
+    c.label += 1
+    id = "" + c.label
+    v = "v_" + n.name
+    indent(c, depth)
+    put(c, "{\n")
+    indent(c, depth + 1)
+    put(c, "long long tb_end" + id + " = ")
+    emit_expr(c, n.kids[1])
+    put(c, ";\n")
+    indent(c, depth + 1)
+    put(c, "long long tb_lo" + id + " = ")
+    emit_expr(c, n.kids[0])
+    put(c, ";\n")
+    indent(c, depth + 1)
+    put(c, "if (tb_end" + id + " < tb_lo" + id)
+    put(c, " || (1")
+    count j from 0 to len(names) - 1
+        put(c, " && tb_lo" + id + " >= " + (0 - lo[j]) + "LL && tb_end" + id + " < (")
+        emit_expr(c, nodes[j])
+        put(c, ")->len - " + hi[j] + "LL")
+    put(c, ")) {\n")
+    keep = list text
+    each key in c.fast_lists
+        keep.add(key)
+    with_mine = list text
+    each key in c.fast_lists
+        with_mine.add(key)
+    each name in names
+        with_mine.add(n.name + "\t" + name)
+    c.fast_lists = with_mine
+    c.fast_depth += 1
+    indent(c, depth + 2)
+    put(c, "for (long long " + v + " = tb_lo" + id + "; " + v + " <= tb_end" + id + "; " + v + "++) {\n")
+    emit_prefetch(c, n, depth + 3, "", v, "long long")
+    emit_loop_body(c, n.kids[2], depth + 3)
+    indent(c, depth + 2)
+    put(c, "}\n")
+    c.fast_depth -= 1
+    c.fast_lists = keep
+    indent(c, depth + 1)
+    put(c, "} else {\n")
+    indent(c, depth + 2)
+    put(c, "for (long long " + v + " = tb_lo" + id + "; " + v + " <= tb_end" + id + "; " + v + "++) {\n")
+    emit_prefetch(c, n, depth + 3, "", v, "long long")
+    emit_loop_body(c, n.kids[2], depth + 3)
+    indent(c, depth + 2)
+    put(c, "}\n")
     indent(c, depth + 1)
     put(c, "}\n")
     indent(c, depth)
