@@ -6,10 +6,12 @@
 // ---------- режим без ОС (tb bare): своя маленькая библиотека вместо libc ----------
 // Программа сама себе ОС: загружается через multiboot (QEMU, GRUB), пишет на экран
 // (текстовый режим VGA) и в последовательный порт COM1, память берёт из своего запаса.
-// Ядер, файлов и ввода здесь нет: on all cores и background работают на одном ядре.
+// Есть прерывания, таймер, клавиатура, задачи (background) и страницы памяти; файлов нет.
 #include <stddef.h>
 #include <stdarg.h>
-#define _Thread_local
+#include <stdint.h>
+// «переменные потока» лежат подряд в своём разделе: при смене задачи он копируется целиком
+#define _Thread_local __attribute__((section(".tbtls")))
 #define EOF (-1)
 typedef struct tb_file FILE;
 #define stdout ((FILE *)1)
@@ -23,13 +25,21 @@ typedef int pthread_mutex_t;
 
 static inline void tb_outb(unsigned short port, unsigned char v) { __asm__ volatile("outb %0, %1" : : "a"(v), "Nd"(port)); }
 static inline unsigned char tb_inb(unsigned short port) { unsigned char v; __asm__ volatile("inb %1, %0" : "=a"(v) : "Nd"(port)); return v; }
+static inline void tb_outw(unsigned short port, unsigned short v) { __asm__ volatile("outw %0, %1" : : "a"(v), "Nd"(port)); }
+static inline unsigned short tb_inw(unsigned short port) { unsigned short v; __asm__ volatile("inw %1, %0" : "=a"(v) : "Nd"(port)); return v; }
+static inline void tb_outl(unsigned short port, unsigned int v) { __asm__ volatile("outl %0, %1" : : "a"(v), "Nd"(port)); }
+static inline unsigned int tb_inl(unsigned short port) { unsigned int v; __asm__ volatile("inl %1, %0" : "=a"(v) : "Nd"(port)); return v; }
+// выключить прерывания на время короткого дела и вернуть, как было
+static inline uint32_t tb_irq_save(void) { uint32_t f; __asm__ volatile("pushfl\npopl %0\ncli" : "=r"(f) : : "memory"); return f; }
+static inline void tb_irq_restore(uint32_t f) { __asm__ volatile("pushl %0\npopfl" : : "r"(f) : "memory", "cc"); }
 
-// экран 80×25: байт буквы и байт цвета; русские буквы VGA не умеет — на экране «?», в порту как есть
+// экран 80×25: байт буквы и байт цвета; русские буквы рисуем своим шрифтом (см. tb_vga_font)
 static volatile unsigned short *const tb_vga = (volatile unsigned short *)0xB8000;
 static int tb_vrow = 0, tb_vcol = 0;
 static unsigned char tb_vcolor = 0x0A;   // светло-зелёный на чёрном
 static void tb_vga_put(unsigned char ch) {
     if (ch == '\n') { tb_vcol = 0; tb_vrow++; }
+    else if (ch == '\b') { if (tb_vcol > 0) tb_vcol--; tb_vga[tb_vrow * 80 + tb_vcol] = (unsigned short)(tb_vcolor << 8 | ' '); }
     else {
         tb_vga[tb_vrow * 80 + tb_vcol] = (unsigned short)(tb_vcolor << 8 | ch);
         if (++tb_vcol == 80) { tb_vcol = 0; tb_vrow++; }
@@ -40,14 +50,109 @@ static void tb_vga_put(unsigned char ch) {
         tb_vrow = 24;
     }
 }
+// русские буквы: свои картинки 8×16 кладём в шрифт VGA на места 128..193
+static const unsigned char tb_cyr_font[66][16] = {
+    {0x00, 0x00, 0x1c, 0x1c, 0x3c, 0x34, 0x36, 0x66, 0x7e, 0x63, 0x63, 0xc3, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x7f, 0x60, 0x60, 0x60, 0x7e, 0x67, 0x63, 0x63, 0x67, 0x7e, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x7e, 0x66, 0x67, 0x66, 0x7e, 0x66, 0x63, 0x63, 0x67, 0x7e, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x7f, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x7e, 0x76, 0x76, 0x76, 0x76, 0x76, 0x76, 0x66, 0x66, 0xff, 0xc3, 0xc3, 0x00, 0x00},
+    {0x00, 0x00, 0x7f, 0x60, 0x60, 0x60, 0x7e, 0x60, 0x60, 0x60, 0x60, 0x7f, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0xdb, 0x7b, 0x7e, 0x3e, 0x3e, 0x7e, 0x7e, 0x7b, 0xdb, 0xdb, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x3c, 0x46, 0x06, 0x06, 0x1c, 0x06, 0x06, 0x06, 0x46, 0x3c, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x67, 0x67, 0x6f, 0x6f, 0x6b, 0x7b, 0x73, 0x73, 0x73, 0x63, 0x00, 0x00, 0x00, 0x00},
+    {0x1c, 0x00, 0x67, 0x67, 0x6f, 0x6f, 0x6b, 0x7b, 0x73, 0x73, 0x73, 0x63, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x63, 0x66, 0x6c, 0x78, 0x78, 0x7c, 0x6e, 0x66, 0x67, 0x63, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x7f, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x67, 0x67, 0xc7, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x67, 0x77, 0x77, 0x7f, 0x5b, 0x5b, 0x43, 0x43, 0x43, 0x43, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x67, 0x67, 0x67, 0x67, 0x7f, 0x67, 0x67, 0x67, 0x67, 0x67, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x3c, 0x66, 0x67, 0x63, 0x63, 0x63, 0x63, 0x67, 0x66, 0x3c, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x7f, 0x67, 0x67, 0x67, 0x67, 0x67, 0x67, 0x67, 0x67, 0x67, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x7e, 0x67, 0x63, 0x63, 0x67, 0x7e, 0x60, 0x60, 0x60, 0x60, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x1e, 0x30, 0x70, 0x60, 0x60, 0x60, 0x60, 0x70, 0x30, 0x1e, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x7f, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0xe3, 0x67, 0x36, 0x3e, 0x1c, 0x1c, 0x1c, 0x18, 0x78, 0x70, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x18, 0x3e, 0x7b, 0xdb, 0xdb, 0xdb, 0xdb, 0x7b, 0x3e, 0x18, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0xe3, 0x66, 0x36, 0x3c, 0x1c, 0x1c, 0x3c, 0x36, 0x66, 0xe3, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0xe6, 0xe6, 0xe6, 0xe6, 0xe6, 0xe6, 0xe6, 0xe6, 0xe6, 0xff, 0x03, 0x03, 0x00, 0x00},
+    {0x00, 0x00, 0x63, 0x63, 0x63, 0x67, 0x7f, 0x03, 0x03, 0x03, 0x03, 0x03, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0xdb, 0xdb, 0xdb, 0xdb, 0xdb, 0xdb, 0xdb, 0xdb, 0xdb, 0xff, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0xdb, 0xdb, 0xdb, 0xdb, 0xdb, 0xdb, 0xdb, 0xdb, 0xdb, 0xff, 0x01, 0x01, 0x00, 0x00},
+    {0x00, 0x00, 0xf0, 0x30, 0x30, 0x30, 0x3e, 0x37, 0x33, 0x33, 0x3f, 0x3e, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0xc3, 0xc3, 0xc3, 0xc3, 0xfb, 0xdf, 0xcf, 0xcf, 0xfb, 0xf3, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x60, 0x60, 0x60, 0x60, 0x7c, 0x66, 0x67, 0x67, 0x66, 0x7c, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x7c, 0x7e, 0x06, 0x06, 0x7e, 0x3e, 0x06, 0x06, 0x7e, 0x7c, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0xce, 0xdb, 0xdb, 0xdb, 0xfb, 0xdb, 0xdb, 0xdb, 0xcb, 0xce, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x3f, 0x73, 0x63, 0x63, 0x73, 0x3f, 0x3b, 0x33, 0x73, 0x63, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x00, 0x00, 0x3e, 0x46, 0x07, 0x3f, 0x67, 0x67, 0x67, 0x3f, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x3e, 0x60, 0x7c, 0xe6, 0xe7, 0x63, 0x63, 0x67, 0x66, 0x3c, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x00, 0x00, 0x7e, 0x66, 0x66, 0x7e, 0x66, 0x63, 0x66, 0x7e, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x00, 0x00, 0x7e, 0x70, 0x70, 0x70, 0x70, 0x70, 0x70, 0x70, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x00, 0x00, 0x7e, 0x76, 0x76, 0x76, 0x76, 0x66, 0x66, 0xff, 0xc1, 0xc1, 0x00, 0x00},
+    {0x00, 0x00, 0x00, 0x00, 0x3c, 0x66, 0x63, 0x7f, 0x60, 0x60, 0x71, 0x3e, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x00, 0x00, 0xdb, 0x7f, 0x7e, 0x3e, 0x7e, 0x7f, 0x5b, 0xdb, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x00, 0x00, 0x7c, 0x06, 0x06, 0x1c, 0x06, 0x06, 0x06, 0x7c, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x00, 0x00, 0x67, 0x67, 0x6f, 0x6f, 0x7f, 0x77, 0x77, 0x67, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x24, 0x1c, 0x00, 0x67, 0x67, 0x6f, 0x6f, 0x7f, 0x77, 0x77, 0x67, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x00, 0x00, 0x67, 0x6e, 0x7c, 0x7c, 0x7c, 0x66, 0x66, 0x63, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x00, 0x00, 0x3f, 0x33, 0x33, 0x33, 0x33, 0x33, 0x63, 0xe3, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x00, 0x00, 0x67, 0x67, 0x77, 0x7f, 0x5f, 0x5b, 0x5b, 0x43, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x00, 0x00, 0x66, 0x66, 0x66, 0x7e, 0x66, 0x66, 0x66, 0x66, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x00, 0x00, 0x3c, 0x66, 0x67, 0x63, 0x63, 0x67, 0x66, 0x3c, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x00, 0x00, 0x7e, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x00, 0x00, 0x7e, 0x76, 0x63, 0x63, 0x63, 0x63, 0x76, 0x7e, 0x60, 0x60, 0x60, 0x00},
+    {0x00, 0x00, 0x00, 0x00, 0x1e, 0x32, 0x60, 0x60, 0x60, 0x60, 0x32, 0x1e, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x00, 0x00, 0x7e, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x00, 0x00, 0x63, 0x67, 0x66, 0x36, 0x3e, 0x3c, 0x1c, 0x1c, 0x18, 0x18, 0x70, 0x00},
+    {0x00, 0x18, 0x18, 0x18, 0x3c, 0x7a, 0x5b, 0x5b, 0x5b, 0x5b, 0x7a, 0x3c, 0x18, 0x18, 0x18, 0x00},
+    {0x00, 0x00, 0x00, 0x00, 0x67, 0x36, 0x3c, 0x1c, 0x1c, 0x3c, 0x76, 0x67, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x00, 0x00, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x7f, 0x03, 0x03, 0x00, 0x00},
+    {0x00, 0x00, 0x00, 0x00, 0x66, 0x66, 0x66, 0x66, 0x3e, 0x06, 0x06, 0x06, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x00, 0x00, 0xdb, 0xdb, 0xdb, 0xdb, 0xdb, 0xdb, 0xdb, 0xff, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x00, 0x00, 0xdb, 0xdb, 0xdb, 0xdb, 0xdb, 0xdb, 0xdb, 0xff, 0x01, 0x01, 0x00, 0x00},
+    {0x00, 0x00, 0x00, 0x00, 0xf0, 0xf0, 0x30, 0x3e, 0x3f, 0x33, 0x3f, 0x3e, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x00, 0x00, 0xc3, 0xc3, 0xc3, 0xf3, 0xfb, 0xdb, 0xfb, 0xf3, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x00, 0x00, 0x60, 0x60, 0x60, 0x7c, 0x66, 0x66, 0x66, 0x7c, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x00, 0x00, 0x38, 0x7c, 0x06, 0x3e, 0x3e, 0x06, 0x7e, 0x7c, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x00, 0x00, 0xce, 0xda, 0xdb, 0xf3, 0xd3, 0xdb, 0xda, 0xce, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x00, 0x00, 0x3f, 0x73, 0x63, 0x73, 0x3f, 0x3b, 0x33, 0x63, 0x00, 0x00, 0x00, 0x00},
+    {0x6c, 0x00, 0x7f, 0x60, 0x60, 0x60, 0x7e, 0x60, 0x60, 0x60, 0x60, 0x7f, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x6c, 0x00, 0x3c, 0x66, 0x63, 0x7f, 0x60, 0x60, 0x71, 0x3e, 0x00, 0x00, 0x00, 0x00},
+};
+static void tb_vga_font(void) {
+    tb_outw(0x3C4, 0x0402); tb_outw(0x3C4, 0x0704);   // пишем в слой шрифта
+    tb_outw(0x3CE, 0x0204); tb_outw(0x3CE, 0x0005); tb_outw(0x3CE, 0x0406);
+    volatile unsigned char *font = (volatile unsigned char *)0xA0000;
+    for (int i = 0; i < 66; i++)
+        for (int y = 0; y < 16; y++) font[(128 + i) * 32 + y] = tb_cyr_font[i][y];
+    tb_outw(0x3C4, 0x0302); tb_outw(0x3C4, 0x0304);   // обратно в текстовый режим
+    tb_outw(0x3CE, 0x0004); tb_outw(0x3CE, 0x1005); tb_outw(0x3CE, 0x0E06);
+}
+static unsigned char tb_utf_lead = 0;
 static void tb_putc(char c) {
     unsigned char ch = (unsigned char)c;
     while ((tb_inb(0x3F8 + 5) & 0x20) == 0) {}
-    tb_outb(0x3F8, ch);
-    if (ch < 0x80) tb_vga_put(ch);
-    else if (ch >= 0xC0) tb_vga_put('?');   // первый байт русской буквы (UTF-8) → «?», остальные пропускаем
+    tb_outb(0x3F8, ch);   // в порт — как есть (UTF-8)
+    if (ch < 0x80) { tb_utf_lead = 0; tb_vga_put(ch); return; }
+    if (ch >= 0xC0) { tb_utf_lead = ch; return; }
+    // второй байт: А..я = U+0410..U+044F, Ё = U+0401, ё = U+0451
+    unsigned cp = ((unsigned)(tb_utf_lead & 0x1F) << 6) | (ch & 0x3F);
+    if (tb_utf_lead == 0) return;
+    tb_utf_lead = 0;
+    if (cp >= 0x410 && cp <= 0x44F) tb_vga_put((unsigned char)(128 + cp - 0x410));
+    else if (cp == 0x401) tb_vga_put(128 + 64);
+    else if (cp == 0x451) tb_vga_put(128 + 65);
+    else tb_vga_put('?');
 }
-static int fputs(const char *s, FILE *f) { (void)f; while (*s) tb_putc(*s++); return 0; }
+static int fputs(const char *s, FILE *f) {
+    uint32_t fl = tb_irq_save();
+    unsigned char was = tb_vcolor;
+    if (f == stderr) tb_vcolor = 0x0C;   // ошибки — красным
+    while (*s) tb_putc(*s++);
+    tb_vcolor = was;
+    tb_irq_restore(fl);
+    return 0;
+}
 static int fflush(FILE *f) { (void)f; return 0; }
 static int isatty(int fd) { (void)fd; return 0; }
 static char *getenv(const char *n) { (void)n; return 0; }
@@ -61,11 +166,11 @@ __attribute__((noreturn)) static void exit(int code) {
 // память: запас 64 МБ. Куски по размерам 16, 32, 64, ... байт; отданный кусок
 // кладётся в корзину своего размера и выдаётся снова. Последний кусок отдаётся сразу.
 #define TB_HEAP (64 << 20)
-static unsigned char tb_heap[TB_HEAP] __attribute__((aligned(16)));
+static unsigned char tb_heap[TB_HEAP] __attribute__((aligned(16), section(".tbheap")));
 static size_t tb_heap_top = 0;
 static void *tb_bins[32];
 static int tb_cls(size_t n) { int k = 4; while (k < 31 && ((size_t)1 << k) < n) k++; return k; }
-static void *malloc(size_t n) {
+static void *tb_malloc0(size_t n) {
     int k = tb_cls(n);
     if (tb_bins[k]) { void *p = tb_bins[k]; tb_bins[k] = *(void **)p; return p; }
     size_t need = ((size_t)1 << k) + 16;
@@ -75,7 +180,7 @@ static void *malloc(size_t n) {
     tb_heap_top += need;
     return h + 16;
 }
-static void free(void *p) {
+static void tb_free0(void *p) {
     if (p == 0) return;
     unsigned char *h = (unsigned char *)p - 16;
     int k = (int)*(size_t *)h;
@@ -83,6 +188,9 @@ static void free(void *p) {
     *(void **)p = tb_bins[k];
     tb_bins[k] = p;
 }
+// задачи и прерывания тоже берут память: на время выдачи прерывания выключены
+static void *malloc(size_t n) { uint32_t f = tb_irq_save(); void *p = tb_malloc0(n); tb_irq_restore(f); return p; }
+static void free(void *p) { uint32_t f = tb_irq_save(); tb_free0(p); tb_irq_restore(f); }
 void *memcpy(void *d, const void *s, size_t n) {
     void *r = d;
     __asm__ volatile("rep movsb" : "+D"(d), "+S"(s), "+c"(n) : : "memory");
@@ -104,7 +212,7 @@ int memcmp(const void *x, const void *y, size_t n) {
     for (; n; n--, a++, b++) if (*a != *b) return *a - *b;
     return 0;
 }
-static void *realloc(void *p, size_t n) {
+static void *tb_realloc0(void *p, size_t n) {
     if (p == 0) return malloc(n);
     unsigned char *h = (unsigned char *)p - 16;
     int k = (int)*(size_t *)h;
@@ -124,11 +232,14 @@ static void *realloc(void *p, size_t n) {
     if (q) { memcpy(q, p, cap); free(p); }
     return q;
 }
-// одно ядро и нет прерываний: «атомарные» действия — обычные
+static void *realloc(void *p, size_t n) { uint32_t f = tb_irq_save(); void *q = tb_realloc0(p, n); tb_irq_restore(f); return q; }
+// одно ядро: «атомарное» сложение 64-битного числа — с выключенными на миг прерываниями
 unsigned long long __atomic_fetch_add_8(volatile void *p, unsigned long long v, int order) {
     (void)order;
+    uint32_t f = tb_irq_save();
     unsigned long long old = *(volatile unsigned long long *)p;
     *(volatile unsigned long long *)p = old + v;
+    tb_irq_restore(f);
     return old;
 }
 size_t strlen(const char *s) { const char *p = s; while (*p) p++; return (size_t)(p - s); }
@@ -157,6 +268,13 @@ static double strtod(const char *s, char **end) {
 }
 // деление 64-битных чисел на 32-битном процессоре: этих функций без libgcc нет
 unsigned long long __udivmoddi4(unsigned long long a, unsigned long long b, unsigned long long *rem) {
+    // делитель влезает в 32 бита (почти всегда): две команды divl процессора вместо 64 шагов
+    if ((b >> 32) == 0 && b != 0) {
+        uint32_t d = (uint32_t)b, hi = (uint32_t)(a >> 32), lo = (uint32_t)a, qh = hi / d, rh = hi % d, ql, rl;
+        __asm__("divl %4" : "=a"(ql), "=d"(rl) : "a"(lo), "d"(rh), "rm"(d));
+        if (rem) *rem = rl;
+        return ((unsigned long long)qh << 32) | ql;
+    }
     unsigned long long q = 0, r = 0;
     for (int i = 63; i >= 0; i--) {
         r = (r << 1) | ((a >> i) & 1);
@@ -188,6 +306,12 @@ static int tb_vfmt(char *out, size_t cap, const char *f, va_list ap) {
         while (*f == 'l') { ll++; f++; }
         if (*f == 's') { const char *s = va_arg(ap, const char *); while (*s) TB_O(*s++); }
         else if (*f == 'c') TB_O((char)va_arg(ap, int));
+        else if (*f == 'x') {
+            unsigned long long u = ll >= 2 ? va_arg(ap, unsigned long long) : ll == 1 ? va_arg(ap, unsigned long) : va_arg(ap, unsigned int);
+            char d[24]; int k = 0;
+            do { d[k++] = "0123456789abcdef"[u % 16]; u /= 16; } while (u);
+            while (k) TB_O(d[--k]);
+        }
         else if (*f == 'd') {
             long long v = ll >= 2 ? va_arg(ap, long long) : ll == 1 ? va_arg(ap, long) : va_arg(ap, int);
             char d[24]; int k = 0;
@@ -237,27 +361,330 @@ static int fclose(FILE *f) { (void)f; return 0; }
 static size_t fread(void *b, size_t s, size_t n, FILE *f) { (void)b; (void)s; (void)n; (void)f; return 0; }
 static int getchar(void) { return EOF; }
 static int system(const char *c) { (void)c; return -1; }
-// одно ядро: «потоки» выполняются сразу, по очереди
+// ---------- ядро: прерывания, таймер, клавиатура, задачи, страницы памяти ----------
+// on all cores здесь выполняется на одном ядре по очереди (как и было),
+// а background — настоящая задача: таймер переключает задачи каждые 10 мс.
 static long sysconf(int n) { (void)n; return 1; }
 static int pthread_create(pthread_t *t, void *a, void *(*run)(void *), void *arg) { (void)t; (void)a; run(arg); return 0; }
 static int pthread_join(pthread_t t, void **r) { (void)t; (void)r; return 0; }
 
-// загрузка: заголовок multiboot (его ищут QEMU и GRUB), свой стек, потом tb_kstart
-__attribute__((section(".multiboot"), used, aligned(4)))
-static const unsigned int tb_multiboot[3] = {0x1BADB002u, 0u, (unsigned int)-0x1BADB002};
-static unsigned char tb_stack[1 << 20] __attribute__((aligned(16), used));
+// адреса из файла сборки (link.ld): где код, где кончается нижняя память, где куча
+extern char tb_code_start[], tb_code_end[], tb_tls_start[], tb_tls_end[], tb_heap_area[], tb_kernel_end[];
+static unsigned char tb_stack[1 << 20] __attribute__((aligned(4096), used));
 void tb_kmain(void);
-__attribute__((used)) void tb_kstart(void) {
+
+// авария ядра: красным на экран и в порт, потом стоп
+__attribute__((noreturn)) static void tb_panic(const char *what, uint32_t a, uint32_t b) {
+    __asm__ volatile("cli");
+    char buf[160];
+    snprintf(buf, sizeof buf, "\n*** ядро остановлено: %s (0x%x, 0x%x)\n", what, a, b);
+    fputs(buf, stderr);
+    exit(3);
+}
+
+// --- таблица сегментов: всё плоское, от 0 до 4 ГБ ---
+static uint64_t tb_gdt[5] = {0, 0x00CF9A000000FFFFULL, 0x00CF92000000FFFFULL, 0, 0};
+// двойная ошибка (например, стек упёрся в сторожа и обработчику некуда класть) идёт
+// через отдельную «задачу процессора» со своим стеком — так ядро успевает сказать, что случилось
+static uint32_t tb_tss_main[26], tb_tss_df[26];
+static unsigned char tb_df_stack[8192] __attribute__((aligned(16)));
+static uint64_t tb_tss_desc(uint32_t base) {
+    return 103ull | ((uint64_t)(base & 0xFFFFFFu) << 16) | (0x89ull << 40) | ((uint64_t)(base >> 24) << 56);
+}
+static uint64_t tb_idt[256];
+static struct __attribute__((packed)) { uint16_t lim; uint32_t base; } tb_gdtr, tb_idtr;
+
+// 49 входов: 0..31 ошибки процессора, 32..47 железо (таймер, клавиатура ...), 48 — «уступить ход»
+extern char tb_isr_base[];
+__asm__(".text\n.balign 16\n.global tb_isr_base\ntb_isr_base:\n"
+        ".set tb_v, 0\n.rept 49\n.balign 16\n"
+        ".if (tb_v == 8) || (tb_v == 10) || (tb_v == 11) || (tb_v == 12) || (tb_v == 13) || (tb_v == 14) || (tb_v == 17) || (tb_v == 21)\n"
+        ".else\npushl $0\n.endif\npushl $tb_v\njmp tb_isr_common\n.set tb_v, tb_v + 1\n.endr\n"
+        "tb_isr_common:\ncld\npusha\npushl %esp\ncall tb_isr\nmovl %eax, %esp\npopa\naddl $8, %esp\niret\n");
+
+// --- память задач: у каждой свои «переменные потока» (temp, кэш длины) и регистры дробей ---
+#define TB_TLS_MAX 512
+#define TB_NTASK 32
+#define TB_TSTACK 65536
+typedef struct { pthread_t th; volatile int done; void *res; } tb_task;
+typedef struct {
+    uint32_t esp; int used; volatile int done;
+    void *(*run)(void *); void *arg; tb_task *t;
+    unsigned char tls[TB_TLS_MAX]; unsigned char fpu[108];
+} tb_kslot;
+static tb_kslot tb_slots[TB_NTASK];          // 0 — main
+static unsigned char tb_tstacks[TB_NTASK][TB_TSTACK] __attribute__((aligned(4096)));
+static int tb_cur = 0, tb_nlive = 1, tb_slice = 10, tb_in_irq = 0;
+static unsigned char tb_tls_zero[TB_TLS_MAX], tb_fpu_init[108];
+static unsigned char tb_irq_tls[TB_TLS_MAX];
+static volatile uint64_t tb_ms = 0;
+static void (*tb_irq_fn[16])(void);
+static uint16_t tb_pic_mask = 0xFFFF;
+static uint32_t tb_tls_size(void) { return (uint32_t)(tb_tls_end - tb_tls_start); }
+
+static void tb_pic_apply(void) { tb_outb(0x21, (unsigned char)tb_pic_mask); tb_outb(0xA1, (unsigned char)(tb_pic_mask >> 8)); }
+static void tb_irq_set(int v, void (*fn)(void)) {
+    tb_irq_fn[v - 32] = fn;
+    tb_pic_mask &= (uint16_t)~(1u << (v - 32));
+    if (v >= 40) tb_pic_mask &= (uint16_t)~(1u << 2);
+    tb_pic_apply();
+}
+static void tb_irq_on(void) { __asm__ volatile("sti" ::: "memory"); }
+static void tb_irq_off(void) { __asm__ volatile("cli" ::: "memory"); }
+static void tb_yield(void) { if (!tb_in_irq) __asm__ volatile("int $48" ::: "memory"); }
+
+// переключение задач: сохранить «переменные потока» и дроби текущей, взять следующей
+static uint32_t tb_schedule(uint32_t esp) {
+    if (tb_nlive <= 1 && !tb_slots[tb_cur].done) return esp;
+    int n = tb_cur;
+    for (int k = 1; k <= TB_NTASK; k++) {
+        int j = (tb_cur + k) % TB_NTASK;
+        if (tb_slots[j].used && !tb_slots[j].done) { n = j; break; }
+    }
+    tb_kslot *c = &tb_slots[tb_cur];
+    if (n == tb_cur) return esp;
+    c->esp = esp;
+    memcpy(c->tls, tb_tls_start, tb_tls_size());
+    __asm__ volatile("fnsave %0" : "=m"(c->fpu));
+    if (c->done) { c->used = 0; tb_nlive--; }
+    tb_cur = n;
+    memcpy(tb_tls_start, tb_slots[n].tls, tb_tls_size());
+    __asm__ volatile("frstor %0" : : "m"(tb_slots[n].fpu));
+    tb_slice = 10;
+    return tb_slots[n].esp;
+}
+static void tb_task_entry(void) {
+    tb_kslot *s = &tb_slots[tb_cur];
+    s->run(s->arg);
+    __asm__ volatile("cli");
+    s->t->done = 1;
+    s->done = 1;
+    for (;;) __asm__ volatile("int $48");
+}
+static void tb_task_start(tb_task *t, void *(*run)(void *), void *arg) {
+    uint32_t f = tb_irq_save();
+    int i = 1;
+    while (i < TB_NTASK && tb_slots[i].used) i++;
+    if (i == TB_NTASK) tb_panic("больше 31 задачи background сразу", 0, 0);
+    tb_kslot *s = &tb_slots[i];
+    s->used = 1; s->done = 0; s->run = run; s->arg = arg; s->t = t;
+    t->done = 0; t->th = i;
+    memcpy(s->tls, tb_tls_zero, TB_TLS_MAX);
+    memcpy(s->fpu, tb_fpu_init, 108);
+    // стек задачи выглядит так, будто её прервали прямо перед tb_task_entry
+    uint32_t *sp = (uint32_t *)(tb_tstacks[i] + TB_TSTACK);
+    *--sp = 0x202; *--sp = 0x08; *--sp = (uint32_t)tb_task_entry; *--sp = 0; *--sp = 0;
+    for (int k = 0; k < 8; k++) *--sp = 0;
+    s->esp = (uint32_t)sp;
+    tb_nlive++;
+    tb_irq_restore(f);
+}
+// a.wait: пока задача работает, отдаём ход другим
+static void *tb_wait(tb_task *t) {
+    if (tb_in_irq && !t->done) tb_panic("wait внутри прерывания нельзя", 0, 0);
+    while (!t->done) tb_yield();
+    return t->res;
+}
+
+// --- время ---
+static long long tb_uptime_ms(void) { uint32_t f = tb_irq_save(); uint64_t v = tb_ms; tb_irq_restore(f); return (long long)v; }
+static void tb_wait_ms(long long n) {
+    if (tb_in_irq) tb_panic("wait_ms внутри прерывания нельзя: прерывание должно быть коротким", 0, 0);
+    long long end = tb_uptime_ms() + n;
+    while (tb_uptime_ms() < end) {
+        if (tb_nlive > 1) tb_yield();
+        else __asm__ volatile("sti; hlt" ::: "memory");
+    }
+}
+
+// --- клавиатура: буквы копятся в очереди, read_key() берёт по одной ---
+static const char tb_kmap[2][58] = {
+    {0, 27, '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', '\b', '\t',
+     'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']', '\n', 0,
+     'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', '\'', '`', 0, '\\',
+     'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/', 0, '*', 0, ' '},
+    {0, 27, '!', '@', '#', '$', '%', '^', '&', '*', '(', ')', '_', '+', '\b', '\t',
+     'Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P', '{', '}', '\n', 0,
+     'A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', ':', '"', '~', 0, '|',
+     'Z', 'X', 'C', 'V', 'B', 'N', 'M', '<', '>', '?', 0, '*', 0, ' '}};
+static char tb_keys[256];
+static volatile unsigned char tb_khead = 0, tb_ktail = 0;
+static int tb_kshift = 0;
+static char tb_ktext[256][2];
+static void tb_key_irq(void) {
+    unsigned char sc = tb_inb(0x60);
+    if (sc == 0x2A || sc == 0x36) { tb_kshift = 1; return; }
+    if (sc == 0xAA || sc == 0xB6) { tb_kshift = 0; return; }
+    if (sc >= 58) return;
+    char ch = tb_kmap[tb_kshift][sc];
+    if (ch == 0 || (unsigned char)(tb_khead + 1) == tb_ktail) return;
+    tb_keys[tb_khead] = ch;
+    tb_khead = (unsigned char)(tb_khead + 1);
+}
+static const char *tb_read_key(void) {
+    uint32_t f = tb_irq_save();
+    const char *r = "";
+    if (tb_ktail != tb_khead) { r = tb_ktext[(unsigned char)tb_keys[tb_ktail]]; tb_ktail = (unsigned char)(tb_ktail + 1); }
+    tb_irq_restore(f);
+    return r;
+}
+
+// --- страницы памяти: адрес 0 и код защищены, у стеков — пустая страница-сторож ---
+#define TB_LOW_TABLES 8
+static uint32_t tb_pd[1024] __attribute__((aligned(4096)));
+static uint32_t tb_pt[TB_LOW_TABLES][1024] __attribute__((aligned(4096)));
+static uint32_t tb_ram_end = 0, tb_pg_next = 0, tb_pg_free = 0;
+static void tb_unmap(uint32_t a) { tb_pt[a >> 22][(a >> 12) & 1023] = 0; }
+static int tb_is_guard(uint32_t a) {
+    if (a >= (uint32_t)tb_stack && a < (uint32_t)tb_stack + 4096) return 1;
+    for (int i = 1; i < TB_NTASK; i++)
+        if (a >= (uint32_t)tb_tstacks[i] && a < (uint32_t)tb_tstacks[i] + 4096) return 1;
+    return 0;
+}
+static void tb_paging_init(void) {
+    uint32_t low = (uint32_t)tb_heap_area;
+    if (low > TB_LOW_TABLES * 0x400000u) tb_panic("ядро слишком большое для нижних страниц", low, 0);
+    if (tb_ram_end < (uint32_t)tb_kernel_end + 0x400000u) tb_panic("мало памяти: запусти qemu с -m 256", tb_ram_end, (uint32_t)tb_kernel_end);
+    for (uint32_t a = 0; a < low; a += 4096) {
+        uint32_t flags = 3;                                   // есть, можно писать
+        if (a >= (uint32_t)tb_code_start && a < (uint32_t)tb_code_end) flags = 1;   // код: только читать
+        tb_pt[a >> 22][(a >> 12) & 1023] = a | flags;
+    }
+    tb_unmap(0);                                              // адрес 0: «пустая ссылка»
+    tb_unmap((uint32_t)tb_stack);                             // сторож под стеком main
+    for (int i = 1; i < TB_NTASK; i++) tb_unmap((uint32_t)tb_tstacks[i]);
+    for (uint32_t t = 0; t < low >> 22; t++) tb_pd[t] = (uint32_t)tb_pt[t] | 3;
+    // выше — большие страницы по 4 МБ: куча и свободная память (меньше промахов TLB, быстрее)
+    for (uint32_t a = low; a < tb_ram_end && a >= low; a += 0x400000u) tb_pd[a >> 22] = a | 0x83;
+    __asm__ volatile("movl %%cr4, %%eax\norl $0x10, %%eax\nmovl %%eax, %%cr4\n"
+                     "movl %0, %%cr3\n"
+                     "movl %%cr0, %%eax\norl $0x80010000, %%eax\nmovl %%eax, %%cr0\n" : : "r"(tb_pd) : "eax", "memory");
+    tb_pg_next = (uint32_t)tb_kernel_end;
+}
+static long long tb_page_new(void) {
+    uint32_t f = tb_irq_save(), p = 0;
+    if (tb_pg_free) { p = tb_pg_free; tb_pg_free = *(uint32_t *)p; }
+    else if (tb_pg_next + 4096 <= tb_ram_end) { p = tb_pg_next; tb_pg_next += 4096; }
+    tb_irq_restore(f);
+    if (p == 0) tb_panic("свободные страницы памяти кончились", tb_ram_end, 0);
+    memset((void *)p, 0, 4096);
+    return p;
+}
+static void tb_page_free(long long a) {
+    uint32_t p = (uint32_t)a;
+    if ((p & 4095) || p < (uint32_t)tb_kernel_end || p >= tb_pg_next) tb_panic("page_free: это не страница из page_new", p, 0);
+    uint32_t f = tb_irq_save();
+    *(uint32_t *)p = tb_pg_free;
+    tb_pg_free = p;
+    tb_irq_restore(f);
+}
+
+// --- ошибки процессора ---
+static const char *tb_fault_name[32] = {"деление на ноль", "отладка", "NMI", "точка останова", "переполнение",
+    "выход за границы", "неизвестная команда", "нет FPU", "двойная ошибка", "", "плохой TSS", "нет сегмента",
+    "ошибка стека", "нарушение защиты", "ошибка страницы", "", "ошибка дробей", "выравнивание", "проверка железа", "ошибка SIMD"};
+static void tb_fault(uint32_t v, uint32_t *f) {
+    uint32_t eip = f[10];
+    if (v == 14) {
+        uint32_t a;
+        __asm__ volatile("movl %%cr2, %0" : "=r"(a));
+        if (a < 4096) tb_panic("обращение по пустому адресу (адрес 0)", a, eip);
+        if (tb_is_guard(a)) tb_panic("стек переполнен: слишком глубокая рекурсия", a, eip);
+        if ((f[9] & 2) && a >= (uint32_t)tb_code_start && a < (uint32_t)tb_code_end) tb_panic("запись в код программы", a, eip);
+        tb_panic("обращение к памяти, которой нет", a, eip);
+    }
+    tb_panic(v < 20 && tb_fault_name[v][0] ? tb_fault_name[v] : "ошибка процессора", v, eip);
+}
+
+__attribute__((noreturn)) static void tb_double_fault(void) {
+    uint32_t a;
+    __asm__ volatile("movl %%cr2, %0" : "=r"(a));
+    if (tb_is_guard(a)) tb_panic("стек переполнен: слишком глубокая рекурсия", a, 0);
+    tb_panic("двойная ошибка процессора", a, 0);
+}
+
+// все прерывания приходят сюда; ответ — стек, на который вернуться (так переключаются задачи)
+__attribute__((used)) static uint32_t tb_isr(uint32_t *f) {
+    uint32_t v = f[8];
+    if (v < 32) tb_fault(v, f);
+    if (v == 48) return tb_schedule((uint32_t)f);
+    int irq = (int)v - 32;
+    if (irq == 0) tb_ms++;
+    if (irq == 1) tb_key_irq();
+    if (tb_irq_fn[irq]) {
+        // своя функция прерывания: со своими «переменными потока», дроби задачи не трогает
+        unsigned char save_tls[TB_TLS_MAX], save_fpu[108];
+        uint32_t n = tb_tls_size();
+        memcpy(save_tls, tb_tls_start, n);
+        memcpy(tb_tls_start, tb_irq_tls, n);
+        __asm__ volatile("fnsave %0" : "=m"(save_fpu));
+        tb_in_irq = 1;
+        tb_irq_fn[irq]();
+        tb_in_irq = 0;
+        __asm__ volatile("frstor %0" : : "m"(save_fpu));
+        memcpy(tb_irq_tls, tb_tls_start, n);
+        memcpy(tb_tls_start, save_tls, n);
+    }
+    if (irq >= 8) tb_outb(0xA0, 0x20);
+    tb_outb(0x20, 0x20);
+    if (irq == 0 && tb_nlive > 1 && --tb_slice <= 0) return tb_schedule((uint32_t)f);
+    return (uint32_t)f;
+}
+
+// загрузка: заголовок multiboot (флаг 2: «скажи, сколько памяти»), свой стек, потом tb_kstart
+__attribute__((section(".multiboot"), used, aligned(4)))
+static const unsigned int tb_multiboot[3] = {0x1BADB002u, 2u, (unsigned int)-(0x1BADB002 + 2)};
+__attribute__((used)) static void tb_kstart(uint32_t magic, uint32_t *mbi) {
     __asm__ volatile("fninit");
+    __asm__ volatile("fnsave %0\nfninit" : "=m"(tb_fpu_init));
     // COM1: 115200 бод, 8 бит
     tb_outb(0x3F8 + 1, 0x00); tb_outb(0x3F8 + 3, 0x80); tb_outb(0x3F8 + 0, 0x01);
     tb_outb(0x3F8 + 1, 0x00); tb_outb(0x3F8 + 3, 0x03); tb_outb(0x3F8 + 2, 0xC7);
+    tb_vga_font();
     for (int i = 0; i < 80 * 25; i++) tb_vga[i] = (unsigned short)(tb_vcolor << 8 | ' ');
     tb_outb(0x3D4, 0x0A); tb_outb(0x3D5, 0x20);  // мигающий курсор не нужен
+    tb_ram_end = 128u << 20;
+    if (magic == 0x2BADB002u && (mbi[0] & 1)) tb_ram_end = (1u << 20) + mbi[2] * 1024u;
+    if (tb_ram_end > 0xFFC00000u || tb_ram_end < (1u << 20)) tb_ram_end = 0xFFC00000u;
+    if (tb_tls_size() > TB_TLS_MAX) tb_panic("переменных потока больше, чем место для них", tb_tls_size(), 0);
+    memcpy(tb_tls_zero, tb_tls_start, tb_tls_size());
+    memcpy(tb_irq_tls, tb_tls_start, tb_tls_size());
+    for (int i = 0; i < 256; i++) { tb_ktext[i][0] = (char)i; tb_ktext[i][1] = 0; }
+    // сегменты
+    tb_gdt[3] = tb_tss_desc((uint32_t)tb_tss_main);
+    tb_gdt[4] = tb_tss_desc((uint32_t)tb_tss_df);
+    tb_tss_df[7] = (uint32_t)tb_pd;                        // cr3
+    tb_tss_df[8] = (uint32_t)tb_double_fault;              // eip
+    tb_tss_df[9] = 0x2;                                    // eflags
+    tb_tss_df[14] = (uint32_t)(tb_df_stack + sizeof tb_df_stack);   // esp
+    tb_tss_df[19] = 0x08;                                  // cs
+    tb_tss_df[18] = tb_tss_df[20] = tb_tss_df[21] = tb_tss_df[22] = tb_tss_df[23] = 0x10;   // es ss ds fs gs
+    tb_gdtr.lim = sizeof tb_gdt - 1; tb_gdtr.base = (uint32_t)tb_gdt;
+    __asm__ volatile("lgdt %0\nljmp $0x08, $1f\n1:\nmovw $0x10, %%ax\nmovw %%ax, %%ds\nmovw %%ax, %%es\n"
+                     "movw %%ax, %%fs\nmovw %%ax, %%gs\nmovw %%ax, %%ss\n" : : "m"(tb_gdtr) : "eax", "memory");
+    // прерывания
+    for (int v = 0; v < 49; v++) {
+        uint32_t a = (uint32_t)tb_isr_base + 16u * (uint32_t)v;
+        tb_idt[v] = (a & 0xFFFFu) | (0x08ull << 16) | (0x8Eull << 40) | ((uint64_t)(a >> 16) << 48);
+    }
+    tb_idt[8] = (0x20ull << 16) | (0x85ull << 40);         // двойная ошибка → своя задача
+    tb_idtr.lim = sizeof tb_idt - 1; tb_idtr.base = (uint32_t)tb_idt;
+    __asm__ volatile("lidt %0" : : "m"(tb_idtr));
+    __asm__ volatile("ltr %w0" : : "r"(0x18));
+    // контроллер прерываний: железо 0..15 → 32..47; таймер и клавиатура открыты
+    tb_outb(0x20, 0x11); tb_outb(0xA0, 0x11); tb_outb(0x21, 0x20); tb_outb(0xA1, 0x28);
+    tb_outb(0x21, 0x04); tb_outb(0xA1, 0x02); tb_outb(0x21, 0x01); tb_outb(0xA1, 0x01);
+    tb_pic_mask = 0xFFFF & ~0x3u;
+    tb_pic_apply();
+    // таймер: 1000 раз в секунду
+    tb_outb(0x43, 0x36); tb_outb(0x40, 1193182 / 1000 & 0xFF); tb_outb(0x40, (1193182 / 1000) >> 8);
+    tb_paging_init();
+    tb_slots[0].used = 1;
+    __asm__ volatile("sti");
     tb_kmain();
     exit(0);
 }
-__asm__(".text\n.global _start\n_start:\n  mov $tb_stack + 1048576, %esp\n  call tb_kstart\n1: cli\n  hlt\n  jmp 1b\n");
+__asm__(".text\n.global _start\n_start:\n  movl $tb_stack + 1048576, %esp\n  pushl %ebx\n  pushl %eax\n  call tb_kstart\n1: cli\n  hlt\n  jmp 1b\n");
 #else
 #include <stdio.h>
 #include <stdlib.h>
@@ -265,6 +692,8 @@ __asm__(".text\n.global _start\n_start:\n  mov $tb_stack + 1048576, %esp\n  call
 #include <math.h>
 #include <pthread.h>
 #include <unistd.h>
+#include <stdint.h>
+#include <sched.h>
 #endif
 
 // подсказки для clang / gcc: ошибка бывает редко, а tb_crash не возвращается
@@ -1005,6 +1434,7 @@ static void *tb_cold_mem(long long n) {
     return r;
 }
 // ---------- background: работа в своём потоке ----------
+#ifndef TB_BARE
 typedef struct { pthread_t th; int done; void *res; } tb_task;
 static void tb_task_start(tb_task *t, void *(*run)(void *), void *arg) {
     t->done = 0;
@@ -1015,6 +1445,7 @@ static void *tb_wait(tb_task *t) {
     if (!t->done) { pthread_join(t->th, 0); t->done = 1; }
     return t->res;
 }
+#endif
 static int tb_dhas(tb_dict *d, const void *k) { return tb_dfind(d, k) >= 0; }
 static void tb_dremove(tb_dict *d, const void *k) {
     long long at = tb_dfind(d, k);
@@ -1062,3 +1493,51 @@ static long long tb_par_step(long long total) {
     long long s = total / ((long long)tb_cores() * 16);
     return s < 1 ? 1 : s;
 }
+
+// ---------- биты, адреса, порты, замки (danger и lock) ----------
+static inline long long tb_band(long long a, long long b) { return a & b; }
+static inline long long tb_bor(long long a, long long b) { return a | b; }
+static inline long long tb_bxor(long long a, long long b) { return a ^ b; }
+static inline long long tb_bnot(long long a) { return ~a; }
+static inline long long tb_shl(long long a, long long n) { return (long long)((unsigned long long)a << (n & 63)); }
+static inline long long tb_shr(long long a, long long n) { return (long long)((unsigned long long)a >> (n & 63)); }
+// чтение и запись по адресу: volatile — компилятор C не выкинет и не переставит их
+static inline long long tb_rd8(long long a) { return *(volatile uint8_t *)(uintptr_t)a; }
+static inline long long tb_rd16(long long a) { return *(volatile uint16_t *)(uintptr_t)a; }
+static inline long long tb_rd32(long long a) { return *(volatile uint32_t *)(uintptr_t)a; }
+static inline long long tb_rd64(long long a) { return (long long)*(volatile uint64_t *)(uintptr_t)a; }
+static inline void tb_wr8(long long a, long long v) { *(volatile uint8_t *)(uintptr_t)a = (uint8_t)v; }
+static inline void tb_wr16(long long a, long long v) { *(volatile uint16_t *)(uintptr_t)a = (uint16_t)v; }
+static inline void tb_wr32(long long a, long long v) { *(volatile uint32_t *)(uintptr_t)a = (uint32_t)v; }
+static inline void tb_wr64(long long a, long long v) { *(volatile uint64_t *)(uintptr_t)a = (uint64_t)v; }
+static inline long long tb_addr_of(tb_list *l) { return (long long)(uintptr_t)l->data; }
+#ifdef TB_BARE
+static inline long long tb_pin8(long long p) { return tb_inb((unsigned short)p); }
+static inline long long tb_pin16(long long p) { return tb_inw((unsigned short)p); }
+static inline long long tb_pin32(long long p) { return tb_inl((unsigned short)p); }
+static inline void tb_pout8(long long p, long long v) { tb_outb((unsigned short)p, (unsigned char)v); }
+static inline void tb_pout16(long long p, long long v) { tb_outw((unsigned short)p, (unsigned short)v); }
+static inline void tb_pout32(long long p, long long v) { tb_outl((unsigned short)p, (unsigned int)v); }
+// замок в ядре: одна команда xchg + прерывания выключены, пока замок у нас
+// (так прерывание не застрянет на замке, который держит прерванная задача)
+static inline unsigned long tb_lock_take(int *l) {
+    uint32_t f = tb_irq_save();
+    while (__atomic_exchange_n(l, 1, __ATOMIC_ACQUIRE)) { tb_irq_restore(f); tb_yield(); f = tb_irq_save(); }
+    return f;
+}
+static inline void tb_lock_give(int *l, unsigned long f) { __atomic_store_n(l, 0, __ATOMIC_RELEASE); tb_irq_restore((uint32_t)f); }
+#else
+// замок в программе: атомарный обмен; занято — сначала коротко ждём, потом уступаем ядро
+static inline unsigned long tb_lock_take(int *l) {
+    while (__atomic_exchange_n(l, 1, __ATOMIC_ACQUIRE)) {
+        for (int i = 0; __atomic_load_n(l, __ATOMIC_RELAXED); i++) {
+            if (i >= 64) sched_yield();
+#if defined(__x86_64__) || defined(__i386__)
+            else __builtin_ia32_pause();
+#endif
+        }
+    }
+    return 0;
+}
+static inline void tb_lock_give(int *l, unsigned long f) { (void)f; __atomic_store_n(l, 0, __ATOMIC_RELEASE); }
+#endif

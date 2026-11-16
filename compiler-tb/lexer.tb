@@ -4,7 +4,7 @@
 use errors
 
 modpub func is_command(word: text)
-    commands = ["func", "return", "gives", "if", "else", "each", "in", "count", "from", "to", "repeat", "times", "while", "skip", "stop", "const", "shared", "obj", "link", "int", "dec", "text", "bool", "and", "or", "not", "true", "false", "use", "modpub", "modpri", "temp", "together", "background", "danger", "by", "list", "dict", "fail", "try"]
+    commands = ["func", "return", "gives", "if", "else", "each", "in", "count", "from", "to", "repeat", "times", "while", "skip", "stop", "const", "shared", "obj", "link", "int", "dec", "text", "bool", "and", "or", "not", "true", "false", "use", "modpub", "modpri", "temp", "together", "background", "danger", "lock", "by", "list", "dict", "fail", "try"]
     each c in commands
         if c == word
             return true
@@ -21,6 +21,16 @@ func is_letter(c: int)
 
 func is_digit(c: int)
     return c >= 48 and c <= 57
+
+// цифра шестнадцатеричного числа: 0-9, a-f, A-F → 0..15, иначе -1
+func hex_digit(c: int)
+    if c >= 48 and c <= 57
+        return c - 48
+    if c >= 97 and c <= 102
+        return c - 87
+    if c >= 65 and c <= 70
+        return c - 55
+    return -1
 
 func add_token(c: Comp, kind: text, word: text, line: int)
     c.tokens.add(Token(kind: kind, word: word, line: line))
@@ -89,6 +99,14 @@ modpub func lex(c: Comp, src: text)
                     add_token(c, "command", word, line)
                 else
                     add_token(c, "name", word, line)
+            else if ch == 48 and (at(s, pos + 1) == 120 or at(s, pos + 1) == 88) and hex_digit(at(s, pos + 2)) >= 0
+                // 0xB8000: число в шестнадцатеричной записи (так пишут адреса железа)
+                pos += 2
+                value = 0
+                repeat while hex_digit(at(s, pos)) >= 0
+                    value = value * 16 + hex_digit(at(s, pos))
+                    pos += 1
+                add_token(c, "number", "" + value, line)
             else if is_digit(ch)
                 kind = "number"
                 repeat while is_digit(at(s, pos))

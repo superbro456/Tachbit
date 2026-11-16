@@ -1,0 +1,38 @@
+// ядро: много задач сразу, общий счётчик под замком, прерывание с текстом
+shared counter = int 0
+shared tick_text_len = int 0
+
+func on_tick() on timer
+    // прерывание собирает текст: у него своя временная память
+    s = "tick"
+    s += "-" + counter
+    tick_text_len = len(s)
+
+func bump(n: int) gives done: int
+    repeat n times
+        lock c
+            counter += 1
+        done += 1
+    return done
+
+func main()
+    jobs = list int
+    tasks_done = 0
+    a = background bump(20000)
+    b = background bump(20000)
+    c = background bump(20000)
+    d = background bump(20000)
+    tasks_done = a.wait + b.wait + c.wait + d.wait
+    print("done " + tasks_done + " counter " + counter)
+    wait_ms(5)
+    print("tick text ok " + (tick_text_len > 5))
+    // задач больше, чем слотов за всё время: слоты освобождаются
+    total = 0
+    count k from 1 to 100
+        t = background bump(10)
+        total += t.wait
+    print("reused slots " + total + " counter " + counter)
+    each n in [1, 2, 3] on all cores
+        lock c
+            counter += n
+    print("cores " + counter)

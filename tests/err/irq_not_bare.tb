@@ -1,0 +1,6 @@
+// 0.7: прерывания бывают только в ядре
+func tick() on timer
+    print("tick")
+
+func main()
+    print("hi")

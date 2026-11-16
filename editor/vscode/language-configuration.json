@@ -9,7 +9,7 @@
   ],
   "surroundingPairs": [["(", ")"], ["[", "]"], ["\"", "\""]],
   "indentationRules": {
-    "increaseIndentPattern": "^\\s*(func|if|else|each|count|repeat|obj|temp|together)\\b.*$",
+    "increaseIndentPattern": "^\\s*(func|if|else|each|count|repeat|obj|temp|together|danger|lock)\\b.*$",
     "decreaseIndentPattern": "^\\s*else\\b"
   },
   "onEnterRules": [],

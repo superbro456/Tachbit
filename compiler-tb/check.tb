@@ -107,8 +107,33 @@ func fits(want: int, got: int)
 // ---------- функции и obj ----------
 
 func is_builtin(name: text)
-    each b in ["print", "len", "round", "code", "char", "cut", "to_int", "to_dec", "read_file", "write_file", "input", "args", "split", "join", "find", "replace", "upper", "lower", "trim", "starts_with", "ends_with", "sort", "abs", "min", "max", "sqrt", "run", "exit", "file_exists"]
+    each b in ["print", "show", "len", "round", "code", "char", "cut", "to_int", "to_dec", "read_file", "write_file", "input", "args", "split", "join", "find", "replace", "upper", "lower", "trim", "starts_with", "ends_with", "sort", "abs", "min", "max", "sqrt", "run", "exit", "file_exists"]
         if b == name
+            return true
+    each b in kernel_builtins()
+        if b == name
+            return true
+    return false
+
+// для железа и ядер: биты (везде), адреса и порты (только в danger), время и клавиши (в ядре)
+func kernel_builtins() gives names: list text
+    names = ["bit_and", "bit_or", "bit_xor", "bit_not", "shift_left", "shift_right", "read8", "read16", "read32", "read64", "write8", "write16", "write32", "write64", "asm", "address_of", "port_in8", "port_in16", "port_in32", "port_out8", "port_out16", "port_out32", "page_new", "page_free", "interrupts_on", "interrupts_off", "uptime_ms", "wait_ms", "read_key", "yield"]
+    return names
+
+// только внутри danger
+func danger_only(name: text)
+    each w in ["read8", "read16", "read32", "read64", "write8", "write16", "write32", "write64", "asm", "address_of"]
+        if name == w
+            return true
+    each w in ["port_", "page_", "interrupts_"]
+        if starts_with(name, w)
+            return true
+    return false
+
+// только в ядре (tachbit bare): там есть порты, таймер и клавиатура
+func bare_only(name: text)
+    each w in ["port_", "page_", "interrupts_", "uptime_ms", "wait_ms", "read_key", "yield"]
+        if starts_with(name, w)
             return true
     return false
 
@@ -202,10 +227,14 @@ func resolve_type(c: Comp, t: Node) gives r: int
 // номер переменной в c.vars или -1
 func find_var(c: Comp, name: text)
     i = len(c.vars) - 1
-    repeat while i >= c.var_base
+    repeat while i >= c.var_base and i >= c.n_globals
         if c.vars[i].name == name
             return i
         i -= 1
+    // shared снаружи функций: видны везде
+    count g from 0 to c.n_globals - 1
+        if c.vars[g].name == name
+            return g
     return -1
 
 func name_is_free(c: Comp, name: text, line: int)
@@ -244,7 +273,7 @@ func loop_word(c: Comp)
 
 // внутри on all cores, и переменная номер v — снаружи цикла (но в этой же функции)
 func outside_par(c: Comp, v: int)
-    return c.par_base >= 0 and v >= 0 and v < c.par_base
+    return c.par_base >= 0 and v >= c.n_globals and v < c.par_base
 
 // переменная, от которой начинается место: u.tags[2] → u
 func root_var(c: Comp, n: Node) gives r: int
@@ -266,7 +295,7 @@ func capture(c: Comp, v: int)
 // Внутри temp видны только такие переменные снаружи, через которые нельзя
 // вынести временную память: числа, bool, текст (его нельзя менять) и списки/dict чисел.
 func outside_temp(c: Comp, v: int)
-    return c.temp_base >= 0 and v >= 0 and v < c.temp_base
+    return c.temp_base >= 0 and v >= c.n_globals and v < c.temp_base
 
 func is_plain(t: int)
     return t == 1 or t == 2 or t == 3
@@ -394,7 +423,51 @@ func builtin_args(c: Comp, n: Node, pattern: text, usage: text)
 
 func check_builtin(c: Comp, n: Node) gives r: int
     name = n.name
-    if name == "print"
+    if danger_only(name) and c.danger_depth == 0
+        error_at(c, n.line, name + " трогает железо напрямую: пиши его внутри блока danger", "")
+    if bare_only(name) and not c.bare
+        error_at(c, n.line, name + " работает только в ядре без ОС: собери файл командой tachbit bare", "")
+    if starts_with(name, "bit_") or starts_with(name, "shift_")
+        if name == "bit_not"
+            builtin_args(c, n, "i", "bit_not(число)")
+        else
+            builtin_args(c, n, "ii", name + "(a, b)")
+        return 1
+    if starts_with(name, "read") and danger_only(name)
+        builtin_args(c, n, "i", name + "(адрес)")
+        return 1
+    if starts_with(name, "write") and danger_only(name)
+        builtin_args(c, n, "ii", name + "(адрес, число)")
+        return 0
+    if starts_with(name, "port_in")
+        builtin_args(c, n, "i", name + "(порт)")
+        return 1
+    if starts_with(name, "port_out")
+        builtin_args(c, n, "ii", name + "(порт, число)")
+        return 0
+    if name == "asm"
+        if len(n.kids) != 1 or n.kids[0].kids[0].kind != "string"
+            error_at(c, n.line, "в asm пишется текст в кавычках сразу: asm(\"cli\")", "")
+        builtin_args(c, n, "t", "asm(\"команда\")")
+        return 0
+    if name == "address_of"
+        builtin_args(c, n, "x", "address_of(список)")
+        if not is_list(c, n.kids[0].ty)
+            error_at(c, n.line, "address_of даёт адрес данных списка: address_of(buf)", "")
+        return 1
+    if name == "page_new" or name == "uptime_ms"
+        builtin_args(c, n, "", name + "()")
+        return 1
+    if name == "page_free" or name == "wait_ms"
+        builtin_args(c, n, "i", name + "(число)")
+        return 0
+    if name == "interrupts_on" or name == "interrupts_off" or name == "yield"
+        builtin_args(c, n, "", name + "()")
+        return 0
+    if name == "read_key"
+        builtin_args(c, n, "", "read_key()  →  нажатая буква или \"\"")
+        return 4
+    if name == "print" or name == "show"
         count i from 0 to len(n.kids) - 1
             t = builtin_arg(c, n, i)
         return 0
@@ -604,14 +677,22 @@ func check_user_call(c: Comp, n: Node, fi: int) gives r: int
         saved_temp = c.temp_base
         saved_temp_loops = c.temp_loops
         saved_pieces = c.piece_depth
+        saved_danger = c.danger_depth
+        saved_lock = c.lock_depth
+        saved_lock_loops = c.lock_loops
         saved_loop_stack = c.loops
         fresh_loops = list Node
         c.loops = fresh_loops
         c.par_base = -1
         c.temp_base = -1
         c.piece_depth = 0
+        c.danger_depth = 0
+        c.lock_depth = 0
         c.var_base = len(c.vars)
         check_func(c, fi)
+        c.danger_depth = saved_danger
+        c.lock_depth = saved_lock
+        c.lock_loops = saved_lock_loops
         c.piece_depth = saved_pieces
         c.loops = saved_loop_stack
         c.par_base = saved_par
@@ -784,6 +865,8 @@ func check_expr(c: Comp, n: Node) gives r: int
     else if k == "dict"
         t = check_dict(c, n)
     else if k == "try"
+        if c.lock_depth > 0
+            error_at(c, n.line, "внутри lock try нельзя: пиши  or  или  else err", "")
         if c.par_base >= 0
             error_at(c, n.line, "внутри " + loop_word(c) + " try нельзя: ядро не может остановить всю функцию, пиши  or  или  else err", "")
         if c.temp_base >= 0
@@ -971,6 +1054,8 @@ func check_set(c: Comp, n: Node)
             error_at(c, n.line, "внутри " + loop_word(c) + " нельзя менять переменную снаружи: сделай её shared и меняй через += или -=", target.name)
         if op != "+=" and op != "-="
             error_at(c, n.line, "shared внутри on all cores меняется только через += или -=", target.name)
+    if r >= 0 and r < c.n_globals and (c.par_base >= 0 or c.par_vec) and c.lock_depth == 0
+        error_at(c, n.line, "общую shared-переменную внутри " + loop_word(c) + " меняют под замком: lock имя", target.name)
     t = check_value(c, n.kids[1])
     n.ty = to_ty
     if op == "="
@@ -1119,7 +1204,20 @@ func check_statement(c: Comp, n: Node)
         check_block(c, n.kids[0])
         c.temp_base = saved_base
         c.temp_loops = saved_loops
+    else if k == "danger"
+        c.danger_depth += 1
+        check_block(c, n.kids[0])
+        c.danger_depth -= 1
+    else if k == "lock"
+        saved_lock_loops = c.lock_loops
+        c.lock_loops = c.loop_depth
+        c.lock_depth += 1
+        check_block(c, n.kids[0])
+        c.lock_depth -= 1
+        c.lock_loops = saved_lock_loops
     else if k == "skip" or k == "stop"
+        if c.lock_depth > 0 and c.loop_depth == c.lock_loops
+            error_at(c, n.line, "skip и stop внутри lock работают только для циклов внутри lock: иначе замок останется закрытым", "")
         if c.loop_depth == 0
             error_at(c, n.line, "skip и stop пишутся только внутри цикла", "")
         if k == "stop" and c.par_base >= 0 and c.loop_depth == c.par_node.temp_no
@@ -1127,6 +1225,8 @@ func check_statement(c: Comp, n: Node)
         if c.temp_base >= 0 and c.loop_depth == c.temp_loops
             error_at(c, n.line, "skip и stop внутри temp работают только для циклов внутри temp", "")
     else if k == "return"
+        if c.lock_depth > 0
+            error_at(c, n.line, "внутри lock return нельзя: замок останется закрытым; сохрани число снаружи и выйди из блока", "")
         if c.par_base >= 0
             error_at(c, n.line, "внутри " + loop_word(c) + " return нельзя", "")
         if c.temp_base >= 0
@@ -1135,6 +1235,8 @@ func check_statement(c: Comp, n: Node)
             error_at(c, n.line, "внутри each ... by N return нельзя: сохрани число в переменную снаружи и выйди через stop", "")
         check_return(c, n)
     else if k == "fail"
+        if c.lock_depth > 0
+            error_at(c, n.line, "внутри lock fail нельзя: замок останется закрытым", "")
         if c.par_base >= 0
             error_at(c, n.line, "внутри " + loop_word(c) + " fail нельзя: пиши  or  или  else err", "")
         if c.temp_base >= 0
@@ -1452,6 +1554,32 @@ func resolve_params(c: Comp, params: Node)
         if p.has_tsyn
             p.ty = resolve_type(c, p.tsyn)
 
+// shared ticks = int 0  снаружи функций
+func check_global(c: Comp, g: Node)
+    if len(g.kids) != 1
+        error_at(c, g.line, "общей переменной сразу дают значение: shared ticks = int 0", g.name)
+    v = g.kids[0]
+    if v.kind == "unary" and len(v.kids) == 1
+        v = v.kids[0]
+    if v.kind != "number" and v.kind != "decimal" and v.kind != "bool"
+        error_at(c, g.line, "shared снаружи функций начинается с числа или true/false: shared ticks = int 0", g.name)
+    t = check_value(c, g.kids[0])
+    if g.has_tsyn
+        want = resolve_type(c, g.tsyn)
+        if not fits(want, t)
+            error_at(c, g.line, "значение другого типа", type_name(c, want))
+        t = want
+    if not is_plain(t)
+        error_at(c, g.line, "shared снаружи функций пока бывает только int, dec или bool", g.name)
+    count i from 0 to len(c.vars) - 1
+        if c.vars[i].name == g.name
+            error_at(c, g.line, "такая общая переменная уже есть", g.name)
+    if find_func(c, g.name) >= 0 or find_obj(c, g.name) >= 0 or is_builtin(g.name)
+        error_at(c, g.line, "это имя уже занято", g.name)
+    g.ty = t
+    c.vars.add(Var(name: g.name, type: t, depth: 0, is_shared: true))
+    c.globals.add(g)
+
 modpub func check(c: Comp, program: Node)
     t = simple_type(c, "none")
     t = simple_type(c, "int")
@@ -1507,6 +1635,25 @@ modpub func check(c: Comp, program: Node)
     main_node = c.funcs[main_func].node
     if len(main_node.kids[0].kids) != 0 or len(main_node.kids[2].kids) != 0
         error_at(c, main_node.line, "у main не бывает параметров и gives", "")
+    // shared снаружи функций: числа и да/нет, видны во всех функциях
+    each top in program.kids
+        if top.kind == "global"
+            c.file_name = top.file
+            check_global(c, top)
+    c.n_globals = len(c.vars)
+    // функции прерываний: только в ядре, без параметров и gives
+    each top in program.kids
+        if top.kind == "func" and top.irq != 0
+            c.file_name = top.file
+            if not c.bare
+                error_at(c, top.line, "прерывания бывают только в ядре без ОС: собери файл командой tachbit bare", top.name)
+            if top.irq < 32 or top.irq > 47
+                error_at(c, top.line, "номер прерывания железа: от 32 (таймер) до 47; 33 — клавиатура", "")
+            if len(top.kids[0].kids) != 0 or len(top.kids[2].kids) != 0
+                error_at(c, top.line, "у функции прерывания не бывает параметров и gives: её зовёт процессор", top.name)
+            each other in program.kids
+                if other.kind == "func" and other.irq == top.irq and other.name != top.name
+                    error_at(c, top.line, "на это прерывание уже есть функция", other.name)
     // 3) сначала main: так ярлыки link узнают свои типы по вызовам
     check_func(c, main_func)
     // 4) остальные функции; та, у которой ярлык ещё без типа, ждёт, пока её вызовет другая
@@ -1516,7 +1663,7 @@ modpub func check(c: Comp, program: Node)
         count i from 0 to len(c.funcs) - 1
             if c.funcs[i].state != 0 or not links_known(c.funcs[i].node)
                 skip
-            cut_vars(c, 0)
+            cut_vars(c, c.n_globals)
             c.depth = 0
             c.var_base = 0
             check_func(c, i)

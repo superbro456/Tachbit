@@ -483,7 +483,7 @@ func parse_name_statement(c: Comp) gives result: Node
     return n
 
 func later_command(c: Comp)
-    each w in ["gives", "obj", "danger", "by"]
+    each w in ["gives", "obj", "by"]
         if is_cmd(c, w)
             return true
     return false
@@ -538,6 +538,23 @@ func parse_statement(c: Comp) gives result: Node
         // temp: блок временной памяти, в конце всё созданное внутри удаляется разом
         n = new_node("temp", line)
         next(c)
+        expect_newline(c)
+        add_kid(n, parse_block(c))
+        return n
+    if is_cmd(c, "danger")
+        // danger: здесь можно трогать железо — адреса памяти, порты, ассемблер
+        n = new_node("danger", line)
+        next(c)
+        expect_newline(c)
+        add_kid(n, parse_block(c))
+        return n
+    if is_cmd(c, "lock")
+        // lock имя: этот блок в один момент выполняет только кто-то один
+        n = new_node("lock", line)
+        next(c)
+        if now(c).kind != "name"
+            error_at(c, line, "после lock пишется имя замка: lock counter", "")
+        n.name = expect_name(c)
         expect_newline(c)
         add_kid(n, parse_block(c))
         return n
@@ -615,6 +632,19 @@ func parse_func(c: Comp) gives result: Node
             if not is_sign(c, ",")
                 stop
             next(c)
+    if now(c).kind == "name" and now(c).word == "on"
+        // func key() on keyboard  /  on timer  /  on interrupt 36
+        next(c)
+        what = expect_name(c)
+        if what == "keyboard"
+            f.irq = 33
+        else if what == "timer"
+            f.irq = 32
+        else if what == "interrupt" and now(c).kind == "number"
+            f.irq = to_int(now(c).word) or 0
+            next(c)
+        else
+            error_at(c, line_now(c), "после on пишется keyboard, timer или interrupt номер", what)
     expect_newline(c)
     add_kid(f, params)
     add_kid(f, parse_block(c))
@@ -668,18 +698,28 @@ modpub func parse(c: Comp)
             add_kid(program, parse_func(c))
         else if is_cmd(c, "obj")
             add_kid(program, parse_obj(c))
+        else if is_cmd(c, "shared")
+            // shared ticks = int 0 снаружи функций: одна переменная на всю программу
+            line = line_now(c)
+            next(c)
+            if now(c).kind != "name" or not ahead_is_sign(c, "=")
+                error_at(c, line, "после shared пишется новая переменная: shared ticks = int 0", "")
+            g = parse_assign(c, false)
+            g.kind = "global"
+            g.is_shared = true
+            add_kid(program, g)
         else if is_cmd(c, "link")
             error_at(c, line_now(c), "подключение C-файлов через link будет в версии 0.9 (вместе с danger); файлы Tachbit подключает use", "")
         else if now(c).kind == "indent"
             error_at(c, line_now(c), "лишний отступ", "")
         else
-            error_at(c, line_now(c), "снаружи функций можно писать только use, func и obj", what_is_here(c))
+            error_at(c, line_now(c), "снаружи функций можно писать только use, func, obj и shared", what_is_here(c))
     return program
 
 // ---------- печать дерева (команда tree) ----------
 
 modpub func node_kind_name(kind: text)
-    names = {"program": "ПРОГРАММА", "func": "ФУНКЦИЯ", "param": "ПАРАМЕТР", "block": "БЛОК", "obj": "OBJ", "type": "ТИП", "assign": "ПРИСВОИТЬ", "set": "ИЗМЕНИТЬ", "linkdecl": "ЯРЛЫК", "multi": "НЕСКОЛЬКО", "if": "ЕСЛИ", "each": "EACH", "count": "COUNT", "repeat_times": "REPEAT TIMES", "repeat_while": "REPEAT WHILE", "skip": "SKIP", "stop": "STOP", "return": "RETURN", "expr_stmt": "ВЫЗОВ-СТРОКА", "number": "ЧИСЛО", "decimal": "ДРОБЬ", "string": "ТЕКСТ", "bool": "ДА/НЕТ", "name": "ИМЯ", "list": "СПИСОК", "call": "ВЫЗОВ", "arg": "АРГУМЕНТ", "binop": "ОПЕРАЦИЯ", "unary": "ОДИНОЧНАЯ", "index": "ИНДЕКС", "field": "КАЧЕСТВО", "method": "МЕТОД", "dict": "СЛОВАРЬ", "use": "USE", "fail": "FAIL", "try": "TRY", "else_err": "ELSE ERR", "temp": "TEMP", "together": "TOGETHER", "background": "BACKGROUND"}
+    names = {"program": "ПРОГРАММА", "func": "ФУНКЦИЯ", "param": "ПАРАМЕТР", "block": "БЛОК", "obj": "OBJ", "type": "ТИП", "assign": "ПРИСВОИТЬ", "set": "ИЗМЕНИТЬ", "linkdecl": "ЯРЛЫК", "multi": "НЕСКОЛЬКО", "if": "ЕСЛИ", "each": "EACH", "count": "COUNT", "repeat_times": "REPEAT TIMES", "repeat_while": "REPEAT WHILE", "skip": "SKIP", "stop": "STOP", "return": "RETURN", "expr_stmt": "ВЫЗОВ-СТРОКА", "number": "ЧИСЛО", "decimal": "ДРОБЬ", "string": "ТЕКСТ", "bool": "ДА/НЕТ", "name": "ИМЯ", "list": "СПИСОК", "call": "ВЫЗОВ", "arg": "АРГУМЕНТ", "binop": "ОПЕРАЦИЯ", "unary": "ОДИНОЧНАЯ", "index": "ИНДЕКС", "field": "КАЧЕСТВО", "method": "МЕТОД", "dict": "СЛОВАРЬ", "use": "USE", "fail": "FAIL", "try": "TRY", "else_err": "ELSE ERR", "temp": "TEMP", "together": "TOGETHER", "background": "BACKGROUND", "danger": "DANGER", "lock": "LOCK", "global": "SHARED"}
     return names[kind]
 
 modpub func tree_lines(n: Node, depth: int, out: list text)

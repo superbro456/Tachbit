@@ -1,0 +1,5 @@
+// 0.7: shared снаружи функций пока только числа и да/нет
+shared name = "Tachbit"
+
+func main()
+    print(name)

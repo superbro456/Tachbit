@@ -1,0 +1,4 @@
+// 0.7: порты железа есть только в ядре (tachbit bare)
+func main()
+    danger
+        port_out8(0x3F8, 65)

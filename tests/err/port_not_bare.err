@@ -1,0 +1,1 @@
+port_not_bare.tb, строка 4: port_out8 работает только в ядре без ОС: собери файл командой tachbit bare

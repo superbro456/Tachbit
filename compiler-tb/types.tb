@@ -53,6 +53,8 @@ obj Node
     is_cold: bool
     // переменные снаружи, которые видит цикл on all cores
     caps: list Var
+    // func ... on keyboard / on timer / on interrupt N: номер прерывания (0 — обычная функция)
+    irq: int
 
 // тип языка; хранится один раз, номер типа = место в списке Comp.types
 // kind = unknown / none / int / dec / bool / text / list / obj / multi / dict
@@ -152,3 +154,13 @@ obj Comp
     at_ret_ok: bool
     // режим «без ОС»: своё ядро, вывод на экран и в COM1, без malloc/printf
     bare: bool
+    // внутри danger (сколько блоков вокруг), внутри lock и сколько циклов было снаружи lock
+    danger_depth: int
+    lock_depth: int
+    lock_loops: int
+    // имена замков (lock имя) и прерывания (номер:функция C) для вывода
+    locks: list text
+    irqs: list text
+    // shared снаружи функций: первые n_globals переменных в vars — общие для всей программы
+    n_globals: int
+    globals: list Node

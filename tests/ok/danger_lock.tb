@@ -1,0 +1,41 @@
+// 0.7: danger (адреса, биты, 0x-числа), lock и shared снаружи функций
+shared total = int 0
+shared ready = bool false
+
+func add_part(from_n: int, to_n: int) gives s: int
+    count i from from_n to to_n
+        s += i
+    lock total_lock
+        total += s
+    return s
+
+func main()
+    print(0xFF + " " + 0x10 + " " + 0xB8000)
+    print(bit_and(0xF0, 0x3C) + " " + bit_or(1, 6) + " " + bit_xor(5, 3) + " " + bit_not(0))
+    print(shift_left(1, 10) + " " + shift_right(1024, 3) + " " + shift_right(-1, 60))
+    buf = list int
+    repeat 4 times
+        buf.add(0)
+    danger
+        a = address_of(buf)
+        write32(a, 0x12345678)
+        write8(a + 8, 255)
+        write16(a + 16, 0xBEEF)
+        write64(a + 24, -2)
+        print(read32(a) + " " + read8(a) + " " + read16(a + 16) + " " + read64(a + 24))
+        asm("nop")
+    print(buf[0] + " " + buf[1] + " " + buf[2] + " " + buf[3])
+    // lock: shared снаружи функций меняют под замком на всех ядрах
+    nums = list int
+    count i from 1 to 1000
+        nums.add(i)
+    each n in nums on all cores
+        lock sum_lock
+            total += n
+    print("total " + total)
+    a = background add_part(1, 100)
+    b = background add_part(101, 200)
+    print(a.wait + b.wait + " " + total)
+    ready = true
+    if ready
+        print("ready")

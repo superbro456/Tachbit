@@ -120,7 +120,7 @@ func emit_as_text(c: Comp, n: Node)
     emit_expr(c, n)
     put(c, ")")
 
-func emit_print(c: Comp, n: Node)
+func emit_print(c: Comp, n: Node, newline: bool)
     put(c, "(")
     count i from 0 to len(n.kids) - 1
         value = n.kids[i].kids[0]
@@ -129,6 +129,11 @@ func emit_print(c: Comp, n: Node)
         put(c, "tb_show_" + value.ty + "(")
         emit_q(c, value)
         put(c, ")")
+    if not newline
+        if len(n.kids) == 0
+            put(c, "0")
+        put(c, ")")
+        return
     if len(n.kids) > 0
         put(c, ", ")
     put(c, "tb_ps(\"\\n\"))")
@@ -147,8 +152,8 @@ func emit_args(c: Comp, n: Node, with_line: bool)
 
 func emit_builtin(c: Comp, n: Node)
     name = n.name
-    if name == "print"
-        emit_print(c, n)
+    if name == "print" or name == "show"
+        emit_print(c, n, name == "print")
         return
     if name == "args"
         put(c, "tb_args")
@@ -156,6 +161,15 @@ func emit_builtin(c: Comp, n: Node)
     if name == "input"
         put(c, "tb_input()")
         return
+    if name == "asm"
+        put(c, "__asm__ volatile(" + n.kids[0].kids[0].value + " ::: \"memory\")")
+        return
+    k_names = ["page_new", "uptime_ms", "interrupts_on", "interrupts_off", "yield", "read_key"]
+    k_c = ["tb_page_new", "tb_uptime_ms", "tb_irq_on", "tb_irq_off", "tb_yield", "tb_read_key"]
+    count j from 0 to len(k_names) - 1
+        if k_names[j] == name
+            put(c, k_c[j] + "()")
+            return
     a = n.kids[0].kids[0]
     if name == "len"
         k = kind_of(c, a.ty)
@@ -213,7 +227,7 @@ func emit_builtin(c: Comp, n: Node)
         put(c, ")")
         return
     // остальные: просто имя функции из runtime.h; с номером строки — те, что могут упасть
-    c_names = ["round", "tb_round", "0", "char", "tb_chr", "0", "cut", "tb_cut", "1", "code", "tb_code", "1", "to_int", "tb_to_int", "0", "to_dec", "tb_to_dec", "0", "read_file", "tb_read_file", "0", "write_file", "tb_write_file", "0", "split", "tb_split", "1", "join", "tb_join", "0", "find", "tb_find", "0", "replace", "tb_replace", "1", "upper", "tb_upper", "0", "lower", "tb_lower", "0", "trim", "tb_trim", "0", "starts_with", "tb_starts", "0", "ends_with", "tb_ends", "0", "run", "tb_run", "0", "exit", "tb_exit", "0", "file_exists", "tb_file_exists", "0"]
+    c_names = ["round", "tb_round", "0", "char", "tb_chr", "0", "cut", "tb_cut", "1", "code", "tb_code", "1", "to_int", "tb_to_int", "0", "to_dec", "tb_to_dec", "0", "read_file", "tb_read_file", "0", "write_file", "tb_write_file", "0", "split", "tb_split", "1", "join", "tb_join", "0", "find", "tb_find", "0", "replace", "tb_replace", "1", "upper", "tb_upper", "0", "lower", "tb_lower", "0", "trim", "tb_trim", "0", "starts_with", "tb_starts", "0", "ends_with", "tb_ends", "0", "run", "tb_run", "0", "exit", "tb_exit", "0", "file_exists", "tb_file_exists", "0", "bit_and", "tb_band", "0", "bit_or", "tb_bor", "0", "bit_xor", "tb_bxor", "0", "bit_not", "tb_bnot", "0", "shift_left", "tb_shl", "0", "shift_right", "tb_shr", "0", "read8", "tb_rd8", "0", "read16", "tb_rd16", "0", "read32", "tb_rd32", "0", "read64", "tb_rd64", "0", "write8", "tb_wr8", "0", "write16", "tb_wr16", "0", "write32", "tb_wr32", "0", "write64", "tb_wr64", "0", "address_of", "tb_addr_of", "0", "port_in8", "tb_pin8", "0", "port_in16", "tb_pin16", "0", "port_in32", "tb_pin32", "0", "port_out8", "tb_pout8", "0", "port_out16", "tb_pout16", "0", "port_out32", "tb_pout32", "0", "page_free", "tb_page_free", "0", "wait_ms", "tb_wait_ms", "0"]
     i = 0
     repeat while i < len(c_names)
         if c_names[i] == name
@@ -1329,6 +1343,27 @@ func emit_statement(c: Comp, n: Node, depth: int)
         put(c, "}\n")
     else if k == "together"
         emit_together(c, n, depth)
+    else if k == "danger"
+        indent(c, depth)
+        put(c, "{\n")
+        emit_block(c, n.kids[0], depth + 1)
+        indent(c, depth)
+        put(c, "}\n")
+    else if k == "lock"
+        // замок: в обычной программе — атомарный обмен; в ядре ещё и без прерываний на это время
+        c.label += 1
+        id = "" + c.label
+        if not bld_has(c.locks, n.name)
+            c.locks.add(n.name)
+        indent(c, depth)
+        put(c, "{\n")
+        indent(c, depth + 1)
+        put(c, "extern int tb_lk_" + n.name + "; unsigned long tb_lf" + id + " = tb_lock_take(&tb_lk_" + n.name + ");\n")
+        emit_block(c, n.kids[0], depth + 1)
+        indent(c, depth + 1)
+        put(c, "tb_lock_give(&tb_lk_" + n.name + ", tb_lf" + id + ");\n")
+        indent(c, depth)
+        put(c, "}\n")
     else if k == "temp"
         c.label += 1
         id = "" + c.label
@@ -1659,7 +1694,7 @@ func at_bad(c: Comp, n: Node, inner: list text, fresh: list text, level: int)
     k = n.kind
     if k == "return" and not c.at_ret_ok
         return true
-    if k == "fail" or k == "try" or k == "background" or k == "together" or k == "temp"
+    if k == "fail" or k == "try" or k == "background" or k == "together" or k == "temp" or k == "danger"
         return true
     if k == "stop" and level == 0
         return true
@@ -1993,6 +2028,14 @@ modpub func emit_c(c: Comp, program: Node)
     if c.bare
         put(c, "#define TB_BARE 1\n")
     put(c, runtime_text())
+    // shared снаружи функций; в ядре volatile: их меняют прерывания и задачи
+    each g in c.globals
+        if c.bare
+            put(c, "static volatile " + c_type(c, g.ty) + " v_" + g.name + " = ")
+        else
+            put(c, "static " + c_type(c, g.ty) + " v_" + g.name + " = ")
+        emit_as(c, g.kids[0], g.ty)
+        put(c, ";\n")
 
     // obj: сначала имена, потом устройство (obj может хранить другой obj)
     each top in program.kids
@@ -2043,8 +2086,13 @@ modpub func emit_c(c: Comp, program: Node)
     each top in program.kids
         if top.kind == "func" and top.name == "main" and top.mod == program.kids[0].mod
             main_func = top
+    each l in c.locks
+        put(c, "int tb_lk_" + l + " = 0;\n")
     if c.bare
         put(c, "\nvoid tb_kmain(void) {\n    tb_args = tb_list_new(sizeof(const char *));\n")
+        each top in program.kids
+            if top.kind == "func" and top.irq != 0
+                put(c, "    tb_irq_set(" + top.irq + ", " + fname(top) + ");\n")
         put(c, "    " + fname(main_func) + "();\n}\n")
         return
     put(c, "\nint main(int argc, char **argv) {\n")

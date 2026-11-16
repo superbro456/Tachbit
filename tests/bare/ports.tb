@@ -1,0 +1,19 @@
+// ядро: порты, show, yield, выключение прерываний
+func main()
+    show("port: ")
+    b = 0
+    danger
+        port_out8(0x3F8, code("O"))
+        port_out8(0x3F8, code("K"))
+        port_out8(0x3F8, 10)
+        interrupts_off()
+        a = uptime_ms()
+        repeat 3000000 times
+            yield()
+        b = uptime_ms()
+        interrupts_on()
+        print("frozen clock: " + (a == b))
+        lsr = port_in8(0x3F8 + 5)
+        print("serial ready: " + (bit_and(lsr, 0x20) != 0))
+    wait_ms(3)
+    print("clock runs: " + (uptime_ms() > b))

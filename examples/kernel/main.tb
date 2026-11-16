@@ -1,47 +1,90 @@
-// Первое ядро на Tachbit: работает без всякой ОС.
-// Сборка:  tachbit bare main.tb     Запуск:  qemu-system-i386 -kernel main.elf
+// Ядро на Tachbit: работает без всякой ОС.
+// Сборка и запуск:  ./tools/kernel.sh     (или: tachbit bare main.tb, потом qemu-system-i386 -kernel main.elf)
+// Русские буквы ядро рисует на экране своим шрифтом.
 
-obj Planet
-    name: text
-    moons: int
+// общие числа: их меняют прерывания и задачи
+shared ticks = int 0
+shared keys = int 0
+shared found_total = int 0
 
-func primes_up_to(n: int) gives found: list int
-    is_prime = list bool
-    repeat n + 1 times
-        is_prime.add(true)
-    count i from 2 to n
-        if is_prime[i]
-            found.add(i)
-            j = i * i
-            repeat while j <= n
-                is_prime[j] = false
-                j = j + i
+// таймер: процессор сам зовёт эту функцию 1000 раз в секунду
+func on_tick() on timer
+    ticks += 1
+
+// клавиатура: зовётся при каждом нажатии (сами буквы берёт read_key)
+func on_key() on keyboard
+    keys += 1
+
+func is_prime(n: int)
+    if n < 2
+        return false
+    d = 2
+    repeat while d * d <= n
+        if n % d == 0
+            return false
+        d += 1
+    return true
+
+// работа для задачи: считает простые числа на отрезке и добавляет в общий итог под замком
+func count_primes(from_n: int, to_n: int) gives found: int
+    count n from from_n to to_n
+        if is_prime(n)
+            found += 1
+    lock total
+        found_total += found
     return found
 
 func main()
-    print("Hello from Tachbit!")
-    print("No OS here: this kernel talks to the screen by itself.")
+    print("Привет из Tachbit! Здесь нет ОС: ядро само управляет машиной.")
     print("")
 
-    ps = primes_up_to(100)
-    line = ""
-    each p in ps
-        line += p + " "
-    print("Primes up to 100 (" + len(ps) + "): " + line)
+    // 1) danger: пишем прямо в память экрана (правый верхний угол, жёлтым)
+    danger
+        screen = 0xB8000
+        word = "TACHBIT"
+        count i from 0 to len(word) - 1
+            write16(screen + (72 + i) * 2, bit_or(shift_left(0x0E, 8), code(word[i])))
+    print("[danger]     TACHBIT записан прямо в память экрана (справа вверху)")
 
-    planets = list Planet
-    planets.add(Planet(name: "Earth", moons: 1))
-    planets.add(Planet(name: "Mars", moons: 2))
-    planets.add(Planet(name: "Jupiter", moons: 95))
-    total = int 0
-    each pl in planets
-        total = total + pl.moons
-        print("  " + pl.name + ": " + pl.moons + " moons")
-    print("All moons: " + total)
+    // 2) задачи: две работы идут одновременно, таймер переключает их каждые 10 мс
+    started = uptime_ms()
+    a = background count_primes(2, 150000)
+    b = background count_primes(150001, 300000)
+    print("[background] две задачи считают простые числа, main идёт дальше...")
+    both = a.wait + b.wait
+    print("[background] простых до 300000: " + both + " (под замком: " + found_total + "), " + (uptime_ms() - started) + " мс")
 
-    ages = dict text int
-    ages["kernel"] = 0
-    ages["tachbit"] = 1
-    print("dict works: tachbit = " + ages["tachbit"])
+    // 3) страницы памяти: берём страницу 4 КБ, пишем, читаем, отдаём
+    danger
+        page = page_new()
+        write32(page, 0xCAFE)
+        print("[страницы]   страница 4 КБ по адресу " + page + ", в ней " + read32(page))
+        page_free(page)
+
+    // 4) прерывание таймера считало само, пока мы работали
+    wait_ms(50)
+    print("[прерывания] таймер позвал нашу функцию " + ticks + " раз")
+
+    // 5) клавиатура: печатай (латиницей), Enter — конец (ждём 20 секунд)
     print("")
-    print("Done. Bye!")
+    show("Напиши что-нибудь и нажми Enter: ")
+    typed = ""
+    finish = uptime_ms() + 20000
+    repeat while uptime_ms() < finish
+        k = read_key()
+        if k == ""
+            wait_ms(5)
+            skip
+        if k == "\n"
+            stop
+        if k == "\b"
+            if len(typed) > 0
+                typed = cut(typed, 0, len(typed) - 2)
+                show(k)
+            skip
+        typed += k
+        show(k)
+    print("")
+    print("[клавиатура] набрано: " + typed + "  (прерываний клавиатуры: " + keys + ")")
+    print("")
+    print("Готово. Пока!")

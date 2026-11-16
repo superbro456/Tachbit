@@ -1,0 +1,8 @@
+// 0.7: return внутри lock оставил бы замок закрытым
+func f() gives n: int
+    lock a
+        return 5
+    return 0
+
+func main()
+    print(f())

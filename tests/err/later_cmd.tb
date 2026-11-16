@@ -1,3 +1,2 @@
 func main()
-    danger
-        x = 1
+    gives x

@@ -1,0 +1,7 @@
+// ядро: чтение по адресу 0 ловит защита страниц
+func main()
+    print("before")
+    danger
+        x = read32(0)
+        print(x)
+    print("never")

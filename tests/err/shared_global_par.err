@@ -1,0 +1,1 @@
+shared_global_par.tb, строка 7: общую shared-переменную внутри on all cores меняют под замком: lock имя: hits

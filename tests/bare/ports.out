@@ -1,0 +1,4 @@
+port: OK
+frozen clock: true
+serial ready: true
+clock runs: true

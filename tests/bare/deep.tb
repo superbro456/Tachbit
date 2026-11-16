@@ -1,0 +1,10 @@
+// ядро: слишком глубокая рекурсия в задаче упирается в страницу-сторож
+func down(n: int) gives r: int
+    if n == 0
+        return 0
+    return down(n - 1) % 7 + n
+
+func main()
+    print("before")
+    t = background down(100000000)
+    print(t.wait)

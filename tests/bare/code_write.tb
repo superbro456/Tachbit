@@ -1,0 +1,6 @@
+// ядро: код программы только для чтения
+func main()
+    print("before")
+    danger
+        write8(0x100000, 0)
+    print("never")

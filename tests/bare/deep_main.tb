@@ -1,0 +1,9 @@
+// ядро: глубокая рекурсия в main упирается в сторожа под главным стеком
+func down(n: int) gives r: int
+    if n == 0
+        return 0
+    return down(n - 1) % 7 + n
+
+func main()
+    print("before")
+    print(down(100000000))

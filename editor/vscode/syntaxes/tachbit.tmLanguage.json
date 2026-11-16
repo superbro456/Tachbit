@@ -36,7 +36,7 @@
     "keywords": {
       "patterns": [
         { "match": "\\b(if|else|each|in|count|from|to|repeat|times|while|skip|stop|return|gives|fail|try)\\b", "name": "keyword.control.tachbit" },
-        { "match": "\\b(on\\s+all\\s+cores|by\\s+vec|by|shared|temp|together|background|danger)\\b", "name": "keyword.other.speed.tachbit" },
+        { "match": "\\b(on\\s+all\\s+cores|by\\s+vec|by|shared|temp|together|background|danger|lock|on\\s+(keyboard|timer|interrupt))\\b", "name": "keyword.other.speed.tachbit" },
         { "match": "\\.(wait)\\b", "captures": { "1": { "name": "keyword.other.speed.tachbit" } } },
         { "match": "\\b(and|or|not)\\b", "name": "keyword.operator.word.tachbit" },
         { "match": "\\b(int|dec|text|bool|list|dict)\\b", "name": "storage.type.tachbit" },
@@ -45,7 +45,7 @@
         { "match": "\\b(print|len|round|code|char|cut|to_int|to_dec|read_file|write_file|input|args|split|join|find|replace|upper|lower|trim|starts_with|ends_with|sort|abs|min|max|sqrt|run|exit|file_exists)\\b(?=\\s*\\()", "name": "support.function.builtin.tachbit" }
       ]
     },
-    "numbers": { "match": "\\b[0-9]+(\\.[0-9]+)?\\b", "name": "constant.numeric.tachbit" },
+    "numbers": { "match": "\\b(0[xX][0-9a-fA-F]+|[0-9]+(\\.[0-9]+)?)\\b", "name": "constant.numeric.tachbit" },
     "calls": { "match": "\\b([A-Za-z_][A-Za-z0-9_]*)(?=\\s*\\()", "captures": { "1": { "name": "entity.name.function.call.tachbit" } } },
     "operators": { "match": "\\+=|-=|\\*=|/=|==|!=|<=|>=|[-+*/%<>=]", "name": "keyword.operator.tachbit" }
   }
