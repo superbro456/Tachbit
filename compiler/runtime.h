@@ -1813,7 +1813,12 @@ static const unsigned char tb_mac_keys[128] = {
     [76]=TB_K_ENTER,[123]=TB_K_LEFT,[124]=TB_K_RIGHT,[125]=TB_K_DOWN,[126]=TB_K_UP };
 // кадр отдаём слою окна готовой картинкой: масштаб под Retina делает видеокарта,
 // цвета в пространстве экрана — без пересчёта каждой точки
-static CGContextRef tb_cgctx = 0;
+// CGBitmapContextCreateImage делал копию при записи: каждая новая точка в кадре
+// стоила копии страницы памяти. Теперь три своих буфера по кругу: кадр копируется
+// одним memcpy, а картинка смотрит прямо в буфер, без копий внутри системы.
+static CGColorSpaceRef tb_cgspace = 0;
+static uint32_t *tb_pres[3];
+static int tb_pres_i = 0;
 static id tb_layer = 0;
 static BOOL tb_nswnd_close(id v, SEL s, id w) { (void)v; (void)s; (void)w; tb_gclosed = 1; return YES; }
 static int tb_gfx_open(const char *title) {
@@ -1835,10 +1840,11 @@ static int tb_gfx_open(const char *title) {
     TB_MSG1(void, tb_layer, "setMagnificationFilter:", id, nearest);
     CGColorSpaceRef space = CGDisplayCopyColorSpace(CGMainDisplayID());
     if (!space) space = CGColorSpaceCreateDeviceRGB();
-    tb_cgctx = CGBitmapContextCreate(tb_px, tb_gw, tb_gh, 8, tb_gw * 4, space,
-        kCGImageAlphaNoneSkipFirst | kCGBitmapByteOrder32Little);
-    CGColorSpaceRelease(space);
-    if (!tb_cgctx) return 0;
+    tb_cgspace = space;
+    for (int i = 0; i < 3; i++) {
+        tb_pres[i] = malloc((size_t)tb_gw * tb_gh * 4);
+        if (!tb_pres[i]) return 0;
+    }
     TB_MSG1(void, tb_wnd, "setTitle:", id, TB_MSG1(id, TB_CLS("NSString"), "stringWithUTF8String:", const char *, title));
     TB_MSG1(void, tb_wnd, "setAcceptsMouseMovedEvents:", BOOL, YES);
     TB_MSG1(void, tb_wnd, "makeKeyAndOrderFront:", id, 0);
@@ -1848,9 +1854,16 @@ static int tb_gfx_open(const char *title) {
     return 1;
 }
 static void tb_gfx_events(void) {
-    CGImageRef img = CGBitmapContextCreateImage(tb_cgctx);   // копия кадра
+    size_t bytes = (size_t)tb_gw * tb_gh * 4;
+    uint32_t *buf = tb_pres[tb_pres_i];
+    tb_pres_i = (tb_pres_i + 1) % 3;
+    memcpy(buf, tb_px, bytes);
+    CGDataProviderRef prov = CGDataProviderCreateWithData(0, buf, bytes, 0);
+    CGImageRef img = CGImageCreate(tb_gw, tb_gh, 8, 32, tb_gw * 4, tb_cgspace,
+        kCGImageAlphaNoneSkipFirst | kCGBitmapByteOrder32Little, prov, 0, false, kCGRenderingIntentDefault);
     TB_MSG1(void, tb_layer, "setContents:", id, (id)img);
     CGImageRelease(img);
+    CGDataProviderRelease(prov);
     TB_MSG(void, TB_CLS("CATransaction"), "flush");
     id mode = TB_MSG1(id, TB_CLS("NSString"), "stringWithUTF8String:", const char *, "kCFRunLoopDefaultMode");
     while (1) {
