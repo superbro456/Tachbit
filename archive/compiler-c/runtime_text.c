@@ -1,4 +1,4 @@
-// Сделано tools/embed_runtime.py из compiler-c/runtime.h. Не правь руками.
+// Сделано tools/embed_runtime.py из archive/compiler-c/runtime.h. Не правь руками.
 char *runtime_text =
     "// Библиотека, которую Tachbit кладёт в начало каждой программы на C.\n"
     "// Это обычный C. Компилятор встраивает этот текст через src/runtime_text.c,\n"

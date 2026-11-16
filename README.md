@@ -11,9 +11,9 @@
 Сейчас идёт версия 0.7 «скорость». Готово: `on all cores` и `shared` (цикл сразу на всех ядрах), `obj ... by columns` (хранение колонками), `temp` (временная память), `by vec` (SIMD), куски `each piece in data by N`, блок `together`, `background` и `.wait`. С 0.5 компилятор Tachbit написан на самом Tachbit и собирает сам себя. В языке есть функции, типы, условия, циклы, списки, `dict`, объекты `obj`, текст, ярлыки `link`, несколько выходов `gives`, ошибки `fail` / `try` / `or` / `else err`, модули `use` / `modpub` / `modpri` и первая стандартная библиотека.
 
 Tachbit работает сам, без стартера на C:
-- `compiler-tb/` — компилятор на самом Tachbit. Он собирает сам себя.
-- `compiler-tb/seed/tb.c` — «семя»: C-код этого же компилятора, который сделал сам Tachbit. Из него на новом компьютере получается первый `tb`, а дальше `tb` собирает себя из `compiler-tb/*.tb`.
-- `compiler-c/` — старый стартер 0.5 на C. Он больше ни для чего не нужен, это история (и проверка `--c`).
+- `compiler/` — компилятор на самом Tachbit. Он собирает сам себя.
+- `compiler/seed/tb.c` — «семя»: C-код этого же компилятора, который сделал сам Tachbit. Из него на новом компьютере получается первый `tb`, а дальше `tb` собирает себя из `compiler/*.tb`.
+- `archive/compiler-c/` — старый стартер 0.5 на C. Он больше ни для чего не нужен, это история (и проверка `--c`).
 
 От C остался только `cc` (clang на Mac): Tachbit пишет C, а `cc` превращает его в программу для процессора. Так же устроены многие языки (Nim, ранний C++). Свой перевод прямо в команды процессора — шаг на будущее.
 
@@ -21,13 +21,16 @@ Tachbit работает сам, без стартера на C:
 
 | Папка | Что там |
 |---|---|
-| `compiler-tb/` | компилятор Tachbit, написанный на самом Tachbit; `seed/tb.c` — его семя |
-| `compiler-c/` | старый стартер 0.5 на C (больше не нужен) |
+| `compiler/` | компилятор Tachbit, написанный на самом Tachbit; `seed/tb.c` — его семя |
+| `archive/compiler-c/` | старый стартер 0.5 на C (больше не нужен) |
 | `editor/vscode/` | расширение для VS Code: цвета, запуск по F5, ошибки в коде |
 | `examples/` | примеры программ на Tachbit |
 | `tests/` | проверки компилятора |
 | `bench/` | замер скорости против C и Python |
-| `tools/` | синхронизация с Mac и служебные скрипты |
+| `tools/` | синхронизация с Mac и служебные скрипты (в том числе свой компоновщик ядра `elf_link.py`) |
+| `assets/` | логотип и значки Tachbit |
+
+Всё в этих папках — наше. Чужое только то, что ставится отдельно: `cc`/clang (переводит C в команды процессора), `python3` (для компоновки ядра), `qemu` (запуск ядра), VS Code. Файлы `tachbit`, `tachbit-tb` и `hello.txt` в корне — собранные или временные, их нет в репозитории, можно удалять.
 
 ## Самый простой запуск: команда `tb`
 
@@ -57,6 +60,23 @@ tb start hello.tb  # или просто один файл (можно без .t
 - при сохранении файл проверяется, и ошибки подчёркиваются красным прямо в строке (и видны в «Проблемах»);
 - заготовки: напиши `main`, `func`, `each`, `cores`, `bg` и нажми Tab;
 - `//` комментирует строку по Cmd+/, блоки сворачиваются по отступам.
+
+### Свои цвета: тема Tachbit Dark / Light
+
+В расширении две темы в цветах логотипа. Включить: Cmd+K, потом Cmd+T → **Tachbit Dark** (или **Tachbit Light**).
+Цвета лежат в `editor/vscode/themes/tachbit-dark.json` и `tachbit-light.json`: блок `colors` — окно редактора, блок `tokenColors` — цвета слов кода. Поменял цвет → `./tools/install_vscode.sh` → Cmd+Q и открыть VS Code заново.
+
+| Что | Тёмная | Светлая |
+|---|---|---|
+| команды (`if`, `each`, `func` ...) | `#4fb3ac` | `#1f6f6a` |
+| слова скорости (`on all cores`, `danger`, `lock` ...) | `#e8c468` | `#a8740c` |
+| типы и встроенные функции | `#8fd3cc` | `#2a7f7a` |
+| имена функций | `#ffffff` | `#1c1c1e` |
+| текст в кавычках | `#e3b98a` | `#9a5b22` |
+| числа | `#f08f73` | `#c4472b` |
+| комментарии | `#7d7d85` | `#8a8a90` |
+
+Значок файлов и расширения — `editor/vscode/icon.svg` / `icon.png`; логотип в начале этого файла — `assets/tachbit-logo-*.svg`. Чтобы сменить лого, замени эти файлы своими (с теми же именами).
 
 Готовая программа проекта лежит в `shop/build/shop`. Остальные модули проекта (`use money`) кладутся рядом с `main.tb`.
 
@@ -435,39 +455,39 @@ SIMD (`vec`: сумма квадратов 10 млн дробей 20 раз, Lin
 
 | Файл | Слой |
 |---|---|
-| `compiler-c/ast.h` | общие типы: токен, узел дерева, типы языка |
-| `compiler-c/arena.c` | память: один большой блок, ничего не освобождаем по одному |
-| `compiler-c/lexer.c` | текст → токены, отступы → ОТСТУП / ВЫСТУП |
-| `compiler-c/parser.c` | токены → дерево, по функции на каждое правило |
-| `compiler-c/check.c` | таблицы типов, функций, obj и переменных, правила типов, ошибки на русском |
-| `compiler-c/emit_c.c` | дерево → C |
-| `compiler-c/runtime.h` | библиотека `tb_*`, которая кладётся в каждую программу: списки, dict, текст, файлы, ошибки, проверки |
-| `compiler-c/runtime_text.c` | тот же `runtime.h` одной строкой; делается командой `python3 tools/embed_runtime.py` |
-| `compiler-c/main.c` | команды `run`, `build`, `check`, `c`, `tree`, `tokens`; чтение модулей по `use` |
+| `archive/compiler-c/ast.h` | общие типы: токен, узел дерева, типы языка |
+| `archive/compiler-c/arena.c` | память: один большой блок, ничего не освобождаем по одному |
+| `archive/compiler-c/lexer.c` | текст → токены, отступы → ОТСТУП / ВЫСТУП |
+| `archive/compiler-c/parser.c` | токены → дерево, по функции на каждое правило |
+| `archive/compiler-c/check.c` | таблицы типов, функций, obj и переменных, правила типов, ошибки на русском |
+| `archive/compiler-c/emit_c.c` | дерево → C |
+| `archive/compiler-c/runtime.h` | библиотека `tb_*`, которая кладётся в каждую программу: списки, dict, текст, файлы, ошибки, проверки |
+| `archive/compiler-c/runtime_text.c` | тот же `runtime.h` одной строкой; делается командой `python3 tools/embed_runtime.py` |
+| `archive/compiler-c/main.c` | команды `run`, `build`, `check`, `c`, `tree`, `tokens`; чтение модулей по `use` |
 
 ## Компилятор на Tachbit (0.5)
 
 Сборка без стартера (`./tools/build_tb.sh`):
 ```
-cc -O2 -w -o tachbit-seed compiler-tb/seed/tb.c -lm -lpthread   # 1) семя
-./tachbit-seed build compiler-tb/main.tb                         # 2) семя собирает свежий компилятор
-mv compiler-tb/main tachbit-tb2
-./tachbit-tb2 build compiler-tb/main.tb                          # 3) свежий собирает сам себя
+cc -O2 -w -o tachbit-seed compiler/seed/tb.c -lm -lpthread   # 1) семя
+./tachbit-seed build compiler/main.tb                         # 2) семя собирает свежий компилятор
+mv compiler/main tachbit-tb2
+./tachbit-tb2 build compiler/main.tb                          # 3) свежий собирает сам себя
 ```
-Поменял `compiler-tb/*.tb` — запусти `./tools/update_seed.sh`: компилятор собирает себя, пока C-код не перестанет меняться, и этот код становится новым семенем.
+Поменял `compiler/*.tb` — запусти `./tools/update_seed.sh`: компилятор собирает себя, пока C-код не перестанет меняться, и этот код становится новым семенем.
 
-Как было в 0.5 (через стартер): `cc -std=c99 -O2 -o tachbit compiler-c/*.c`, потом `./tachbit build compiler-tb/main.tb`.
+Как было в 0.5 (через стартер): `cc -std=c99 -O2 -o tachbit archive/compiler-c/*.c`, потом `./tachbit build compiler/main.tb`.
 Проверено: стартер и `tachbit2` выдают одинаковый C для всех примеров, тестов и для самого компилятора, а третье поколение совпадает со вторым (точка неподвижности).
 
 | Файл | Слой |
 |---|---|
-| `compiler-tb/types.tb` | объекты: Token, Node, Type, Func, Var и Comp (всё состояние компилятора) |
-| `compiler-tb/lexer.tb` | текст → токены |
-| `compiler-tb/parser.tb` | токены → дерево |
-| `compiler-tb/check.tb` | типы и ошибки |
-| `compiler-tb/emit.tb` | дерево → C |
-| `compiler-tb/runtime_text.tb` | библиотека `tb_*` (делается `python3 tools/embed_runtime.py`) |
-| `compiler-tb/main.tb` | команды `new`, `start`, `run`, `build`, `check`, `c`, `tree`, `tokens`; модули `use` |
+| `compiler/types.tb` | объекты: Token, Node, Type, Func, Var и Comp (всё состояние компилятора) |
+| `compiler/lexer.tb` | текст → токены |
+| `compiler/parser.tb` | токены → дерево |
+| `compiler/check.tb` | типы и ошибки |
+| `compiler/emit.tb` | дерево → C |
+| `compiler/runtime_text.tb` | библиотека `tb_*` (делается `python3 tools/embed_runtime.py`) |
+| `compiler/main.tb` | команды `new`, `start`, `run`, `build`, `check`, `c`, `tree`, `tokens`; модули `use` |
 
 Что пришлось добавить в язык, пока писали компилятор на нём самом:
 - `run("команда")`, `exit(код)`, `file_exists("путь")`;

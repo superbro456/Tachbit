@@ -14,7 +14,7 @@ for dir in "$HOME/.vscode/extensions" "$HOME/.vscode-insiders/extensions" "$HOME
         found="yes"
     fi
 done
-[ -n "$found" ] || { echo "не нашла папку VS Code"; exit 1; }
+[ -n "$found" ] || { echo "папка VS Code не найдена"; exit 1; }
 if [ ! -x "$HOME/.tachbit/bin/tb" ]; then
     echo "команды tb ещё нет: запусти ./tools/install.sh, иначе F5 не сработает"
 fi

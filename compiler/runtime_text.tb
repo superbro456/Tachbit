@@ -1,4 +1,4 @@
-// Сделано tools/embed_runtime.py из compiler-tb/runtime.h. Не правь руками.
+// Сделано tools/embed_runtime.py из compiler/runtime.h. Не правь руками.
 modpub func runtime_text()
     lines = list text
     lines.add("// Библиотека, которую Tachbit кладёт в начало каждой программы на C.\n")

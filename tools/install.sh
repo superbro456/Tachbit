@@ -8,12 +8,12 @@ cd "$(dirname "$0")/.." || exit 1
 bin="$HOME/.tachbit/bin"
 mkdir -p "$bin" || exit 1
 if [ "$1" != "--c" ]; then
-    # без стартера на C: семя compiler-tb/seed/tb.c собирает компилятор из compiler-tb/*.tb
+    # без стартера на C: семя compiler/seed/tb.c собирает компилятор из compiler/*.tb
     ./tools/build_tb.sh || exit 1
     cp ./tachbit-tb "$bin/tb"
     echo "стоит компилятор на Tachbit (собран сам собой, без стартера на C)"
 else
-    cc -std=c99 -O2 -o ./tachbit compiler-c/*.c || { echo "не получилось собрать стартер"; exit 1; }
+    cc -std=c99 -O2 -o ./tachbit archive/compiler-c/*.c || { echo "не получилось собрать стартер"; exit 1; }
     cp ./tachbit "$bin/tb"
 fi
 

@@ -12,10 +12,10 @@ export LC_ALL=C.UTF-8 2>/dev/null
 compiler="tachbit-tb"
 if [ "$1" = "--c" ]; then
     compiler="tachbit"
-    cc -std=c99 -Wall -Wextra -o tachbit compiler-c/*.c || exit 1
+    cc -std=c99 -Wall -Wextra -o tachbit archive/compiler-c/*.c || exit 1
     echo "проверяю стартер на C (тесты до 0.5)"
 else
-    # без стартера: семя compiler-tb/seed/tb.c → компилятор из compiler-tb/*.tb → он же сам собой
+    # без стартера: семя compiler/seed/tb.c → компилятор из compiler/*.tb → он же сам собой
     ./tools/build_tb.sh > /dev/null || exit 1
 fi
 
