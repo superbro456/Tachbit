@@ -331,6 +331,28 @@ func emit_binop(c: Comp, n: Node)
         emit_as_text(c, b)
         put(c, ")")
         return
+    if kind_of(c, a.ty) == "text" and (op == "==" or op == "!=") and (short_literal(b) or short_literal(a))
+        // ch == ","  —  сравнить байты прямо, без strcmp (часто в циклах по тексту)
+        lit = b
+        other = a
+        if not short_literal(b)
+            lit = a
+            other = b
+        body = cut(lit.value, 1, len(lit.value) - 2)
+        c.label += 1
+        sv = "tb_s" + c.label
+        put(c, "({ const char *" + sv + " = ")
+        emit_expr(c, other)
+        put(c, "; ")
+        if op == "!="
+            put(c, "!")
+        put(c, "(")
+        i = 0
+        each ch in body
+            put(c, "(unsigned char)" + sv + "[" + i + "] == " + code(ch) + " && ")
+            i += 1
+        put(c, sv + "[" + i + "] == 0); })")
+        return
     if kind_of(c, a.ty) == "text"
         put(c, "(strcmp(")
         emit_expr(c, a)
@@ -747,28 +769,37 @@ func emit_vec(c: Comp, n: Node, depth: int)
     put(c, elem + " *tb_d" + id + " = (" + elem + " *)tb_l" + id + "->data;\n")
     indent(c, d)
     put(c, "long long tb_n" + id + " = tb_l" + id + "->len, tb_i" + id + " = 0;\n")
+    // 8 отдельных копилок-переменных: компилятор C держит их в регистрах,
+    // и процессор складывает 8 цепочек одновременно (ILP + SIMD)
     each v in n.caps
         if v.is_shared
             indent(c, d)
-            put(c, c_type(c, v.type) + " tb_a" + id + "_" + v.name + "[8] = {0};\n")
-    // 1) по 8 чисел
+            put(c, c_type(c, v.type) + " ")
+            count k from 0 to 7
+                if k > 0
+                    put(c, ", ")
+                put(c, "tb_a" + id + "_" + v.name + "_" + k + " = 0")
+            put(c, ";\n")
+    // 1) по 8 чисел: тело цикла написано 8 раз подряд, без внутреннего цикла
     indent(c, d)
     put(c, "for (; tb_i" + id + " + 8 <= tb_n" + id + "; tb_i" + id + " += 8) {\n")
-    indent(c, d + 1)
-    put(c, "for (int tb_k" + id + " = 0; tb_k" + id + " < 8; tb_k" + id + "++) {\n")
-    indent(c, d + 2)
-    put(c, elem + " const v_" + n.name + " = tb_d" + id + "[tb_i" + id + " + tb_k" + id + "];\n")
-    each v in n.caps
-        if v.is_shared
-            c.vec_names.add(v.name)
-            c.vec_repl.add("tb_a" + id + "_" + v.name + "[tb_k" + id + "]")
-    emit_block(c, n.kids[1], d + 2)
-    fresh_names = list text
-    fresh_repl = list text
-    c.vec_names = fresh_names
-    c.vec_repl = fresh_repl
-    indent(c, d + 1)
-    put(c, "}\n")
+    // каждая копия в do { } while (0): skip внутри (continue) заканчивает только эту копию
+    count k from 0 to 7
+        indent(c, d + 1)
+        put(c, "do {\n")
+        indent(c, d + 2)
+        put(c, elem + " const v_" + n.name + " = tb_d" + id + "[tb_i" + id + " + " + k + "];\n")
+        each v in n.caps
+            if v.is_shared
+                c.vec_names.add(v.name)
+                c.vec_repl.add("tb_a" + id + "_" + v.name + "_" + k)
+        emit_block(c, n.kids[1], d + 2)
+        fresh_names = list text
+        fresh_repl = list text
+        c.vec_names = fresh_names
+        c.vec_repl = fresh_repl
+        indent(c, d + 1)
+        put(c, "} while (0);\n")
     indent(c, d)
     put(c, "}\n")
     // 2) хвост: последние 0–7 чисел по одному
@@ -779,7 +810,7 @@ func emit_vec(c: Comp, n: Node, depth: int)
     each v in n.caps
         if v.is_shared
             c.vec_names.add(v.name)
-            c.vec_repl.add("tb_a" + id + "_" + v.name + "[0]")
+            c.vec_repl.add("tb_a" + id + "_" + v.name + "_0")
     emit_block(c, n.kids[1], d + 1)
     fresh_names2 = list text
     fresh_repl2 = list text
@@ -787,14 +818,15 @@ func emit_vec(c: Comp, n: Node, depth: int)
     c.vec_repl = fresh_repl2
     indent(c, d)
     put(c, "}\n")
-    // 3) сложить копилки
+    // 3) сложить копилки парами (как дерево), чтобы и тут не ждать друг друга
     each v in n.caps
         if v.is_shared
             target = "v_" + v.name
             if v.is_link
                 target = "(*v_" + v.name + ")"
+            a = "tb_a" + id + "_" + v.name + "_"
             indent(c, d)
-            put(c, "for (int tb_k = 0; tb_k < 8; tb_k++) " + target + " += tb_a" + id + "_" + v.name + "[tb_k];\n")
+            put(c, target + " += ((" + a + "0 + " + a + "1) + (" + a + "2 + " + a + "3)) + ((" + a + "4 + " + a + "5) + (" + a + "6 + " + a + "7));\n")
     indent(c, depth)
     put(c, "}\n")
 
@@ -1033,6 +1065,15 @@ func emit_prefetch(c: Comp, n: Node, depth: int, list_c: text, i_c: text, elem: 
             put(c, "tb_lpre(")
             emit_expr(c, base)
             put(c, ", " + f + "); } }\n")
+
+// короткий текст в кавычках (до 8 байт, без \): его можно сравнить побайтно
+func short_literal(n: Node)
+    if n.kind != "string" or len(n.value) < 2 or len(n.value) > 10
+        return false
+    each ch in n.value
+        if ch == "\\"
+            return false
+    return true
 
 func emit_count(c: Comp, n: Node, depth: int)
     if n.is_par

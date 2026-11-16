@@ -144,7 +144,12 @@ static const char *tb_cat(const char *a, const char *b) {
 static const char *tb_itos(long long x) { char *s = tb_mem(32); snprintf(s, 32, "%lld", x); return s; }
 static const char *tb_dtos(double x) { char *s = tb_mem(40); snprintf(s, 40, "%g", x); return s; }
 static const char *tb_btos(int x) { return x ? "true" : "false"; }
-static const char *tb_chr(long long c) { char *s = tb_mem(2); s[0] = (char)c; s[1] = 0; return s; }
+// текст из одного байта: 256 готовых строк, без выделения памяти на каждую букву
+static char tb_chars[512];
+__attribute__((constructor)) static void tb_chars_init(void) {
+    for (int i = 0; i < 256; i++) { tb_chars[2 * i] = (char)i; tb_chars[2 * i + 1] = 0; }
+}
+static inline const char *tb_chr(long long c) { return tb_chars + 2 * (unsigned char)c; }
 static const char *tb_char_at(const char *s, long long i, int line) {
     if (i < 0 || i >= (long long)strlen(s)) tb_crash(line, "номер за пределами текста");
     return tb_chr((unsigned char)s[i]);

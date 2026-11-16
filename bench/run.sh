@@ -136,3 +136,11 @@ echo "   Tachbit (холодное отдельно): $(best ./hotcold) с"
 echo "   Tachbit (всё вместе):        $(best ./nohotcold) с"
 echo "   C (массив структур):         $(best ./hotcold_c) с"
 rm -f hotcold hotcold.c nohotcold nohotcold.c hotcold_c
+
+# текст: сколько запятых в тексте на 35 МБ, 10 раз (вместе с созданием текста)
+../tachbit-tb build text.tb > /dev/null || exit 1
+cc -O2 -o text_c text_pure.c || exit 1
+echo "== text  (ответ: $(./text))"
+echo "   Tachbit:  $(best ./text) с"
+echo "   C:        $(best ./text_c) с"
+rm -f text text.c text_c

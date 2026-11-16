@@ -1,0 +1,12 @@
+// 0.7: буквы без выделения памяти, короткий текст сравнивается побайтно
+func main()
+    s = "а,б;c,,d"
+    commas = 0
+    other = 0
+    each ch in s
+        if ch == ","
+            commas += 1
+        if ch != ";" and ch != ","
+            other += 1
+    w = "да"
+    print(commas, other, w == "да", w == "д", w != "нет", "" == "", s[1] == ",")
