@@ -1,0 +1,139 @@
+// Колибри и нектар — маленькая игра на Tachbit.
+// Стрелки — лететь, собирай цветы, не попадайся пчёлам. Пробел — заново, Esc — выход.
+//   tb start apps/game
+
+obj Bee
+    x: int
+    y: int
+    dx: int
+    dy: int
+
+shared W = int 640
+shared H = int 480
+
+func near(x1: int, y1: int, x2: int, y2: int, dist: int)
+    dx = x1 - x2
+    dy = y1 - y2
+    return dx * dx + dy * dy < dist * dist
+
+// толстая линия: несколько тонких рядом
+func thick_line(x1: int, y1: int, x2: int, y2: int, color: int)
+    count k from -1 to 1
+        draw_line(x1, y1 + k, x2, y2 + k, color)
+        draw_line(x1 + k, y1, x2 + k, y2, color)
+
+func draw_bird(x: int, y: int, wing_up: bool)
+    // хвост
+    thick_line(x + 14, y + 6, x + 30, y + 22, rgb(124, 92, 240))
+    thick_line(x + 12, y + 8, x + 22, y + 28, rgb(74, 127, 214))
+    // крыло машет: вверх и вниз через кадр
+    if wing_up
+        thick_line(x + 4, y - 6, x + 26, y - 38, rgb(255, 170, 60))
+        thick_line(x + 8, y - 6, x + 36, y - 30, rgb(255, 95, 162))
+    else
+        thick_line(x + 4, y + 4, x + 30, y + 22, rgb(255, 170, 60))
+        thick_line(x + 8, y + 2, x + 38, y + 10, rgb(255, 95, 162))
+    draw_circle(x + 4, y + 2, 14, rgb(29, 159, 134))
+    draw_circle(x - 9, y - 9, 10, rgb(47, 209, 191))
+    draw_circle(x - 8, y + 2, 7, rgb(255, 61, 110))
+    thick_line(x - 18, y - 10, x - 44, y - 7, rgb(235, 232, 222))
+    draw_circle(x - 11, y - 12, 2, rgb(0, 0, 0))
+
+func draw_flower(x: int, y: int)
+    draw_line(x, y + 8, x, y + 26, rgb(76, 195, 138))
+    draw_circle(x - 8, y, 7, rgb(255, 95, 162))
+    draw_circle(x + 8, y, 7, rgb(255, 95, 162))
+    draw_circle(x, y - 8, 7, rgb(255, 95, 162))
+    draw_circle(x, y + 8, 7, rgb(255, 95, 162))
+    draw_circle(x, y, 5, rgb(246, 195, 67))
+
+func draw_bee(b: Bee)
+    draw_circle(b.x - 4, b.y - 12, 6, rgb(220, 240, 255))
+    draw_circle(b.x + 4, b.y - 12, 6, rgb(200, 225, 255))
+    draw_circle(b.x, b.y, 11, rgb(246, 195, 67))
+    draw_rect(b.x - 4, b.y - 10, 3, 20, rgb(20, 20, 20))
+    draw_rect(b.x + 3, b.y - 10, 3, 20, rgb(20, 20, 20))
+
+func new_bee() gives b: Bee
+    b = Bee(x: random(40, W - 40), y: random(40, 120), dx: random(2, 4), dy: random(2, 4))
+    if random(0, 1) == 0
+        b.dx = -b.dx
+
+func main()
+    try window_open(W, H, "Колибри и нектар")
+    x = 320
+    y = 380
+    score = 0
+    best = 0
+    frame = 0
+    safe_until = 120
+    over = false
+    fx = random(30, W - 30)
+    fy = random(60, H - 30)
+    bees = list Bee
+    bees.add(new_bee())
+    // звёзды на фоне
+    stars = list int
+    repeat 60 times
+        stars.add(random(0, W * H - 1))
+
+    repeat while window_alive()
+        if key_down("escape")
+            stop
+        frame += 1
+
+        if not over
+            if key_down("left")
+                x -= 5
+            if key_down("right")
+                x += 5
+            if key_down("up")
+                y -= 5
+            if key_down("down")
+                y += 5
+            x = max(50, min(x, W - 40))
+            y = max(40, min(y, H - 14))
+
+            if near(x - 40, y - 7, fx, fy, 26)
+                score += 1
+                fx = random(30, W - 30)
+                fy = random(60, H - 30)
+                // каждые 5 цветов — ещё одна пчела
+                if score % 5 == 0
+                    bees.add(new_bee())
+
+            each b in bees
+                b.x += b.dx
+                b.y += b.dy
+                if b.x < 10 or b.x > W - 10
+                    b.dx = -b.dx
+                if b.y < 40 or b.y > H - 10
+                    b.dy = -b.dy
+                // первые 2 секунды пчёлы не кусают: успеть улететь
+                if frame > safe_until and near(x, y, b.x, b.y, 26)
+                    over = true
+            if over and score > best
+                best = score
+        else if key_down("space")
+            over = false
+            score = 0
+            safe_until = frame + 120
+            x = 320
+            y = 380
+            bees.clear()
+            bees.add(new_bee())
+
+        // рисуем кадр
+        clear_window(rgb(13, 13, 16))
+        each s in stars
+            draw_pixel(s % W, s / W, rgb(90, 90, 110))
+        draw_rect(0, 0, W, 30, rgb(28, 28, 32))
+        draw_text(10, 7, "Нектар: " + score + "   Лучший: " + best, 1, rgb(244, 243, 239))
+        draw_text(W - 150, 7, "Tachbit 0.7", 1, rgb(79, 179, 172))
+        draw_flower(fx, fy)
+        each b in bees
+            draw_bee(b)
+        draw_bird(x, y, frame / 4 % 2 == 0)
+        if over
+            draw_text(170, 200, "Пчела догнала!", 3, rgb(255, 95, 162))
+            draw_text(200, 260, "Пробел — ещё раз", 2, rgb(244, 243, 239))

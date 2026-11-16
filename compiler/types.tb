@@ -154,6 +154,8 @@ obj Comp
     at_ret_ok: bool
     // режим «без ОС»: своё ядро, вывод на экран и в COM1, без malloc/printf
     bare: bool
+    // программа рисует в окне: в C идёт TB_GFX, нужен Cocoa (Mac) или X11 (Linux)
+    gfx: bool
     // внутри danger (сколько блоков вокруг), внутри lock и сколько циклов было снаружи lock
     danger_depth: int
     lock_depth: int

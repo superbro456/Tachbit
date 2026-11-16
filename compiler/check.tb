@@ -107,7 +107,7 @@ func fits(want: int, got: int)
 // ---------- функции и obj ----------
 
 func is_builtin(name: text)
-    each b in ["print", "show", "len", "round", "code", "char", "cut", "to_int", "to_dec", "read_file", "write_file", "input", "args", "split", "join", "find", "replace", "upper", "lower", "trim", "starts_with", "ends_with", "sort", "abs", "min", "max", "sqrt", "run", "exit", "file_exists", "list_dir", "is_folder", "make_folder", "move", "remove", "env", "file_size"]
+    each b in ["print", "show", "len", "round", "code", "char", "cut", "to_int", "to_dec", "read_file", "write_file", "input", "args", "split", "join", "find", "replace", "upper", "lower", "trim", "starts_with", "ends_with", "sort", "abs", "min", "max", "sqrt", "run", "exit", "file_exists", "list_dir", "is_folder", "make_folder", "move", "remove", "env", "file_size", "window_open", "window_alive", "clear_window", "draw_pixel", "draw_rect", "draw_circle", "draw_line", "draw_text", "key_down", "mouse_x", "mouse_y", "mouse_down", "rgb", "random", "time_ms"]
         if b == name
             return true
     each b in kernel_builtins()
@@ -132,21 +132,28 @@ func danger_only(name: text)
 
 // только в ядре (tachbit bare): там есть порты, таймер и клавиатура
 func bare_only(name: text)
-    each w in ["port_", "page_", "interrupts_", "uptime_ms", "wait_ms", "read_key", "yield"]
+    each w in ["port_", "page_", "interrupts_", "uptime_ms", "read_key", "yield"]
         if starts_with(name, w)
             return true
     return false
 
 // только в обычной программе (в ядре нет файлов и папок)
 func os_only(name: text)
-    each w in ["list_dir", "is_folder", "make_folder", "move", "remove", "env", "file_size"]
+    each w in ["list_dir", "is_folder", "make_folder", "move", "remove", "env", "file_size", "window_open", "window_alive", "clear_window", "draw_pixel", "draw_rect", "draw_circle", "draw_line", "draw_text", "key_down", "mouse_x", "mouse_y", "mouse_down", "rgb", "random", "time_ms"]
+        if name == w
+            return true
+    return false
+
+// окно и рисование
+func gfx_builtin(name: text)
+    each w in ["window_open", "window_alive", "clear_window", "draw_pixel", "draw_rect", "draw_circle", "draw_line", "draw_text", "key_down", "mouse_x", "mouse_y", "mouse_down"]
         if name == w
             return true
     return false
 
 // встроенные функции, которые могут закончиться ошибкой
 func builtin_can_fail(name: text)
-    if name == "list_dir" or name == "make_folder" or name == "move" or name == "remove"
+    if name == "list_dir" or name == "make_folder" or name == "move" or name == "remove" or name == "window_open"
         return true
     return name == "to_int" or name == "to_dec" or name == "read_file" or name == "write_file" or name == "input"
 
@@ -435,7 +442,9 @@ func check_builtin(c: Comp, n: Node) gives r: int
     if danger_only(name) and c.danger_depth == 0
         error_at(c, n.line, name + " трогает железо напрямую: пиши его внутри блока danger", "")
     if os_only(name) and c.bare
-        error_at(c, n.line, name + " нет в ядре без ОС: там нет файлов и папок", "")
+        error_at(c, n.line, name + " нет в ядре без ОС: там нет файлов, окон и часов", "")
+    if gfx_builtin(name)
+        c.gfx = true
     if bare_only(name) and not c.bare
         error_at(c, n.line, name + " работает только в ядре без ОС: собери файл командой tachbit bare", "")
     if starts_with(name, "bit_") or starts_with(name, "shift_")
@@ -565,6 +574,42 @@ func check_builtin(c: Comp, n: Node) gives r: int
         return 4
     if name == "file_size"
         builtin_args(c, n, "t", "file_size(\"путь\")  →  байты или -1")
+        return 1
+    if name == "window_open"
+        builtin_args(c, n, "iit", "window_open(ширина, высота, \"заголовок\")")
+        return 0
+    if name == "window_alive" or name == "mouse_down"
+        builtin_args(c, n, "", name + "()")
+        return 3
+    if name == "mouse_x" or name == "mouse_y" or name == "time_ms"
+        builtin_args(c, n, "", name + "()")
+        return 1
+    if name == "clear_window"
+        builtin_args(c, n, "i", "clear_window(цвет)")
+        return 0
+    if name == "draw_pixel"
+        builtin_args(c, n, "iii", "draw_pixel(x, y, цвет)")
+        return 0
+    if name == "draw_rect"
+        builtin_args(c, n, "iiiii", "draw_rect(x, y, ширина, высота, цвет)")
+        return 0
+    if name == "draw_circle"
+        builtin_args(c, n, "iiii", "draw_circle(x, y, радиус, цвет)")
+        return 0
+    if name == "draw_line"
+        builtin_args(c, n, "iiiii", "draw_line(x1, y1, x2, y2, цвет)")
+        return 0
+    if name == "draw_text"
+        builtin_args(c, n, "iitii", "draw_text(x, y, \"текст\", размер, цвет)")
+        return 0
+    if name == "key_down"
+        builtin_args(c, n, "t", "key_down(\"left\")  — стрелки left right up down, space, enter, escape, буквы \"a\"")
+        return 3
+    if name == "rgb"
+        builtin_args(c, n, "iii", "rgb(красный, зелёный, синий)  — каждый от 0 до 255")
+        return 1
+    if name == "random"
+        builtin_args(c, n, "ii", "random(от, до)")
         return 1
     if name == "abs"
         builtin_args(c, n, "n", "abs(число)")

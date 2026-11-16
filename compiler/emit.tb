@@ -164,8 +164,8 @@ func emit_builtin(c: Comp, n: Node)
     if name == "asm"
         put(c, "__asm__ volatile(" + n.kids[0].kids[0].value + " ::: \"memory\")")
         return
-    k_names = ["page_new", "uptime_ms", "interrupts_on", "interrupts_off", "yield", "read_key"]
-    k_c = ["tb_page_new", "tb_uptime_ms", "tb_irq_on", "tb_irq_off", "tb_yield", "tb_read_key"]
+    k_names = ["page_new", "uptime_ms", "interrupts_on", "interrupts_off", "yield", "read_key", "window_alive", "mouse_x", "mouse_y", "mouse_down", "time_ms"]
+    k_c = ["tb_page_new", "tb_uptime_ms", "tb_irq_on", "tb_irq_off", "tb_yield", "tb_read_key", "tb_window_alive", "tb_mouse_x", "tb_mouse_y", "tb_mouse_down", "tb_time_ms"]
     count j from 0 to len(k_names) - 1
         if k_names[j] == name
             put(c, k_c[j] + "()")
@@ -227,7 +227,7 @@ func emit_builtin(c: Comp, n: Node)
         put(c, ")")
         return
     // остальные: просто имя функции из runtime.h; с номером строки — те, что могут упасть
-    c_names = ["round", "tb_round", "0", "char", "tb_chr", "0", "cut", "tb_cut", "1", "code", "tb_code", "1", "to_int", "tb_to_int", "0", "to_dec", "tb_to_dec", "0", "read_file", "tb_read_file", "0", "write_file", "tb_write_file", "0", "split", "tb_split", "1", "join", "tb_join", "0", "find", "tb_find", "0", "replace", "tb_replace", "1", "upper", "tb_upper", "0", "lower", "tb_lower", "0", "trim", "tb_trim", "0", "starts_with", "tb_starts", "0", "ends_with", "tb_ends", "0", "run", "tb_run", "0", "exit", "tb_exit", "0", "file_exists", "tb_file_exists", "0", "list_dir", "tb_list_dir", "0", "is_folder", "tb_is_folder", "0", "make_folder", "tb_make_folder", "0", "move", "tb_move", "0", "remove", "tb_remove", "0", "env", "tb_env", "0", "file_size", "tb_file_size", "0", "bit_and", "tb_band", "0", "bit_or", "tb_bor", "0", "bit_xor", "tb_bxor", "0", "bit_not", "tb_bnot", "0", "shift_left", "tb_shl", "0", "shift_right", "tb_shr", "0", "read8", "tb_rd8", "0", "read16", "tb_rd16", "0", "read32", "tb_rd32", "0", "read64", "tb_rd64", "0", "write8", "tb_wr8", "0", "write16", "tb_wr16", "0", "write32", "tb_wr32", "0", "write64", "tb_wr64", "0", "address_of", "tb_addr_of", "0", "port_in8", "tb_pin8", "0", "port_in16", "tb_pin16", "0", "port_in32", "tb_pin32", "0", "port_out8", "tb_pout8", "0", "port_out16", "tb_pout16", "0", "port_out32", "tb_pout32", "0", "page_free", "tb_page_free", "0", "wait_ms", "tb_wait_ms", "0"]
+    c_names = ["round", "tb_round", "0", "char", "tb_chr", "0", "cut", "tb_cut", "1", "code", "tb_code", "1", "to_int", "tb_to_int", "0", "to_dec", "tb_to_dec", "0", "read_file", "tb_read_file", "0", "write_file", "tb_write_file", "0", "split", "tb_split", "1", "join", "tb_join", "0", "find", "tb_find", "0", "replace", "tb_replace", "1", "upper", "tb_upper", "0", "lower", "tb_lower", "0", "trim", "tb_trim", "0", "starts_with", "tb_starts", "0", "ends_with", "tb_ends", "0", "run", "tb_run", "0", "exit", "tb_exit", "0", "file_exists", "tb_file_exists", "0", "list_dir", "tb_list_dir", "0", "is_folder", "tb_is_folder", "0", "make_folder", "tb_make_folder", "0", "move", "tb_move", "0", "remove", "tb_remove", "0", "env", "tb_env", "0", "file_size", "tb_file_size", "0", "window_open", "tb_window_open", "0", "clear_window", "tb_clear_window", "0", "draw_pixel", "tb_draw_pixel", "0", "draw_rect", "tb_draw_rect", "0", "draw_circle", "tb_draw_circle", "0", "draw_line", "tb_draw_line", "0", "draw_text", "tb_draw_text", "0", "key_down", "tb_key_down", "0", "rgb", "tb_rgb", "0", "random", "tb_random", "0", "bit_and", "tb_band", "0", "bit_or", "tb_bor", "0", "bit_xor", "tb_bxor", "0", "bit_not", "tb_bnot", "0", "shift_left", "tb_shl", "0", "shift_right", "tb_shr", "0", "read8", "tb_rd8", "0", "read16", "tb_rd16", "0", "read32", "tb_rd32", "0", "read64", "tb_rd64", "0", "write8", "tb_wr8", "0", "write16", "tb_wr16", "0", "write32", "tb_wr32", "0", "write64", "tb_wr64", "0", "address_of", "tb_addr_of", "0", "port_in8", "tb_pin8", "0", "port_in16", "tb_pin16", "0", "port_in32", "tb_pin32", "0", "port_out8", "tb_pout8", "0", "port_out16", "tb_pout16", "0", "port_out32", "tb_pout32", "0", "page_free", "tb_page_free", "0", "wait_ms", "tb_wait_ms", "0"]
     i = 0
     repeat while i < len(c_names)
         if c_names[i] == name
@@ -2041,6 +2041,8 @@ modpub func emit_c(c: Comp, program: Node)
     put(c, "// Сделано компилятором Tachbit 0.7. Не правь руками: правь файл .tb\n")
     if c.bare
         put(c, "#define TB_BARE 1\n")
+    if c.gfx
+        put(c, "#define TB_GFX 1\n")
     put(c, runtime_text())
     // shared снаружи функций; в ядре volatile: их меняют прерывания и задачи
     each g in c.globals

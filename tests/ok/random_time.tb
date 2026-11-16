@@ -1,0 +1,19 @@
+// 0.7: случайные числа, время и пауза
+func main()
+    ok = true
+    seen_low = false
+    seen_high = false
+    repeat 1000 times
+        r = random(1, 6)
+        if r < 1 or r > 6
+            ok = false
+        if r == 1
+            seen_low = true
+        if r == 6
+            seen_high = true
+    print(ok, seen_low, seen_high)
+    print(random(5, 5))
+    t0 = time_ms()
+    wait_ms(30)
+    print(time_ms() - t0 >= 25)
+    print(rgb(255, 0, 0), rgb(0, 255, 0), rgb(300, -5, 1))
