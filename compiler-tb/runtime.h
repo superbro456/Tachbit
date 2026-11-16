@@ -330,8 +330,14 @@ static tb_list *tb_copy(tb_list *l) { return tb_list_from(l->len, l->size, l->da
 static void tb_sort_list(tb_list *l, int (*cmp)(const void *, const void *)) { qsort(l->data, l->len, l->size, cmp); }
 
 // ---------- dict: ключи и значения лежат в двух списках по порядку добавления,
-// а таблица slots быстро находит номер по ключу (номер + 1, 0 — пусто) ----------
-typedef struct { tb_list *keys; tb_list *vals; long long *slots; long long nslots; int text; } tb_dict;
+// а найти номер по ключу можно тремя способами (mode):
+//   1 — «номер = адрес»: ключи int шли подряд base, base+1, base+2 ... — номер = ключ - base, без поиска;
+//   2 — «адресное хранение»: ключи int лежат плотно — pos[ключ - base] = номер + 1, один взгляд;
+//   0 — таблица slots с хешем (текст или разбросанные числа) ----------
+typedef struct {
+    tb_list *keys; tb_list *vals; long long *slots; long long nslots; int text;
+    int mode; long long base; long long *pos; long long npos;
+} tb_dict;
 
 static unsigned long long tb_hash(tb_dict *d, const void *k) {
     unsigned long long h = 1469598103934665603ULL;
@@ -348,7 +354,15 @@ static int tb_keq(tb_dict *d, const void *a, const void *b) {
     if (d->text) return strcmp(*(const char * const *)a, *(const char * const *)b) == 0;
     return *(const long long *)a == *(const long long *)b;
 }
-static long long tb_dfind(tb_dict *d, const void *k) {
+static inline long long tb_dfind(tb_dict *d, const void *k) {
+    if (d->mode == 1) {
+        unsigned long long at = (unsigned long long)(*(const long long *)k - d->base);
+        return at < (unsigned long long)d->keys->len ? (long long)at : -1;
+    }
+    if (d->mode == 2) {
+        unsigned long long o = (unsigned long long)(*(const long long *)k - d->base);
+        return o < (unsigned long long)d->npos ? d->pos[o] - 1 : -1;
+    }
     unsigned long long mask = d->nslots - 1, i = tb_hash(d, k) & mask;
     while (d->slots[i] != 0) {
         long long at = d->slots[i] - 1;
@@ -357,13 +371,22 @@ static long long tb_dfind(tb_dict *d, const void *k) {
     }
     return -1;
 }
+// память для таблиц dict — там же, где лежат его ключи (временная или обычная)
+static void *tb_dalloc(tb_dict *d, void *old, long long bytes) {
+    int in_temp = tb_nchunks > 0 && tb_in_temp(d->keys->data);
+    if (old && !in_temp) free(old);
+    void *p = in_temp ? tb_temp_alloc(bytes) : malloc(bytes);
+    if (!p) tb_crash(0, "не хватило памяти");
+    return p;
+}
 static void tb_dreindex(tb_dict *d, long long nslots) {
-    // новая таблица там же, где старая: временная — во временной памяти
-    int in_temp = d->slots != 0 ? tb_nchunks > 0 && tb_in_temp(d->slots) : tb_temp_depth > 0;
-    if (!in_temp) free(d->slots);
+    d->mode = 0;
+    if (d->pos) {
+        if (!(tb_nchunks > 0 && tb_in_temp(d->pos))) free(d->pos);
+        d->pos = 0; d->npos = 0;
+    }
     d->nslots = nslots;
-    d->slots = in_temp ? tb_temp_alloc(nslots * sizeof(long long)) : malloc(nslots * sizeof(long long));
-    if (!d->slots) tb_crash(0, "не хватило памяти");
+    d->slots = tb_dalloc(d, d->slots, nslots * sizeof(long long));
     memset(d->slots, 0, nslots * sizeof(long long));
     unsigned long long mask = nslots - 1;
     for (long long at = 0; at < d->keys->len; at++) {
@@ -372,14 +395,53 @@ static void tb_dreindex(tb_dict *d, long long nslots) {
         d->slots[i] = at + 1;
     }
 }
+// перейти на таблицу с хешем (ключ ушёл далеко от остальных или его удалили)
+static void tb_dto_hash(tb_dict *d) {
+    long long n = 8;
+    while (n < d->keys->len * 2 + 2) n *= 2;
+    tb_dreindex(d, n);
+}
+// mode 2: таблица pos на ключи base .. base+npos-1
+static void tb_dto_pos(tb_dict *d, long long npos) {
+    long long *p = tb_dalloc(d, 0, npos * sizeof(long long));
+    memset(p, 0, npos * sizeof(long long));
+    const long long *ks = (const long long *)d->keys->data;
+    for (long long at = 0; at < d->keys->len; at++) p[ks[at] - d->base] = at + 1;
+    if (d->pos && !(tb_nchunks > 0 && tb_in_temp(d->pos))) free(d->pos);
+    d->pos = p;
+    d->npos = npos;
+    d->mode = 2;
+}
 static tb_dict *tb_dict_new(int text, long long vsize) {
     tb_dict *d = tb_mem(sizeof(tb_dict));
     d->text = text;
     d->keys = tb_list_new(text ? sizeof(const char *) : sizeof(long long));
     d->vals = tb_list_new(vsize);
-    d->slots = 0;
-    tb_dreindex(d, 8);
+    d->slots = 0; d->pos = 0; d->npos = 0; d->base = 0;
+    if (text) tb_dreindex(d, 8);
+    else { d->mode = 1; d->nslots = 0; }
     return d;
+}
+// новый ключ int k: можно ли остаться без поиска (mode 1 или 2)
+static void tb_dplace_int(tb_dict *d, long long k) {
+    long long n = d->keys->len;          // уже вместе с новым ключом
+    if (d->mode == 1) {
+        if (n == 1) { d->base = k; return; }
+        if (k == d->base + n - 1) return;  // подряд — остаёмся в mode 1
+    }
+    if (d->mode == 1 || d->mode == 2) {
+        // плотно ли: ключи не дальше 4 ячеек на один ключ
+        long long o = k - d->base;
+        if (o >= 0 && o < 4 * n + 64) {
+            if (d->mode == 2 && o < d->npos) { d->pos[o] = n; return; }
+            long long want = d->npos * 2 > o + 1 ? d->npos * 2 : o + 1 + n;
+            if (want < 16) want = 16;
+            tb_dto_pos(d, want);
+            return;
+        }
+        tb_dto_hash(d);
+        return;
+    }
 }
 // место под значение ключа k; если ключа нет — добавить со значением *def
 static void *tb_dput(tb_dict *d, const void *k, const void *def) {
@@ -388,6 +450,11 @@ static void *tb_dput(tb_dict *d, const void *k, const void *def) {
     memcpy(tb_grow(d->keys), k, d->keys->size);
     void *v = tb_grow(d->vals);
     if (def) memcpy(v, def, d->vals->size); else memset(v, 0, d->vals->size);
+    if (d->mode != 0) {
+        // без поиска; если ключ лёг далеко, tb_dplace_int сам перейдёт на хеш и впишет все ключи
+        tb_dplace_int(d, *(const long long *)k);
+        return v;
+    }
     if (d->keys->len * 2 > d->nslots) tb_dreindex(d, d->nslots * 2);
     else {
         unsigned long long mask = d->nslots - 1, i = tb_hash(d, k) & mask;
@@ -398,23 +465,34 @@ static void *tb_dput(tb_dict *d, const void *k, const void *def) {
 }
 static void *tb_dget(tb_dict *d, const void *k, int line) {
     long long at = tb_dfind(d, k);
-    if (at < 0) {
+    if (TB_RARE(at < 0)) {
         if (d->text) tb_crash(line, tb_cat("в dict нет ключа: ", *(const char * const *)k));
         tb_crash(line, tb_cat("в dict нет ключа: ", tb_itos(*(const long long *)k)));
     }
     return d->vals->data + at * d->vals->size;
 }
-// together: шаг 1 — место ключа в таблице, просим память принести его заранее
+// together: шаг 1 — просим память принести место ключа заранее
 static inline unsigned long long tb_dpre1(tb_dict *d, const void *k) {
+    if (d->mode == 1) {
+        unsigned long long at = (unsigned long long)(*(const long long *)k - d->base);
+        if (at < (unsigned long long)d->vals->len) __builtin_prefetch(d->vals->data + at * d->vals->size);
+        return ~0ULL;
+    }
+    if (d->mode == 2) {
+        unsigned long long o = (unsigned long long)(*(const long long *)k - d->base);
+        if (o < (unsigned long long)d->npos) { __builtin_prefetch(&d->pos[o]); return o; }
+        return ~0ULL;
+    }
     unsigned long long i = tb_hash(d, k) & (d->nslots - 1);
     __builtin_prefetch(&d->slots[i]);
     return i;
 }
 // шаг 2 — место приехало: просим принести ключ и значение
 static inline void tb_dpre2(tb_dict *d, unsigned long long i) {
-    long long s = d->slots[i];
+    if (i == ~0ULL || d->mode == 1) return;
+    long long s = d->mode == 2 ? d->pos[i] : d->slots[i];
     if (s != 0) {
-        __builtin_prefetch(d->keys->data + (s - 1) * d->keys->size);
+        if (d->mode == 0) __builtin_prefetch(d->keys->data + (s - 1) * d->keys->size);
         __builtin_prefetch(d->vals->data + (s - 1) * d->vals->size);
     }
 }
@@ -437,6 +515,7 @@ static int tb_dhas(tb_dict *d, const void *k) { return tb_dfind(d, k) >= 0; }
 static void tb_dremove(tb_dict *d, const void *k) {
     long long at = tb_dfind(d, k);
     if (at < 0) return;
+    if (d->mode != 0) tb_dto_hash(d);
     long long last = d->keys->len - 1;
     // на место удалённого ставим последний: порядок меняется только у него
     memcpy(d->keys->data + at * d->keys->size, d->keys->data + last * d->keys->size, d->keys->size);

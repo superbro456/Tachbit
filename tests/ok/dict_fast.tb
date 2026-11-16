@@ -1,0 +1,27 @@
+// 0.7: dict без поиска: подряд (номер = адрес), плотно (адресное хранение), далеко (хеш)
+func main()
+    a = dict int text
+    count i from 10 to 14
+        a[i] = "x" + i
+    print(a, a[12], a.has(9), a.has(15))
+    b = dict int int
+    each k in [5, 1, 9, 3, 7]
+        b[k] = k * k
+    b[1] = 100
+    print(b, b.has(2), b[9])
+    b.remove(1)
+    print(b, b.has(1))
+    c = dict int int
+    c[0] = 1
+    c[1] = 2
+    c[1000000000] = 3
+    c[-5] = 4
+    print(c, c[1000000000], c[-5])
+    temp
+        t = dict int int
+        count i from 0 to 999
+            t[i * 2] = i
+        print(len(t.keys()), t[1998])
+    e = dict int int
+    e[3] = 1
+    print(e.has(3), e.has(2), e.has(4))

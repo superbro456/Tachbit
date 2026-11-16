@@ -1,0 +1,29 @@
+// 0.7: dict без поиска — ключи подряд, плотные, далёкие, удаление
+func main()
+    d = dict int int
+    seed = 5
+    count step from 1 to 4000
+        seed = (seed * 1103515245 + 12345) % 2147483648
+        r = seed % 100
+        k = 0
+        if r < 50
+            k = len(d.keys())
+        else if r < 75
+            k = (seed / 100) % 300
+        else if r < 85
+            k = (seed / 100) % 100000 - 50000
+        else
+            k = (seed / 100) % 400
+        if r % 7 == 0
+            d.remove(k)
+        else
+            d[k] = step
+    s = 0
+    each k in d
+        s += k * 3 + d[k]
+    hits = 0
+    count q from -100 to 1000
+        if d.has(q)
+            hits += 1
+    print(len(d.keys()), s, hits)
+

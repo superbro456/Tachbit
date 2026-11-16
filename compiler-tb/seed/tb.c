@@ -331,8 +331,14 @@ static tb_list *tb_copy(tb_list *l) { return tb_list_from(l->len, l->size, l->da
 static void tb_sort_list(tb_list *l, int (*cmp)(const void *, const void *)) { qsort(l->data, l->len, l->size, cmp); }
 
 // ---------- dict: ключи и значения лежат в двух списках по порядку добавления,
-// а таблица slots быстро находит номер по ключу (номер + 1, 0 — пусто) ----------
-typedef struct { tb_list *keys; tb_list *vals; long long *slots; long long nslots; int text; } tb_dict;
+// а найти номер по ключу можно тремя способами (mode):
+//   1 — «номер = адрес»: ключи int шли подряд base, base+1, base+2 ... — номер = ключ - base, без поиска;
+//   2 — «адресное хранение»: ключи int лежат плотно — pos[ключ - base] = номер + 1, один взгляд;
+//   0 — таблица slots с хешем (текст или разбросанные числа) ----------
+typedef struct {
+    tb_list *keys; tb_list *vals; long long *slots; long long nslots; int text;
+    int mode; long long base; long long *pos; long long npos;
+} tb_dict;
 
 static unsigned long long tb_hash(tb_dict *d, const void *k) {
     unsigned long long h = 1469598103934665603ULL;
@@ -349,7 +355,15 @@ static int tb_keq(tb_dict *d, const void *a, const void *b) {
     if (d->text) return strcmp(*(const char * const *)a, *(const char * const *)b) == 0;
     return *(const long long *)a == *(const long long *)b;
 }
-static long long tb_dfind(tb_dict *d, const void *k) {
+static inline long long tb_dfind(tb_dict *d, const void *k) {
+    if (d->mode == 1) {
+        unsigned long long at = (unsigned long long)(*(const long long *)k - d->base);
+        return at < (unsigned long long)d->keys->len ? (long long)at : -1;
+    }
+    if (d->mode == 2) {
+        unsigned long long o = (unsigned long long)(*(const long long *)k - d->base);
+        return o < (unsigned long long)d->npos ? d->pos[o] - 1 : -1;
+    }
     unsigned long long mask = d->nslots - 1, i = tb_hash(d, k) & mask;
     while (d->slots[i] != 0) {
         long long at = d->slots[i] - 1;
@@ -358,13 +372,22 @@ static long long tb_dfind(tb_dict *d, const void *k) {
     }
     return -1;
 }
+// память для таблиц dict — там же, где лежат его ключи (временная или обычная)
+static void *tb_dalloc(tb_dict *d, void *old, long long bytes) {
+    int in_temp = tb_nchunks > 0 && tb_in_temp(d->keys->data);
+    if (old && !in_temp) free(old);
+    void *p = in_temp ? tb_temp_alloc(bytes) : malloc(bytes);
+    if (!p) tb_crash(0, "не хватило памяти");
+    return p;
+}
 static void tb_dreindex(tb_dict *d, long long nslots) {
-    // новая таблица там же, где старая: временная — во временной памяти
-    int in_temp = d->slots != 0 ? tb_nchunks > 0 && tb_in_temp(d->slots) : tb_temp_depth > 0;
-    if (!in_temp) free(d->slots);
+    d->mode = 0;
+    if (d->pos) {
+        if (!(tb_nchunks > 0 && tb_in_temp(d->pos))) free(d->pos);
+        d->pos = 0; d->npos = 0;
+    }
     d->nslots = nslots;
-    d->slots = in_temp ? tb_temp_alloc(nslots * sizeof(long long)) : malloc(nslots * sizeof(long long));
-    if (!d->slots) tb_crash(0, "не хватило памяти");
+    d->slots = tb_dalloc(d, d->slots, nslots * sizeof(long long));
     memset(d->slots, 0, nslots * sizeof(long long));
     unsigned long long mask = nslots - 1;
     for (long long at = 0; at < d->keys->len; at++) {
@@ -373,14 +396,53 @@ static void tb_dreindex(tb_dict *d, long long nslots) {
         d->slots[i] = at + 1;
     }
 }
+// перейти на таблицу с хешем (ключ ушёл далеко от остальных или его удалили)
+static void tb_dto_hash(tb_dict *d) {
+    long long n = 8;
+    while (n < d->keys->len * 2 + 2) n *= 2;
+    tb_dreindex(d, n);
+}
+// mode 2: таблица pos на ключи base .. base+npos-1
+static void tb_dto_pos(tb_dict *d, long long npos) {
+    long long *p = tb_dalloc(d, 0, npos * sizeof(long long));
+    memset(p, 0, npos * sizeof(long long));
+    const long long *ks = (const long long *)d->keys->data;
+    for (long long at = 0; at < d->keys->len; at++) p[ks[at] - d->base] = at + 1;
+    if (d->pos && !(tb_nchunks > 0 && tb_in_temp(d->pos))) free(d->pos);
+    d->pos = p;
+    d->npos = npos;
+    d->mode = 2;
+}
 static tb_dict *tb_dict_new(int text, long long vsize) {
     tb_dict *d = tb_mem(sizeof(tb_dict));
     d->text = text;
     d->keys = tb_list_new(text ? sizeof(const char *) : sizeof(long long));
     d->vals = tb_list_new(vsize);
-    d->slots = 0;
-    tb_dreindex(d, 8);
+    d->slots = 0; d->pos = 0; d->npos = 0; d->base = 0;
+    if (text) tb_dreindex(d, 8);
+    else { d->mode = 1; d->nslots = 0; }
     return d;
+}
+// новый ключ int k: можно ли остаться без поиска (mode 1 или 2)
+static void tb_dplace_int(tb_dict *d, long long k) {
+    long long n = d->keys->len;          // уже вместе с новым ключом
+    if (d->mode == 1) {
+        if (n == 1) { d->base = k; return; }
+        if (k == d->base + n - 1) return;  // подряд — остаёмся в mode 1
+    }
+    if (d->mode == 1 || d->mode == 2) {
+        // плотно ли: ключи не дальше 4 ячеек на один ключ
+        long long o = k - d->base;
+        if (o >= 0 && o < 4 * n + 64) {
+            if (d->mode == 2 && o < d->npos) { d->pos[o] = n; return; }
+            long long want = d->npos * 2 > o + 1 ? d->npos * 2 : o + 1 + n;
+            if (want < 16) want = 16;
+            tb_dto_pos(d, want);
+            return;
+        }
+        tb_dto_hash(d);
+        return;
+    }
 }
 // место под значение ключа k; если ключа нет — добавить со значением *def
 static void *tb_dput(tb_dict *d, const void *k, const void *def) {
@@ -389,6 +451,11 @@ static void *tb_dput(tb_dict *d, const void *k, const void *def) {
     memcpy(tb_grow(d->keys), k, d->keys->size);
     void *v = tb_grow(d->vals);
     if (def) memcpy(v, def, d->vals->size); else memset(v, 0, d->vals->size);
+    if (d->mode != 0) {
+        // без поиска; если ключ лёг далеко, tb_dplace_int сам перейдёт на хеш и впишет все ключи
+        tb_dplace_int(d, *(const long long *)k);
+        return v;
+    }
     if (d->keys->len * 2 > d->nslots) tb_dreindex(d, d->nslots * 2);
     else {
         unsigned long long mask = d->nslots - 1, i = tb_hash(d, k) & mask;
@@ -399,23 +466,34 @@ static void *tb_dput(tb_dict *d, const void *k, const void *def) {
 }
 static void *tb_dget(tb_dict *d, const void *k, int line) {
     long long at = tb_dfind(d, k);
-    if (at < 0) {
+    if (TB_RARE(at < 0)) {
         if (d->text) tb_crash(line, tb_cat("в dict нет ключа: ", *(const char * const *)k));
         tb_crash(line, tb_cat("в dict нет ключа: ", tb_itos(*(const long long *)k)));
     }
     return d->vals->data + at * d->vals->size;
 }
-// together: шаг 1 — место ключа в таблице, просим память принести его заранее
+// together: шаг 1 — просим память принести место ключа заранее
 static inline unsigned long long tb_dpre1(tb_dict *d, const void *k) {
+    if (d->mode == 1) {
+        unsigned long long at = (unsigned long long)(*(const long long *)k - d->base);
+        if (at < (unsigned long long)d->vals->len) __builtin_prefetch(d->vals->data + at * d->vals->size);
+        return ~0ULL;
+    }
+    if (d->mode == 2) {
+        unsigned long long o = (unsigned long long)(*(const long long *)k - d->base);
+        if (o < (unsigned long long)d->npos) { __builtin_prefetch(&d->pos[o]); return o; }
+        return ~0ULL;
+    }
     unsigned long long i = tb_hash(d, k) & (d->nslots - 1);
     __builtin_prefetch(&d->slots[i]);
     return i;
 }
 // шаг 2 — место приехало: просим принести ключ и значение
 static inline void tb_dpre2(tb_dict *d, unsigned long long i) {
-    long long s = d->slots[i];
+    if (i == ~0ULL || d->mode == 1) return;
+    long long s = d->mode == 2 ? d->pos[i] : d->slots[i];
     if (s != 0) {
-        __builtin_prefetch(d->keys->data + (s - 1) * d->keys->size);
+        if (d->mode == 0) __builtin_prefetch(d->keys->data + (s - 1) * d->keys->size);
         __builtin_prefetch(d->vals->data + (s - 1) * d->vals->size);
     }
 }
@@ -438,6 +516,7 @@ static int tb_dhas(tb_dict *d, const void *k) { return tb_dfind(d, k) >= 0; }
 static void tb_dremove(tb_dict *d, const void *k) {
     long long at = tb_dfind(d, k);
     if (at < 0) return;
+    if (d->mode != 0) tb_dto_hash(d);
     long long last = d->keys->len - 1;
     // на место удалённого ставим последний: порядок меняется только у него
     memcpy(d->keys->data + at * d->keys->size, d->keys->data + last * d->keys->size, d->keys->size);
@@ -6948,155 +7027,234 @@ static const char * f_runtime_text__runtime_text(void) {
     { const char * tb_v677 = "static void tb_sort_list(tb_list *l, int (*cmp)(const void *, const void *)) { qsort(l->data, l->len, l->size, cmp); }\n"; *(const char * *)tb_grow(v_lines) = tb_v677; }
     { const char * tb_v678 = "\n"; *(const char * *)tb_grow(v_lines) = tb_v678; }
     { const char * tb_v679 = "// ---------- dict: ключи и значения лежат в двух списках по порядку добавления,\n"; *(const char * *)tb_grow(v_lines) = tb_v679; }
-    { const char * tb_v680 = "// а таблица slots быстро находит номер по ключу (номер + 1, 0 — пусто) ----------\n"; *(const char * *)tb_grow(v_lines) = tb_v680; }
-    { const char * tb_v681 = "typedef struct { tb_list *keys; tb_list *vals; long long *slots; long long nslots; int text; } tb_dict;\n"; *(const char * *)tb_grow(v_lines) = tb_v681; }
-    { const char * tb_v682 = "\n"; *(const char * *)tb_grow(v_lines) = tb_v682; }
-    { const char * tb_v683 = "static unsigned long long tb_hash(tb_dict *d, const void *k) {\n"; *(const char * *)tb_grow(v_lines) = tb_v683; }
-    { const char * tb_v684 = "    unsigned long long h = 1469598103934665603ULL;\n"; *(const char * *)tb_grow(v_lines) = tb_v684; }
-    { const char * tb_v685 = "    if (d->text) {\n"; *(const char * *)tb_grow(v_lines) = tb_v685; }
-    { const char * tb_v686 = "        for (const unsigned char *p = *(const unsigned char * const *)k; *p; p++) { h ^= *p; h *= 1099511628211ULL; }\n"; *(const char * *)tb_grow(v_lines) = tb_v686; }
-    { const char * tb_v687 = "    } else {\n"; *(const char * *)tb_grow(v_lines) = tb_v687; }
-    { const char * tb_v688 = "        h ^= (unsigned long long)*(const long long *)k;\n"; *(const char * *)tb_grow(v_lines) = tb_v688; }
-    { const char * tb_v689 = "        h *= 0x9E3779B97F4A7C15ULL;\n"; *(const char * *)tb_grow(v_lines) = tb_v689; }
-    { const char * tb_v690 = "        h ^= h >> 32;\n"; *(const char * *)tb_grow(v_lines) = tb_v690; }
-    { const char * tb_v691 = "    }\n"; *(const char * *)tb_grow(v_lines) = tb_v691; }
-    { const char * tb_v692 = "    return h;\n"; *(const char * *)tb_grow(v_lines) = tb_v692; }
-    { const char * tb_v693 = "}\n"; *(const char * *)tb_grow(v_lines) = tb_v693; }
-    { const char * tb_v694 = "static int tb_keq(tb_dict *d, const void *a, const void *b) {\n"; *(const char * *)tb_grow(v_lines) = tb_v694; }
-    { const char * tb_v695 = "    if (d->text) return strcmp(*(const char * const *)a, *(const char * const *)b) == 0;\n"; *(const char * *)tb_grow(v_lines) = tb_v695; }
-    { const char * tb_v696 = "    return *(const long long *)a == *(const long long *)b;\n"; *(const char * *)tb_grow(v_lines) = tb_v696; }
-    { const char * tb_v697 = "}\n"; *(const char * *)tb_grow(v_lines) = tb_v697; }
-    { const char * tb_v698 = "static long long tb_dfind(tb_dict *d, const void *k) {\n"; *(const char * *)tb_grow(v_lines) = tb_v698; }
-    { const char * tb_v699 = "    unsigned long long mask = d->nslots - 1, i = tb_hash(d, k) & mask;\n"; *(const char * *)tb_grow(v_lines) = tb_v699; }
-    { const char * tb_v700 = "    while (d->slots[i] != 0) {\n"; *(const char * *)tb_grow(v_lines) = tb_v700; }
-    { const char * tb_v701 = "        long long at = d->slots[i] - 1;\n"; *(const char * *)tb_grow(v_lines) = tb_v701; }
-    { const char * tb_v702 = "        if (tb_keq(d, d->keys->data + at * d->keys->size, k)) return at;\n"; *(const char * *)tb_grow(v_lines) = tb_v702; }
-    { const char * tb_v703 = "        i = (i + 1) & mask;\n"; *(const char * *)tb_grow(v_lines) = tb_v703; }
-    { const char * tb_v704 = "    }\n"; *(const char * *)tb_grow(v_lines) = tb_v704; }
-    { const char * tb_v705 = "    return -1;\n"; *(const char * *)tb_grow(v_lines) = tb_v705; }
-    { const char * tb_v706 = "}\n"; *(const char * *)tb_grow(v_lines) = tb_v706; }
-    { const char * tb_v707 = "static void tb_dreindex(tb_dict *d, long long nslots) {\n"; *(const char * *)tb_grow(v_lines) = tb_v707; }
-    { const char * tb_v708 = "    // новая таблица там же, где старая: временная — во временной памяти\n"; *(const char * *)tb_grow(v_lines) = tb_v708; }
-    { const char * tb_v709 = "    int in_temp = d->slots != 0 ? tb_nchunks > 0 && tb_in_temp(d->slots) : tb_temp_depth > 0;\n"; *(const char * *)tb_grow(v_lines) = tb_v709; }
-    { const char * tb_v710 = "    if (!in_temp) free(d->slots);\n"; *(const char * *)tb_grow(v_lines) = tb_v710; }
-    { const char * tb_v711 = "    d->nslots = nslots;\n"; *(const char * *)tb_grow(v_lines) = tb_v711; }
-    { const char * tb_v712 = "    d->slots = in_temp ? tb_temp_alloc(nslots * sizeof(long long)) : malloc(nslots * sizeof(long long));\n"; *(const char * *)tb_grow(v_lines) = tb_v712; }
-    { const char * tb_v713 = "    if (!d->slots) tb_crash(0, \"не хватило памяти\");\n"; *(const char * *)tb_grow(v_lines) = tb_v713; }
-    { const char * tb_v714 = "    memset(d->slots, 0, nslots * sizeof(long long));\n"; *(const char * *)tb_grow(v_lines) = tb_v714; }
-    { const char * tb_v715 = "    unsigned long long mask = nslots - 1;\n"; *(const char * *)tb_grow(v_lines) = tb_v715; }
-    { const char * tb_v716 = "    for (long long at = 0; at < d->keys->len; at++) {\n"; *(const char * *)tb_grow(v_lines) = tb_v716; }
-    { const char * tb_v717 = "        unsigned long long i = tb_hash(d, d->keys->data + at * d->keys->size) & mask;\n"; *(const char * *)tb_grow(v_lines) = tb_v717; }
-    { const char * tb_v718 = "        while (d->slots[i] != 0) i = (i + 1) & mask;\n"; *(const char * *)tb_grow(v_lines) = tb_v718; }
-    { const char * tb_v719 = "        d->slots[i] = at + 1;\n"; *(const char * *)tb_grow(v_lines) = tb_v719; }
-    { const char * tb_v720 = "    }\n"; *(const char * *)tb_grow(v_lines) = tb_v720; }
-    { const char * tb_v721 = "}\n"; *(const char * *)tb_grow(v_lines) = tb_v721; }
-    { const char * tb_v722 = "static tb_dict *tb_dict_new(int text, long long vsize) {\n"; *(const char * *)tb_grow(v_lines) = tb_v722; }
-    { const char * tb_v723 = "    tb_dict *d = tb_mem(sizeof(tb_dict));\n"; *(const char * *)tb_grow(v_lines) = tb_v723; }
-    { const char * tb_v724 = "    d->text = text;\n"; *(const char * *)tb_grow(v_lines) = tb_v724; }
-    { const char * tb_v725 = "    d->keys = tb_list_new(text ? sizeof(const char *) : sizeof(long long));\n"; *(const char * *)tb_grow(v_lines) = tb_v725; }
-    { const char * tb_v726 = "    d->vals = tb_list_new(vsize);\n"; *(const char * *)tb_grow(v_lines) = tb_v726; }
-    { const char * tb_v727 = "    d->slots = 0;\n"; *(const char * *)tb_grow(v_lines) = tb_v727; }
-    { const char * tb_v728 = "    tb_dreindex(d, 8);\n"; *(const char * *)tb_grow(v_lines) = tb_v728; }
-    { const char * tb_v729 = "    return d;\n"; *(const char * *)tb_grow(v_lines) = tb_v729; }
-    { const char * tb_v730 = "}\n"; *(const char * *)tb_grow(v_lines) = tb_v730; }
-    { const char * tb_v731 = "// место под значение ключа k; если ключа нет — добавить со значением *def\n"; *(const char * *)tb_grow(v_lines) = tb_v731; }
-    { const char * tb_v732 = "static void *tb_dput(tb_dict *d, const void *k, const void *def) {\n"; *(const char * *)tb_grow(v_lines) = tb_v732; }
-    { const char * tb_v733 = "    long long at = tb_dfind(d, k);\n"; *(const char * *)tb_grow(v_lines) = tb_v733; }
-    { const char * tb_v734 = "    if (at >= 0) return d->vals->data + at * d->vals->size;\n"; *(const char * *)tb_grow(v_lines) = tb_v734; }
-    { const char * tb_v735 = "    memcpy(tb_grow(d->keys), k, d->keys->size);\n"; *(const char * *)tb_grow(v_lines) = tb_v735; }
-    { const char * tb_v736 = "    void *v = tb_grow(d->vals);\n"; *(const char * *)tb_grow(v_lines) = tb_v736; }
-    { const char * tb_v737 = "    if (def) memcpy(v, def, d->vals->size); else memset(v, 0, d->vals->size);\n"; *(const char * *)tb_grow(v_lines) = tb_v737; }
-    { const char * tb_v738 = "    if (d->keys->len * 2 > d->nslots) tb_dreindex(d, d->nslots * 2);\n"; *(const char * *)tb_grow(v_lines) = tb_v738; }
-    { const char * tb_v739 = "    else {\n"; *(const char * *)tb_grow(v_lines) = tb_v739; }
-    { const char * tb_v740 = "        unsigned long long mask = d->nslots - 1, i = tb_hash(d, k) & mask;\n"; *(const char * *)tb_grow(v_lines) = tb_v740; }
+    { const char * tb_v680 = "// а найти номер по ключу можно тремя способами (mode):\n"; *(const char * *)tb_grow(v_lines) = tb_v680; }
+    { const char * tb_v681 = "//   1 — «номер = адрес»: ключи int шли подряд base, base+1, base+2 ... — номер = ключ - base, без поиска;\n"; *(const char * *)tb_grow(v_lines) = tb_v681; }
+    { const char * tb_v682 = "//   2 — «адресное хранение»: ключи int лежат плотно — pos[ключ - base] = номер + 1, один взгляд;\n"; *(const char * *)tb_grow(v_lines) = tb_v682; }
+    { const char * tb_v683 = "//   0 — таблица slots с хешем (текст или разбросанные числа) ----------\n"; *(const char * *)tb_grow(v_lines) = tb_v683; }
+    { const char * tb_v684 = "typedef struct {\n"; *(const char * *)tb_grow(v_lines) = tb_v684; }
+    { const char * tb_v685 = "    tb_list *keys; tb_list *vals; long long *slots; long long nslots; int text;\n"; *(const char * *)tb_grow(v_lines) = tb_v685; }
+    { const char * tb_v686 = "    int mode; long long base; long long *pos; long long npos;\n"; *(const char * *)tb_grow(v_lines) = tb_v686; }
+    { const char * tb_v687 = "} tb_dict;\n"; *(const char * *)tb_grow(v_lines) = tb_v687; }
+    { const char * tb_v688 = "\n"; *(const char * *)tb_grow(v_lines) = tb_v688; }
+    { const char * tb_v689 = "static unsigned long long tb_hash(tb_dict *d, const void *k) {\n"; *(const char * *)tb_grow(v_lines) = tb_v689; }
+    { const char * tb_v690 = "    unsigned long long h = 1469598103934665603ULL;\n"; *(const char * *)tb_grow(v_lines) = tb_v690; }
+    { const char * tb_v691 = "    if (d->text) {\n"; *(const char * *)tb_grow(v_lines) = tb_v691; }
+    { const char * tb_v692 = "        for (const unsigned char *p = *(const unsigned char * const *)k; *p; p++) { h ^= *p; h *= 1099511628211ULL; }\n"; *(const char * *)tb_grow(v_lines) = tb_v692; }
+    { const char * tb_v693 = "    } else {\n"; *(const char * *)tb_grow(v_lines) = tb_v693; }
+    { const char * tb_v694 = "        h ^= (unsigned long long)*(const long long *)k;\n"; *(const char * *)tb_grow(v_lines) = tb_v694; }
+    { const char * tb_v695 = "        h *= 0x9E3779B97F4A7C15ULL;\n"; *(const char * *)tb_grow(v_lines) = tb_v695; }
+    { const char * tb_v696 = "        h ^= h >> 32;\n"; *(const char * *)tb_grow(v_lines) = tb_v696; }
+    { const char * tb_v697 = "    }\n"; *(const char * *)tb_grow(v_lines) = tb_v697; }
+    { const char * tb_v698 = "    return h;\n"; *(const char * *)tb_grow(v_lines) = tb_v698; }
+    { const char * tb_v699 = "}\n"; *(const char * *)tb_grow(v_lines) = tb_v699; }
+    { const char * tb_v700 = "static int tb_keq(tb_dict *d, const void *a, const void *b) {\n"; *(const char * *)tb_grow(v_lines) = tb_v700; }
+    { const char * tb_v701 = "    if (d->text) return strcmp(*(const char * const *)a, *(const char * const *)b) == 0;\n"; *(const char * *)tb_grow(v_lines) = tb_v701; }
+    { const char * tb_v702 = "    return *(const long long *)a == *(const long long *)b;\n"; *(const char * *)tb_grow(v_lines) = tb_v702; }
+    { const char * tb_v703 = "}\n"; *(const char * *)tb_grow(v_lines) = tb_v703; }
+    { const char * tb_v704 = "static inline long long tb_dfind(tb_dict *d, const void *k) {\n"; *(const char * *)tb_grow(v_lines) = tb_v704; }
+    { const char * tb_v705 = "    if (d->mode == 1) {\n"; *(const char * *)tb_grow(v_lines) = tb_v705; }
+    { const char * tb_v706 = "        unsigned long long at = (unsigned long long)(*(const long long *)k - d->base);\n"; *(const char * *)tb_grow(v_lines) = tb_v706; }
+    { const char * tb_v707 = "        return at < (unsigned long long)d->keys->len ? (long long)at : -1;\n"; *(const char * *)tb_grow(v_lines) = tb_v707; }
+    { const char * tb_v708 = "    }\n"; *(const char * *)tb_grow(v_lines) = tb_v708; }
+    { const char * tb_v709 = "    if (d->mode == 2) {\n"; *(const char * *)tb_grow(v_lines) = tb_v709; }
+    { const char * tb_v710 = "        unsigned long long o = (unsigned long long)(*(const long long *)k - d->base);\n"; *(const char * *)tb_grow(v_lines) = tb_v710; }
+    { const char * tb_v711 = "        return o < (unsigned long long)d->npos ? d->pos[o] - 1 : -1;\n"; *(const char * *)tb_grow(v_lines) = tb_v711; }
+    { const char * tb_v712 = "    }\n"; *(const char * *)tb_grow(v_lines) = tb_v712; }
+    { const char * tb_v713 = "    unsigned long long mask = d->nslots - 1, i = tb_hash(d, k) & mask;\n"; *(const char * *)tb_grow(v_lines) = tb_v713; }
+    { const char * tb_v714 = "    while (d->slots[i] != 0) {\n"; *(const char * *)tb_grow(v_lines) = tb_v714; }
+    { const char * tb_v715 = "        long long at = d->slots[i] - 1;\n"; *(const char * *)tb_grow(v_lines) = tb_v715; }
+    { const char * tb_v716 = "        if (tb_keq(d, d->keys->data + at * d->keys->size, k)) return at;\n"; *(const char * *)tb_grow(v_lines) = tb_v716; }
+    { const char * tb_v717 = "        i = (i + 1) & mask;\n"; *(const char * *)tb_grow(v_lines) = tb_v717; }
+    { const char * tb_v718 = "    }\n"; *(const char * *)tb_grow(v_lines) = tb_v718; }
+    { const char * tb_v719 = "    return -1;\n"; *(const char * *)tb_grow(v_lines) = tb_v719; }
+    { const char * tb_v720 = "}\n"; *(const char * *)tb_grow(v_lines) = tb_v720; }
+    { const char * tb_v721 = "// память для таблиц dict — там же, где лежат его ключи (временная или обычная)\n"; *(const char * *)tb_grow(v_lines) = tb_v721; }
+    { const char * tb_v722 = "static void *tb_dalloc(tb_dict *d, void *old, long long bytes) {\n"; *(const char * *)tb_grow(v_lines) = tb_v722; }
+    { const char * tb_v723 = "    int in_temp = tb_nchunks > 0 && tb_in_temp(d->keys->data);\n"; *(const char * *)tb_grow(v_lines) = tb_v723; }
+    { const char * tb_v724 = "    if (old && !in_temp) free(old);\n"; *(const char * *)tb_grow(v_lines) = tb_v724; }
+    { const char * tb_v725 = "    void *p = in_temp ? tb_temp_alloc(bytes) : malloc(bytes);\n"; *(const char * *)tb_grow(v_lines) = tb_v725; }
+    { const char * tb_v726 = "    if (!p) tb_crash(0, \"не хватило памяти\");\n"; *(const char * *)tb_grow(v_lines) = tb_v726; }
+    { const char * tb_v727 = "    return p;\n"; *(const char * *)tb_grow(v_lines) = tb_v727; }
+    { const char * tb_v728 = "}\n"; *(const char * *)tb_grow(v_lines) = tb_v728; }
+    { const char * tb_v729 = "static void tb_dreindex(tb_dict *d, long long nslots) {\n"; *(const char * *)tb_grow(v_lines) = tb_v729; }
+    { const char * tb_v730 = "    d->mode = 0;\n"; *(const char * *)tb_grow(v_lines) = tb_v730; }
+    { const char * tb_v731 = "    if (d->pos) {\n"; *(const char * *)tb_grow(v_lines) = tb_v731; }
+    { const char * tb_v732 = "        if (!(tb_nchunks > 0 && tb_in_temp(d->pos))) free(d->pos);\n"; *(const char * *)tb_grow(v_lines) = tb_v732; }
+    { const char * tb_v733 = "        d->pos = 0; d->npos = 0;\n"; *(const char * *)tb_grow(v_lines) = tb_v733; }
+    { const char * tb_v734 = "    }\n"; *(const char * *)tb_grow(v_lines) = tb_v734; }
+    { const char * tb_v735 = "    d->nslots = nslots;\n"; *(const char * *)tb_grow(v_lines) = tb_v735; }
+    { const char * tb_v736 = "    d->slots = tb_dalloc(d, d->slots, nslots * sizeof(long long));\n"; *(const char * *)tb_grow(v_lines) = tb_v736; }
+    { const char * tb_v737 = "    memset(d->slots, 0, nslots * sizeof(long long));\n"; *(const char * *)tb_grow(v_lines) = tb_v737; }
+    { const char * tb_v738 = "    unsigned long long mask = nslots - 1;\n"; *(const char * *)tb_grow(v_lines) = tb_v738; }
+    { const char * tb_v739 = "    for (long long at = 0; at < d->keys->len; at++) {\n"; *(const char * *)tb_grow(v_lines) = tb_v739; }
+    { const char * tb_v740 = "        unsigned long long i = tb_hash(d, d->keys->data + at * d->keys->size) & mask;\n"; *(const char * *)tb_grow(v_lines) = tb_v740; }
     { const char * tb_v741 = "        while (d->slots[i] != 0) i = (i + 1) & mask;\n"; *(const char * *)tb_grow(v_lines) = tb_v741; }
-    { const char * tb_v742 = "        d->slots[i] = d->keys->len;\n"; *(const char * *)tb_grow(v_lines) = tb_v742; }
+    { const char * tb_v742 = "        d->slots[i] = at + 1;\n"; *(const char * *)tb_grow(v_lines) = tb_v742; }
     { const char * tb_v743 = "    }\n"; *(const char * *)tb_grow(v_lines) = tb_v743; }
-    { const char * tb_v744 = "    return v;\n"; *(const char * *)tb_grow(v_lines) = tb_v744; }
-    { const char * tb_v745 = "}\n"; *(const char * *)tb_grow(v_lines) = tb_v745; }
-    { const char * tb_v746 = "static void *tb_dget(tb_dict *d, const void *k, int line) {\n"; *(const char * *)tb_grow(v_lines) = tb_v746; }
-    { const char * tb_v747 = "    long long at = tb_dfind(d, k);\n"; *(const char * *)tb_grow(v_lines) = tb_v747; }
-    { const char * tb_v748 = "    if (at < 0) {\n"; *(const char * *)tb_grow(v_lines) = tb_v748; }
-    { const char * tb_v749 = "        if (d->text) tb_crash(line, tb_cat(\"в dict нет ключа: \", *(const char * const *)k));\n"; *(const char * *)tb_grow(v_lines) = tb_v749; }
-    { const char * tb_v750 = "        tb_crash(line, tb_cat(\"в dict нет ключа: \", tb_itos(*(const long long *)k)));\n"; *(const char * *)tb_grow(v_lines) = tb_v750; }
-    { const char * tb_v751 = "    }\n"; *(const char * *)tb_grow(v_lines) = tb_v751; }
-    { const char * tb_v752 = "    return d->vals->data + at * d->vals->size;\n"; *(const char * *)tb_grow(v_lines) = tb_v752; }
-    { const char * tb_v753 = "}\n"; *(const char * *)tb_grow(v_lines) = tb_v753; }
-    { const char * tb_v754 = "// together: шаг 1 — место ключа в таблице, просим память принести его заранее\n"; *(const char * *)tb_grow(v_lines) = tb_v754; }
-    { const char * tb_v755 = "static inline unsigned long long tb_dpre1(tb_dict *d, const void *k) {\n"; *(const char * *)tb_grow(v_lines) = tb_v755; }
-    { const char * tb_v756 = "    unsigned long long i = tb_hash(d, k) & (d->nslots - 1);\n"; *(const char * *)tb_grow(v_lines) = tb_v756; }
-    { const char * tb_v757 = "    __builtin_prefetch(&d->slots[i]);\n"; *(const char * *)tb_grow(v_lines) = tb_v757; }
-    { const char * tb_v758 = "    return i;\n"; *(const char * *)tb_grow(v_lines) = tb_v758; }
-    { const char * tb_v759 = "}\n"; *(const char * *)tb_grow(v_lines) = tb_v759; }
-    { const char * tb_v760 = "// шаг 2 — место приехало: просим принести ключ и значение\n"; *(const char * *)tb_grow(v_lines) = tb_v760; }
-    { const char * tb_v761 = "static inline void tb_dpre2(tb_dict *d, unsigned long long i) {\n"; *(const char * *)tb_grow(v_lines) = tb_v761; }
-    { const char * tb_v762 = "    long long s = d->slots[i];\n"; *(const char * *)tb_grow(v_lines) = tb_v762; }
-    { const char * tb_v763 = "    if (s != 0) {\n"; *(const char * *)tb_grow(v_lines) = tb_v763; }
-    { const char * tb_v764 = "        __builtin_prefetch(d->keys->data + (s - 1) * d->keys->size);\n"; *(const char * *)tb_grow(v_lines) = tb_v764; }
-    { const char * tb_v765 = "        __builtin_prefetch(d->vals->data + (s - 1) * d->vals->size);\n"; *(const char * *)tb_grow(v_lines) = tb_v765; }
-    { const char * tb_v766 = "    }\n"; *(const char * *)tb_grow(v_lines) = tb_v766; }
-    { const char * tb_v767 = "}\n"; *(const char * *)tb_grow(v_lines) = tb_v767; }
-    { const char * tb_v768 = "// элемент списка заранее (prefetch за пределами списка ничего не ломает)\n"; *(const char * *)tb_grow(v_lines) = tb_v768; }
-    { const char * tb_v769 = "static inline void tb_lpre(tb_list *l, long long i) {\n"; *(const char * *)tb_grow(v_lines) = tb_v769; }
-    { const char * tb_v770 = "    __builtin_prefetch(l->data + i * l->size);\n"; *(const char * *)tb_grow(v_lines) = tb_v770; }
+    { const char * tb_v744 = "}\n"; *(const char * *)tb_grow(v_lines) = tb_v744; }
+    { const char * tb_v745 = "// перейти на таблицу с хешем (ключ ушёл далеко от остальных или его удалили)\n"; *(const char * *)tb_grow(v_lines) = tb_v745; }
+    { const char * tb_v746 = "static void tb_dto_hash(tb_dict *d) {\n"; *(const char * *)tb_grow(v_lines) = tb_v746; }
+    { const char * tb_v747 = "    long long n = 8;\n"; *(const char * *)tb_grow(v_lines) = tb_v747; }
+    { const char * tb_v748 = "    while (n < d->keys->len * 2 + 2) n *= 2;\n"; *(const char * *)tb_grow(v_lines) = tb_v748; }
+    { const char * tb_v749 = "    tb_dreindex(d, n);\n"; *(const char * *)tb_grow(v_lines) = tb_v749; }
+    { const char * tb_v750 = "}\n"; *(const char * *)tb_grow(v_lines) = tb_v750; }
+    { const char * tb_v751 = "// mode 2: таблица pos на ключи base .. base+npos-1\n"; *(const char * *)tb_grow(v_lines) = tb_v751; }
+    { const char * tb_v752 = "static void tb_dto_pos(tb_dict *d, long long npos) {\n"; *(const char * *)tb_grow(v_lines) = tb_v752; }
+    { const char * tb_v753 = "    long long *p = tb_dalloc(d, 0, npos * sizeof(long long));\n"; *(const char * *)tb_grow(v_lines) = tb_v753; }
+    { const char * tb_v754 = "    memset(p, 0, npos * sizeof(long long));\n"; *(const char * *)tb_grow(v_lines) = tb_v754; }
+    { const char * tb_v755 = "    const long long *ks = (const long long *)d->keys->data;\n"; *(const char * *)tb_grow(v_lines) = tb_v755; }
+    { const char * tb_v756 = "    for (long long at = 0; at < d->keys->len; at++) p[ks[at] - d->base] = at + 1;\n"; *(const char * *)tb_grow(v_lines) = tb_v756; }
+    { const char * tb_v757 = "    if (d->pos && !(tb_nchunks > 0 && tb_in_temp(d->pos))) free(d->pos);\n"; *(const char * *)tb_grow(v_lines) = tb_v757; }
+    { const char * tb_v758 = "    d->pos = p;\n"; *(const char * *)tb_grow(v_lines) = tb_v758; }
+    { const char * tb_v759 = "    d->npos = npos;\n"; *(const char * *)tb_grow(v_lines) = tb_v759; }
+    { const char * tb_v760 = "    d->mode = 2;\n"; *(const char * *)tb_grow(v_lines) = tb_v760; }
+    { const char * tb_v761 = "}\n"; *(const char * *)tb_grow(v_lines) = tb_v761; }
+    { const char * tb_v762 = "static tb_dict *tb_dict_new(int text, long long vsize) {\n"; *(const char * *)tb_grow(v_lines) = tb_v762; }
+    { const char * tb_v763 = "    tb_dict *d = tb_mem(sizeof(tb_dict));\n"; *(const char * *)tb_grow(v_lines) = tb_v763; }
+    { const char * tb_v764 = "    d->text = text;\n"; *(const char * *)tb_grow(v_lines) = tb_v764; }
+    { const char * tb_v765 = "    d->keys = tb_list_new(text ? sizeof(const char *) : sizeof(long long));\n"; *(const char * *)tb_grow(v_lines) = tb_v765; }
+    { const char * tb_v766 = "    d->vals = tb_list_new(vsize);\n"; *(const char * *)tb_grow(v_lines) = tb_v766; }
+    { const char * tb_v767 = "    d->slots = 0; d->pos = 0; d->npos = 0; d->base = 0;\n"; *(const char * *)tb_grow(v_lines) = tb_v767; }
+    { const char * tb_v768 = "    if (text) tb_dreindex(d, 8);\n"; *(const char * *)tb_grow(v_lines) = tb_v768; }
+    { const char * tb_v769 = "    else { d->mode = 1; d->nslots = 0; }\n"; *(const char * *)tb_grow(v_lines) = tb_v769; }
+    { const char * tb_v770 = "    return d;\n"; *(const char * *)tb_grow(v_lines) = tb_v770; }
     { const char * tb_v771 = "}\n"; *(const char * *)tb_grow(v_lines) = tb_v771; }
-    { const char * tb_v772 = "// ---------- background: работа в своём потоке ----------\n"; *(const char * *)tb_grow(v_lines) = tb_v772; }
-    { const char * tb_v773 = "typedef struct { pthread_t th; int done; void *res; } tb_task;\n"; *(const char * *)tb_grow(v_lines) = tb_v773; }
-    { const char * tb_v774 = "static void tb_task_start(tb_task *t, void *(*run)(void *), void *arg) {\n"; *(const char * *)tb_grow(v_lines) = tb_v774; }
-    { const char * tb_v775 = "    t->done = 0;\n"; *(const char * *)tb_grow(v_lines) = tb_v775; }
-    { const char * tb_v776 = "    if (pthread_create(&t->th, 0, run, arg) != 0) tb_crash(0, \"не получилось запустить background\");\n"; *(const char * *)tb_grow(v_lines) = tb_v776; }
-    { const char * tb_v777 = "}\n"; *(const char * *)tb_grow(v_lines) = tb_v777; }
-    { const char * tb_v778 = "// a.wait: дождаться потока (один раз) и отдать адрес ответа\n"; *(const char * *)tb_grow(v_lines) = tb_v778; }
-    { const char * tb_v779 = "static void *tb_wait(tb_task *t) {\n"; *(const char * *)tb_grow(v_lines) = tb_v779; }
-    { const char * tb_v780 = "    if (!t->done) { pthread_join(t->th, 0); t->done = 1; }\n"; *(const char * *)tb_grow(v_lines) = tb_v780; }
-    { const char * tb_v781 = "    return t->res;\n"; *(const char * *)tb_grow(v_lines) = tb_v781; }
-    { const char * tb_v782 = "}\n"; *(const char * *)tb_grow(v_lines) = tb_v782; }
-    { const char * tb_v783 = "static int tb_dhas(tb_dict *d, const void *k) { return tb_dfind(d, k) >= 0; }\n"; *(const char * *)tb_grow(v_lines) = tb_v783; }
-    { const char * tb_v784 = "static void tb_dremove(tb_dict *d, const void *k) {\n"; *(const char * *)tb_grow(v_lines) = tb_v784; }
-    { const char * tb_v785 = "    long long at = tb_dfind(d, k);\n"; *(const char * *)tb_grow(v_lines) = tb_v785; }
-    { const char * tb_v786 = "    if (at < 0) return;\n"; *(const char * *)tb_grow(v_lines) = tb_v786; }
-    { const char * tb_v787 = "    long long last = d->keys->len - 1;\n"; *(const char * *)tb_grow(v_lines) = tb_v787; }
-    { const char * tb_v788 = "    // на место удалённого ставим последний: порядок меняется только у него\n"; *(const char * *)tb_grow(v_lines) = tb_v788; }
-    { const char * tb_v789 = "    memcpy(d->keys->data + at * d->keys->size, d->keys->data + last * d->keys->size, d->keys->size);\n"; *(const char * *)tb_grow(v_lines) = tb_v789; }
-    { const char * tb_v790 = "    memcpy(d->vals->data + at * d->vals->size, d->vals->data + last * d->vals->size, d->vals->size);\n"; *(const char * *)tb_grow(v_lines) = tb_v790; }
-    { const char * tb_v791 = "    d->keys->len -= 1;\n"; *(const char * *)tb_grow(v_lines) = tb_v791; }
-    { const char * tb_v792 = "    d->vals->len -= 1;\n"; *(const char * *)tb_grow(v_lines) = tb_v792; }
-    { const char * tb_v793 = "    tb_dreindex(d, d->nslots);\n"; *(const char * *)tb_grow(v_lines) = tb_v793; }
-    { const char * tb_v794 = "}\n"; *(const char * *)tb_grow(v_lines) = tb_v794; }
-    { const char * tb_v795 = "static tb_dict *tb_dict_from(int text, long long vsize, long long n, const void *keys, const void *vals) {\n"; *(const char * *)tb_grow(v_lines) = tb_v795; }
-    { const char * tb_v796 = "    tb_dict *d = tb_dict_new(text, vsize);\n"; *(const char * *)tb_grow(v_lines) = tb_v796; }
-    { const char * tb_v797 = "    long long ksize = d->keys->size;\n"; *(const char * *)tb_grow(v_lines) = tb_v797; }
-    { const char * tb_v798 = "    for (long long i = 0; i < n; i++) {\n"; *(const char * *)tb_grow(v_lines) = tb_v798; }
-    { const char * tb_v799 = "        memcpy(tb_dput(d, (const char *)keys + i * ksize, 0), (const char *)vals + i * vsize, vsize);\n"; *(const char * *)tb_grow(v_lines) = tb_v799; }
-    { const char * tb_v800 = "    }\n"; *(const char * *)tb_grow(v_lines) = tb_v800; }
-    { const char * tb_v801 = "    return d;\n"; *(const char * *)tb_grow(v_lines) = tb_v801; }
-    { const char * tb_v802 = "}\n"; *(const char * *)tb_grow(v_lines) = tb_v802; }
-    { const char * tb_v803 = "\n"; *(const char * *)tb_grow(v_lines) = tb_v803; }
-    { const char * tb_v804 = "// ---------- on all cores: цикл на всех ядрах ----------\n"; *(const char * *)tb_grow(v_lines) = tb_v804; }
-    { const char * tb_v805 = "// Работа делится на куски; каждое ядро берёт следующий свободный кусок,\n"; *(const char * *)tb_grow(v_lines) = tb_v805; }
-    { const char * tb_v806 = "// пока они не кончатся (так ядра не простаивают, если куски разные по тяжести).\n"; *(const char * *)tb_grow(v_lines) = tb_v806; }
-    { const char * tb_v807 = "// shared: каждое ядро копит своё на «листке», потом один раз добавляет под замком.\n"; *(const char * *)tb_grow(v_lines) = tb_v807; }
-    { const char * tb_v808 = "static pthread_mutex_t tb_par_lock = PTHREAD_MUTEX_INITIALIZER;\n"; *(const char * *)tb_grow(v_lines) = tb_v808; }
-    { const char * tb_v809 = "static int tb_cores(void) {\n"; *(const char * *)tb_grow(v_lines) = tb_v809; }
-    { const char * tb_v810 = "    const char *want = getenv(\"TB_CORES\");   // TB_CORES=1 — проверить на одном ядре\n"; *(const char * *)tb_grow(v_lines) = tb_v810; }
-    { const char * tb_v811 = "    long n = want != 0 ? atol(want) : sysconf(_SC_NPROCESSORS_ONLN);\n"; *(const char * *)tb_grow(v_lines) = tb_v811; }
-    { const char * tb_v812 = "    return n < 1 ? 1 : (n > 256 ? 256 : (int)n);\n"; *(const char * *)tb_grow(v_lines) = tb_v812; }
-    { const char * tb_v813 = "}\n"; *(const char * *)tb_grow(v_lines) = tb_v813; }
-    { const char * tb_v814 = "static void tb_par_run(void *(*work)(void *), void *job, long long total) {\n"; *(const char * *)tb_grow(v_lines) = tb_v814; }
-    { const char * tb_v815 = "    int n = tb_cores();\n"; *(const char * *)tb_grow(v_lines) = tb_v815; }
-    { const char * tb_v816 = "    if (n > total) n = (int)total;\n"; *(const char * *)tb_grow(v_lines) = tb_v816; }
-    { const char * tb_v817 = "    if (n < 1) n = 1;\n"; *(const char * *)tb_grow(v_lines) = tb_v817; }
-    { const char * tb_v818 = "    pthread_t t[256];\n"; *(const char * *)tb_grow(v_lines) = tb_v818; }
-    { const char * tb_v819 = "    for (int i = 1; i < n; i++) {\n"; *(const char * *)tb_grow(v_lines) = tb_v819; }
-    { const char * tb_v820 = "        if (pthread_create(&t[i], 0, work, job) != 0) tb_crash(0, \"не получилось запустить ядро\");\n"; *(const char * *)tb_grow(v_lines) = tb_v820; }
-    { const char * tb_v821 = "    }\n"; *(const char * *)tb_grow(v_lines) = tb_v821; }
-    { const char * tb_v822 = "    work(job);\n"; *(const char * *)tb_grow(v_lines) = tb_v822; }
-    { const char * tb_v823 = "    for (int i = 1; i < n; i++) pthread_join(t[i], 0);\n"; *(const char * *)tb_grow(v_lines) = tb_v823; }
-    { const char * tb_v824 = "}\n"; *(const char * *)tb_grow(v_lines) = tb_v824; }
-    { const char * tb_v825 = "static long long tb_par_step(long long total) {\n"; *(const char * *)tb_grow(v_lines) = tb_v825; }
-    { const char * tb_v826 = "    long long s = total / ((long long)tb_cores() * 16);\n"; *(const char * *)tb_grow(v_lines) = tb_v826; }
-    { const char * tb_v827 = "    return s < 1 ? 1 : s;\n"; *(const char * *)tb_grow(v_lines) = tb_v827; }
-    { const char * tb_v828 = "}\n"; *(const char * *)tb_grow(v_lines) = tb_v828; }
+    { const char * tb_v772 = "// новый ключ int k: можно ли остаться без поиска (mode 1 или 2)\n"; *(const char * *)tb_grow(v_lines) = tb_v772; }
+    { const char * tb_v773 = "static void tb_dplace_int(tb_dict *d, long long k) {\n"; *(const char * *)tb_grow(v_lines) = tb_v773; }
+    { const char * tb_v774 = "    long long n = d->keys->len;          // уже вместе с новым ключом\n"; *(const char * *)tb_grow(v_lines) = tb_v774; }
+    { const char * tb_v775 = "    if (d->mode == 1) {\n"; *(const char * *)tb_grow(v_lines) = tb_v775; }
+    { const char * tb_v776 = "        if (n == 1) { d->base = k; return; }\n"; *(const char * *)tb_grow(v_lines) = tb_v776; }
+    { const char * tb_v777 = "        if (k == d->base + n - 1) return;  // подряд — остаёмся в mode 1\n"; *(const char * *)tb_grow(v_lines) = tb_v777; }
+    { const char * tb_v778 = "    }\n"; *(const char * *)tb_grow(v_lines) = tb_v778; }
+    { const char * tb_v779 = "    if (d->mode == 1 || d->mode == 2) {\n"; *(const char * *)tb_grow(v_lines) = tb_v779; }
+    { const char * tb_v780 = "        // плотно ли: ключи не дальше 4 ячеек на один ключ\n"; *(const char * *)tb_grow(v_lines) = tb_v780; }
+    { const char * tb_v781 = "        long long o = k - d->base;\n"; *(const char * *)tb_grow(v_lines) = tb_v781; }
+    { const char * tb_v782 = "        if (o >= 0 && o < 4 * n + 64) {\n"; *(const char * *)tb_grow(v_lines) = tb_v782; }
+    { const char * tb_v783 = "            if (d->mode == 2 && o < d->npos) { d->pos[o] = n; return; }\n"; *(const char * *)tb_grow(v_lines) = tb_v783; }
+    { const char * tb_v784 = "            long long want = d->npos * 2 > o + 1 ? d->npos * 2 : o + 1 + n;\n"; *(const char * *)tb_grow(v_lines) = tb_v784; }
+    { const char * tb_v785 = "            if (want < 16) want = 16;\n"; *(const char * *)tb_grow(v_lines) = tb_v785; }
+    { const char * tb_v786 = "            tb_dto_pos(d, want);\n"; *(const char * *)tb_grow(v_lines) = tb_v786; }
+    { const char * tb_v787 = "            return;\n"; *(const char * *)tb_grow(v_lines) = tb_v787; }
+    { const char * tb_v788 = "        }\n"; *(const char * *)tb_grow(v_lines) = tb_v788; }
+    { const char * tb_v789 = "        tb_dto_hash(d);\n"; *(const char * *)tb_grow(v_lines) = tb_v789; }
+    { const char * tb_v790 = "        return;\n"; *(const char * *)tb_grow(v_lines) = tb_v790; }
+    { const char * tb_v791 = "    }\n"; *(const char * *)tb_grow(v_lines) = tb_v791; }
+    { const char * tb_v792 = "}\n"; *(const char * *)tb_grow(v_lines) = tb_v792; }
+    { const char * tb_v793 = "// место под значение ключа k; если ключа нет — добавить со значением *def\n"; *(const char * *)tb_grow(v_lines) = tb_v793; }
+    { const char * tb_v794 = "static void *tb_dput(tb_dict *d, const void *k, const void *def) {\n"; *(const char * *)tb_grow(v_lines) = tb_v794; }
+    { const char * tb_v795 = "    long long at = tb_dfind(d, k);\n"; *(const char * *)tb_grow(v_lines) = tb_v795; }
+    { const char * tb_v796 = "    if (at >= 0) return d->vals->data + at * d->vals->size;\n"; *(const char * *)tb_grow(v_lines) = tb_v796; }
+    { const char * tb_v797 = "    memcpy(tb_grow(d->keys), k, d->keys->size);\n"; *(const char * *)tb_grow(v_lines) = tb_v797; }
+    { const char * tb_v798 = "    void *v = tb_grow(d->vals);\n"; *(const char * *)tb_grow(v_lines) = tb_v798; }
+    { const char * tb_v799 = "    if (def) memcpy(v, def, d->vals->size); else memset(v, 0, d->vals->size);\n"; *(const char * *)tb_grow(v_lines) = tb_v799; }
+    { const char * tb_v800 = "    if (d->mode != 0) {\n"; *(const char * *)tb_grow(v_lines) = tb_v800; }
+    { const char * tb_v801 = "        // без поиска; если ключ лёг далеко, tb_dplace_int сам перейдёт на хеш и впишет все ключи\n"; *(const char * *)tb_grow(v_lines) = tb_v801; }
+    { const char * tb_v802 = "        tb_dplace_int(d, *(const long long *)k);\n"; *(const char * *)tb_grow(v_lines) = tb_v802; }
+    { const char * tb_v803 = "        return v;\n"; *(const char * *)tb_grow(v_lines) = tb_v803; }
+    { const char * tb_v804 = "    }\n"; *(const char * *)tb_grow(v_lines) = tb_v804; }
+    { const char * tb_v805 = "    if (d->keys->len * 2 > d->nslots) tb_dreindex(d, d->nslots * 2);\n"; *(const char * *)tb_grow(v_lines) = tb_v805; }
+    { const char * tb_v806 = "    else {\n"; *(const char * *)tb_grow(v_lines) = tb_v806; }
+    { const char * tb_v807 = "        unsigned long long mask = d->nslots - 1, i = tb_hash(d, k) & mask;\n"; *(const char * *)tb_grow(v_lines) = tb_v807; }
+    { const char * tb_v808 = "        while (d->slots[i] != 0) i = (i + 1) & mask;\n"; *(const char * *)tb_grow(v_lines) = tb_v808; }
+    { const char * tb_v809 = "        d->slots[i] = d->keys->len;\n"; *(const char * *)tb_grow(v_lines) = tb_v809; }
+    { const char * tb_v810 = "    }\n"; *(const char * *)tb_grow(v_lines) = tb_v810; }
+    { const char * tb_v811 = "    return v;\n"; *(const char * *)tb_grow(v_lines) = tb_v811; }
+    { const char * tb_v812 = "}\n"; *(const char * *)tb_grow(v_lines) = tb_v812; }
+    { const char * tb_v813 = "static void *tb_dget(tb_dict *d, const void *k, int line) {\n"; *(const char * *)tb_grow(v_lines) = tb_v813; }
+    { const char * tb_v814 = "    long long at = tb_dfind(d, k);\n"; *(const char * *)tb_grow(v_lines) = tb_v814; }
+    { const char * tb_v815 = "    if (TB_RARE(at < 0)) {\n"; *(const char * *)tb_grow(v_lines) = tb_v815; }
+    { const char * tb_v816 = "        if (d->text) tb_crash(line, tb_cat(\"в dict нет ключа: \", *(const char * const *)k));\n"; *(const char * *)tb_grow(v_lines) = tb_v816; }
+    { const char * tb_v817 = "        tb_crash(line, tb_cat(\"в dict нет ключа: \", tb_itos(*(const long long *)k)));\n"; *(const char * *)tb_grow(v_lines) = tb_v817; }
+    { const char * tb_v818 = "    }\n"; *(const char * *)tb_grow(v_lines) = tb_v818; }
+    { const char * tb_v819 = "    return d->vals->data + at * d->vals->size;\n"; *(const char * *)tb_grow(v_lines) = tb_v819; }
+    { const char * tb_v820 = "}\n"; *(const char * *)tb_grow(v_lines) = tb_v820; }
+    { const char * tb_v821 = "// together: шаг 1 — просим память принести место ключа заранее\n"; *(const char * *)tb_grow(v_lines) = tb_v821; }
+    { const char * tb_v822 = "static inline unsigned long long tb_dpre1(tb_dict *d, const void *k) {\n"; *(const char * *)tb_grow(v_lines) = tb_v822; }
+    { const char * tb_v823 = "    if (d->mode == 1) {\n"; *(const char * *)tb_grow(v_lines) = tb_v823; }
+    { const char * tb_v824 = "        unsigned long long at = (unsigned long long)(*(const long long *)k - d->base);\n"; *(const char * *)tb_grow(v_lines) = tb_v824; }
+    { const char * tb_v825 = "        if (at < (unsigned long long)d->vals->len) __builtin_prefetch(d->vals->data + at * d->vals->size);\n"; *(const char * *)tb_grow(v_lines) = tb_v825; }
+    { const char * tb_v826 = "        return ~0ULL;\n"; *(const char * *)tb_grow(v_lines) = tb_v826; }
+    { const char * tb_v827 = "    }\n"; *(const char * *)tb_grow(v_lines) = tb_v827; }
+    { const char * tb_v828 = "    if (d->mode == 2) {\n"; *(const char * *)tb_grow(v_lines) = tb_v828; }
+    { const char * tb_v829 = "        unsigned long long o = (unsigned long long)(*(const long long *)k - d->base);\n"; *(const char * *)tb_grow(v_lines) = tb_v829; }
+    { const char * tb_v830 = "        if (o < (unsigned long long)d->npos) { __builtin_prefetch(&d->pos[o]); return o; }\n"; *(const char * *)tb_grow(v_lines) = tb_v830; }
+    { const char * tb_v831 = "        return ~0ULL;\n"; *(const char * *)tb_grow(v_lines) = tb_v831; }
+    { const char * tb_v832 = "    }\n"; *(const char * *)tb_grow(v_lines) = tb_v832; }
+    { const char * tb_v833 = "    unsigned long long i = tb_hash(d, k) & (d->nslots - 1);\n"; *(const char * *)tb_grow(v_lines) = tb_v833; }
+    { const char * tb_v834 = "    __builtin_prefetch(&d->slots[i]);\n"; *(const char * *)tb_grow(v_lines) = tb_v834; }
+    { const char * tb_v835 = "    return i;\n"; *(const char * *)tb_grow(v_lines) = tb_v835; }
+    { const char * tb_v836 = "}\n"; *(const char * *)tb_grow(v_lines) = tb_v836; }
+    { const char * tb_v837 = "// шаг 2 — место приехало: просим принести ключ и значение\n"; *(const char * *)tb_grow(v_lines) = tb_v837; }
+    { const char * tb_v838 = "static inline void tb_dpre2(tb_dict *d, unsigned long long i) {\n"; *(const char * *)tb_grow(v_lines) = tb_v838; }
+    { const char * tb_v839 = "    if (i == ~0ULL || d->mode == 1) return;\n"; *(const char * *)tb_grow(v_lines) = tb_v839; }
+    { const char * tb_v840 = "    long long s = d->mode == 2 ? d->pos[i] : d->slots[i];\n"; *(const char * *)tb_grow(v_lines) = tb_v840; }
+    { const char * tb_v841 = "    if (s != 0) {\n"; *(const char * *)tb_grow(v_lines) = tb_v841; }
+    { const char * tb_v842 = "        if (d->mode == 0) __builtin_prefetch(d->keys->data + (s - 1) * d->keys->size);\n"; *(const char * *)tb_grow(v_lines) = tb_v842; }
+    { const char * tb_v843 = "        __builtin_prefetch(d->vals->data + (s - 1) * d->vals->size);\n"; *(const char * *)tb_grow(v_lines) = tb_v843; }
+    { const char * tb_v844 = "    }\n"; *(const char * *)tb_grow(v_lines) = tb_v844; }
+    { const char * tb_v845 = "}\n"; *(const char * *)tb_grow(v_lines) = tb_v845; }
+    { const char * tb_v846 = "// элемент списка заранее (prefetch за пределами списка ничего не ломает)\n"; *(const char * *)tb_grow(v_lines) = tb_v846; }
+    { const char * tb_v847 = "static inline void tb_lpre(tb_list *l, long long i) {\n"; *(const char * *)tb_grow(v_lines) = tb_v847; }
+    { const char * tb_v848 = "    __builtin_prefetch(l->data + i * l->size);\n"; *(const char * *)tb_grow(v_lines) = tb_v848; }
+    { const char * tb_v849 = "}\n"; *(const char * *)tb_grow(v_lines) = tb_v849; }
+    { const char * tb_v850 = "// ---------- background: работа в своём потоке ----------\n"; *(const char * *)tb_grow(v_lines) = tb_v850; }
+    { const char * tb_v851 = "typedef struct { pthread_t th; int done; void *res; } tb_task;\n"; *(const char * *)tb_grow(v_lines) = tb_v851; }
+    { const char * tb_v852 = "static void tb_task_start(tb_task *t, void *(*run)(void *), void *arg) {\n"; *(const char * *)tb_grow(v_lines) = tb_v852; }
+    { const char * tb_v853 = "    t->done = 0;\n"; *(const char * *)tb_grow(v_lines) = tb_v853; }
+    { const char * tb_v854 = "    if (pthread_create(&t->th, 0, run, arg) != 0) tb_crash(0, \"не получилось запустить background\");\n"; *(const char * *)tb_grow(v_lines) = tb_v854; }
+    { const char * tb_v855 = "}\n"; *(const char * *)tb_grow(v_lines) = tb_v855; }
+    { const char * tb_v856 = "// a.wait: дождаться потока (один раз) и отдать адрес ответа\n"; *(const char * *)tb_grow(v_lines) = tb_v856; }
+    { const char * tb_v857 = "static void *tb_wait(tb_task *t) {\n"; *(const char * *)tb_grow(v_lines) = tb_v857; }
+    { const char * tb_v858 = "    if (!t->done) { pthread_join(t->th, 0); t->done = 1; }\n"; *(const char * *)tb_grow(v_lines) = tb_v858; }
+    { const char * tb_v859 = "    return t->res;\n"; *(const char * *)tb_grow(v_lines) = tb_v859; }
+    { const char * tb_v860 = "}\n"; *(const char * *)tb_grow(v_lines) = tb_v860; }
+    { const char * tb_v861 = "static int tb_dhas(tb_dict *d, const void *k) { return tb_dfind(d, k) >= 0; }\n"; *(const char * *)tb_grow(v_lines) = tb_v861; }
+    { const char * tb_v862 = "static void tb_dremove(tb_dict *d, const void *k) {\n"; *(const char * *)tb_grow(v_lines) = tb_v862; }
+    { const char * tb_v863 = "    long long at = tb_dfind(d, k);\n"; *(const char * *)tb_grow(v_lines) = tb_v863; }
+    { const char * tb_v864 = "    if (at < 0) return;\n"; *(const char * *)tb_grow(v_lines) = tb_v864; }
+    { const char * tb_v865 = "    if (d->mode != 0) tb_dto_hash(d);\n"; *(const char * *)tb_grow(v_lines) = tb_v865; }
+    { const char * tb_v866 = "    long long last = d->keys->len - 1;\n"; *(const char * *)tb_grow(v_lines) = tb_v866; }
+    { const char * tb_v867 = "    // на место удалённого ставим последний: порядок меняется только у него\n"; *(const char * *)tb_grow(v_lines) = tb_v867; }
+    { const char * tb_v868 = "    memcpy(d->keys->data + at * d->keys->size, d->keys->data + last * d->keys->size, d->keys->size);\n"; *(const char * *)tb_grow(v_lines) = tb_v868; }
+    { const char * tb_v869 = "    memcpy(d->vals->data + at * d->vals->size, d->vals->data + last * d->vals->size, d->vals->size);\n"; *(const char * *)tb_grow(v_lines) = tb_v869; }
+    { const char * tb_v870 = "    d->keys->len -= 1;\n"; *(const char * *)tb_grow(v_lines) = tb_v870; }
+    { const char * tb_v871 = "    d->vals->len -= 1;\n"; *(const char * *)tb_grow(v_lines) = tb_v871; }
+    { const char * tb_v872 = "    tb_dreindex(d, d->nslots);\n"; *(const char * *)tb_grow(v_lines) = tb_v872; }
+    { const char * tb_v873 = "}\n"; *(const char * *)tb_grow(v_lines) = tb_v873; }
+    { const char * tb_v874 = "static tb_dict *tb_dict_from(int text, long long vsize, long long n, const void *keys, const void *vals) {\n"; *(const char * *)tb_grow(v_lines) = tb_v874; }
+    { const char * tb_v875 = "    tb_dict *d = tb_dict_new(text, vsize);\n"; *(const char * *)tb_grow(v_lines) = tb_v875; }
+    { const char * tb_v876 = "    long long ksize = d->keys->size;\n"; *(const char * *)tb_grow(v_lines) = tb_v876; }
+    { const char * tb_v877 = "    for (long long i = 0; i < n; i++) {\n"; *(const char * *)tb_grow(v_lines) = tb_v877; }
+    { const char * tb_v878 = "        memcpy(tb_dput(d, (const char *)keys + i * ksize, 0), (const char *)vals + i * vsize, vsize);\n"; *(const char * *)tb_grow(v_lines) = tb_v878; }
+    { const char * tb_v879 = "    }\n"; *(const char * *)tb_grow(v_lines) = tb_v879; }
+    { const char * tb_v880 = "    return d;\n"; *(const char * *)tb_grow(v_lines) = tb_v880; }
+    { const char * tb_v881 = "}\n"; *(const char * *)tb_grow(v_lines) = tb_v881; }
+    { const char * tb_v882 = "\n"; *(const char * *)tb_grow(v_lines) = tb_v882; }
+    { const char * tb_v883 = "// ---------- on all cores: цикл на всех ядрах ----------\n"; *(const char * *)tb_grow(v_lines) = tb_v883; }
+    { const char * tb_v884 = "// Работа делится на куски; каждое ядро берёт следующий свободный кусок,\n"; *(const char * *)tb_grow(v_lines) = tb_v884; }
+    { const char * tb_v885 = "// пока они не кончатся (так ядра не простаивают, если куски разные по тяжести).\n"; *(const char * *)tb_grow(v_lines) = tb_v885; }
+    { const char * tb_v886 = "// shared: каждое ядро копит своё на «листке», потом один раз добавляет под замком.\n"; *(const char * *)tb_grow(v_lines) = tb_v886; }
+    { const char * tb_v887 = "static pthread_mutex_t tb_par_lock = PTHREAD_MUTEX_INITIALIZER;\n"; *(const char * *)tb_grow(v_lines) = tb_v887; }
+    { const char * tb_v888 = "static int tb_cores(void) {\n"; *(const char * *)tb_grow(v_lines) = tb_v888; }
+    { const char * tb_v889 = "    const char *want = getenv(\"TB_CORES\");   // TB_CORES=1 — проверить на одном ядре\n"; *(const char * *)tb_grow(v_lines) = tb_v889; }
+    { const char * tb_v890 = "    long n = want != 0 ? atol(want) : sysconf(_SC_NPROCESSORS_ONLN);\n"; *(const char * *)tb_grow(v_lines) = tb_v890; }
+    { const char * tb_v891 = "    return n < 1 ? 1 : (n > 256 ? 256 : (int)n);\n"; *(const char * *)tb_grow(v_lines) = tb_v891; }
+    { const char * tb_v892 = "}\n"; *(const char * *)tb_grow(v_lines) = tb_v892; }
+    { const char * tb_v893 = "static void tb_par_run(void *(*work)(void *), void *job, long long total) {\n"; *(const char * *)tb_grow(v_lines) = tb_v893; }
+    { const char * tb_v894 = "    int n = tb_cores();\n"; *(const char * *)tb_grow(v_lines) = tb_v894; }
+    { const char * tb_v895 = "    if (n > total) n = (int)total;\n"; *(const char * *)tb_grow(v_lines) = tb_v895; }
+    { const char * tb_v896 = "    if (n < 1) n = 1;\n"; *(const char * *)tb_grow(v_lines) = tb_v896; }
+    { const char * tb_v897 = "    pthread_t t[256];\n"; *(const char * *)tb_grow(v_lines) = tb_v897; }
+    { const char * tb_v898 = "    for (int i = 1; i < n; i++) {\n"; *(const char * *)tb_grow(v_lines) = tb_v898; }
+    { const char * tb_v899 = "        if (pthread_create(&t[i], 0, work, job) != 0) tb_crash(0, \"не получилось запустить ядро\");\n"; *(const char * *)tb_grow(v_lines) = tb_v899; }
+    { const char * tb_v900 = "    }\n"; *(const char * *)tb_grow(v_lines) = tb_v900; }
+    { const char * tb_v901 = "    work(job);\n"; *(const char * *)tb_grow(v_lines) = tb_v901; }
+    { const char * tb_v902 = "    for (int i = 1; i < n; i++) pthread_join(t[i], 0);\n"; *(const char * *)tb_grow(v_lines) = tb_v902; }
+    { const char * tb_v903 = "}\n"; *(const char * *)tb_grow(v_lines) = tb_v903; }
+    { const char * tb_v904 = "static long long tb_par_step(long long total) {\n"; *(const char * *)tb_grow(v_lines) = tb_v904; }
+    { const char * tb_v905 = "    long long s = total / ((long long)tb_cores() * 16);\n"; *(const char * *)tb_grow(v_lines) = tb_v905; }
+    { const char * tb_v906 = "    return s < 1 ? 1 : s;\n"; *(const char * *)tb_grow(v_lines) = tb_v906; }
+    { const char * tb_v907 = "}\n"; *(const char * *)tb_grow(v_lines) = tb_v907; }
     return tb_join(v_lines, "");
     tb_crash(2, "функция runtime_text дошла до конца без return");
     return "";
