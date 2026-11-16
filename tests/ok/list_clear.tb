@@ -1,0 +1,29 @@
+// 0.7: .clear() у списков и dict
+func main()
+    cache = {"a": 1}
+    nums = list int
+    flags = list bool
+    names = {1: "x"}
+    repeat 5 times
+        count i from 1 to 100000
+            cache["k" + i] = i
+            nums.add(i)
+            flags.add(i % 2 == 0)
+            names[i * 3] = "n"
+        print(len(cache), len(nums), len(flags), cache["k77"], names[300])
+        kept = cache["k5"]
+        cache.clear()
+        nums.clear()
+        flags.clear()
+        names.clear()
+        print(len(cache), len(nums), len(flags), cache.has("k5"), kept)
+    cache["z"] = 9
+    nums.add(4)
+    print(cache, nums)
+    temp
+        t = list int
+        t.add(1)
+        temp
+            t.clear()
+            t.add(2)
+        print(t)

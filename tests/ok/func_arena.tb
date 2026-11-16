@@ -1,0 +1,59 @@
+// 0.7: арена на уровне функции: отдаёт наружу только число — память временная
+obj Row
+    cells: list text
+
+func score(line: text)
+    parts = split(line, ",")
+    words = list text
+    each p in parts
+        words.add(upper(p) + "!")
+    r = Row(cells: words)
+    if len(r.cells) == 0
+        return 0
+    return len(r.cells[0]) + len(parts)
+
+func fill(nums: list int, n: int)
+    // кладёт числа в чужой список: можно, числа не тянут память
+    tmp = "x" + n
+    count i from 1 to n
+        nums.add(i + len(tmp))
+
+func keep(out: list text, x: int)
+    // кладёт текст в чужой список: арены нет
+    out.add("k" + x)
+
+func both(x: int) gives a: int, ok: bool
+    s = "v" + x
+    a = len(s)
+    ok = a > 1
+    if x < 0
+        return
+    a += 1
+
+func main()
+    total = 0
+    count i from 0 to 999
+        total += score("ab" + i + ",cd,ef")
+    print(total)
+    nums = list int
+    fill(nums, 3)
+    print(nums)
+    out = list text
+    keep(out, 1)
+    keep(out, 2)
+    print(out)
+    q, w = both(5)
+    print(q, w)
+    q2, w2 = both(-50)
+    print(q2, w2)
+    temp
+        grow = list int
+        temp
+            count i from 1 to 100000
+                grow.add(i)
+        print(len(grow), grow[99999])
+        d = {1: 1}
+        temp
+            count i from 2 to 50000
+                d[i * 7] = i
+        print(len(d), d[700])

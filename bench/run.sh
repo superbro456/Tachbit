@@ -56,7 +56,7 @@ mem() {
         python3 -c "import resource, subprocess, sys
 subprocess.run(sys.argv[1:], stdout=subprocess.DEVNULL)
 r = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
-print(r // (1024 * 1024) if sys.platform == 'darwin' else r // 1024)" "$@"
+print(round(r / (1024 * 1024) if sys.platform == 'darwin' else r / 1024, 1))" "$@"
     else
         echo "?"
     fi
@@ -180,3 +180,11 @@ echo "== automem  (ответ: $(./automem))"
 echo "   Tachbit:          $(best ./automem) с, память $(mem ./automem) МБ"
 echo "   C (malloc/free):  $(best ./automem_c) с, память $(mem ./automem_c) МБ"
 rm -f automem automem.c automem_c
+
+# арена функции: функцию зовут 3 млн раз из цикла, который сохраняет наружу (у шага арены нет)
+../tachbit-tb build funcmem.tb > /dev/null || exit 1
+cc -O2 -o funcmem_c funcmem_pure.c || exit 1
+echo "== funcmem  (ответ: $(./funcmem))"
+echo "   Tachbit:          $(best ./funcmem) с, память $(mem ./funcmem) МБ"
+echo "   C (malloc/free):  $(best ./funcmem_c) с, память $(mem ./funcmem_c) МБ"
+rm -f funcmem funcmem.c funcmem_c

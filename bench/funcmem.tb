@@ -1,0 +1,17 @@
+// функция зовётся из цикла, который сохраняет наружу: шаг без арены, у функции — своя
+func score(i: int)
+    line = "user" + i + ",city" + (i % 100) + ",45.10"
+    parts = split(line, ",")
+    return len(upper(parts[0])) + len(parts)
+
+func main()
+    all = list int
+    names = list text
+    count i from 0 to 2999999
+        all.add(score(i))
+        if i % 1000000 == 0
+            names.add("n" + i)
+    total = 0
+    each x in all
+        total += x
+    print(total, names)

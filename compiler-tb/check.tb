@@ -665,7 +665,7 @@ func check_dict_method(c: Comp, n: Node, t: int) gives r: int
         if n.name == "keys"
             return list_of(c, d.key)
         return list_of(c, d.elem)
-    error_at(c, n.line, "у dict нет такого метода (есть .has .remove .keys .values)", n.name)
+    error_at(c, n.line, "у dict нет такого метода (есть .has .remove .keys .values .clear)", n.name)
     return -1
 
 func check_method(c: Comp, n: Node) gives r: int
@@ -677,8 +677,17 @@ func check_method(c: Comp, n: Node) gives r: int
     count i from 1 to len(n.kids) - 1
         if n.kids[i].name != ""
             error_at(c, n.line, "у методов аргументы пишутся без имён", "")
-    if n.name == "add" or n.name == "pop" or n.name == "remove"
+    if n.name == "add" or n.name == "pop" or n.name == "remove" or n.name == "clear"
         no_outside_change(c, base)
+    if n.name == "clear"
+        // .clear(): список или dict снова пустой, их собственная память отдаётся
+        if not is_list(c, t) and not is_dict(c, t)
+            error_at(c, n.line, ".clear() есть у списков и dict", "")
+        if is_list(c, t) and is_cols_obj(c, c.types[t].elem)
+            error_at(c, n.line, "у списка колонок (by columns) .clear() пока нет", "")
+        if args != 0
+            error_at(c, n.line, ".clear() пишется без значений", "")
+        return 0
     if is_dict(c, t)
         return check_dict_method(c, n, t)
     if not is_list(c, t)

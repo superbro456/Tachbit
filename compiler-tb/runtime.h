@@ -65,16 +65,37 @@ static void *tb_temp_alloc(long long n) {
     c->used += n;
     return p;
 }
-static tb_mark tb_temp_begin(void) {
+// метки открытых temp (и арен шага / функции): самая последняя — текущая область
+static _Thread_local tb_mark *tb_marks = 0;
+static _Thread_local int tb_capmarks = 0;
+static inline tb_mark tb_temp_begin(void) {
+    tb_mark m = {tb_nchunks, tb_nchunks > 0 ? tb_chunks[tb_nchunks - 1].used : 0};
+    if (tb_temp_depth == tb_capmarks) {
+        tb_capmarks = tb_capmarks * 2 + 16;
+        tb_marks = realloc(tb_marks, sizeof(tb_mark) * tb_capmarks);
+        if (tb_marks == 0) tb_crash(0, "не хватило памяти");
+    }
+    tb_marks[tb_temp_depth] = m;
     tb_temp_depth += 1;
-    return (tb_mark){tb_nchunks, tb_nchunks > 0 ? tb_chunks[tb_nchunks - 1].used : 0};
+    return m;
+}
+// p во временной памяти текущей (самой внутренней) области, а не во внешней
+static int tb_in_cur_temp(const void *p) {
+    if (tb_temp_depth == 0) return 0;
+    tb_mark t = tb_marks[tb_temp_depth - 1];
+    for (int i = tb_nchunks - 1; i >= 0; i--) {
+        const char *m = tb_chunks[i].mem;
+        if ((const char *)p >= m && (const char *)p < m + tb_chunks[i].size)
+            return i > t.n - 1 || (i == t.n - 1 && (const char *)p - m >= t.used);
+    }
+    return 0;
 }
 // длина последних текстов: s[i] в цикле не пересчитывает strlen каждый раз
 static _Thread_local const char *tb_lc_p[2];
 static _Thread_local long long tb_lc_n[2];
 static _Thread_local int tb_lc_next;
 static inline void tb_lc_clear(void) { tb_lc_p[0] = 0; tb_lc_p[1] = 0; }
-static void tb_temp_end(tb_mark m) {
+static inline void tb_temp_end(tb_mark m) {
     // первый кусок оставляем пустым: следующий temp возьмёт его без malloc
     while (tb_nchunks > m.n && tb_nchunks > 1) {
         tb_nchunks -= 1;
@@ -91,11 +112,14 @@ static void *tb_mem(long long n) {
     if (p == 0) tb_crash(0, "не хватило памяти");
     return p;
 }
-// вырасти кусок: временный растёт во временной памяти, обычный — через realloc
+// вырасти кусок: временный текущей области растёт там же, обычный — через realloc.
+// Кусок из внешней области (список создан снаружи, растёт внутри temp или шага цикла)
+// переезжает в обычную память: внутренняя область скоро отдаётся, а список живёт дольше.
 static void *tb_resize(void *p, long long old_n, long long new_n) {
     tb_lc_clear();
     if (tb_nchunks > 0 && tb_in_temp(p)) {
-        void *q = tb_temp_alloc(new_n);
+        void *q = tb_in_cur_temp(p) ? tb_temp_alloc(new_n) : malloc(new_n > 0 ? new_n : 1);
+        if (q == 0) tb_crash(0, "не хватило памяти");
         memcpy(q, p, old_n);
         return q;
     }
@@ -556,9 +580,8 @@ static inline long long tb_dfind(tb_dict *d, const void *k) {
 }
 // память для таблиц dict — там же, где лежат его ключи (временная или обычная)
 static void *tb_dalloc(tb_dict *d, void *old, long long bytes) {
-    int in_temp = tb_nchunks > 0 && tb_in_temp(d->keys->data);
-    if (old && !in_temp) free(old);
-    void *p = in_temp ? tb_temp_alloc(bytes) : malloc(bytes);
+    if (old && !(tb_nchunks > 0 && tb_in_temp(old))) free(old);
+    void *p = tb_in_cur_temp(d->keys->data) ? tb_temp_alloc(bytes) : malloc(bytes);
     if (!p) tb_crash(0, "не хватило памяти");
     return p;
 }
@@ -604,6 +627,28 @@ static tb_dict *tb_dict_new(int text, long long vsize) {
     if (text) tb_dreindex(d, 8);
     else { d->mode = 1; d->nslots = 0; }
     return d;
+}
+// .clear(): список снова пустой; свой кусок памяти отдаётся (если он не временный).
+// Тексты и obj внутри не удаляются: на них могут смотреть другие переменные.
+static void tb_lclear(tb_list *l, int line) {
+    if (l->cap < 0) tb_crash(line, ".clear() нельзя, пока по списку идёт each ... by N");
+    int temp = tb_nchunks > 0 && tb_in_temp(l->data);
+    if (!temp) free(l->data);
+    long long cap = l->size == 0 ? 64 : 4;
+    long long bytes = l->size == 0 ? 8 : l->size * 4;
+    l->data = tb_in_cur_temp(l->data) ? tb_temp_alloc(bytes) : malloc(bytes);
+    if (l->data == 0) tb_crash(line, "не хватило памяти");
+    memset(l->data, 0, bytes);
+    l->len = 0; l->cap = cap;
+}
+static void tb_dclear(tb_dict *d, int line) {
+    tb_lclear(d->keys, line);
+    tb_lclear(d->vals, line);
+    if (d->pos && !(tb_nchunks > 0 && tb_in_temp(d->pos))) free(d->pos);
+    if (d->slots && !(tb_nchunks > 0 && tb_in_temp(d->slots))) free(d->slots);
+    d->slots = 0; d->pos = 0; d->npos = 0; d->base = 0;
+    if (d->text) tb_dreindex(d, 8);
+    else { d->mode = 1; d->nslots = 0; }
 }
 // новый ключ int k: можно ли остаться без поиска (mode 1 или 2)
 static void tb_dplace_int(tb_dict *d, long long k) {

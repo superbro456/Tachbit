@@ -278,6 +278,14 @@ func emit_dict(c: Comp, n: Node)
 // .pop()  и методы dict; .add пишется отдельной строкой (emit_statement)
 func emit_method(c: Comp, n: Node)
     base = n.kids[0]
+    if n.name == "clear"
+        if kind_of(c, base.ty) == "dict"
+            put(c, "tb_dclear(")
+        else
+            put(c, "tb_lclear(")
+        emit_expr(c, base)
+        put(c, ", " + n.line + ")")
+        return
     if kind_of(c, base.ty) == "dict"
         if n.name == "values" and is_cols_list(c, n.ty)
             put(c, "tb_colsfrom_" + cols_name(c, n.ty) + "((")
@@ -1346,6 +1354,22 @@ func emit_statement(c: Comp, n: Node, depth: int)
         put(c, "; ")
         emit_bail(c)
         put(c, " }\n")
+    else if k == "return" and c.fmark != ""
+        // функция с ареной: сначала значение, потом сброс арены, потом return
+        if len(n.kids) == 1
+            emit_pre(c, n.kids[0], depth)
+            indent(c, depth)
+            put(c, "{ " + c_type(c, c.cur_func.ty) + " tb_rv = ")
+            emit_as(c, n.kids[0], c.cur_func.ty)
+            put(c, "; if (tb_fa) tb_temp_end(" + c.fmark + "); return tb_rv; }\n")
+        else
+            indent(c, depth)
+            put(c, "if (tb_fa) tb_temp_end(" + c.fmark + ");\n")
+            if len(c.cur_func.kids[2].kids) > 0
+                emit_gives_return(c, depth)
+            else
+                indent(c, depth)
+                put(c, "return;\n")
     else if k == "return"
         if len(n.kids) == 1
             emit_pre(c, n.kids[0], depth)
@@ -1633,7 +1657,9 @@ func at_own(n: Node, inner: list text, fresh: list text)
 // что-то в теле не даёт отдать память шага: сохраняет наружу или уходит из цикла
 func at_bad(c: Comp, n: Node, inner: list text, fresh: list text, level: int)
     k = n.kind
-    if k == "return" or k == "fail" or k == "try" or k == "background" or k == "together" or k == "temp"
+    if k == "return" and not c.at_ret_ok
+        return true
+    if k == "fail" or k == "try" or k == "background" or k == "together" or k == "temp"
         return true
     if k == "stop" and level == 0
         return true
@@ -1699,6 +1725,29 @@ func auto_temp_ok(c: Comp, body: Node)
         fresh = fresh
     return not at_bad(c, body, inner, fresh, 0)
 
+// функция отдаёт наружу только число, dec, bool или ничего, и ничего не кладёт
+// в то, что ей передали: вся её память временная (main не трогаем: она и так до конца)
+func func_arena_ok(c: Comp, f: Node)
+    if f.name == "main" or not (kind_of(c, f.ty) == "none" or kind_of(c, f.ty) == "multi" or is_plain_ty(f.ty))
+        return false
+    each o in f.kids[2].kids
+        if not is_plain_ty(o.ty)
+            return false
+    body = f.kids[1]
+    if not at_allocates(c, body)
+        return false
+    inner = list text
+    at_inner(body, inner)
+    fresh = list text
+    each x in inner
+        fresh.add(x)
+    repeat while at_unfresh(c, body, inner, fresh)
+        fresh = fresh
+    c.at_ret_ok = true
+    bad = at_bad(c, body, inner, fresh, 0)
+    c.at_ret_ok = false
+    return not bad
+
 // тело цикла: если можно — с временной памятью на каждый шаг
 func emit_loop_body(c: Comp, body: Node, depth: int)
     if not auto_temp_ok(c, body)
@@ -1731,9 +1780,18 @@ func emit_func(c: Comp, f: Node)
     find_builders(c, f)
     each b in c.builders
         put(c, "    long long tb_rl_" + b + " = -1, tb_rc_" + b + " = 0; (void)tb_rl_" + b + "; (void)tb_rc_" + b + ";\n")
+    c.fmark = ""
+    if func_arena_ok(c, f)
+        // всё, что функция создаёт, — во временной арене; сброс при каждом return
+        // если вызвали изнутри temp или шага цикла, мусор и так отдаст та область: своя не нужна
+        c.fmark = "tb_fm"
+        put(c, "    int tb_fa = tb_temp_depth == 0; tb_mark tb_fm = {0, 0}; if (tb_fa) tb_fm = tb_temp_begin();\n")
     emit_block(c, f.kids[1], 1)
     no_builders = list text
     c.builders = no_builders
+    if c.fmark != ""
+        put(c, "    if (tb_fa) tb_temp_end(tb_fm);\n")
+    c.fmark = ""
     if len(outputs.kids) > 0
         emit_gives_return(c, 1)
     else if kind_of(c, f.ty) != "none"
