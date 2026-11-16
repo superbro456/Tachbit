@@ -1,7 +1,10 @@
 #!/bin/bash
 # Замер скорости: одна и та же задача на Tachbit, C и Python.
-# Запуск из корня репозитория:  ./bench/run.sh
+# Запуск из корня репозитория:  ./bench/run.sh   (без Python: ./bench/run.sh --fast)
 cd "$(dirname "$0")/.." || exit 1
+# --fast: без Python (он долгий, только fib у него ~25 секунд)
+NOPY=""
+[ "$1" = "--fast" ] && NOPY=1
 # компилятор на Tachbit собирается из семени, без стартера на C
 ./tools/build_tb.sh > /dev/null || exit 1
 cd bench || exit 1
@@ -30,7 +33,7 @@ for task in fib primes cores; do
     echo "== $task  (ответ: $(./$task))"
     echo "   Tachbit: $(best ./$task) с"
     echo "   C:       $(best ./${task}_c) с"
-    if command -v python3 > /dev/null; then
+    if [ -z "$NOPY" ] && command -v python3 > /dev/null; then
         echo "   Python:  $(seconds python3 $task.py) с   (Python медленный: ждём один запуск)"
     fi
     rm -f $task $task.c ${task}_c
@@ -44,7 +47,7 @@ echo "== columns  (ответ: $(./columns))"
 echo "   Tachbit by columns:   $(best ./columns) с"
 echo "   Tachbit обычный obj:  $(best ./cards) с"
 echo "   C (массив структур):  $(best ./columns_c) с"
-if command -v python3 > /dev/null; then
+if [ -z "$NOPY" ] && command -v python3 > /dev/null; then
     py=$(seconds python3 columns.py)
     echo "   Python:  $(awk "BEGIN { print $py * 10 }") с   (считал 2 млн объектов, время ×10)"
 fi
@@ -68,7 +71,7 @@ echo "== temp  (ответ: $(./temp))"
 echo "   Tachbit с temp:   $(best ./temp) с, память $(mem ./temp) МБ"
 echo "   Tachbit без temp: $(best ./notemp) с, память $(mem ./notemp) МБ  (память шага отдаётся сама)"
 echo "   C (malloc/free):  $(best ./temp_c) с, память $(mem ./temp_c) МБ"
-if command -v python3 > /dev/null; then
+if [ -z "$NOPY" ] && command -v python3 > /dev/null; then
     echo "   Python:  $(seconds python3 temp.py) с"
 fi
 rm -f temp temp.c notemp notemp.c temp_c
@@ -81,7 +84,7 @@ echo "== vec  (ответ: $(./vec))"
 echo "   Tachbit by vec:    $(best ./vec) с"
 echo "   Tachbit без vec:   $(best ./novec) с"
 echo "   C (обычный цикл):  $(best ./vec_c) с"
-if command -v python3 > /dev/null; then
+if [ -z "$NOPY" ] && command -v python3 > /dev/null; then
     py=$(seconds python3 vec.py)
     echo "   Python:  $(awk "BEGIN { print $py * 10 }") с   (считал 1 млн чисел, время ×10)"
 fi
