@@ -15,10 +15,19 @@ static char *runtime =
     "#include <stdlib.h>\n"
     "#include <string.h>\n"
     "\n"
+    "// подсказки для clang / gcc: ошибка бывает редко, а tb_crash не возвращается\n"
+    "#if defined(__GNUC__)\n"
+    "#define TB_RARE(x) __builtin_expect(!!(x), 0)\n"
+    "#define TB_COLD __attribute__((cold, noreturn, noinline))\n"
+    "#else\n"
+    "#define TB_RARE(x) (x)\n"
+    "#define TB_COLD\n"
+    "#endif\n"
+    "\n"
     "// список: кусок памяти, len элементов по size байт, место на cap\n"
     "typedef struct { char *data; long long len; long long cap; long long size; } tb_list;\n"
     "\n"
-    "static void tb_crash(int line, const char *msg) {\n"
+    "TB_COLD static void tb_crash(int line, const char *msg) {\n"
     "    fflush(stdout);\n"
     "    fprintf(stderr, \"строка %d: %s\\n\", line, msg);\n"
     "    exit(1);\n"
@@ -41,16 +50,16 @@ static char *runtime =
     "}\n"
     "// size передаётся как sizeof(T): после встраивания C знает его заранее\n"
     "static inline void *tb_at(tb_list *l, long long i, long long size, int line) {\n"
-    "    if (i < 0 || i >= l->len) tb_crash(line, \"номер за пределами списка\");\n"
+    "    // одно сравнение вместо двух: отрицательный номер как unsigned становится огромным\n"
+    "    if (TB_RARE((unsigned long long)i >= (unsigned long long)l->len)) tb_crash(line, \"номер за пределами списка\");\n"
     "    return l->data + i * size;\n"
     "}\n"
-    "static void *tb_grow(tb_list *l) {\n"
-    "    if (l->len == l->cap) {\n"
+    "static inline void *tb_grow(tb_list *l) {\n"
+    "    if (TB_RARE(l->len == l->cap)) {\n"
     "        l->cap = l->cap * 2 + 4;\n"
-    "        char *bigger = tb_mem(l->cap * l->size);\n"
-    "        memcpy(bigger, l->data, l->len * l->size);\n"
-    "        free(l->data);\n"
-    "        l->data = bigger;\n"
+    "        // realloc часто растит большой кусок на месте, без копирования\n"
+    "        l->data = realloc(l->data, l->cap * l->size);\n"
+    "        if (l->data == 0) tb_crash(0, \"не хватило памяти\");\n"
     "    }\n"
     "    l->len += 1;\n"
     "    return l->data + (l->len - 1) * l->size;\n"
@@ -126,7 +135,7 @@ static char *c_type(Type *t) {
         return "double";
     }
     if (k == TY_BOOL) {
-        return "unsigned char";
+        return "_Bool";
     }
     if (k == TY_TEXT) {
         return "const char *";
