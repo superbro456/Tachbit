@@ -1,4 +1,4 @@
-// Сделано tools/embed_runtime.py из src/runtime.h. Не правь руками.
+// Сделано tools/embed_runtime.py из compiler-c/runtime.h. Не правь руками.
 char *runtime_text =
     "// Библиотека, которую Tachbit кладёт в начало каждой программы на C.\n"
     "// Это обычный C. Компилятор встраивает этот текст через src/runtime_text.c,\n"
@@ -233,6 +233,19 @@ char *runtime_text =
     "    return buf;\n"
     "}\n"
     "static tb_list *tb_args;\n"
+    "static long long tb_run(const char *command) {\n"
+    "    fflush(stdout);\n"
+    "    int code = system(command);\n"
+    "    if (code == -1) return -1;\n"
+    "    return code == 0 ? 0 : (code > 255 ? code / 256 : code);\n"
+    "}\n"
+    "static void tb_exit(long long code) { fflush(stdout); exit((int)code); }\n"
+    "static int tb_file_exists(const char *path) {\n"
+    "    FILE *f = fopen(path, \"rb\");\n"
+    "    if (f == 0) return 0;\n"
+    "    fclose(f);\n"
+    "    return 1;\n"
+    "}\n"
     "\n"
     "// ---------- числа ----------\n"
     "static long long tb_absi(long long x) { return x < 0 ? -x : x; }\n"

@@ -6,7 +6,7 @@
 # Запуск из корня репозитория:  ./tests/run_tests.sh
 # Обновить эталоны после намеренной правки:  ./tests/run_tests.sh --update
 cd "$(dirname "$0")/.." || exit 1
-cc -std=c99 -Wall -Wextra -o tachbit src/*.c || exit 1
+cc -std=c99 -Wall -Wextra -o tachbit compiler-c/*.c || exit 1
 export LC_ALL=C.UTF-8 2>/dev/null
 
 pass=0

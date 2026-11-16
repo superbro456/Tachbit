@@ -132,9 +132,9 @@ static char *builtins[] = {
     "print", "len", "round", "code", "char", "cut", "to_int", "to_dec",
     "read_file", "write_file", "input", "args",
     "split", "join", "find", "replace", "upper", "lower", "trim", "starts_with", "ends_with",
-    "sort", "abs", "min", "max", "sqrt"
+    "sort", "abs", "min", "max", "sqrt", "run", "exit", "file_exists"
 };
-static int builtin_count = 26;
+static int builtin_count = 29;
 
 // встроенные функции, которые могут закончиться ошибкой
 static int builtin_can_fail(char *name) {
@@ -303,7 +303,8 @@ static void name_is_free(char *name, int line) {
     if (find_var(name) != 0) {
         fail(line, "такое имя уже есть, возьми другое", name);
     }
-    if (find_func(name) != 0 || is_builtin(name)) {
+    // имя встроенной функции (code, len ...) для переменной можно: вызов code(...) всё равно работает
+    if (find_func(name) != 0) {
         fail(line, "так уже называется функция", name);
     }
     if (find_obj(name) != 0) {
@@ -570,6 +571,18 @@ static Type *check_builtin(Node *n) {
     if (same(name, "sort")) {
         builtin_args(n, "s", "sort(список int, dec или text)");
         return t_none;
+    }
+    if (same(name, "run")) {
+        builtin_args(n, "t", "run(\"команда терминала\")  →  код выхода int");
+        return t_int;
+    }
+    if (same(name, "exit")) {
+        builtin_args(n, "i", "exit(код)");
+        return t_none;
+    }
+    if (same(name, "file_exists")) {
+        builtin_args(n, "t", "file_exists(\"путь\")");
+        return t_bool;
     }
     if (same(name, "abs")) {
         builtin_args(n, "n", "abs(число)");

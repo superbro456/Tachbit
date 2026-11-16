@@ -2,7 +2,7 @@
 # Замер скорости: одна и та же задача на Tachbit, C и Python.
 # Запуск из корня репозитория:  ./bench/run.sh
 cd "$(dirname "$0")/.." || exit 1
-cc -std=c99 -O2 -o tachbit src/*.c || exit 1
+cc -std=c99 -O2 -o tachbit compiler-c/*.c || exit 1
 cd bench || exit 1
 
 # время запуска в секундах: встроенный в bash time, одинаково на Mac и Linux

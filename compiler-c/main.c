@@ -237,7 +237,11 @@ int main(int argc, char **argv) {
             strcat(command, "'");
         }
         int code = system(command);
-        return code == 0 ? 0 : 1;
+        // код выхода программы (exit(3) → 3); system отдаёт его умноженным на 256
+        if (code > 255) {
+            code = code / 256;
+        }
+        return code == 0 ? 0 : (code < 0 ? 1 : code);
     }
     usage();
     return 1;

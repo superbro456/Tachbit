@@ -238,9 +238,10 @@ static void emit_builtin(Node *n) {
         "write_file", "tb_write_file", "0", "split", "tb_split", "1", "join", "tb_join", "0",
         "find", "tb_find", "0", "replace", "tb_replace", "1", "upper", "tb_upper", "0",
         "lower", "tb_lower", "0", "trim", "tb_trim", "0", "starts_with", "tb_starts", "0",
-        "ends_with", "tb_ends", "0"
+        "ends_with", "tb_ends", "0", "run", "tb_run", "0", "exit", "tb_exit", "0",
+        "file_exists", "tb_file_exists", "0"
     };
-    for (int i = 0; i < 51; i += 3) {
+    for (int i = 0; i < 60; i += 3) {
         if (same(c_names[i], name)) {
             fprintf(out, "%s(", c_names[i + 1]);
             emit_args(n, same(c_names[i + 2], "1"));

@@ -231,6 +231,19 @@ static const char *tb_input(void) {
     return buf;
 }
 static tb_list *tb_args;
+static long long tb_run(const char *command) {
+    fflush(stdout);
+    int code = system(command);
+    if (code == -1) return -1;
+    return code == 0 ? 0 : (code > 255 ? code / 256 : code);
+}
+static void tb_exit(long long code) { fflush(stdout); exit((int)code); }
+static int tb_file_exists(const char *path) {
+    FILE *f = fopen(path, "rb");
+    if (f == 0) return 0;
+    fclose(f);
+    return 1;
+}
 
 // ---------- числа ----------
 static long long tb_absi(long long x) { return x < 0 ? -x : x; }
