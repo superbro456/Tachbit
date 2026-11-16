@@ -99,6 +99,9 @@ obj Comp
     // внутри on all cores: с какого номера начинаются свои переменные цикла (-1 — не внутри)
     par_base: int
     par_node: Node
+    // внутри temp: с какого номера свои переменные блока (-1 — не внутри) и глубина циклов
+    temp_base: int
+    temp_loops: int
     shared_ok: bool
     // вывод C
     out: list text

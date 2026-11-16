@@ -1,0 +1,5 @@
+// 0.7
+func main()
+    names = ["a", "b"]
+    temp
+        names.add("c")

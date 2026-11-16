@@ -250,6 +250,27 @@ func capture(c: Comp, v: int)
             return
     c.par_node.caps.add(Var(name: var.name, type: var.type, is_link: var.is_link, is_shared: var.is_shared))
 
+// ---------- temp ----------
+// Внутри temp видны только такие переменные снаружи, через которые нельзя
+// вынести временную память: числа, bool, текст (его нельзя менять) и списки/dict чисел.
+func outside_temp(c: Comp, v: int)
+    return c.temp_base >= 0 and v >= 0 and v < c.temp_base
+
+func is_plain(t: int)
+    return t == 1 or t == 2 or t == 3
+
+func temp_can_see(c: Comp, t: int)
+    if is_plain(t) or t == 4
+        return true
+    if is_list(c, t)
+        return is_plain(c.types[t].elem)
+    if is_dict(c, t)
+        return c.types[t].key == 1 and is_plain(c.types[t].elem)
+    return false
+
+func temp_keep_out(c: Comp, line: int, name: text)
+    error_at(c, line, "из temp наружу можно сохранить только int, dec или bool: текст, списки и obj удалятся в конце блока", name)
+
 func no_outside_change(c: Comp, n: Node)
     if outside_par(c, root_var(c, n))
         error_at(c, n.line, "внутри on all cores нельзя менять списки и obj снаружи цикла (свои, созданные внутри, — можно)", "")
@@ -543,6 +564,8 @@ func check_user_call(c: Comp, n: Node, fi: int) gives r: int
         if p.is_link
             need_place_for(c, value, "в ярлык link можно передать только переменную, u.age или nums[i]", true)
             no_outside_change(c, value)
+            if outside_temp(c, root_var(c, value)) and not is_plain(t)
+                temp_keep_out(c, value.line, p.name)
             if p.ty < 0
                 // тип ярлыка узнаём по первому вызову
                 p.ty = t
@@ -561,10 +584,15 @@ func check_user_call(c: Comp, n: Node, fi: int) gives r: int
         saved_mod = c.cur_mod
         saved_file = c.file_name
         saved_par = c.par_base
+        saved_temp = c.temp_base
+        saved_temp_loops = c.temp_loops
         c.par_base = -1
+        c.temp_base = -1
         c.var_base = len(c.vars)
         check_func(c, fi)
         c.par_base = saved_par
+        c.temp_base = saved_temp
+        c.temp_loops = saved_temp_loops
         c.var_base = saved_base
         c.cur_mod = saved_mod
         c.file_name = saved_file
@@ -709,6 +737,8 @@ func check_expr(c: Comp, n: Node) gives r: int
             if find_obj(c, n.name) >= 0
                 error_at(c, n.line, "чтобы создать obj, нужны скобки", n.name + "(...)")
             error_at(c, n.line, "нет такой переменной", n.name)
+        if outside_temp(c, v) and not temp_can_see(c, c.vars[v].type)
+            error_at(c, n.line, "внутри temp не видно списков, dict и obj снаружи (кроме списков чисел): создай данные внутри temp или передай числа", n.name)
         if outside_par(c, v)
             if c.vars[v].is_shared and not c.shared_ok
                 error_at(c, n.line, "shared внутри on all cores можно только менять через += или -=, а читать — после цикла", n.name)
@@ -722,6 +752,8 @@ func check_expr(c: Comp, n: Node) gives r: int
     else if k == "try"
         if c.par_base >= 0
             error_at(c, n.line, "внутри on all cores try нельзя: ядро не может остановить всю функцию, пиши  or  или  else err", "")
+        if c.temp_base >= 0
+            error_at(c, n.line, "внутри temp try нельзя: пиши  or  или  else err", "")
         t = check_handled(c, n.kids[0], "try")
     else if k == "else_err"
         t = check_handled(c, n.kids[0], "else")
@@ -807,6 +839,8 @@ func check_assign(c: Comp, n: Node)
         add_var(c, n.name, type, n.is_const, false, n.line)
         c.vars[len(c.vars) - 1].is_shared = n.is_shared
         return
+    if outside_temp(c, v) and not is_plain(c.vars[v].type)
+        temp_keep_out(c, n.line, n.name)
     if outside_par(c, v)
         if c.vars[v].is_shared
             error_at(c, n.line, "shared внутри on all cores меняется только через += или -=", n.name)
@@ -828,6 +862,8 @@ func check_set(c: Comp, n: Node)
     c.shared_ok = false
     need_place(c, target, "менять можно только переменную, u.age или nums[i]")
     r = root_var(c, target)
+    if outside_temp(c, r) and target.kind == "name" and not is_plain(c.vars[r].type)
+        temp_keep_out(c, n.line, target.name)
     if outside_par(c, r)
         if target.kind != "name"
             error_at(c, n.line, "внутри on all cores нельзя менять списки и obj снаружи цикла (свои, созданные внутри, — можно)", "")
@@ -855,6 +891,8 @@ func check_linkdecl(c: Comp, n: Node)
     t = check_value(c, target)
     need_place(c, target, "ярлык link ведёт к переменной, u.age или nums[i]")
     no_outside_change(c, target)
+    if outside_temp(c, root_var(c, target)) and not is_plain(t)
+        temp_keep_out(c, n.line, n.name)
     n.ty = t
     add_var(c, n.name, t, false, true, n.line)
 
@@ -882,6 +920,8 @@ func check_multi(c: Comp, n: Node)
         else
             if outside_par(c, v)
                 error_at(c, name.line, "внутри on all cores нельзя менять переменную снаружи: сделай её shared и меняй через += или -=", name.name)
+            if outside_temp(c, v) and not is_plain(c.vars[v].type)
+                temp_keep_out(c, name.line, name.name)
             if c.vars[v].is_const
                 error_at(c, name.line, "это const или переменная цикла, её нельзя менять", name.name)
             if not fits(c.vars[v].type, out)
@@ -960,18 +1000,32 @@ func check_statement(c: Comp, n: Node)
         c.loop_depth += 1
         check_block(c, n.kids[1])
         c.loop_depth -= 1
+    else if k == "temp"
+        saved_base = c.temp_base
+        saved_loops = c.temp_loops
+        c.temp_base = len(c.vars)
+        c.temp_loops = c.loop_depth
+        check_block(c, n.kids[0])
+        c.temp_base = saved_base
+        c.temp_loops = saved_loops
     else if k == "skip" or k == "stop"
         if c.loop_depth == 0
             error_at(c, n.line, "skip и stop пишутся только внутри цикла", "")
         if k == "stop" and c.par_base >= 0 and c.loop_depth == c.par_node.temp_no
             error_at(c, n.line, "stop внутри on all cores нельзя: остальные ядра всё равно работают", "")
+        if c.temp_base >= 0 and c.loop_depth == c.temp_loops
+            error_at(c, n.line, "skip и stop внутри temp работают только для циклов внутри temp", "")
     else if k == "return"
         if c.par_base >= 0
             error_at(c, n.line, "внутри on all cores return нельзя", "")
+        if c.temp_base >= 0
+            error_at(c, n.line, "внутри temp return нельзя: сохрани число в переменную снаружи и выйди из блока", "")
         check_return(c, n)
     else if k == "fail"
         if c.par_base >= 0
             error_at(c, n.line, "внутри on all cores fail нельзя: пиши  or  или  else err", "")
+        if c.temp_base >= 0
+            error_at(c, n.line, "внутри temp fail нельзя: пиши  or  или  else err", "")
         if check_value(c, n.kids[0]) != 4
             error_at(c, n.line, "после fail пишется текст ошибки: fail \"нет файла\"", "")
     else if k == "expr_stmt"
@@ -1091,6 +1145,7 @@ modpub func check(c: Comp, program: Node)
     t = simple_type(c, "text")
     c.temp_types.add(-1)
     c.par_base = -1
+    c.temp_base = -1
 
     // 0) модули и их use
     main_mod = ""

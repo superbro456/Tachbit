@@ -1,0 +1,10 @@
+// То же без temp: память не освобождается, пока программа не кончится.
+func main()
+    total = 0
+    repeat 100 times
+        lines = list text
+        count i from 1 to 100000
+            lines.add("строка " + i)
+        each s in lines
+            total += len(s)
+    print(total)

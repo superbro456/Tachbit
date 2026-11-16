@@ -459,7 +459,7 @@ func parse_name_statement(c: Comp) gives result: Node
     return n
 
 func later_command(c: Comp)
-    each w in ["gives", "obj", "temp", "together", "danger", "by"]
+    each w in ["gives", "obj", "together", "danger", "by"]
         if is_cmd(c, w)
             return true
     return false
@@ -503,6 +503,13 @@ func parse_statement(c: Comp) gives result: Node
     if is_cmd(c, "const")
         next(c)
         return parse_assign(c, true)
+    if is_cmd(c, "temp")
+        // temp: блок временной памяти, в конце всё созданное внутри удаляется разом
+        n = new_node("temp", line)
+        next(c)
+        expect_newline(c)
+        add_kid(n, parse_block(c))
+        return n
     if is_cmd(c, "shared")
         // shared y = int 0  —  общая переменная для on all cores
         next(c)
@@ -641,7 +648,7 @@ modpub func parse(c: Comp)
 // ---------- печать дерева (команда tree) ----------
 
 modpub func node_kind_name(kind: text)
-    names = {"program": "ПРОГРАММА", "func": "ФУНКЦИЯ", "param": "ПАРАМЕТР", "block": "БЛОК", "obj": "OBJ", "type": "ТИП", "assign": "ПРИСВОИТЬ", "set": "ИЗМЕНИТЬ", "linkdecl": "ЯРЛЫК", "multi": "НЕСКОЛЬКО", "if": "ЕСЛИ", "each": "EACH", "count": "COUNT", "repeat_times": "REPEAT TIMES", "repeat_while": "REPEAT WHILE", "skip": "SKIP", "stop": "STOP", "return": "RETURN", "expr_stmt": "ВЫЗОВ-СТРОКА", "number": "ЧИСЛО", "decimal": "ДРОБЬ", "string": "ТЕКСТ", "bool": "ДА/НЕТ", "name": "ИМЯ", "list": "СПИСОК", "call": "ВЫЗОВ", "arg": "АРГУМЕНТ", "binop": "ОПЕРАЦИЯ", "unary": "ОДИНОЧНАЯ", "index": "ИНДЕКС", "field": "КАЧЕСТВО", "method": "МЕТОД", "dict": "СЛОВАРЬ", "use": "USE", "fail": "FAIL", "try": "TRY", "else_err": "ELSE ERR"}
+    names = {"program": "ПРОГРАММА", "func": "ФУНКЦИЯ", "param": "ПАРАМЕТР", "block": "БЛОК", "obj": "OBJ", "type": "ТИП", "assign": "ПРИСВОИТЬ", "set": "ИЗМЕНИТЬ", "linkdecl": "ЯРЛЫК", "multi": "НЕСКОЛЬКО", "if": "ЕСЛИ", "each": "EACH", "count": "COUNT", "repeat_times": "REPEAT TIMES", "repeat_while": "REPEAT WHILE", "skip": "SKIP", "stop": "STOP", "return": "RETURN", "expr_stmt": "ВЫЗОВ-СТРОКА", "number": "ЧИСЛО", "decimal": "ДРОБЬ", "string": "ТЕКСТ", "bool": "ДА/НЕТ", "name": "ИМЯ", "list": "СПИСОК", "call": "ВЫЗОВ", "arg": "АРГУМЕНТ", "binop": "ОПЕРАЦИЯ", "unary": "ОДИНОЧНАЯ", "index": "ИНДЕКС", "field": "КАЧЕСТВО", "method": "МЕТОД", "dict": "СЛОВАРЬ", "use": "USE", "fail": "FAIL", "try": "TRY", "else_err": "ELSE ERR", "temp": "TEMP"}
     return names[kind]
 
 modpub func tree_lines(n: Node, depth: int, out: list text)

@@ -1,0 +1,12 @@
+// 100 раз: собрать 100 тысяч строк и сосчитать их длину.
+// temp: всё, что создано в блоке, удаляется разом в конце, память не растёт.
+func main()
+    total = 0
+    repeat 100 times
+        temp
+            lines = list text
+            count i from 1 to 100000
+                lines.add("строка " + i)
+            each s in lines
+                total += len(s)
+    print(total)

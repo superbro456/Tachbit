@@ -1,0 +1,5 @@
+// 0.7
+func main()
+    keep = "x"
+    temp
+        keep = "y" + "z"

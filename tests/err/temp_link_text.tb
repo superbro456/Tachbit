@@ -1,0 +1,9 @@
+// 0.7
+func grow(link s)
+    s = s + "!"
+
+func main()
+    msg = "hi"
+    temp
+        grow(msg)
+    print(msg)

@@ -26,8 +26,68 @@ TB_COLD static void tb_crash(int line, const char *msg) {
     fprintf(stderr, "строка %d: %s\n", line, msg);
     exit(1);
 }
+// ---------- temp: временная память ----------
+// Внутри блока temp память берётся из больших кусков подряд (быстро, без malloc),
+// а в конце блока все куски отдаются разом. У каждого ядра свои куски.
+typedef struct { char *mem; long long size, used; } tb_chunk;
+typedef struct { int n; long long used; } tb_mark;
+static _Thread_local tb_chunk *tb_chunks = 0;
+static _Thread_local int tb_nchunks = 0, tb_capchunks = 0, tb_temp_depth = 0;
+static int tb_in_temp(const void *p) {
+    for (int i = tb_nchunks - 1; i >= 0; i--) {
+        if ((const char *)p >= tb_chunks[i].mem && (const char *)p < tb_chunks[i].mem + tb_chunks[i].size) return 1;
+    }
+    return 0;
+}
+static void *tb_temp_alloc(long long n) {
+    n = n > 0 ? (n + 15) & ~15LL : 16;
+    tb_chunk *c = tb_nchunks > 0 ? &tb_chunks[tb_nchunks - 1] : 0;
+    if (c == 0 || c->used + n > c->size) {
+        long long size = c != 0 ? c->size * 2 : (1LL << 20);
+        if (size < n) size = n;
+        if (tb_nchunks == tb_capchunks) {
+            tb_capchunks = tb_capchunks * 2 + 8;
+            tb_chunks = realloc(tb_chunks, sizeof(tb_chunk) * tb_capchunks);
+            if (tb_chunks == 0) tb_crash(0, "не хватило памяти");
+        }
+        char *mem = malloc(size);
+        if (mem == 0) tb_crash(0, "не хватило памяти");
+        tb_chunks[tb_nchunks] = (tb_chunk){mem, size, 0};
+        c = &tb_chunks[tb_nchunks];
+        tb_nchunks += 1;
+    }
+    void *p = c->mem + c->used;
+    c->used += n;
+    return p;
+}
+static tb_mark tb_temp_begin(void) {
+    tb_temp_depth += 1;
+    return (tb_mark){tb_nchunks, tb_nchunks > 0 ? tb_chunks[tb_nchunks - 1].used : 0};
+}
+static void tb_temp_end(tb_mark m) {
+    // первый кусок оставляем пустым: следующий temp возьмёт его без malloc
+    while (tb_nchunks > m.n && tb_nchunks > 1) {
+        tb_nchunks -= 1;
+        free(tb_chunks[tb_nchunks].mem);
+    }
+    if (tb_nchunks > m.n) tb_chunks[0].used = 0;
+    else if (tb_nchunks > 0) tb_chunks[tb_nchunks - 1].used = m.used;
+    tb_temp_depth -= 1;
+}
 static void *tb_mem(long long n) {
+    if (tb_temp_depth > 0) return tb_temp_alloc(n);
     void *p = malloc(n > 0 ? n : 1);
+    if (p == 0) tb_crash(0, "не хватило памяти");
+    return p;
+}
+// вырасти кусок: временный растёт во временной памяти, обычный — через realloc
+static void *tb_resize(void *p, long long old_n, long long new_n) {
+    if (tb_nchunks > 0 && tb_in_temp(p)) {
+        void *q = tb_temp_alloc(new_n);
+        memcpy(q, p, old_n);
+        return q;
+    }
+    p = realloc(p, new_n > 0 ? new_n : 1);
     if (p == 0) tb_crash(0, "не хватило памяти");
     return p;
 }
@@ -50,10 +110,10 @@ static inline void *tb_at(tb_list *l, long long i, long long size, int line) {
 }
 static inline void *tb_grow(tb_list *l) {
     if (TB_RARE(l->len == l->cap)) {
+        long long old = l->cap * l->size;
         l->cap = l->cap * 2 + 4;
         // realloc часто растит большой кусок на месте, без копирования
-        l->data = realloc(l->data, l->cap * l->size);
-        if (l->data == 0) tb_crash(0, "не хватило памяти");
+        l->data = tb_resize(l->data, old, l->cap * l->size);
     }
     l->len += 1;
     return l->data + (l->len - 1) * l->size;
@@ -206,7 +266,7 @@ static const char *tb_read_file(const char *path) {
     char *buf = tb_mem(cap);
     while ((got = fread(buf + n, 1, cap - n - 1, f)) > 0) {
         n += got;
-        if (n + 1 == cap) { cap *= 2; buf = realloc(buf, cap); if (!buf) tb_crash(0, "не хватило памяти"); }
+        if (n + 1 == cap) { buf = tb_resize(buf, cap, cap * 2); cap *= 2; }
     }
     fclose(f);
     buf[n] = 0;
@@ -224,7 +284,7 @@ static const char *tb_input(void) {
     char *buf = tb_mem(cap);
     int c;
     while ((c = getchar()) != EOF && c != '\n') {
-        if (n + 1 == cap) { cap *= 2; buf = realloc(buf, cap); if (!buf) tb_crash(0, "не хватило памяти"); }
+        if (n + 1 == cap) { buf = tb_resize(buf, cap, cap * 2); cap *= 2; }
         buf[n++] = (char)c;
     }
     if (c == EOF && n == 0) { tb_err = "ввод кончился"; return ""; }
@@ -291,10 +351,13 @@ static long long tb_dfind(tb_dict *d, const void *k) {
     return -1;
 }
 static void tb_dreindex(tb_dict *d, long long nslots) {
-    free(d->slots);
+    // новая таблица там же, где старая: временная — во временной памяти
+    int in_temp = d->slots != 0 ? tb_nchunks > 0 && tb_in_temp(d->slots) : tb_temp_depth > 0;
+    if (!in_temp) free(d->slots);
     d->nslots = nslots;
-    d->slots = calloc(nslots, sizeof(long long));
+    d->slots = in_temp ? tb_temp_alloc(nslots * sizeof(long long)) : malloc(nslots * sizeof(long long));
     if (!d->slots) tb_crash(0, "не хватило памяти");
+    memset(d->slots, 0, nslots * sizeof(long long));
     unsigned long long mask = nslots - 1;
     for (long long at = 0; at < d->keys->len; at++) {
         unsigned long long i = tb_hash(d, d->keys->data + at * d->keys->size) & mask;

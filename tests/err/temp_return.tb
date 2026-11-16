@@ -1,0 +1,8 @@
+// 0.7
+func f()
+    temp
+        return 5
+    return 0
+
+func main()
+    print(f())

@@ -1,0 +1,22 @@
+// 0.7: temp — временная память
+func words_in(line: text)
+    return len(split(line, " "))
+
+func main()
+    total = 0
+    best = 0
+    lens = list int
+    count round_no from 1 to 3
+        temp
+            // всё, что создано здесь, удалится в конце блока
+            lines = list text
+            count i from 1 to 1000
+                lines.add("строка номер " + i + " раунд " + round_no)
+            counts = {1: 0}
+            each s in lines
+                total += words_in(s)
+                counts[len(s)] = 1
+            lens.add(len(lines))
+            if len(counts) > best
+                best = len(counts)
+    print(total, best, lens)

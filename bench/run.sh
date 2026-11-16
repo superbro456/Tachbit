@@ -54,3 +54,26 @@ if command -v python3 > /dev/null; then
     echo "   Python:  $(awk "BEGIN { print $py * 10 }") с   (считал 2 млн объектов, время ×10)"
 fi
 rm -f columns columns.c cards cards.c columns_c
+
+# temp: 100 раз собрать 100 тысяч строк; время и сколько памяти заняла программа
+mem() {
+    if command -v python3 > /dev/null; then
+        python3 -c "import resource, subprocess, sys
+subprocess.run(sys.argv[1:], stdout=subprocess.DEVNULL)
+r = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
+print(r // (1024 * 1024) if sys.platform == 'darwin' else r // 1024)" "$@"
+    else
+        echo "?"
+    fi
+}
+../tachbit-tb build temp.tb > /dev/null || exit 1
+../tachbit-tb build notemp.tb > /dev/null || exit 1
+cc -O2 -o temp_c temp_pure.c || exit 1
+echo "== temp  (ответ: $(./temp))"
+echo "   Tachbit с temp:   $(best ./temp) с, память $(mem ./temp) МБ"
+echo "   Tachbit без temp: $(best ./notemp) с, память $(mem ./notemp) МБ"
+echo "   C (malloc/free):  $(best ./temp_c) с, память $(mem ./temp_c) МБ"
+if command -v python3 > /dev/null; then
+    echo "   Python:  $(seconds python3 temp.py) с"
+fi
+rm -f temp temp.c notemp notemp.c temp_c
