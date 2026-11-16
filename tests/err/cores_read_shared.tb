@@ -1,0 +1,7 @@
+// 0.7
+func main()
+    nums = [1, 2, 3]
+    shared total = int 0
+    each x in nums on all cores
+        if total > 2
+            print(x)

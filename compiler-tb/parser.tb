@@ -294,12 +294,26 @@ func parse_if(c: Comp) gives result: Node
             stop
     return n
 
+// each x in nums on all cores  —  слова on all cores читаются как обычные имена
+func parse_on_all_cores(c: Comp, n: Node)
+    t = now(c)
+    if t.kind == "name" and t.word == "on"
+        next(c)
+        a = now(c)
+        b = ahead(c)
+        if a.word != "all" or b.word != "cores"
+            error_at(c, line_now(c), "после on пишется all cores: each x in nums on all cores", "")
+        next(c)
+        next(c)
+        n.is_par = true
+
 func parse_each(c: Comp) gives result: Node
     n = new_node("each", line_now(c))
     expect_cmd(c, "each")
     n.name = expect_name(c)
     expect_cmd(c, "in")
     add_kid(n, parse_expr(c))
+    parse_on_all_cores(c, n)
     expect_newline(c)
     add_kid(n, parse_block(c))
     return n
@@ -312,6 +326,7 @@ func parse_count(c: Comp) gives result: Node
     add_kid(n, parse_expr(c))
     expect_cmd(c, "to")
     add_kid(n, parse_expr(c))
+    parse_on_all_cores(c, n)
     expect_newline(c)
     add_kid(n, parse_block(c))
     return n
@@ -444,7 +459,7 @@ func parse_name_statement(c: Comp) gives result: Node
     return n
 
 func later_command(c: Comp)
-    each w in ["gives", "shared", "obj", "temp", "together", "danger", "by"]
+    each w in ["gives", "obj", "temp", "together", "danger", "by"]
         if is_cmd(c, w)
             return true
     return false
@@ -488,6 +503,14 @@ func parse_statement(c: Comp) gives result: Node
     if is_cmd(c, "const")
         next(c)
         return parse_assign(c, true)
+    if is_cmd(c, "shared")
+        // shared y = int 0  —  общая переменная для on all cores
+        next(c)
+        if now(c).kind != "name" or not ahead_is_sign(c, "=")
+            error_at(c, line, "после shared пишется новая переменная: shared y = int 0", "")
+        n = parse_assign(c, false)
+        n.is_shared = true
+        return n
     if is_cmd(c, "else")
         error_at(c, line, "else без if над ним (проверь отступ)", "")
     if is_cmd(c, "func")
@@ -629,6 +652,10 @@ modpub func tree_lines(n: Node, depth: int, out: list text)
         s = s + " (const)"
     if n.is_link
         s = s + " (link)"
+    if n.is_shared
+        s = s + " (shared)"
+    if n.is_par
+        s = s + " (on all cores)"
     out.add(s)
     if n.has_tsyn
         tree_lines(n.tsyn, depth + 1, out)

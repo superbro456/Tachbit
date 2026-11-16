@@ -563,7 +563,104 @@ func emit_if(c: Comp, n: Node, depth: int)
         put(c, "}")
     put(c, "\n")
 
+// each / count ... on all cores:
+// тело цикла уходит в отдельную функцию-работника tb_workN, её запускают все ядра.
+// Переменные снаружи передаются в tb_jobN; у shared у каждого ядра свой «листок».
+func emit_par(c: Comp, n: Node, depth: int)
+    c.label += 1
+    id = "" + c.label
+    is_each = n.kind == "each"
+    elem = ""
+    if is_each
+        elem = c_type(c, c.types[n.kids[0].ty].elem)
+    // 1) работник: пишется в отдельный кусок, потом встанет перед функциями
+    saved = c.out
+    w = list text
+    c.out = w
+    put(c, "\ntypedef struct {\n    long long tb_lo, tb_total, tb_step, tb_next;\n    tb_list *tb_l;\n")
+    each v in n.caps
+        if v.is_shared
+            put(c, "    " + c_type(c, v.type) + " *p_" + v.name + ";\n")
+        else if v.is_link
+            put(c, "    " + c_type(c, v.type) + " *v_" + v.name + ";\n")
+        else
+            put(c, "    " + c_type(c, v.type) + " v_" + v.name + ";\n")
+    put(c, "} tb_job" + id + ";\n")
+    put(c, "static void *tb_work" + id + "(void *tb_arg) {\n")
+    put(c, "    tb_job" + id + " *tb_j = tb_arg;\n")
+    has_shared = false
+    each v in n.caps
+        if v.is_shared
+            has_shared = true
+            put(c, "    " + c_type(c, v.type) + " v_" + v.name + " = ")
+            emit_default(c, v.type)
+            put(c, ";\n")
+        else if v.is_link
+            put(c, "    " + c_type(c, v.type) + " *v_" + v.name + " = tb_j->v_" + v.name + ";\n")
+        else
+            put(c, "    " + c_type(c, v.type) + " v_" + v.name + " = tb_j->v_" + v.name + ";\n")
+    put(c, "    for (;;) {\n")
+    put(c, "        long long tb_s = __atomic_fetch_add(&tb_j->tb_next, tb_j->tb_step, __ATOMIC_RELAXED);\n")
+    put(c, "        if (tb_s >= tb_j->tb_total) break;\n")
+    put(c, "        long long tb_e = tb_s + tb_j->tb_step;\n")
+    put(c, "        if (tb_e > tb_j->tb_total) tb_e = tb_j->tb_total;\n")
+    put(c, "        for (long long tb_i = tb_s; tb_i < tb_e; tb_i++) {\n")
+    if is_each
+        put(c, "            " + elem + " const v_" + n.name + " = ((" + elem + " *)tb_j->tb_l->data)[tb_i];\n")
+        emit_block(c, n.kids[1], 3)
+    else
+        put(c, "            long long const v_" + n.name + " = tb_j->tb_lo + tb_i;\n")
+        emit_block(c, n.kids[2], 3)
+    put(c, "        }\n    }\n")
+    if has_shared
+        put(c, "    pthread_mutex_lock(&tb_par_lock);\n")
+        each v in n.caps
+            if v.is_shared
+                put(c, "    *tb_j->p_" + v.name + " += v_" + v.name + ";\n")
+        put(c, "    pthread_mutex_unlock(&tb_par_lock);\n")
+    put(c, "    return 0;\n}\n")
+    c.workers.add(join(w, ""))
+    c.out = saved
+    // 2) на месте цикла: заполнить tb_jobN и запустить ядра
+    j = "tb_j" + id
+    indent(c, depth)
+    put(c, "{\n")
+    indent(c, depth + 1)
+    put(c, "tb_job" + id + " " + j + " = {0};\n")
+    indent(c, depth + 1)
+    if is_each
+        put(c, j + ".tb_l = ")
+        emit_expr(c, n.kids[0])
+        put(c, ";\n")
+        indent(c, depth + 1)
+        put(c, j + ".tb_total = " + j + ".tb_l->len;\n")
+    else
+        put(c, "long long tb_end" + id + " = ")
+        emit_expr(c, n.kids[1])
+        put(c, ";\n")
+        indent(c, depth + 1)
+        put(c, j + ".tb_lo = ")
+        emit_expr(c, n.kids[0])
+        put(c, ";\n")
+        indent(c, depth + 1)
+        put(c, j + ".tb_total = tb_end" + id + " < " + j + ".tb_lo ? 0 : tb_end" + id + " - " + j + ".tb_lo + 1;\n")
+    each v in n.caps
+        indent(c, depth + 1)
+        if v.is_shared
+            put(c, j + ".p_" + v.name + " = &v_" + v.name + ";\n")
+        else
+            put(c, j + ".v_" + v.name + " = v_" + v.name + ";\n")
+    indent(c, depth + 1)
+    put(c, j + ".tb_step = tb_par_step(" + j + ".tb_total);\n")
+    indent(c, depth + 1)
+    put(c, "tb_par_run(tb_work" + id + ", &" + j + ", " + j + ".tb_total);\n")
+    indent(c, depth)
+    put(c, "}\n")
+
 func emit_each(c: Comp, n: Node, depth: int)
+    if n.is_par
+        emit_par(c, n, depth)
+        return
     c.label += 1
     id = "" + c.label
     t = n.kids[0].ty
@@ -601,6 +698,9 @@ func emit_each(c: Comp, n: Node, depth: int)
     put(c, "}\n")
 
 func emit_count(c: Comp, n: Node, depth: int)
+    if n.is_par
+        emit_par(c, n, depth)
+        return
     c.label += 1
     id = "" + c.label
     indent(c, depth)
@@ -830,7 +930,7 @@ modpub func emit_c(c: Comp, program: Node)
     fresh = list text
     c.out = fresh
     c.label = 0
-    put(c, "// Сделано компилятором Tachbit 0.5. Не правь руками: правь файл .tb\n")
+    put(c, "// Сделано компилятором Tachbit 0.7. Не правь руками: правь файл .tb\n")
     put(c, runtime_text())
 
     // obj: сначала имена, потом устройство (obj может хранить другой obj)
@@ -852,7 +952,7 @@ modpub func emit_c(c: Comp, program: Node)
         if k != "none" and k != "multi" and k != "unknown"
             put(c, "static void tb_show_" + t.id + "(" + c_type(c, t.id) + " x);\n")
     count i from 1 to len(c.temp_types) - 1
-        put(c, "static " + c_type(c, c.temp_types[i]) + " tb_t" + i + ";   // для  f() or запасное\n")
+        put(c, "static _Thread_local " + c_type(c, c.temp_types[i]) + " tb_t" + i + ";   // для  f() or запасное\n")
     each top in program.kids
         if top.kind == "obj"
             emit_constructor(c, top)
@@ -863,9 +963,18 @@ modpub func emit_c(c: Comp, program: Node)
     put(c, "\n")
     each t in c.types
         emit_show(c, t)
+    // функции пишем в отдельный кусок: работники on all cores должны стоять перед ними
+    saved = c.out
+    funcs_out = list text
+    c.out = funcs_out
     each top in program.kids
         if top.kind == "func"
             emit_func(c, top)
+    c.out = saved
+    each w in c.workers
+        put(c, w)
+    each f in funcs_out
+        put(c, f)
     main_func = program.kids[0]
     each top in program.kids
         if top.kind == "func" and top.name == "main" and top.mod == program.kids[0].mod

@@ -34,6 +34,11 @@ obj Node
     can_fail: bool
     temp_no: int
     kids: list Node
+    // 0.7: each / count ... on all cores; shared x = ...
+    is_par: bool
+    is_shared: bool
+    // переменные снаружи, которые видит цикл on all cores
+    caps: list Var
 
 // тип языка; хранится один раз, номер типа = место в списке Comp.types
 // kind = unknown / none / int / dec / bool / text / list / obj / multi / dict
@@ -66,6 +71,7 @@ obj Var
     is_const: bool
     is_link: bool
     depth: int
+    is_shared: bool
 
 // состояние всего компилятора
 obj Comp
@@ -88,7 +94,13 @@ obj Comp
     loop_depth: int
     // типы скрытых переменных tb_t1, tb_t2 ... (номер 0 не занят)
     temp_types: list int
+    // внутри on all cores: с какого номера начинаются свои переменные цикла (-1 — не внутри)
+    par_base: int
+    par_node: Node
+    shared_ok: bool
     // вывод C
     out: list text
     label: int
     cur_func: Node
+    // функции-работники для on all cores: пишутся перед остальными функциями
+    workers: list text

@@ -1,0 +1,34 @@
+// 0.7: on all cores и shared
+func is_prime(n: int)
+    if n < 2
+        return false
+    d = 2
+    repeat while d * d <= n
+        if n % d == 0
+            return false
+        d += 1
+    return true
+
+func main()
+    nums = [3, 5, 7, 2, 8, 1, 4, 6]
+    shared y = int 0
+    each x in nums on all cores
+        y += x
+    print(y)
+    shared primes = int 0
+    shared total = dec 0.0
+    limit = 100000
+    count n from 1 to limit on all cores
+        if is_prime(n)
+            primes += 1
+            total += 0.5
+    print(primes, total)
+    // obj и вложенные циклы внутри; своё у каждого ядра
+    words = ["кот", "пёс", "рыба", "ёж"]
+    shared letters = int 0
+    each w in words on all cores
+        n = 0
+        each ch in w
+            n += 1
+        letters += n
+    print(letters)

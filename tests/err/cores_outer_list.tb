@@ -1,0 +1,6 @@
+// 0.7
+func main()
+    nums = [1, 2, 3]
+    out = list int
+    each x in nums on all cores
+        out.add(x)

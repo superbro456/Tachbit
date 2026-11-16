@@ -220,6 +220,32 @@ func close_scope(c: Comp)
         gone = c.vars.pop()
     c.depth -= 1
 
+// ---------- on all cores ----------
+
+// внутри on all cores, и переменная номер v — снаружи цикла (но в этой же функции)
+func outside_par(c: Comp, v: int)
+    return c.par_base >= 0 and v >= 0 and v < c.par_base
+
+// переменная, от которой начинается место: u.tags[2] → u
+func root_var(c: Comp, n: Node) gives r: int
+    if n.kind == "index" or n.kind == "field" or n.kind == "method"
+        return root_var(c, n.kids[0])
+    if n.kind == "name"
+        return find_var(c, n.name)
+    return -1
+
+// цикл on all cores видит эту переменную снаружи: запомнить, чтобы передать ядрам
+func capture(c: Comp, v: int)
+    var = c.vars[v]
+    each old in c.par_node.caps
+        if old.name == var.name
+            return
+    c.par_node.caps.add(Var(name: var.name, type: var.type, is_link: var.is_link, is_shared: var.is_shared))
+
+func no_outside_change(c: Comp, n: Node)
+    if outside_par(c, root_var(c, n))
+        error_at(c, n.line, "внутри on all cores нельзя менять списки и obj снаружи цикла (свои, созданные внутри, — можно)", "")
+
 // ---------- выражения ----------
 
 func need_value(c: Comp, n: Node, t: int)
@@ -506,6 +532,7 @@ func check_user_call(c: Comp, n: Node, fi: int) gives r: int
         t = check_value(c, value)
         if p.is_link
             need_place_for(c, value, "в ярлык link можно передать только переменную, u.age или nums[i]", true)
+            no_outside_change(c, value)
             if p.ty < 0
                 // тип ярлыка узнаём по первому вызову
                 p.ty = t
@@ -523,8 +550,11 @@ func check_user_call(c: Comp, n: Node, fi: int) gives r: int
         saved_base = c.var_base
         saved_mod = c.cur_mod
         saved_file = c.file_name
+        saved_par = c.par_base
+        c.par_base = -1
         c.var_base = len(c.vars)
         check_func(c, fi)
+        c.par_base = saved_par
         c.var_base = saved_base
         c.cur_mod = saved_mod
         c.file_name = saved_file
@@ -585,6 +615,8 @@ func check_method(c: Comp, n: Node) gives r: int
     count i from 1 to len(n.kids) - 1
         if n.kids[i].name != ""
             error_at(c, n.line, "у методов аргументы пишутся без имён", "")
+    if n.name == "add" or n.name == "pop" or n.name == "remove"
+        no_outside_change(c, base)
     if is_dict(c, t)
         return check_dict_method(c, n, t)
     if not is_list(c, t)
@@ -665,6 +697,10 @@ func check_expr(c: Comp, n: Node) gives r: int
             if find_obj(c, n.name) >= 0
                 error_at(c, n.line, "чтобы создать obj, нужны скобки", n.name + "(...)")
             error_at(c, n.line, "нет такой переменной", n.name)
+        if outside_par(c, v)
+            if c.vars[v].is_shared and not c.shared_ok
+                error_at(c, n.line, "shared внутри on all cores можно только менять через += или -=, а читать — после цикла", n.name)
+            capture(c, v)
         n.is_link = c.vars[v].is_link
         t = c.vars[v].type
     else if k == "list"
@@ -672,6 +708,8 @@ func check_expr(c: Comp, n: Node) gives r: int
     else if k == "dict"
         t = check_dict(c, n)
     else if k == "try"
+        if c.par_base >= 0
+            error_at(c, n.line, "внутри on all cores try нельзя: ядро не может остановить всю функцию, пиши  or  или  else err", "")
         t = check_handled(c, n.kids[0], "try")
     else if k == "else_err"
         t = check_handled(c, n.kids[0], "else")
@@ -741,6 +779,11 @@ func check_assign(c: Comp, n: Node)
     if len(n.kids) == 1
         t = check_value(c, n.kids[0])
     v = find_var(c, n.name)
+    if n.is_shared
+        if v >= 0
+            error_at(c, n.line, "shared пишется только у новой переменной", n.name)
+        if declared != 1 and declared != 2 and t != 1 and t != 2
+            error_at(c, n.line, "shared бывает int или dec: shared y = int 0", n.name)
     if v < 0
         type = t
         if declared >= 0
@@ -750,7 +793,12 @@ func check_assign(c: Comp, n: Node)
         n.creates = true
         n.ty = type
         add_var(c, n.name, type, n.is_const, false, n.line)
+        c.vars[len(c.vars) - 1].is_shared = n.is_shared
         return
+    if outside_par(c, v)
+        if c.vars[v].is_shared
+            error_at(c, n.line, "shared внутри on all cores меняется только через += или -=", n.name)
+        error_at(c, n.line, "внутри on all cores нельзя менять переменную снаружи: сделай её shared и меняй через += или -=", n.name)
     if n.is_const or declared >= 0
         error_at(c, n.line, "переменная уже есть: тип и const пишутся только в первый раз", n.name)
     if c.vars[v].is_const
@@ -762,11 +810,21 @@ func check_assign(c: Comp, n: Node)
 
 func check_set(c: Comp, n: Node)
     target = n.kids[0]
+    op = n.value
+    c.shared_ok = target.kind == "name" and (op == "+=" or op == "-=")
     to_ty = check_value(c, target)
+    c.shared_ok = false
     need_place(c, target, "менять можно только переменную, u.age или nums[i]")
+    r = root_var(c, target)
+    if outside_par(c, r)
+        if target.kind != "name"
+            error_at(c, n.line, "внутри on all cores нельзя менять списки и obj снаружи цикла (свои, созданные внутри, — можно)", "")
+        if not c.vars[r].is_shared
+            error_at(c, n.line, "внутри on all cores нельзя менять переменную снаружи: сделай её shared и меняй через += или -=", target.name)
+        if op != "+=" and op != "-="
+            error_at(c, n.line, "shared внутри on all cores меняется только через += или -=", target.name)
     t = check_value(c, n.kids[1])
     n.ty = to_ty
-    op = n.value
     if op == "="
         if not fits(to_ty, t)
             error_at(c, n.line, "здесь лежит другой тип", type_name(c, to_ty))
@@ -784,6 +842,7 @@ func check_linkdecl(c: Comp, n: Node)
     target = n.kids[0]
     t = check_value(c, target)
     need_place(c, target, "ярлык link ведёт к переменной, u.age или nums[i]")
+    no_outside_change(c, target)
     n.ty = t
     add_var(c, n.name, t, false, true, n.line)
 
@@ -809,6 +868,8 @@ func check_multi(c: Comp, n: Node)
             name.creates = true
             add_var(c, name.name, out, false, false, name.line)
         else
+            if outside_par(c, v)
+                error_at(c, name.line, "внутри on all cores нельзя менять переменную снаружи: сделай её shared и меняй через += или -=", name.name)
             if c.vars[v].is_const
                 error_at(c, name.line, "это const или переменная цикла, её нельзя менять", name.name)
             if not fits(c.vars[v].type, out)
@@ -866,20 +927,18 @@ func check_statement(c: Comp, n: Node)
             elem = c.types[t].key
         else if t != 4
             error_at(c, n.line, "each ходит по списку, по ключам dict или по буквам текста", "")
+        if n.is_par and not is_list(c, t)
+            error_at(c, n.line, "on all cores ходит по списку (или count from ... to ...)", "")
         open_scope(c)
         add_var(c, n.name, elem, true, false, n.line)
-        c.loop_depth += 1
-        check_block(c, n.kids[1])
-        c.loop_depth -= 1
+        check_loop_body(c, n, n.kids[1])
         close_scope(c)
     else if k == "count"
         need_int(c, n.kids[0], "from")
         need_int(c, n.kids[1], "to")
         open_scope(c)
         add_var(c, n.name, 1, true, false, n.line)
-        c.loop_depth += 1
-        check_block(c, n.kids[2])
-        c.loop_depth -= 1
+        check_loop_body(c, n, n.kids[2])
         close_scope(c)
     else if k == "repeat_times" or k == "repeat_while"
         if k == "repeat_times"
@@ -892,9 +951,15 @@ func check_statement(c: Comp, n: Node)
     else if k == "skip" or k == "stop"
         if c.loop_depth == 0
             error_at(c, n.line, "skip и stop пишутся только внутри цикла", "")
+        if k == "stop" and c.par_base >= 0 and c.loop_depth == c.par_node.temp_no
+            error_at(c, n.line, "stop внутри on all cores нельзя: остальные ядра всё равно работают", "")
     else if k == "return"
+        if c.par_base >= 0
+            error_at(c, n.line, "внутри on all cores return нельзя", "")
         check_return(c, n)
     else if k == "fail"
+        if c.par_base >= 0
+            error_at(c, n.line, "внутри on all cores fail нельзя: пиши  or  или  else err", "")
         if check_value(c, n.kids[0]) != 4
             error_at(c, n.line, "после fail пишется текст ошибки: fail \"нет файла\"", "")
     else if k == "expr_stmt"
@@ -907,6 +972,23 @@ func check_statement(c: Comp, n: Node)
         t = check_expr(c, e)
         if t != 0
             error_at(c, n.line, "результат вызова пропадает: сохрани его, например x = ...", e.name)
+
+// тело each / count; у on all cores своя граница переменных:
+// всё, что объявлено раньше, — снаружи и только для чтения (кроме shared)
+func check_loop_body(c: Comp, n: Node, body: Node)
+    c.loop_depth += 1
+    if n.is_par
+        if c.par_base >= 0
+            error_at(c, n.line, "on all cores внутри другого on all cores нельзя", "")
+        c.par_base = len(c.vars) - 1
+        c.par_node = n
+        // на какой глубине циклов стоит сам цикл: stop в нём нельзя, во вложенных — можно
+        n.temp_no = c.loop_depth
+        check_block(c, body)
+        c.par_base = -1
+    else
+        check_block(c, body)
+    c.loop_depth -= 1
 
 func check_block(c: Comp, block: Node)
     open_scope(c)
@@ -996,6 +1078,7 @@ modpub func check(c: Comp, program: Node)
     t = simple_type(c, "bool")
     t = simple_type(c, "text")
     c.temp_types.add(-1)
+    c.par_base = -1
 
     // 0) модули и их use
     main_mod = ""

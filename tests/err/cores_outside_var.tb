@@ -1,0 +1,7 @@
+// 0.7
+func main()
+    nums = [1, 2, 3]
+    total = 0
+    each x in nums on all cores
+        total += x
+    print(total)

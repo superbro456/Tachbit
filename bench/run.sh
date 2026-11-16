@@ -2,7 +2,13 @@
 # Замер скорости: одна и та же задача на Tachbit, C и Python.
 # Запуск из корня репозитория:  ./bench/run.sh
 cd "$(dirname "$0")/.." || exit 1
+# компилятор на Tachbit: стартер на C собирает его, потом он собирает себя сам
 cc -std=c99 -O2 -o tachbit compiler-c/*.c || exit 1
+./tachbit build compiler-tb/main.tb > /dev/null || exit 1
+mv compiler-tb/main tachbit-tb2
+./tachbit-tb2 build compiler-tb/main.tb > /dev/null || exit 1
+mv compiler-tb/main tachbit-tb
+rm -f tachbit-tb2 compiler-tb/main.c
 cd bench || exit 1
 
 # время запуска в секундах: встроенный в bash time, одинаково на Mac и Linux
@@ -23,8 +29,8 @@ best() {
     echo "$best_time"
 }
 
-for task in fib primes; do
-    ../tachbit build $task.tb > /dev/null || exit 1
+for task in fib primes cores; do
+    ../tachbit-tb build $task.tb > /dev/null || exit 1
     cc -O2 -o ${task}_c ${task}_pure.c || exit 1
     echo "== $task  (ответ: $(./$task))"
     echo "   Tachbit: $(best ./$task) с"

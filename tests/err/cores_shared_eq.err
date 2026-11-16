@@ -1,0 +1,1 @@
+cores_shared_eq.tb, строка 5: shared внутри on all cores меняется только через += или -=: total

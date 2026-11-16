@@ -1,0 +1,5 @@
+// 0.7
+func main()
+    shared total = int 0
+    count i from 1 to 10 on all cores
+        total = i

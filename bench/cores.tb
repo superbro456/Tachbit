@@ -1,0 +1,18 @@
+// Сколько простых чисел до 5 млн: каждое число проверяем делением.
+// Числа независимы, поэтому их можно раздать всем ядрам.
+func is_prime(n: int)
+    if n < 2
+        return false
+    d = 2
+    repeat while d * d <= n
+        if n % d == 0
+            return false
+        d += 1
+    return true
+
+func main()
+    shared found = int 0
+    count n from 1 to 5000000 on all cores
+        if is_prime(n)
+            found += 1
+    print(found)

@@ -15,7 +15,9 @@ lines.append("    ;")
 open(os.path.join(root, "compiler-c", "runtime_text.c"), "w", encoding="utf-8").write("\n".join(lines) + "\n")
 
 # то же для компилятора на Tachbit: функция runtime_text() в compiler-tb/runtime_text.tb
-tb = ["// Сделано tools/embed_runtime.py из compiler-c/runtime.h. Не правь руками.",
+# (у него своя библиотека compiler-tb/runtime.h: с 0.7 в ней есть то, чего нет у стартера)
+src = open(os.path.join(root, "compiler-tb", "runtime.h"), encoding="utf-8").read()
+tb = ["// Сделано tools/embed_runtime.py из compiler-tb/runtime.h. Не правь руками.",
       "modpub func runtime_text()",
       "    lines = list text"]
 for line in src.splitlines():

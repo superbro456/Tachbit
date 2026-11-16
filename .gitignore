@@ -19,3 +19,5 @@ compiler-tb/*
 !compiler-tb/*.tb
 !compiler-tb/README.md
 /tachbit-tb
+!compiler-tb/runtime.h
+/tachbit-tb

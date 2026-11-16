@@ -1,0 +1,5 @@
+// 0.7
+func main()
+    nums = [1, 2, 3]
+    each x in nums on all cores
+        stop

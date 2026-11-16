@@ -1,0 +1,1 @@
+cores_read_shared.tb, строка 6: shared внутри on all cores можно только менять через += или -=, а читать — после цикла: total
