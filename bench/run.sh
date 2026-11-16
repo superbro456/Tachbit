@@ -5,28 +5,32 @@ cd "$(dirname "$0")/.." || exit 1
 cc -std=c99 -O2 -o tachbit src/*.c || exit 1
 cd bench || exit 1
 
+# время запуска в секундах: встроенный в bash time, одинаково на Mac и Linux
 seconds() {
-    local start end
-    start=$(date +%s.%N 2>/dev/null)
-    if [ "$start" = "" ] || [[ "$start" == *N ]]; then
-        start=$(python3 -c 'import time; print(time.time())')
-        "$@" > /dev/null
-        end=$(python3 -c 'import time; print(time.time())')
-    else
-        "$@" > /dev/null
-        end=$(date +%s.%N)
-    fi
-    echo "$start $end" | awk '{ printf "%.2f", $2 - $1 }'
+    local TIMEFORMAT=%R
+    { time "$@" > /dev/null 2>&1 ; } 2>&1
+}
+
+# каждую программу запускаем 3 раза и берём лучшее время (первый запуск бывает медленным)
+best() {
+    local best_time="" t
+    for run in 1 2 3; do
+        t=$(seconds "$@")
+        if [ -z "$best_time" ] || awk "BEGIN { exit !($t < $best_time) }"; then
+            best_time=$t
+        fi
+    done
+    echo "$best_time"
 }
 
 for task in fib primes; do
     ../tachbit build $task.tb > /dev/null || exit 1
     cc -O2 -o ${task}_c ${task}_pure.c || exit 1
     echo "== $task  (ответ: $(./$task))"
-    echo "   Tachbit: $(seconds ./$task) с"
-    echo "   C:       $(seconds ./${task}_c) с"
+    echo "   Tachbit: $(best ./$task) с"
+    echo "   C:       $(best ./${task}_c) с"
     if command -v python3 > /dev/null; then
-        echo "   Python:  $(seconds python3 $task.py) с"
+        echo "   Python:  $(seconds python3 $task.py) с   (Python медленный: ждём один запуск)"
     fi
     rm -f $task $task.c ${task}_c
 done
