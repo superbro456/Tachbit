@@ -880,6 +880,59 @@ func emit_pieces(c: Comp, n: Node, depth: int)
     indent(c, depth)
     put(c, "}\n")
 
+// значение, которое можно посчитать лишний раз раньше времени: ничего не меняет и не падает
+func is_pure(n: Node)
+    k = n.kind
+    if k == "number" or k == "decimal" or k == "string" or k == "bool" or k == "name"
+        return true
+    if k == "field" or k == "unary"
+        return is_pure(n.kids[0])
+    if k == "binop"
+        if n.value == "/" or n.value == "%"
+            return false
+        return is_pure(n.kids[0]) and is_pure(n.kids[1])
+    return false
+
+// together: три шага вместо очереди.
+//   1) для каждого d[key] считаем место в таблице и просим память принести его;
+//   2) когда места приехали, просим принести сами ключи и значения;
+//   3) обычные строки — к этому времени всё уже в кэше.
+// Пока одна строка ждала бы память, запросы остальных уже в пути.
+func emit_together(c: Comp, n: Node, depth: int)
+    c.label += 1
+    id = "" + c.label
+    block = n.kids[0]
+    count j from 0 to len(block.kids) - 1
+        v = block.kids[j].kids[0]
+        if v.kind != "index" or not is_pure(v.kids[0]) or not is_pure(v.kids[1])
+            skip
+        indent(c, depth)
+        if kind_of(c, v.kids[0].ty) == "dict"
+            put(c, "unsigned long long tb_h" + id + "_" + j + " = tb_dpre1(")
+            emit_expr(c, v.kids[0])
+            put(c, ", ")
+            emit_key(c, v.kids[0].ty, v.kids[1])
+            put(c, ");\n")
+        else if is_list(c, v.kids[0].ty) and not is_cols_list(c, v.kids[0].ty)
+            put(c, "tb_lpre(")
+            emit_expr(c, v.kids[0])
+            put(c, ", ")
+            emit_expr(c, v.kids[1])
+            put(c, ");\n")
+        else
+            put(c, ";\n")
+    count j from 0 to len(block.kids) - 1
+        v = block.kids[j].kids[0]
+        if v.kind != "index" or not is_pure(v.kids[0]) or not is_pure(v.kids[1])
+            skip
+        if kind_of(c, v.kids[0].ty) == "dict"
+            indent(c, depth)
+            put(c, "tb_dpre2(")
+            emit_expr(c, v.kids[0])
+            put(c, ", tb_h" + id + "_" + j + ");\n")
+    each s in block.kids
+        emit_statement(c, s, depth)
+
 func emit_count(c: Comp, n: Node, depth: int)
     if n.is_par
         emit_par(c, n, depth)
@@ -953,6 +1006,8 @@ func emit_statement(c: Comp, n: Node, depth: int)
         emit_block(c, n.kids[1], depth + 1)
         indent(c, depth)
         put(c, "}\n")
+    else if k == "together"
+        emit_together(c, n, depth)
     else if k == "temp"
         c.label += 1
         id = "" + c.label

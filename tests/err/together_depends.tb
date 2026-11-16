@@ -1,0 +1,7 @@
+// 0.7: строки в together не зависят друг от друга
+func main()
+    d = {1: 10, 2: 20}
+    together
+        a = d[1]
+        b = d[a]
+    print(a, b)

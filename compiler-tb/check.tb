@@ -72,7 +72,7 @@ modpub func type_name(c: Comp, t: int) gives r: text
 func is_number(t: int)
     return t == 1 or t == 2
 
-func is_list(c: Comp, t: int)
+modpub func is_list(c: Comp, t: int)
     return kind_of(c, t) == "list"
 
 func is_dict(c: Comp, t: int)
@@ -1032,6 +1032,8 @@ func check_statement(c: Comp, n: Node)
         c.loop_depth += 1
         check_block(c, n.kids[1])
         c.loop_depth -= 1
+    else if k == "together"
+        check_together(c, n)
     else if k == "temp"
         saved_base = c.temp_base
         saved_loops = c.temp_loops
@@ -1074,6 +1076,33 @@ func check_statement(c: Comp, n: Node)
         t = check_expr(c, e)
         if t != 0
             error_at(c, n.line, "результат вызова пропадает: сохрани его, например x = ...", e.name)
+
+// together: только новые переменные, и ни одна строка не читает то, что дала строка выше.
+// Переменные видны и после блока.
+func check_together(c: Comp, n: Node)
+    block = n.kids[0]
+    names = list text
+    each s in block.kids
+        if s.kind != "assign" or len(s.kids) != 1
+            error_at(c, s.line, "в together пишутся только новые переменные со значением: a = d[key]", "")
+        if find_var(c, s.name) >= 0
+            error_at(c, s.line, "в together заводятся только новые переменные, а эта уже есть", s.name)
+        each w in names
+            if w == s.name
+                error_at(c, s.line, "в together эта переменная уже заведена строкой выше", s.name)
+            if uses_name(s.kids[0], w)
+                error_at(c, s.line, "строки в together не должны зависеть друг от друга, а здесь нужна", w)
+        names.add(s.name)
+        check_statement(c, s)
+
+// встречается ли имя name где-то в выражении n
+func uses_name(n: Node, name: text)
+    if n.kind == "name" and n.name == name
+        return true
+    each k in n.kids
+        if uses_name(k, name)
+            return true
+    return false
 
 // each piece in data by 64: piece — кусок списка data (не копия, а окно в него).
 // Пока цикл идёт, data нельзя растить: так кусок всегда смотрит в живую память.

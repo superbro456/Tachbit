@@ -1,0 +1,6 @@
+// 0.7: в together только строки вида a = ...
+func main()
+    d = {1: 10, 2: 20}
+    together
+        a = d[1]
+        print(a)

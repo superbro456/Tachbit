@@ -1,0 +1,22 @@
+// 0.7: together — запросы к памяти идут одновременно
+func main()
+    ages = {"аня": 30, "боря": 25, "вова": 41}
+    nums = [10, 20, 30, 40]
+    i = 2
+    together
+        a = ages["аня"]
+        b = ages["вова"]
+        x = nums[i]
+        y = nums[i + 1]
+        s = "готово"
+    print(a, b, x, y, s)
+    big = dict int int
+    count k from 0 to 999
+        big[k] = k * k
+    t = 0
+    count k from 0 to 99
+        together
+            p = big[k]
+            q = big[k + 500]
+        t += p + q
+    print(t)

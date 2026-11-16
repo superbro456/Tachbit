@@ -1,0 +1,29 @@
+// 16 млн поисков в dict на 4 млн ключей (таблица намного больше кэша), по 8 за раз.
+// То же без together: каждый поиск ждёт память по очереди.
+func main()
+    n = 4000000
+    d = dict int int
+    count i from 0 to n - 1
+        d[i] = i % 1000
+    seed = 12345
+    total = 0
+    repeat 2000000 times
+        seed = (seed * 1103515245 + 12345) % 2147483648
+        k1 = seed % n
+        k2 = (seed / 7) % n
+        k3 = (seed / 13) % n
+        k4 = (seed / 29) % n
+        k5 = (seed / 61) % n
+        k6 = (seed / 127) % n
+        k7 = (seed / 251) % n
+        k8 = (seed / 509) % n
+        a1 = d[k1]
+        a2 = d[k2]
+        a3 = d[k3]
+        a4 = d[k4]
+        a5 = d[k5]
+        a6 = d[k6]
+        a7 = d[k7]
+        a8 = d[k8]
+        total += a1 + a2 + a3 + a4 + a5 + a6 + a7 + a8
+    print(total)

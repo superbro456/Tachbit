@@ -101,3 +101,13 @@ echo "   Tachbit by 4096:     $(best ./pieces) с"
 echo "   Tachbit без кусков:  $(best ./nopieces) с"
 echo "   C (проходы подряд):  $(best ./pieces_c) с"
 rm -f pieces pieces.c nopieces nopieces.c pieces_c
+
+# together: 16 млн поисков в dict на 4 млн ключей, по 8 за раз
+../tachbit-tb build together.tb > /dev/null || exit 1
+../tachbit-tb build notogether.tb > /dev/null || exit 1
+cc -O2 -o together_c together_pure.c || exit 1
+echo "== together  (ответ: $(./together))"
+echo "   Tachbit together:     $(best ./together) с"
+echo "   Tachbit без together: $(best ./notogether) с"
+echo "   C (та же таблица):    $(best ./together_c) с"
+rm -f together together.c notogether notogether.c together_c

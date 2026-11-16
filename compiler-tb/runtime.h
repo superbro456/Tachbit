@@ -400,6 +400,24 @@ static void *tb_dget(tb_dict *d, const void *k, int line) {
     }
     return d->vals->data + at * d->vals->size;
 }
+// together: шаг 1 — место ключа в таблице, просим память принести его заранее
+static inline unsigned long long tb_dpre1(tb_dict *d, const void *k) {
+    unsigned long long i = tb_hash(d, k) & (d->nslots - 1);
+    __builtin_prefetch(&d->slots[i]);
+    return i;
+}
+// шаг 2 — место приехало: просим принести ключ и значение
+static inline void tb_dpre2(tb_dict *d, unsigned long long i) {
+    long long s = d->slots[i];
+    if (s != 0) {
+        __builtin_prefetch(d->keys->data + (s - 1) * d->keys->size);
+        __builtin_prefetch(d->vals->data + (s - 1) * d->vals->size);
+    }
+}
+// элемент списка заранее (prefetch за пределами списка ничего не ломает)
+static inline void tb_lpre(tb_list *l, long long i) {
+    __builtin_prefetch(l->data + i * l->size);
+}
 static int tb_dhas(tb_dict *d, const void *k) { return tb_dfind(d, k) >= 0; }
 static void tb_dremove(tb_dict *d, const void *k) {
     long long at = tb_dfind(d, k);
