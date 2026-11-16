@@ -13,3 +13,5 @@ bench/*
 !bench/*.py
 !bench/run.sh
 !bench/*_pure.c
+/tb
+build/

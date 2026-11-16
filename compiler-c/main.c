@@ -1,5 +1,9 @@
 // Tachbit 0.3 — точка входа компилятора.
 //
+//   tb new   имя             — новый проект: папка имя/ с main.tb
+//   tb start имя [слова]     — собрать проект (или файл) и запустить
+//   (имя — это папка проекта, файл.tb или файл без .tb; без имени — текущая папка)
+//
 //   tachbit tokens файл.tb   — показать токены (слой 1)
 //   tachbit tree   файл.tb   — показать дерево (слой 2)
 //   tachbit check  файл.tb   — только найти ошибки (слой 3)
@@ -7,6 +11,8 @@
 //   tachbit build  файл.tb   — сделать программу рядом с файлом
 //   tachbit run    файл.tb   — сделать и сразу запустить
 #include <stdlib.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <string.h>
 #include "ast.h"
 
@@ -69,6 +75,8 @@ static int has_slash(char *path) {
 
 static void usage(void) {
     printf("Tachbit 0.3\n\n");
+    printf("  tb new   имя             новый проект: папка имя/ с main.tb\n");
+    printf("  tb start имя [слова]     собрать проект и запустить (без имени — текущая папка)\n\n");
     printf("  tachbit run    файл.tb [слова]   сделать программу и запустить\n");
     printf("  tachbit build  файл.tb   сделать программу рядом с файлом\n");
     printf("  tachbit check  файл.tb   только найти ошибки\n");
@@ -147,8 +155,106 @@ static Node *load_program(char *path) {
     return program;
 }
 
+static int is_folder(char *path) {
+    struct stat st;
+    return stat(path, &st) == 0 && S_ISDIR(st.st_mode);
+}
+
+static int is_file(char *path) {
+    struct stat st;
+    return stat(path, &st) == 0 && S_ISREG(st.st_mode);
+}
+
+// что запускать: файл .tb и куда класть готовую программу
+//   shop      (папка)  → shop/main.tb,  программа shop/build/shop
+//   shop.tb / shop     → shop.tb,       программа shop
+//   ничего             → ./main.tb,     программа build/<имя папки>
+static char *exe_path = 0;
+
+static char *project_main(char *arg) {
+    if (arg == 0 || arg[0] == 0) {
+        arg = ".";
+    }
+    int len = (int)strlen(arg);
+    while (len > 1 && arg[len - 1] == '/') {
+        len -= 1;
+    }
+    char *name = arena_copy(arg, len);
+    if (is_folder(name)) {
+        char *main_tb = arena_alloc(len + 16);
+        sprintf(main_tb, "%s/main.tb", name);
+        if (!is_file(main_tb)) {
+            fprintf(stderr, "в папке %s нет main.tb — с него начинается проект\n", name);
+            exit(1);
+        }
+        char *base = name + strlen(folder_of(name));
+        if (same(name, ".")) {
+            char here[4096];
+            if (getcwd(here, sizeof here) != 0) {
+                base = arena_copy(here + strlen(folder_of(here)), (int)strlen(here + strlen(folder_of(here))));
+            }
+        }
+        if (base[0] == 0 || same(base, ".") || same(base, "..")) {
+            base = "main";
+        }
+        char *build_dir = arena_alloc(len + 16);
+        sprintf(build_dir, "%s/build", name);
+        mkdir(build_dir, 0755);
+        exe_path = arena_alloc(strlen(build_dir) + strlen(base) + 4);
+        sprintf(exe_path, "%s/%s", build_dir, base);
+        return main_tb;
+    }
+    if (is_file(name)) {
+        return name;
+    }
+    char *with_tb = arena_alloc(len + 4);
+    sprintf(with_tb, "%s.tb", name);
+    if (is_file(with_tb)) {
+        return with_tb;
+    }
+    fprintf(stderr, "нет проекта или файла: %s\n", name);
+    fprintf(stderr, "новый проект делается так:  tb new %s\n", name);
+    exit(1);
+}
+
+static int new_project(char *name) {
+    if (name == 0 || name[0] == 0) {
+        fprintf(stderr, "напиши имя проекта:  tb new имя\n");
+        return 1;
+    }
+    struct stat st;
+    if (stat(name, &st) == 0) {
+        fprintf(stderr, "уже есть папка или файл с именем %s — возьми другое имя\n", name);
+        return 1;
+    }
+    if (mkdir(name, 0755) != 0) {
+        fprintf(stderr, "не могу сделать папку: %s\n", name);
+        return 1;
+    }
+    char *path = arena_alloc(strlen(name) + 16);
+    sprintf(path, "%s/main.tb", name);
+    FILE *f = fopen(path, "w");
+    if (f == 0) {
+        fprintf(stderr, "не могу записать файл: %s\n", path);
+        return 1;
+    }
+    fprintf(f, "func main()\n    print(\"Привет из проекта %s!\")\n", name);
+    fclose(f);
+    sprintf(path, "%s/.gitignore", name);
+    f = fopen(path, "w");
+    if (f != 0) {
+        fprintf(f, "build/\n");
+        fclose(f);
+    }
+    printf("готов проект %s:\n", name);
+    printf("  %s/main.tb   — здесь пишешь программу\n", name);
+    printf("  %s/build/    — сюда кладётся готовая программа\n\n", name);
+    printf("запуск:  tb start %s\n", name);
+    return 0;
+}
+
 static int build(char *path) {
-    char *exe = without_tb(path);
+    char *exe = exe_path != 0 ? exe_path : without_tb(path);
     char *c_path = arena_alloc(strlen(exe) + 3);
     sprintf(c_path, "%s.c", exe);
     Node *program = load_program(path);
@@ -175,12 +281,31 @@ static int build(char *path) {
 }
 
 int main(int argc, char **argv) {
-    if (argc < 3) {
+    if (argc < 2) {
         usage();
         return 1;
     }
     char *mode = argv[1];
-    file_name = argv[2];
+    if (same(mode, "new")) {
+        return new_project(argc > 2 ? argv[2] : 0);
+    }
+    if (same(mode, "help") || same(mode, "-h") || same(mode, "--help")) {
+        usage();
+        return 0;
+    }
+    if (same(mode, "version") || same(mode, "--version")) {
+        printf("Tachbit 0.3\n");
+        return 0;
+    }
+    if (same(mode, "start")) {
+        mode = "run";
+    }
+    // имя проекта можно не писать: тогда берётся текущая папка
+    if (argc < 3 && !(same(mode, "run") || same(mode, "build") || same(mode, "check") || same(mode, "c"))) {
+        usage();
+        return 1;
+    }
+    file_name = project_main(argc > 2 ? argv[2] : 0);
 
     if (same(mode, "tokens")) {
         int size = 0;
@@ -212,7 +337,7 @@ int main(int argc, char **argv) {
             return 1;
         }
         // tachbit run файл.tb a b c  →  программа получит a b c в args()
-        char *exe = without_tb(file_name);
+        char *exe = exe_path != 0 ? exe_path : without_tb(file_name);
         long length = strlen(exe) + 8;
         for (int i = 3; i < argc; i++) {
             length += strlen(argv[i]) * 4 + 3;
