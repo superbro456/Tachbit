@@ -1990,6 +1990,8 @@ modpub func emit_c(c: Comp, program: Node)
     c.out = fresh
     c.label = 0
     put(c, "// Сделано компилятором Tachbit 0.7. Не правь руками: правь файл .tb\n")
+    if c.bare
+        put(c, "#define TB_BARE 1\n")
     put(c, runtime_text())
 
     // obj: сначала имена, потом устройство (obj может хранить другой obj)
@@ -2041,6 +2043,10 @@ modpub func emit_c(c: Comp, program: Node)
     each top in program.kids
         if top.kind == "func" and top.name == "main" and top.mod == program.kids[0].mod
             main_func = top
+    if c.bare
+        put(c, "\nvoid tb_kmain(void) {\n    tb_args = tb_list_new(sizeof(const char *));\n")
+        put(c, "    " + fname(main_func) + "();\n}\n")
+        return
     put(c, "\nint main(int argc, char **argv) {\n")
     put(c, "    tb_args = tb_list_new(sizeof(const char *));\n")
     put(c, "    for (int i = 1; i < argc; i++) *(const char **)tb_grow(tb_args) = argv[i];\n")

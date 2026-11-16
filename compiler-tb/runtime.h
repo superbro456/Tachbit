@@ -2,12 +2,270 @@
 // Это обычный C. Компилятор на Tachbit встраивает этот текст через runtime_text.tb,
 // который делает tools/embed_runtime.py. Поменял этот файл — запусти:
 //     python3 tools/embed_runtime.py
+#ifdef TB_BARE
+// ---------- режим без ОС (tb bare): своя маленькая библиотека вместо libc ----------
+// Программа сама себе ОС: загружается через multiboot (QEMU, GRUB), пишет на экран
+// (текстовый режим VGA) и в последовательный порт COM1, память берёт из своего запаса.
+// Ядер, файлов и ввода здесь нет: on all cores и background работают на одном ядре.
+#include <stddef.h>
+#include <stdarg.h>
+#define _Thread_local
+#define EOF (-1)
+typedef struct tb_file FILE;
+#define stdout ((FILE *)1)
+#define stderr ((FILE *)2)
+typedef int pthread_t;
+typedef int pthread_mutex_t;
+#define PTHREAD_MUTEX_INITIALIZER 0
+#define pthread_mutex_lock(m) ((void)(m))
+#define pthread_mutex_unlock(m) ((void)(m))
+#define _SC_NPROCESSORS_ONLN 0
+
+static inline void tb_outb(unsigned short port, unsigned char v) { __asm__ volatile("outb %0, %1" : : "a"(v), "Nd"(port)); }
+static inline unsigned char tb_inb(unsigned short port) { unsigned char v; __asm__ volatile("inb %1, %0" : "=a"(v) : "Nd"(port)); return v; }
+
+// экран 80×25: байт буквы и байт цвета; русские буквы VGA не умеет — на экране «?», в порту как есть
+static volatile unsigned short *const tb_vga = (volatile unsigned short *)0xB8000;
+static int tb_vrow = 0, tb_vcol = 0;
+static unsigned char tb_vcolor = 0x0A;   // светло-зелёный на чёрном
+static void tb_vga_put(unsigned char ch) {
+    if (ch == '\n') { tb_vcol = 0; tb_vrow++; }
+    else {
+        tb_vga[tb_vrow * 80 + tb_vcol] = (unsigned short)(tb_vcolor << 8 | ch);
+        if (++tb_vcol == 80) { tb_vcol = 0; tb_vrow++; }
+    }
+    if (tb_vrow == 25) {
+        for (int i = 0; i < 24 * 80; i++) tb_vga[i] = tb_vga[i + 80];
+        for (int i = 24 * 80; i < 25 * 80; i++) tb_vga[i] = (unsigned short)(tb_vcolor << 8 | ' ');
+        tb_vrow = 24;
+    }
+}
+static void tb_putc(char c) {
+    unsigned char ch = (unsigned char)c;
+    while ((tb_inb(0x3F8 + 5) & 0x20) == 0) {}
+    tb_outb(0x3F8, ch);
+    if (ch < 0x80) tb_vga_put(ch);
+    else if (ch >= 0xC0) tb_vga_put('?');   // первый байт русской буквы (UTF-8) → «?», остальные пропускаем
+}
+static int fputs(const char *s, FILE *f) { (void)f; while (*s) tb_putc(*s++); return 0; }
+static int fflush(FILE *f) { (void)f; return 0; }
+static int isatty(int fd) { (void)fd; return 0; }
+static char *getenv(const char *n) { (void)n; return 0; }
+
+// выход: QEMU с -device isa-debug-exit закрывается, без него процессор просто спит
+__attribute__((noreturn)) static void exit(int code) {
+    tb_outb(0xF4, (unsigned char)code);
+    for (;;) __asm__ volatile("cli; hlt");
+}
+
+// память: запас 64 МБ. Куски по размерам 16, 32, 64, ... байт; отданный кусок
+// кладётся в корзину своего размера и выдаётся снова. Последний кусок отдаётся сразу.
+#define TB_HEAP (64 << 20)
+static unsigned char tb_heap[TB_HEAP] __attribute__((aligned(16)));
+static size_t tb_heap_top = 0;
+static void *tb_bins[32];
+static int tb_cls(size_t n) { int k = 4; while (k < 31 && ((size_t)1 << k) < n) k++; return k; }
+static void *malloc(size_t n) {
+    int k = tb_cls(n);
+    if (tb_bins[k]) { void *p = tb_bins[k]; tb_bins[k] = *(void **)p; return p; }
+    size_t need = ((size_t)1 << k) + 16;
+    if (tb_heap_top + need > TB_HEAP) return 0;
+    unsigned char *h = tb_heap + tb_heap_top;
+    *(size_t *)h = (size_t)k;
+    tb_heap_top += need;
+    return h + 16;
+}
+static void free(void *p) {
+    if (p == 0) return;
+    unsigned char *h = (unsigned char *)p - 16;
+    int k = (int)*(size_t *)h;
+    if (h + ((size_t)1 << k) + 16 == tb_heap + tb_heap_top) { tb_heap_top = (size_t)(h - tb_heap); return; }
+    *(void **)p = tb_bins[k];
+    tb_bins[k] = p;
+}
+void *memcpy(void *d, const void *s, size_t n) {
+    void *r = d;
+    __asm__ volatile("rep movsb" : "+D"(d), "+S"(s), "+c"(n) : : "memory");
+    return r;
+}
+void *memmove(void *d, const void *s, size_t n) {
+    unsigned char *a = d; const unsigned char *b = s;
+    if (a < b) while (n--) *a++ = *b++;
+    else { a += n; b += n; while (n--) *--a = *--b; }
+    return d;
+}
+void *memset(void *d, int v, size_t n) {
+    void *r = d;
+    __asm__ volatile("rep stosb" : "+D"(d), "+c"(n) : "a"(v) : "memory");
+    return r;
+}
+int memcmp(const void *x, const void *y, size_t n) {
+    const unsigned char *a = x, *b = y;
+    for (; n; n--, a++, b++) if (*a != *b) return *a - *b;
+    return 0;
+}
+static void *realloc(void *p, size_t n) {
+    if (p == 0) return malloc(n);
+    unsigned char *h = (unsigned char *)p - 16;
+    int k = (int)*(size_t *)h;
+    size_t cap = (size_t)1 << k;
+    if (n <= cap) return p;
+    // последний кусок растёт на месте
+    if (h + cap + 16 == tb_heap + tb_heap_top) {
+        int k2 = tb_cls(n);
+        size_t need = ((size_t)1 << k2) + 16;
+        if ((size_t)(h - tb_heap) + need <= TB_HEAP) {
+            *(size_t *)h = (size_t)k2;
+            tb_heap_top = (size_t)(h - tb_heap) + need;
+            return p;
+        }
+    }
+    void *q = malloc(n);
+    if (q) { memcpy(q, p, cap); free(p); }
+    return q;
+}
+// одно ядро и нет прерываний: «атомарные» действия — обычные
+unsigned long long __atomic_fetch_add_8(volatile void *p, unsigned long long v, int order) {
+    (void)order;
+    unsigned long long old = *(volatile unsigned long long *)p;
+    *(volatile unsigned long long *)p = old + v;
+    return old;
+}
+size_t strlen(const char *s) { const char *p = s; while (*p) p++; return (size_t)(p - s); }
+int strcmp(const char *a, const char *b) { while (*a && *a == *b) { a++; b++; } return (unsigned char)*a - (unsigned char)*b; }
+static int strncmp(const char *a, const char *b, size_t n) {
+    for (; n; n--, a++, b++) { if (*a != *b || !*a) return (unsigned char)*a - (unsigned char)*b; }
+    return 0;
+}
+static char *strcpy(char *d, const char *s) { char *r = d; while ((*d++ = *s++)) {} return r; }
+static char *strstr(const char *h, const char *n) {
+    size_t ln = strlen(n);
+    if (ln == 0) return (char *)h;
+    for (; *h; h++) if (*h == *n && strncmp(h, n, ln) == 0) return (char *)h;
+    return 0;
+}
+static long atol(const char *s) { long r = 0; while (*s >= '0' && *s <= '9') r = r * 10 + (*s++ - '0'); return r; }
+static double sqrt(double x) { double r; __asm__("fsqrt" : "=t"(r) : "0"(x)); return r; }
+static double fabs(double x) { return x < 0 ? -x : x; }
+static double strtod(const char *s, char **end) {
+    double r = 0, sign = 1, scale = 1;
+    if (*s == '-') { sign = -1; s++; } else if (*s == '+') s++;
+    while (*s >= '0' && *s <= '9') r = r * 10 + (*s++ - '0');
+    if (*s == '.') { s++; while (*s >= '0' && *s <= '9') { r = r * 10 + (*s++ - '0'); scale *= 10; } }
+    if (end) *end = (char *)s;
+    return sign * r / scale;
+}
+// деление 64-битных чисел на 32-битном процессоре: этих функций без libgcc нет
+unsigned long long __udivmoddi4(unsigned long long a, unsigned long long b, unsigned long long *rem) {
+    unsigned long long q = 0, r = 0;
+    for (int i = 63; i >= 0; i--) {
+        r = (r << 1) | ((a >> i) & 1);
+        if (r >= b) { r -= b; q |= 1ULL << i; }
+    }
+    if (rem) *rem = r;
+    return q;
+}
+unsigned long long __udivdi3(unsigned long long a, unsigned long long b) { return __udivmoddi4(a, b, 0); }
+unsigned long long __umoddi3(unsigned long long a, unsigned long long b) { unsigned long long r; __udivmoddi4(a, b, &r); return r; }
+long long __divdi3(long long a, long long b) {
+    int neg = (a < 0) != (b < 0);
+    unsigned long long q = __udivmoddi4(a < 0 ? 0 - (unsigned long long)a : (unsigned long long)a, b < 0 ? 0 - (unsigned long long)b : (unsigned long long)b, 0);
+    return neg ? -(long long)q : (long long)q;
+}
+long long __moddi3(long long a, long long b) {
+    unsigned long long r;
+    __udivmoddi4(a < 0 ? 0 - (unsigned long long)a : (unsigned long long)a, b < 0 ? 0 - (unsigned long long)b : (unsigned long long)b, &r);
+    return a < 0 ? -(long long)r : (long long)r;
+}
+// маленький printf: %lld %ld %d %s %c %g (дробь — до 6 знаков после точки)
+static int tb_vfmt(char *out, size_t cap, const char *f, va_list ap) {
+    size_t n = 0;
+#define TB_O(ch) do { if (n + 1 < cap) out[n] = (ch); n++; } while (0)
+    for (; *f; f++) {
+        if (*f != '%') { TB_O(*f); continue; }
+        f++;
+        int ll = 0;
+        while (*f == 'l') { ll++; f++; }
+        if (*f == 's') { const char *s = va_arg(ap, const char *); while (*s) TB_O(*s++); }
+        else if (*f == 'c') TB_O((char)va_arg(ap, int));
+        else if (*f == 'd') {
+            long long v = ll >= 2 ? va_arg(ap, long long) : ll == 1 ? va_arg(ap, long) : va_arg(ap, int);
+            char d[24]; int k = 0;
+            unsigned long long u = v < 0 ? 0 - (unsigned long long)v : (unsigned long long)v;
+            do { d[k++] = (char)('0' + u % 10); u /= 10; } while (u);
+            if (v < 0) TB_O('-');
+            while (k) TB_O(d[--k]);
+        } else if (*f == 'g') {
+            double x = va_arg(ap, double);
+            if (x < 0) { TB_O('-'); x = -x; }
+            unsigned long long ip = (unsigned long long)x;
+            double fr = x - (double)ip;
+            unsigned long long fp = (unsigned long long)(fr * 1000000 + 0.5);
+            if (fp >= 1000000) { ip++; fp -= 1000000; }
+            char d[24]; int k = 0;
+            do { d[k++] = (char)('0' + ip % 10); ip /= 10; } while (ip);
+            while (k) TB_O(d[--k]);
+            if (fp) {
+                TB_O('.');
+                char fd[6]; for (int i = 5; i >= 0; i--) { fd[i] = (char)('0' + fp % 10); fp /= 10; }
+                int last = 5; while (last > 0 && fd[last] == '0') last--;
+                for (int i = 0; i <= last; i++) TB_O(fd[i]);
+            }
+        } else TB_O(*f);
+    }
+    if (cap) out[n < cap ? n : cap - 1] = 0;
+#undef TB_O
+    return (int)n;
+}
+static int snprintf(char *out, size_t cap, const char *f, ...) { va_list ap; va_start(ap, f); int n = tb_vfmt(out, cap, f, ap); va_end(ap); return n; }
+static int printf(const char *f, ...) { char b[512]; va_list ap; va_start(ap, f); int n = tb_vfmt(b, sizeof b, f, ap); va_end(ap); fputs(b, stdout); return n; }
+static int fprintf(FILE *o, const char *f, ...) { char b[512]; va_list ap; va_start(ap, f); int n = tb_vfmt(b, sizeof b, f, ap); va_end(ap); fputs(b, o); return n; }
+// сортировка вставками (списки в ядре маленькие)
+static void qsort(void *base, size_t n, size_t size, int (*cmp)(const void *, const void *)) {
+    unsigned char *a = base, tmp[64];
+    if (size > sizeof tmp) return;
+    for (size_t i = 1; i < n; i++) {
+        memcpy(tmp, a + i * size, size);
+        size_t j = i;
+        while (j > 0 && cmp(a + (j - 1) * size, tmp) > 0) { memcpy(a + j * size, a + (j - 1) * size, size); j--; }
+        memcpy(a + j * size, tmp, size);
+    }
+}
+// файлов, ввода и команд нет
+static FILE *fopen(const char *p, const char *m) { (void)p; (void)m; return 0; }
+static int fclose(FILE *f) { (void)f; return 0; }
+static size_t fread(void *b, size_t s, size_t n, FILE *f) { (void)b; (void)s; (void)n; (void)f; return 0; }
+static int getchar(void) { return EOF; }
+static int system(const char *c) { (void)c; return -1; }
+// одно ядро: «потоки» выполняются сразу, по очереди
+static long sysconf(int n) { (void)n; return 1; }
+static int pthread_create(pthread_t *t, void *a, void *(*run)(void *), void *arg) { (void)t; (void)a; run(arg); return 0; }
+static int pthread_join(pthread_t t, void **r) { (void)t; (void)r; return 0; }
+
+// загрузка: заголовок multiboot (его ищут QEMU и GRUB), свой стек, потом tb_kstart
+__attribute__((section(".multiboot"), used, aligned(4)))
+static const unsigned int tb_multiboot[3] = {0x1BADB002u, 0u, (unsigned int)-0x1BADB002};
+static unsigned char tb_stack[1 << 20] __attribute__((aligned(16), used));
+void tb_kmain(void);
+__attribute__((used)) void tb_kstart(void) {
+    __asm__ volatile("fninit");
+    // COM1: 115200 бод, 8 бит
+    tb_outb(0x3F8 + 1, 0x00); tb_outb(0x3F8 + 3, 0x80); tb_outb(0x3F8 + 0, 0x01);
+    tb_outb(0x3F8 + 1, 0x00); tb_outb(0x3F8 + 3, 0x03); tb_outb(0x3F8 + 2, 0xC7);
+    for (int i = 0; i < 80 * 25; i++) tb_vga[i] = (unsigned short)(tb_vcolor << 8 | ' ');
+    tb_outb(0x3D4, 0x0A); tb_outb(0x3D5, 0x20);  // мигающий курсор не нужен
+    tb_kmain();
+    exit(0);
+}
+__asm__(".text\n.global _start\n_start:\n  mov $tb_stack + 1048576, %esp\n  call tb_kstart\n1: cli\n  hlt\n  jmp 1b\n");
+#else
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
 #include <pthread.h>
 #include <unistd.h>
+#endif
 
 // подсказки для clang / gcc: ошибка бывает редко, а tb_crash не возвращается
 #if defined(__GNUC__)

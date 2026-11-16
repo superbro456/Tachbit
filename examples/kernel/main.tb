@@ -1,0 +1,47 @@
+// Первое ядро на Tachbit: работает без всякой ОС.
+// Сборка:  tachbit bare main.tb     Запуск:  qemu-system-i386 -kernel main.elf
+
+obj Planet
+    name: text
+    moons: int
+
+func primes_up_to(n: int) gives found: list int
+    is_prime = list bool
+    repeat n + 1 times
+        is_prime.add(true)
+    count i from 2 to n
+        if is_prime[i]
+            found.add(i)
+            j = i * i
+            repeat while j <= n
+                is_prime[j] = false
+                j = j + i
+    return found
+
+func main()
+    print("Hello from Tachbit!")
+    print("No OS here: this kernel talks to the screen by itself.")
+    print("")
+
+    ps = primes_up_to(100)
+    line = ""
+    each p in ps
+        line += p + " "
+    print("Primes up to 100 (" + len(ps) + "): " + line)
+
+    planets = list Planet
+    planets.add(Planet(name: "Earth", moons: 1))
+    planets.add(Planet(name: "Mars", moons: 2))
+    planets.add(Planet(name: "Jupiter", moons: 95))
+    total = int 0
+    each pl in planets
+        total = total + pl.moons
+        print("  " + pl.name + ": " + pl.moons + " moons")
+    print("All moons: " + total)
+
+    ages = dict text int
+    ages["kernel"] = 0
+    ages["tachbit"] = 1
+    print("dict works: tachbit = " + ages["tachbit"])
+    print("")
+    print("Done. Bye!")
