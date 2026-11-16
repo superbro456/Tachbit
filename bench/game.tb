@@ -1,0 +1,38 @@
+// Замер игры: 1000 кадров, на каждом 500 пчёл, 100 цветов, звёзды и текст.
+// Окно открывается без ограничения 60 кадров/с:  TB_FPS_FREE=1 tb run bench/game.tb
+obj Bee
+    x: int
+    y: int
+    dx: int
+    dy: int
+
+func main()
+    try window_open(640, 480, "Замер Tachbit")
+    bees = list Bee
+    repeat 500 times
+        bees.add(Bee(x: random(10, 630), y: random(40, 470), dx: random(1, 4), dy: random(1, 4)))
+    flowers = list int
+    repeat 100 times
+        flowers.add(random(0, 640 * 480 - 1))
+    frames = 0
+    t0 = time_ms()
+    repeat while window_alive() and frames < 1000
+        frames += 1
+        each b in bees
+            b.x += b.dx
+            b.y += b.dy
+            if b.x < 10 or b.x > 630
+                b.dx = -b.dx
+            if b.y < 40 or b.y > 470
+                b.dy = -b.dy
+        clear_window(rgb(13, 13, 16))
+        each f in flowers
+            draw_circle(f % 640, f / 640, 6, rgb(255, 95, 162))
+        each b in bees
+            draw_circle(b.x, b.y, 8, rgb(246, 195, 67))
+            draw_rect(b.x - 2, b.y - 8, 3, 16, rgb(20, 20, 20))
+        draw_text(10, 10, "Кадр " + frames, 2, rgb(255, 255, 255))
+    ms = time_ms() - t0
+    print("кадров:", frames, " время:", ms, "мс")
+    print("кадров в секунду:", frames * 1000 / max(ms, 1))
+    print("на один кадр:", ms * 1000 / max(frames, 1), "мкс")

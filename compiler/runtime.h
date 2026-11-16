@@ -1939,8 +1939,11 @@ static void tb_window_open(long long w, long long h, const char *title) {
 static int tb_window_alive(void) {
     if (!tb_px || tb_gclosed) return 0;
     tb_gfx_events();
+    // TB_FPS_FREE=1 — без ограничения 60 кадров (для замеров скорости)
+    static int free_fps = -1;
+    if (free_fps < 0) free_fps = getenv("TB_FPS_FREE") != 0;
     long long now = tb_time_ms(), wait = 16 - (now - tb_last_frame);
-    if (wait > 0) usleep((useconds_t)wait * 1000);
+    if (wait > 0 && !free_fps) usleep((useconds_t)wait * 1000);
     tb_last_frame = tb_time_ms();
     return !tb_gclosed;
 }
