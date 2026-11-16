@@ -1,0 +1,1062 @@
+// Слой 3. ПРОВЕРКА: ищет ошибки до запуска и узнаёт тип каждого значения.
+// Таблица типов, таблица функций и obj, таблица переменных (со слоями-областями).
+// Номер типа: 0 none, 1 int, 2 dec, 3 bool, 4 text, дальше — составные.
+// -1 — тип ещё не известен.
+use errors
+use parser
+
+// ---------- типы ----------
+// Каждый тип хранится один раз: два "list int" — это один и тот же номер.
+
+modpub func make_type_key(c: Comp, kind: text, key: int, elem: int, onode: Node, has_obj: bool, fnode: Node, has_func: bool) gives r: int
+    obj_name = ""
+    if has_obj
+        obj_name = onode.name
+    func_key = ""
+    if has_func
+        func_key = fnode.mod + "." + fnode.name
+    each t in c.types
+        if t.kind == kind and t.key == key and t.elem == elem and t.obj_name == obj_name and t.func_key == func_key
+            return t.id
+    if len(c.types) == 1000
+        error_at(c, 0, "слишком много разных типов", "")
+    t = Type(kind: kind, key: key, elem: elem, obj_name: obj_name, func_key: func_key, id: len(c.types))
+    if has_obj
+        t.obj_node = onode
+    if has_func
+        t.func_node = fnode
+    c.types.add(t)
+    return t.id
+
+func simple_type(c: Comp, kind: text)
+    nothing = Node(kind: "missing")
+    return make_type_key(c, kind, -1, -1, nothing, false, nothing, false)
+
+modpub func list_of(c: Comp, elem: int)
+    nothing = Node(kind: "missing")
+    return make_type_key(c, "list", -1, elem, nothing, false, nothing, false)
+
+func dict_of(c: Comp, key: int, value: int)
+    nothing = Node(kind: "missing")
+    return make_type_key(c, "dict", key, value, nothing, false, nothing, false)
+
+func obj_type(c: Comp, o: Node)
+    nothing = Node(kind: "missing")
+    return make_type_key(c, "obj", -1, -1, o, true, nothing, false)
+
+func multi_type(c: Comp, fnode: Node)
+    nothing = Node(kind: "missing")
+    return make_type_key(c, "multi", -1, -1, nothing, false, fnode, true)
+
+modpub func kind_of(c: Comp, t: int)
+    if t < 0
+        return "unknown"
+    return c.types[t].kind
+
+modpub func type_name(c: Comp, t: int) gives r: text
+    if t < 0
+        return "?"
+    ty = c.types[t]
+    if ty.kind == "list"
+        return "list " + type_name(c, ty.elem)
+    if ty.kind == "dict"
+        return "dict " + type_name(c, ty.key) + " " + type_name(c, ty.elem)
+    if ty.kind == "obj"
+        return ty.obj_node.name
+    if ty.kind == "multi"
+        return "несколько выходов"
+    if ty.kind == "none"
+        return "ничего"
+    return ty.kind
+
+func is_number(t: int)
+    return t == 1 or t == 2
+
+func is_list(c: Comp, t: int)
+    return kind_of(c, t) == "list"
+
+func is_dict(c: Comp, t: int)
+    return kind_of(c, t) == "dict"
+
+func is_scalar(t: int)
+    return t == 1 or t == 2 or t == 3 or t == 4
+
+// можно ли положить значение типа from туда, где ждут to
+func fits(want: int, got: int)
+    if want == got
+        return true
+    if want == 2 and got == 1
+        return true
+    return false
+
+// ---------- функции и obj ----------
+
+func is_builtin(name: text)
+    each b in ["print", "len", "round", "code", "char", "cut", "to_int", "to_dec", "read_file", "write_file", "input", "args", "split", "join", "find", "replace", "upper", "lower", "trim", "starts_with", "ends_with", "sort", "abs", "min", "max", "sqrt", "run", "exit", "file_exists"]
+        if b == name
+            return true
+    return false
+
+// встроенные функции, которые могут закончиться ошибкой
+func builtin_can_fail(name: text)
+    return name == "to_int" or name == "to_dec" or name == "read_file" or name == "write_file" or name == "input"
+
+// ---------- модули ----------
+// use money: модуль main видит modpub-функции модуля money
+
+func is_module(c: Comp, name: text)
+    each m in c.all_mods
+        if m == name
+            return true
+    return false
+
+func module_uses(c: Comp, mod: text, other: text)
+    if mod == other
+        return true
+    each u in c.uses
+        if u.mod == mod and u.used == other
+            return true
+    return false
+
+// номер функции в c.funcs или -1
+func find_func_in(c: Comp, name: text, mod: text)
+    count i from 0 to len(c.funcs) - 1
+        f = c.funcs[i]
+        if f.name == name and f.mod == mod
+            return i
+    return -1
+
+// функция, которую видно из текущего модуля: своя или modpub из модуля после use
+func find_func(c: Comp, name: text)
+    own = find_func_in(c, name, c.cur_mod)
+    if own >= 0
+        return own
+    found = -1
+    count i from 0 to len(c.funcs) - 1
+        f = c.funcs[i]
+        if f.name == name and f.node.is_pub and module_uses(c, c.cur_mod, f.mod)
+            if found >= 0
+                error_at(c, f.node.line, "функция с таким именем есть в двух модулях, напиши модуль: money.total(...)", name)
+            found = i
+    return found
+
+// почему функцию не видно: подсказка для ошибки
+func explain_missing_func(c: Comp, n: Node)
+    each f in c.funcs
+        if f.name == n.name
+            if not f.node.is_pub
+                error_at(c, n.line, "эта функция спрятана в своём модуле: поставь перед ней modpub", f.mod)
+            error_at(c, n.line, "функция лежит в другом модуле: добавь в начало файла  use", f.mod)
+    error_at(c, n.line, "нет такой функции", n.name)
+
+// номер obj в c.objs или -1
+func find_obj(c: Comp, name: text)
+    count i from 0 to len(c.objs) - 1
+        if c.objs[i].name == name
+            return i
+    return -1
+
+func find_field(o: Node, name: text)
+    count i from 0 to len(o.kids) - 1
+        if o.kids[i].name == name
+            return i
+    return -1
+
+func resolve_type(c: Comp, t: Node) gives r: int
+    if t.name == "int"
+        return 1
+    if t.name == "dec"
+        return 2
+    if t.name == "text"
+        return 4
+    if t.name == "bool"
+        return 3
+    if t.name == "list"
+        return list_of(c, resolve_type(c, t.kids[0]))
+    if t.name == "dict"
+        key = resolve_type(c, t.kids[0])
+        value = resolve_type(c, t.kids[1])
+        return dict_of(c, key, value)
+    o = find_obj(c, t.name)
+    if o < 0
+        error_at(c, t.line, "нет такого типа и такого obj", t.name)
+    return obj_type(c, c.objs[o])
+
+// ---------- переменные ----------
+
+// номер переменной в c.vars или -1
+func find_var(c: Comp, name: text)
+    i = len(c.vars) - 1
+    repeat while i >= c.var_base
+        if c.vars[i].name == name
+            return i
+        i -= 1
+    return -1
+
+func name_is_free(c: Comp, name: text, line: int)
+    if find_var(c, name) >= 0
+        error_at(c, line, "такое имя уже есть, возьми другое", name)
+    // имя встроенной функции (code, len ...) для переменной можно: вызов code(...) всё равно работает
+    if find_func(c, name) >= 0
+        error_at(c, line, "так уже называется функция", name)
+    if find_obj(c, name) >= 0
+        error_at(c, line, "так уже называется obj", name)
+
+func add_var(c: Comp, name: text, type: int, is_const: bool, is_link: bool, line: int)
+    name_is_free(c, name, line)
+    if len(c.vars) == 2000
+        error_at(c, line, "слишком много переменных", "")
+    c.vars.add(Var(name: name, type: type, is_const: is_const, is_link: is_link, depth: c.depth))
+
+func cut_vars(c: Comp, count_left: int)
+    repeat while len(c.vars) > count_left
+        gone = c.vars.pop()
+
+func open_scope(c: Comp)
+    c.depth += 1
+
+func close_scope(c: Comp)
+    repeat while len(c.vars) > 0 and c.vars[len(c.vars) - 1].depth == c.depth
+        gone = c.vars.pop()
+    c.depth -= 1
+
+// ---------- выражения ----------
+
+func need_value(c: Comp, n: Node, t: int)
+    if t == 0
+        error_at(c, n.line, "это ничего не возвращает, значение нельзя использовать", n.name)
+    if kind_of(c, t) == "multi"
+        error_at(c, n.line, "у функции несколько выходов: пиши  a, b = ...", n.name)
+
+func check_value(c: Comp, n: Node) gives r: int
+    t = check_expr(c, n)
+    need_value(c, n, t)
+    return t
+
+func check_binop(c: Comp, n: Node) gives r: int
+    op = n.value
+    if op == "or" and can_fail_call(c, n.kids[0])
+        // f() or запасное: если f сломалась, берём запасное
+        a = check_handled(c, n.kids[0], "or")
+        b = check_value(c, n.kids[1])
+        if not fits(a, b)
+            error_at(c, n.line, "запасное значение после or другого типа", type_name(c, a))
+        if a == 0
+            error_at(c, n.line, "у функции нет значения, тут подходит  try  или  else err", "")
+        if len(c.temp_types) == 2001
+            error_at(c, n.line, "слишком много or", "")
+        c.temp_types.add(a)
+        n.temp_no = len(c.temp_types) - 1
+        n.value = "orelse"
+        return a
+    a = check_value(c, n.kids[0])
+    b = check_value(c, n.kids[1])
+    if op == "and" or op == "or"
+        if a != 3 or b != 3
+            error_at(c, n.line, "and / or работают только с true и false", "")
+        return 3
+    if op == "==" or op == "!="
+        if not (is_number(a) and is_number(b)) and a != b
+            error_at(c, n.line, "нельзя сравнить разные типы", "")
+        if not is_scalar(a)
+            error_at(c, n.line, "списки и объекты пока нельзя сравнивать", "")
+        return 3
+    if op == "<" or op == ">" or op == "<=" or op == ">="
+        if a == 4 and b == 4
+            return 3
+        if not is_number(a) or not is_number(b)
+            error_at(c, n.line, "больше / меньше работают с числами или с двумя текстами", op)
+        return 3
+    if op == "+" and (a == 4 or b == 4)
+        if not is_scalar(a) or not is_scalar(b)
+            error_at(c, n.line, "список или объект нельзя сложить с текстом", "")
+        return 4
+    if not is_number(a) or not is_number(b)
+        error_at(c, n.line, "эта операция работает только с числами", op)
+    if op == "%" and (a == 2 or b == 2)
+        error_at(c, n.line, "остаток % считается только для int", "")
+    if a == 2 or b == 2
+        return 2
+    return 1
+
+func check_list(c: Comp, n: Node) gives r: int
+    if len(n.kids) == 0
+        error_at(c, n.line, "пустой список пишется с типом: x = list int", "")
+    elem = check_value(c, n.kids[0])
+    count i from 1 to len(n.kids) - 1
+        t = check_value(c, n.kids[i])
+        if fits(elem, t)
+            skip
+        if elem == 1 and t == 2
+            elem = 2
+            skip
+        error_at(c, n.kids[i].line, "в одном списке все значения одного типа", type_name(c, elem))
+    return list_of(c, elem)
+
+// значения builtins: только по порядку, без имён
+func builtin_arg(c: Comp, n: Node, i: int) gives r: int
+    if n.kids[i].name != ""
+        error_at(c, n.line, "у встроенных функций аргументы пишутся без имён", n.kids[i].name)
+    t = check_value(c, n.kids[i].kids[0])
+    n.kids[i].ty = t
+    return t
+
+// проверка аргументов встроенной функции по строке-шаблону:
+// "t" text, "i" int, "n" число, "L" список text, "s" список для sort, "x" список/текст/dict
+func builtin_args(c: Comp, n: Node, pattern: text, usage: text)
+    if len(n.kids) != len(pattern)
+        error_at(c, n.line, "не то количество значений, правильно так", usage)
+    count i from 0 to len(pattern) - 1
+        t = builtin_arg(c, n, i)
+        p = pattern[i]
+        ok = true
+        if p == "t"
+            ok = t == 4
+        else if p == "i"
+            ok = t == 1
+        else if p == "n"
+            ok = is_number(t)
+        else if p == "L"
+            ok = is_list(c, t) and c.types[t].elem == 4
+        else if p == "s"
+            ok = is_list(c, t) and (c.types[t].elem == 1 or c.types[t].elem == 2 or c.types[t].elem == 4)
+        else if p == "x"
+            ok = is_list(c, t) or is_dict(c, t) or t == 4
+        if not ok
+            error_at(c, n.line, "не тот тип значения, правильно так", usage)
+
+func check_builtin(c: Comp, n: Node) gives r: int
+    name = n.name
+    if name == "print"
+        count i from 0 to len(n.kids) - 1
+            t = builtin_arg(c, n, i)
+        return 0
+    if name == "len"
+        builtin_args(c, n, "x", "len(список, текст или dict)")
+        return 1
+    if name == "round"
+        builtin_args(c, n, "n", "round(число)")
+        return 1
+    if name == "code"
+        builtin_args(c, n, "t", "code(\"A\")  →  65")
+        return 1
+    if name == "char"
+        builtin_args(c, n, "i", "char(66)  →  \"B\"")
+        return 4
+    if name == "cut"
+        builtin_args(c, n, "tii", "cut(текст, с какого номера, по какой номер)")
+        return 4
+    if name == "to_int"
+        builtin_args(c, n, "t", "to_int(\"42\")")
+        return 1
+    if name == "to_dec"
+        builtin_args(c, n, "t", "to_dec(\"9.5\")")
+        return 2
+    if name == "read_file"
+        builtin_args(c, n, "t", "read_file(\"путь\")")
+        return 4
+    if name == "write_file"
+        builtin_args(c, n, "tt", "write_file(\"путь\", текст)")
+        return 0
+    if name == "input"
+        builtin_args(c, n, "", "input()")
+        return 4
+    if name == "args"
+        builtin_args(c, n, "", "args()")
+        return list_of(c, 4)
+    if name == "split"
+        builtin_args(c, n, "tt", "split(текст, разделитель)")
+        return list_of(c, 4)
+    if name == "join"
+        builtin_args(c, n, "Lt", "join(список text, разделитель)")
+        return 4
+    if name == "find"
+        builtin_args(c, n, "tt", "find(текст, что ищем)  →  номер или -1")
+        return 1
+    if name == "replace"
+        builtin_args(c, n, "ttt", "replace(текст, что, на что)")
+        return 4
+    if name == "upper" or name == "lower" or name == "trim"
+        builtin_args(c, n, "t", "upper(текст)")
+        return 4
+    if name == "starts_with" or name == "ends_with"
+        builtin_args(c, n, "tt", "starts_with(текст, начало)")
+        return 3
+    if name == "sort"
+        builtin_args(c, n, "s", "sort(список int, dec или text)")
+        return 0
+    if name == "run"
+        builtin_args(c, n, "t", "run(\"команда терминала\")  →  код выхода int")
+        return 1
+    if name == "exit"
+        builtin_args(c, n, "i", "exit(код)")
+        return 0
+    if name == "file_exists"
+        builtin_args(c, n, "t", "file_exists(\"путь\")")
+        return 3
+    if name == "abs"
+        builtin_args(c, n, "n", "abs(число)")
+        return n.kids[0].ty
+    if name == "sqrt"
+        builtin_args(c, n, "n", "sqrt(число)")
+        return 2
+    // min и max
+    builtin_args(c, n, "nn", "min(a, b)")
+    if n.kids[0].ty == 1 and n.kids[1].ty == 1
+        return 1
+    return 2
+
+// приводит аргументы к порядку параметров:  add(b: 3, a: 2)  →  add(2, 3)
+// allow_missing: для создания obj можно пропустить качества (тогда там узел "missing")
+func order_args(c: Comp, call: Node, params: Node, allow_missing: bool)
+    np = len(params.kids)
+    if len(call.kids) > np or (not allow_missing and len(call.kids) != np)
+        error_at(c, call.line, "не то количество значений в вызове", call.name)
+    ordered = list Node
+    taken = list bool
+    count j from 1 to np
+        ordered.add(Node(kind: "missing"))
+        taken.add(false)
+    named = false
+    count i from 0 to len(call.kids) - 1
+        arg = call.kids[i]
+        slot = i
+        if arg.name != ""
+            named = true
+            slot = -1
+            count j from 0 to np - 1
+                if params.kids[j].name == arg.name
+                    slot = j
+            if slot < 0
+                error_at(c, arg.line, "нет параметра с таким именем", arg.name)
+        else if named
+            error_at(c, arg.line, "после именованных аргументов обычные писать нельзя", "")
+        if taken[slot]
+            error_at(c, arg.line, "параметр указан два раза", params.kids[slot].name)
+        ordered[slot] = arg
+        taken[slot] = true
+    // теперь kids[i] — значение для параметра i, или "missing", если пропущено
+    call.kids = ordered
+
+// то, на что можно повесить ярлык или что можно менять: x, u.age, nums[2], d[k]
+func need_place_for(c: Comp, n: Node, why: text, for_link: bool)
+    if n.kind == "index" and is_dict(c, n.kids[0].ty)
+        if for_link
+            error_at(c, n.line, "ярлык на значение в dict нельзя: dict может переложить значения", "")
+        return
+    if n.kind == "name"
+        v = find_var(c, n.name)
+        if v >= 0 and c.vars[v].is_const
+            error_at(c, n.line, "это const или переменная цикла, её нельзя менять", n.name)
+        return
+    if n.kind == "field"
+        return
+    if n.kind == "index" and is_list(c, n.kids[0].ty)
+        return
+    if n.kind == "index"
+        error_at(c, n.line, "буквы в тексте менять нельзя, собери новый текст", "")
+    error_at(c, n.line, why, "")
+
+func need_place(c: Comp, n: Node, why: text)
+    need_place_for(c, n, why, false)
+
+func check_new_obj(c: Comp, n: Node, o: Node) gives r: int
+    order_args(c, n, o, true)
+    count i from 0 to len(n.kids) - 1
+        if n.kids[i].kind == "missing"
+            skip
+        value = n.kids[i].kids[0]
+        t = check_value(c, value)
+        if not fits(o.kids[i].ty, t)
+            error_at(c, value.line, "качество другого типа", o.kids[i].name)
+        n.kids[i].ty = o.kids[i].ty
+    n.ref = o
+    n.has_ref = true
+    return obj_type(c, o)
+
+func check_call(c: Comp, n: Node) gives r: int
+    if is_builtin(n.name)
+        if builtin_can_fail(n.name) and not n.creates
+            error_at(c, n.line, "это может закончиться ошибкой: напиши  try ...,  ... or запасное  или  ... else err", n.name)
+        return check_builtin(c, n)
+    if find_var(c, n.name) >= 0
+        error_at(c, n.line, "это переменная, а не функция", n.name)
+    o = find_obj(c, n.name)
+    if o >= 0
+        return check_new_obj(c, n, c.objs[o])
+    f = find_func(c, n.name)
+    if f < 0
+        explain_missing_func(c, n)
+    return check_user_call(c, n, f)
+
+// вызов функции программиста (f уже найдена: по имени или как money.total)
+func check_user_call(c: Comp, n: Node, fi: int) gives r: int
+    f = c.funcs[fi]
+    if n.name == "main"
+        error_at(c, n.line, "main запускается сама, её нельзя вызывать", "")
+    if f.node.can_fail and not n.creates
+        error_at(c, n.line, "функция может закончиться ошибкой: напиши  try f(),  f() or запасное  или  f() else err", n.name)
+    n.ref = f.node
+    n.has_ref = true
+    params = f.node.kids[0]
+    order_args(c, n, params, false)
+    count i from 0 to len(n.kids) - 1
+        p = params.kids[i]
+        value = n.kids[i].kids[0]
+        t = check_value(c, value)
+        if p.is_link
+            need_place_for(c, value, "в ярлык link можно передать только переменную, u.age или nums[i]", true)
+            if p.ty < 0
+                // тип ярлыка узнаём по первому вызову
+                p.ty = t
+            else if p.ty != t
+                error_at(c, value.line, "этот ярлык уже был другого типа", type_name(c, p.ty))
+        else if not fits(p.ty, t)
+            error_at(c, value.line, "параметр ждёт другой тип", p.name)
+        n.kids[i].ty = p.ty
+    if f.state == 0
+        // проверяем вызванную функцию сейчас, чтобы узнать, что она возвращает
+        saved_current = c.current
+        saved_loops = c.loop_depth
+        saved_vars = len(c.vars)
+        saved_depth = c.depth
+        saved_base = c.var_base
+        saved_mod = c.cur_mod
+        saved_file = c.file_name
+        c.var_base = len(c.vars)
+        check_func(c, fi)
+        c.var_base = saved_base
+        c.cur_mod = saved_mod
+        c.file_name = saved_file
+        c.current = saved_current
+        c.loop_depth = saved_loops
+        cut_vars(c, saved_vars)
+        c.depth = saved_depth
+    if f.node.ty < 0
+        error_at(c, n.line, "функция вызывает сама себя раньше первого return со значением: поставь простой return выше", n.name)
+    return f.node.ty
+
+// money.total(...)  —  вызов функции из модуля по имени модуля
+func check_module_call(c: Comp, n: Node) gives r: int
+    mod = n.kids[0].name
+    if not module_uses(c, c.cur_mod, mod)
+        error_at(c, n.line, "этот модуль не подключён: добавь в начало файла  use", mod)
+    f = find_func_in(c, n.name, mod)
+    if f < 0
+        error_at(c, n.line, "в этом модуле нет такой функции", n.name)
+    if not c.funcs[f].node.is_pub and mod != c.cur_mod
+        error_at(c, n.line, "эта функция спрятана в своём модуле: поставь перед ней modpub", n.name)
+    // превращаем в обычный вызов: аргументы — kids после модуля
+    n.kind = "call"
+    rest = list Node
+    count i from 1 to len(n.kids) - 1
+        rest.add(n.kids[i])
+    n.kids = rest
+    return check_user_call(c, n, f)
+
+func check_dict_method(c: Comp, n: Node, t: int) gives r: int
+    args = len(n.kids) - 1
+    d = c.types[t]
+    if n.name == "has" or n.name == "remove"
+        if args != 1
+            error_at(c, n.line, "нужен ровно один ключ", n.name)
+        k = check_value(c, n.kids[1].kids[0])
+        if k != d.key
+            error_at(c, n.line, "ключ у этого dict другого типа", type_name(c, d.key))
+        n.kids[1].ty = d.key
+        if n.name == "has"
+            return 3
+        return 0
+    if n.name == "keys" or n.name == "values"
+        if args != 0
+            error_at(c, n.line, "пишется без значений", n.name)
+        if n.name == "keys"
+            return list_of(c, d.key)
+        return list_of(c, d.elem)
+    error_at(c, n.line, "у dict нет такого метода (есть .has .remove .keys .values)", n.name)
+    return -1
+
+func check_method(c: Comp, n: Node) gives r: int
+    base = n.kids[0]
+    if base.kind == "name" and find_var(c, base.name) < 0 and is_module(c, base.name)
+        return check_module_call(c, n)
+    t = check_value(c, base)
+    args = len(n.kids) - 1
+    count i from 1 to len(n.kids) - 1
+        if n.kids[i].name != ""
+            error_at(c, n.line, "у методов аргументы пишутся без имён", "")
+    if is_dict(c, t)
+        return check_dict_method(c, n, t)
+    if not is_list(c, t)
+        error_at(c, n.line, "у этого значения нет методов: они есть у списков (.add .pop) и dict (.has .remove .keys .values)", n.name)
+    elem = c.types[t].elem
+    if n.name == "add"
+        if args != 1
+            error_at(c, n.line, ".add кладёт ровно одно значение", "")
+        v = check_value(c, n.kids[1].kids[0])
+        if not fits(elem, v)
+            error_at(c, n.line, "в этот список кладут другой тип", type_name(c, elem))
+        n.kids[1].ty = elem
+        return 0
+    if n.name == "pop"
+        if args != 0
+            error_at(c, n.line, ".pop() пишется без значений", "")
+        return elem
+    error_at(c, n.line, "у списка нет такого метода (есть .add и .pop)", n.name)
+    return -1
+
+func check_dict(c: Comp, n: Node) gives r: int
+    if len(n.kids) == 0
+        error_at(c, n.line, "пустой dict пишется с типом: d = dict text int", "")
+    key = check_value(c, n.kids[0])
+    value = check_value(c, n.kids[1])
+    if key != 4 and key != 1
+        error_at(c, n.line, "ключ у dict бывает text или int", "")
+    i = 2
+    repeat while i + 1 < len(n.kids)
+        if check_value(c, n.kids[i]) != key
+            error_at(c, n.kids[i].line, "все ключи одного типа", type_name(c, key))
+        v = check_value(c, n.kids[i + 1])
+        if not fits(value, v)
+            if value == 1 and v == 2
+                value = 2
+            else
+                error_at(c, n.kids[i + 1].line, "все значения одного типа", type_name(c, value))
+        i += 2
+    return dict_of(c, key, value)
+
+// вызов, который может закончиться ошибкой (для  f() or 0,  try f(),  f() else err)
+func can_fail_call(c: Comp, n: Node)
+    if n.kind == "call"
+        if is_builtin(n.name)
+            return builtin_can_fail(n.name)
+        if find_var(c, n.name) >= 0 or find_obj(c, n.name) >= 0
+            return false
+        f = find_func(c, n.name)
+        return f >= 0 and c.funcs[f].node.can_fail
+    if n.kind == "method" and n.kids[0].kind == "name" and find_var(c, n.kids[0].name) < 0 and is_module(c, n.kids[0].name)
+        f = find_func_in(c, n.name, n.kids[0].name)
+        return f >= 0 and c.funcs[f].node.can_fail
+    return false
+
+// вызов, ошибку которого кто-то ловит (or / try / else err)
+func check_handled(c: Comp, n: Node, how: text) gives r: int
+    if not can_fail_call(c, n)
+        error_at(c, n.line, "этот вызов не может закончиться ошибкой, здесь не нужно", how)
+    n.creates = true
+    return check_expr(c, n)
+
+func check_expr(c: Comp, n: Node) gives r: int
+    t = -1
+    k = n.kind
+    if k == "number"
+        t = 1
+    else if k == "decimal"
+        t = 2
+    else if k == "string"
+        t = 4
+    else if k == "bool"
+        t = 3
+    else if k == "name"
+        v = find_var(c, n.name)
+        if v < 0
+            if find_func(c, n.name) >= 0
+                error_at(c, n.line, "у функции нужны скобки", n.name)
+            if find_obj(c, n.name) >= 0
+                error_at(c, n.line, "чтобы создать obj, нужны скобки", n.name + "(...)")
+            error_at(c, n.line, "нет такой переменной", n.name)
+        n.is_link = c.vars[v].is_link
+        t = c.vars[v].type
+    else if k == "list"
+        t = check_list(c, n)
+    else if k == "dict"
+        t = check_dict(c, n)
+    else if k == "try"
+        t = check_handled(c, n.kids[0], "try")
+    else if k == "else_err"
+        t = check_handled(c, n.kids[0], "else")
+        open_scope(c)
+        add_var(c, n.name, 4, true, false, n.line)
+        check_block(c, n.kids[1])
+        close_scope(c)
+    else if k == "call"
+        t = check_call(c, n)
+    else if k == "method"
+        t = check_method(c, n)
+    else if k == "binop"
+        t = check_binop(c, n)
+    else if k == "unary"
+        inner = check_value(c, n.kids[0])
+        if n.value == "not"
+            if inner != 3
+                error_at(c, n.line, "not работает только с true и false", "")
+            t = 3
+        else
+            if not is_number(inner)
+                error_at(c, n.line, "минус ставится только перед числом", "")
+            t = inner
+    else if k == "index" and is_dict(c, check_value(c, n.kids[0]))
+        base = c.types[n.kids[0].ty]
+        if check_value(c, n.kids[1]) != base.key
+            error_at(c, n.line, "ключ у этого dict другого типа", type_name(c, base.key))
+        t = base.elem
+    else if k == "index"
+        base = check_value(c, n.kids[0])
+        index = check_value(c, n.kids[1])
+        if index != 1
+            error_at(c, n.line, "номер в списке должен быть int", "")
+        if base == 4
+            t = 4
+        else if is_list(c, base)
+            t = c.types[base].elem
+        else
+            error_at(c, n.line, "[номер] берут у списка или текста", "")
+    else if k == "field"
+        base = check_value(c, n.kids[0])
+        if kind_of(c, base) != "obj"
+            error_at(c, n.line, "точка с качеством бывает только у obj", n.name)
+        o = c.types[base].obj_node
+        field = find_field(o, n.name)
+        if field < 0
+            error_at(c, n.line, "у этого obj нет такого качества", n.name)
+        t = o.kids[field].ty
+    n.ty = t
+    return t
+
+func need_bool(c: Comp, n: Node)
+    if check_value(c, n) != 3
+        error_at(c, n.line, "условие должно быть true или false (например a > 3)", "")
+
+func need_int(c: Comp, n: Node, what: text)
+    if check_value(c, n) != 1
+        error_at(c, n.line, "здесь нужно целое число int", what)
+
+// ---------- команды ----------
+
+func check_assign(c: Comp, n: Node)
+    declared = -1
+    if n.has_tsyn
+        declared = resolve_type(c, n.tsyn)
+    t = -1
+    if len(n.kids) == 1
+        t = check_value(c, n.kids[0])
+    v = find_var(c, n.name)
+    if v < 0
+        type = t
+        if declared >= 0
+            if t >= 0 and not fits(declared, t)
+                error_at(c, n.line, "значение не того типа, что написан", type_name(c, declared))
+            type = declared
+        n.creates = true
+        n.ty = type
+        add_var(c, n.name, type, n.is_const, false, n.line)
+        return
+    if n.is_const or declared >= 0
+        error_at(c, n.line, "переменная уже есть: тип и const пишутся только в первый раз", n.name)
+    if c.vars[v].is_const
+        error_at(c, n.line, "это const или переменная цикла, её нельзя менять", n.name)
+    if not fits(c.vars[v].type, t)
+        error_at(c, n.line, "переменная другого типа", type_name(c, c.vars[v].type))
+    n.is_link = c.vars[v].is_link
+    n.ty = c.vars[v].type
+
+func check_set(c: Comp, n: Node)
+    target = n.kids[0]
+    to_ty = check_value(c, target)
+    need_place(c, target, "менять можно только переменную, u.age или nums[i]")
+    t = check_value(c, n.kids[1])
+    n.ty = to_ty
+    op = n.value
+    if op == "="
+        if not fits(to_ty, t)
+            error_at(c, n.line, "здесь лежит другой тип", type_name(c, to_ty))
+        return
+    if to_ty == 4 and op == "+="
+        if not is_scalar(t)
+            error_at(c, n.line, "к тексту можно приписать только текст, число или bool", "")
+        return
+    if not is_number(to_ty) or not is_number(t)
+        error_at(c, n.line, "эта операция работает только с числами", op)
+    if to_ty == 1 and t == 2
+        error_at(c, n.line, "в int нельзя добавить дробь: сделай его dec", "")
+
+func check_linkdecl(c: Comp, n: Node)
+    target = n.kids[0]
+    t = check_value(c, target)
+    need_place(c, target, "ярлык link ведёт к переменной, u.age или nums[i]")
+    n.ty = t
+    add_var(c, n.name, t, false, true, n.line)
+
+func check_multi(c: Comp, n: Node)
+    value = n.kids[len(n.kids) - 1]
+    call = value
+    if value.kind == "try" or value.kind == "else_err"
+        call = value.kids[0]
+    if call.kind != "call" and call.kind != "method"
+        error_at(c, n.line, "справа должен быть вызов функции с gives", "")
+    t = check_expr(c, value)
+    names = len(n.kids) - 1
+    if kind_of(c, t) != "multi"
+        error_at(c, n.line, "у этой функции один выход, пиши  x = ...", call.name)
+    outputs = c.types[t].func_node.kids[2]
+    if len(outputs.kids) != names
+        error_at(c, n.line, "у функции другое число выходов", call.name)
+    count i from 0 to names - 1
+        name = n.kids[i]
+        out = outputs.kids[i].ty
+        v = find_var(c, name.name)
+        if v < 0
+            name.creates = true
+            add_var(c, name.name, out, false, false, name.line)
+        else
+            if c.vars[v].is_const
+                error_at(c, name.line, "это const или переменная цикла, её нельзя менять", name.name)
+            if not fits(c.vars[v].type, out)
+                error_at(c, name.line, "переменная другого типа", type_name(c, c.vars[v].type))
+            name.is_link = c.vars[v].is_link
+        name.ty = out
+
+func check_return(c: Comp, n: Node)
+    f = c.funcs[c.current].node
+    if len(f.kids[2].kids) > 0
+        if len(n.kids) != 0
+            // один выход:  func f() gives r: int  ...  return 5  — можно сразу отдать значение
+            if len(f.kids[2].kids) > 1
+                error_at(c, n.line, "у функции с несколькими gives return пишется без значения: он отдаёт выходы", "")
+            t = check_value(c, n.kids[0])
+            if not fits(f.ty, t)
+                error_at(c, n.line, "return отдаёт другой тип, чем написано в gives", type_name(c, f.ty))
+        return
+    t = 0
+    if len(n.kids) == 1
+        t = check_value(c, n.kids[0])
+    if f.name == "main" and t != 0
+        error_at(c, n.line, "main ничего не возвращает: пиши просто return", "")
+    if f.ty < 0
+        f.ty = t
+    else if f.ty == 1 and t == 2
+        error_at(c, n.line, "раньше функция вернула int, а тут dec: сделай оба числа одного типа", "")
+    else if not fits(f.ty, t)
+        error_at(c, n.line, "раньше эта функция вернула другой тип", type_name(c, f.ty))
+
+func check_statement(c: Comp, n: Node)
+    k = n.kind
+    if k == "assign"
+        check_assign(c, n)
+    else if k == "set"
+        check_set(c, n)
+    else if k == "linkdecl"
+        check_linkdecl(c, n)
+    else if k == "multi"
+        check_multi(c, n)
+    else if k == "if"
+        i = 0
+        repeat while i + 1 < len(n.kids)
+            need_bool(c, n.kids[i])
+            check_block(c, n.kids[i + 1])
+            i += 2
+        if len(n.kids) % 2 == 1
+            check_block(c, n.kids[len(n.kids) - 1])
+    else if k == "each"
+        t = check_value(c, n.kids[0])
+        elem = 4
+        if is_list(c, t)
+            elem = c.types[t].elem
+        else if is_dict(c, t)
+            elem = c.types[t].key
+        else if t != 4
+            error_at(c, n.line, "each ходит по списку, по ключам dict или по буквам текста", "")
+        open_scope(c)
+        add_var(c, n.name, elem, true, false, n.line)
+        c.loop_depth += 1
+        check_block(c, n.kids[1])
+        c.loop_depth -= 1
+        close_scope(c)
+    else if k == "count"
+        need_int(c, n.kids[0], "from")
+        need_int(c, n.kids[1], "to")
+        open_scope(c)
+        add_var(c, n.name, 1, true, false, n.line)
+        c.loop_depth += 1
+        check_block(c, n.kids[2])
+        c.loop_depth -= 1
+        close_scope(c)
+    else if k == "repeat_times" or k == "repeat_while"
+        if k == "repeat_times"
+            need_int(c, n.kids[0], "times")
+        else
+            need_bool(c, n.kids[0])
+        c.loop_depth += 1
+        check_block(c, n.kids[1])
+        c.loop_depth -= 1
+    else if k == "skip" or k == "stop"
+        if c.loop_depth == 0
+            error_at(c, n.line, "skip и stop пишутся только внутри цикла", "")
+    else if k == "return"
+        check_return(c, n)
+    else if k == "fail"
+        if check_value(c, n.kids[0]) != 4
+            error_at(c, n.line, "после fail пишется текст ошибки: fail \"нет файла\"", "")
+    else if k == "expr_stmt"
+        e = n.kids[0]
+        inner = e
+        if e.kind == "try" or e.kind == "else_err"
+            inner = e.kids[0]
+        if inner.kind != "call" and inner.kind != "method"
+            error_at(c, n.line, "строка ничего не делает", "")
+        t = check_expr(c, e)
+        if t != 0
+            error_at(c, n.line, "результат вызова пропадает: сохрани его, например x = ...", e.name)
+
+func check_block(c: Comp, block: Node)
+    open_scope(c)
+    each s in block.kids
+        check_statement(c, s)
+    close_scope(c)
+
+func check_func(c: Comp, fi: int)
+    f = c.funcs[fi]
+    c.current = fi
+    c.cur_mod = f.mod
+    c.file_name = f.node.file
+    f.state = 1
+    c.loop_depth = 0
+    open_scope(c)
+    params = f.node.kids[0]
+    outputs = f.node.kids[2]
+    each p in params.kids
+        add_var(c, p.name, p.ty, false, p.is_link, p.line)
+    each o in outputs.kids
+        same_param = find_var(c, o.name)
+        if same_param >= 0
+            // выход с именем параметра: это та же переменная
+            if c.vars[same_param].type != o.ty
+                error_at(c, o.line, "выход и параметр с одним именем должны быть одного типа", o.name)
+            // для вывода C: отдельно не объявлять
+            o.is_const = true
+        else
+            add_var(c, o.name, o.ty, false, false, o.line)
+    check_block(c, f.node.kids[1])
+    close_scope(c)
+    if f.node.ty < 0
+        f.node.ty = 0
+    f.state = 2
+
+func register_obj(c: Comp, o: Node)
+    if find_obj(c, o.name) >= 0 or is_builtin(o.name)
+        error_at(c, o.line, "это имя уже занято", o.name)
+    if len(c.objs) == 500
+        error_at(c, o.line, "слишком много obj", "")
+    c.objs.add(o)
+
+func register_func(c: Comp, fn: Node)
+    if find_func_in(c, fn.name, fn.mod) >= 0 or find_obj(c, fn.name) >= 0 or is_builtin(fn.name)
+        error_at(c, fn.line, "это имя уже занято", fn.name)
+    if len(c.funcs) == 1000
+        error_at(c, fn.line, "слишком много функций", "")
+    c.funcs.add(Func(name: fn.name, mod: fn.mod, node: fn, state: 0))
+
+// есть ли внутри fail или try: тогда функция может закончиться ошибкой
+func has_fail(n: Node) gives r: bool
+    if n.kind == "fail" or n.kind == "try"
+        return true
+    each k in n.kids
+        if has_fail(k)
+            return true
+    return false
+
+// есть ли внутри return со значением; если нет — функция ничего не возвращает
+func has_value_return(n: Node) gives r: bool
+    if n.kind == "return" and len(n.kids) > 0
+        return true
+    each k in n.kids
+        if has_value_return(k)
+            return true
+    return false
+
+func links_known(fn: Node)
+    each p in fn.kids[0].kids
+        if p.ty < 0
+            return false
+    return true
+
+func resolve_params(c: Comp, params: Node)
+    count i from 0 to len(params.kids) - 1
+        p = params.kids[i]
+        count j from 0 to i - 1
+            if params.kids[j].name == p.name
+                error_at(c, p.line, "это имя уже есть в списке", p.name)
+        if p.has_tsyn
+            p.ty = resolve_type(c, p.tsyn)
+
+modpub func check(c: Comp, program: Node)
+    t = simple_type(c, "none")
+    t = simple_type(c, "int")
+    t = simple_type(c, "dec")
+    t = simple_type(c, "bool")
+    t = simple_type(c, "text")
+    c.temp_types.add(-1)
+
+    // 0) модули и их use
+    main_mod = ""
+    if len(program.kids) > 0
+        main_mod = program.kids[0].mod
+    each top in program.kids
+        if not is_module(c, top.mod)
+            c.all_mods.add(top.mod)
+        if top.kind == "use"
+            if len(c.uses) == 500
+                error_at(c, top.line, "слишком много use", "")
+            c.uses.add(Use(mod: top.mod, used: top.name))
+    // 1) имена всех obj и функций — чтобы их можно было использовать до объявления
+    each top in program.kids
+        c.file_name = top.file
+        if top.kind == "obj"
+            register_obj(c, top)
+        else if top.kind == "func"
+            register_func(c, top)
+            top.can_fail = has_fail(top.kids[1])
+            if top.name == "main" and top.mod != main_mod
+                error_at(c, top.line, "main бывает только в главном файле, в модуле её быть не должно", "")
+    // 2) типы качеств, параметров и выходов
+    each top in program.kids
+        c.file_name = top.file
+        if top.kind == "obj"
+            resolve_params(c, top)
+        else if top.kind == "func"
+            resolve_params(c, top.kids[0])
+            resolve_params(c, top.kids[2])
+            outputs = top.kids[2]
+            if len(outputs.kids) == 1
+                top.ty = outputs.kids[0].ty
+            else if len(outputs.kids) > 1
+                top.ty = multi_type(c, top)
+            else if not has_value_return(top.kids[1])
+                // так функция без return может вызывать сама себя
+                top.ty = 0
+    main_func = find_func_in(c, "main", main_mod)
+    if len(program.kids) > 0
+        c.file_name = program.kids[0].file
+    if main_func < 0
+        error_at(c, 0, "нет функции main: программа начинается с func main()", "")
+    main_node = c.funcs[main_func].node
+    if len(main_node.kids[0].kids) != 0 or len(main_node.kids[2].kids) != 0
+        error_at(c, main_node.line, "у main не бывает параметров и gives", "")
+    // 3) сначала main: так ярлыки link узнают свои типы по вызовам
+    check_func(c, main_func)
+    // 4) остальные функции; та, у которой ярлык ещё без типа, ждёт, пока её вызовет другая
+    progress = true
+    repeat while progress
+        progress = false
+        count i from 0 to len(c.funcs) - 1
+            if c.funcs[i].state != 0 or not links_known(c.funcs[i].node)
+                skip
+            cut_vars(c, 0)
+            c.depth = 0
+            c.var_base = 0
+            check_func(c, i)
+            progress = true
+    each f in c.funcs
+        if f.state == 0
+            c.file_name = f.node.file
+            error_at(c, f.node.line, "функция с link ни разу не вызвана, поэтому тип ярлыка неизвестен", f.name)

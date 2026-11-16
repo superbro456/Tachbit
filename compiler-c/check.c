@@ -263,7 +263,10 @@ static Type *resolve_type(Node *t) {
         return list_of(resolve_type(t->kids[0]));
     }
     if (same(t->name, "dict")) {
-        return dict_of(resolve_type(t->kids[0]), resolve_type(t->kids[1]));
+        // по очереди: сначала ключ, потом значение (номера типов не зависят от компилятора C)
+        Type *key = resolve_type(t->kids[0]);
+        Type *value = resolve_type(t->kids[1]);
+        return dict_of(key, value);
     }
     Node *obj = find_obj(t->name);
     if (obj == 0) {

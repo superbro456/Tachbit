@@ -35,6 +35,38 @@ obj Node
     temp_no: int
     kids: list Node
 
+// тип языка; хранится один раз, номер типа = место в списке Comp.types
+// kind = unknown / none / int / dec / bool / text / list / obj / multi / dict
+// key и elem — номера других типов (-1 — нет)
+// номера 0..4 всегда: none, int, dec, bool, text
+obj Type
+    kind: text
+    key: int
+    elem: int
+    obj_node: Node
+    obj_name: text
+    func_node: Node
+    func_key: text
+    id: int
+
+obj Func
+    name: text
+    mod: text
+    node: Node
+    // 0 — ещё не проверена, 1 — проверяется сейчас, 2 — готова
+    state: int
+
+obj Use
+    mod: text
+    used: text
+
+obj Var
+    name: text
+    type: int
+    is_const: bool
+    is_link: bool
+    depth: int
+
 // состояние всего компилятора
 obj Comp
     file_name: text
@@ -42,3 +74,17 @@ obj Comp
     tokens: list Token
     // парсер
     pos: int
+    // проверка
+    types: list Type
+    funcs: list Func
+    objs: list Node
+    uses: list Use
+    all_mods: list text
+    cur_mod: text
+    vars: list Var
+    depth: int
+    var_base: int
+    current: int
+    loop_depth: int
+    // типы скрытых переменных tb_t1, tb_t2 ... (номер 0 не занят)
+    temp_types: list int
