@@ -48,6 +48,9 @@ obj Node
     // pre_bases — data, pre_idx — idx (у each — пустой узел)
     pre_bases: list Node
     pre_idx: list Node
+    // качество obj: читают ли его в циклах (горячее) или редко (холодное — лежит отдельно)
+    hot: bool
+    is_cold: bool
     // переменные снаружи, которые видит цикл on all cores
     caps: list Var
 
@@ -135,3 +138,10 @@ obj Comp
     safe_busy: int
     // циклы each / count вокруг текущего места (для заказа наперёд)
     loops: list Node
+    // горячие и холодные качества: кто где читает качества и кто кого зовёт из цикла
+    acc_field: list Node
+    acc_func: list int
+    acc_loop: list bool
+    call_from: list int
+    call_to: list int
+    call_loop: list bool

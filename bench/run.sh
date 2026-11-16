@@ -126,3 +126,13 @@ echo "   Tachbit с заказом наперёд: $(best ./prefetch) с"
 echo "   Tachbit без него:          $(best ./noprefetch) с"
 echo "   C (обычный цикл):          $(best ./prefetch_c) с"
 rm -f prefetch prefetch.c noprefetch noprefetch.c prefetch_c
+
+# горячие и холодные качества: 5 млн obj, сумма balance 20 раз
+../tachbit-tb build hotcold.tb > /dev/null || exit 1
+../tachbit-tb build nohotcold.tb > /dev/null || exit 1
+cc -O2 -o hotcold_c hotcold_pure.c || exit 1
+echo "== hotcold  (ответ: $(./hotcold))"
+echo "   Tachbit (холодное отдельно): $(best ./hotcold) с"
+echo "   Tachbit (всё вместе):        $(best ./nohotcold) с"
+echo "   C (массив структур):         $(best ./hotcold_c) с"
+rm -f hotcold hotcold.c nohotcold nohotcold.c hotcold_c

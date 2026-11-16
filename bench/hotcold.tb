@@ -1,0 +1,22 @@
+// 5 млн клиентов, сумма balance 20 раз. Остальные качества нужны редко.
+// Компилятор сам видит, что в цикле читают только balance, и кладёт
+// остальное (холодное) отдельно: объект становится маленьким, в кэш входит больше.
+obj User
+    id: int
+    balance: dec
+    name: text
+    city: text
+    phone: text
+    notes: text
+    created: int
+    vip: bool
+
+func main()
+    users = list User
+    count i from 0 to 4999999
+        users.add(User(id: i, balance: (i % 1000) / 10.0, name: "u", city: "Бишкек", phone: "+996", notes: "", created: 2026, vip: i % 50 == 0))
+    total = 0.0
+    repeat 20 times
+        each u in users
+            total += u.balance
+    print(total)

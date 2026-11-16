@@ -1,0 +1,29 @@
+// 0.7: горячие и холодные качества obj — холодные лежат отдельно
+obj User
+    id: int
+    balance: dec
+    name: text
+    city: text
+    notes: text
+    vip: bool
+
+func score(u: User) gives r: dec
+    r = u.balance * 2
+
+func main()
+    users = list User
+    count i from 1 to 5
+        users.add(User(id: i, balance: i * 10, name: "u" + i, city: "Бишкек", notes: "", vip: i == 3))
+    total = 0.0
+    each u in users
+        total += score(u)
+    print(total)
+    first = users[0]
+    first.city = "Ош"
+    c: link first.notes
+    c = "новый"
+    print(first)
+    print(users[2].vip, users[2].name)
+    temp
+        t = User(id: 9, balance: 1, name: "t", city: "x", notes: "y", vip: false)
+        print(t.city)

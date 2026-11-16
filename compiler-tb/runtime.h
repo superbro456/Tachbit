@@ -500,6 +500,24 @@ static inline void tb_dpre2(tb_dict *d, unsigned long long i) {
 static inline void tb_lpre(tb_list *l, long long i) {
     __builtin_prefetch(l->data + i * l->size);
 }
+// ---------- холодные качества obj: своя память, подряд, отдельно от горячих ----------
+static void *tb_cold_mem(long long n) {
+    if (tb_temp_depth > 0) return tb_mem(n);
+    static _Thread_local char *p = 0;
+    static _Thread_local long long left = 0;
+    n = (n + 15) & ~15LL;
+    if (left < n) {
+        long long size = n > 65536 ? n : 65536;
+        p = malloc(size);
+        if (!p) tb_crash(0, "не хватило памяти");
+        left = size;
+    }
+    void *r = p;
+    p += n;
+    left -= n;
+    memset(r, 0, n);
+    return r;
+}
 // ---------- background: работа в своём потоке ----------
 typedef struct { pthread_t th; int done; void *res; } tb_task;
 static void tb_task_start(tb_task *t, void *(*run)(void *), void *arg) {

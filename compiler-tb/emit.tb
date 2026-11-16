@@ -446,7 +446,7 @@ func emit_expr(c: Comp, n: Node)
     else if k == "field"
         put(c, "((" + c_type(c, n.kids[0].ty) + ")tb_nn(")
         emit_expr(c, n.kids[0])
-        put(c, ", " + n.line + "))->q_" + n.name)
+        put(c, ", " + n.line + "))" + field_path(c.types[n.kids[0].ty].obj_node, n.name))
 
 // ---------- команды ----------
 
@@ -1285,7 +1285,7 @@ func emit_show(c: Comp, t: Type)
             if o.by_cols
                 put(c, "    tb_show_" + o.kids[i].ty + "(x.c->q_" + o.kids[i].name + "[x.i]);\n")
             else
-                put(c, "    tb_show_" + o.kids[i].ty + "(x->q_" + o.kids[i].name + ");\n")
+                put(c, "    tb_show_" + o.kids[i].ty + "(x" + field_path(o, o.kids[i].name) + ");\n")
         put(c, "    tb_ps(\")\");\n")
     put(c, "}\n")
 
@@ -1302,12 +1302,35 @@ func emit_obj(c: Comp, o: Node)
     if o.by_cols
         emit_cols_obj(c, o)
         return
+    // холодные качества — в своей структуре и в своей памяти (tb_cold_mem)
+    if has_cold(o)
+        put(c, "struct tb_c_" + o.name + " {\n")
+        each f in o.kids
+            if f.is_cold
+                put(c, "    " + c_type(c, f.ty) + " q_" + f.name + ";\n")
+        put(c, "};\n")
     put(c, "struct tb_o_" + o.name + " {\n")
     each f in o.kids
-        put(c, "    " + c_type(c, f.ty) + " q_" + f.name + ";\n")
+        if not f.is_cold
+            put(c, "    " + c_type(c, f.ty) + " q_" + f.name + ";\n")
+    if has_cold(o)
+        put(c, "    struct tb_c_" + o.name + " *tb_cold;\n")
     if len(o.kids) == 0
         put(c, "    char empty;\n")
     put(c, "};\n")
+
+func has_cold(o: Node)
+    each f in o.kids
+        if f.is_cold
+            return true
+    return false
+
+// как добраться до качества: горячее — прямо в obj, холодное — через tb_cold
+func field_path(o: Node, name: text) gives r: text
+    each f in o.kids
+        if f.name == name and f.is_cold
+            return "->tb_cold->q_" + name
+    return "->q_" + name
 
 // помощники для obj by columns: новый список, рост, номер, качество, add, копия
 func emit_cols_helpers(c: Comp, o: Node)
@@ -1384,8 +1407,10 @@ func emit_constructor(c: Comp, o: Node)
         put(c, c_type(c, o.kids[i].ty) + " a" + i)
     put(c, ") {\n")
     put(c, "    tb_o_" + o.name + " *o = tb_mem(sizeof(tb_o_" + o.name + "));\n")
+    if has_cold(o)
+        put(c, "    o->tb_cold = tb_cold_mem(sizeof(struct tb_c_" + o.name + "));\n")
     count i from 0 to len(o.kids) - 1
-        put(c, "    o->q_" + o.kids[i].name + " = a" + i + ";\n")
+        put(c, "    o" + field_path(o, o.kids[i].name) + " = a" + i + ";\n")
     put(c, "    return o;\n}\n")
 
 modpub func emit_c(c: Comp, program: Node)
