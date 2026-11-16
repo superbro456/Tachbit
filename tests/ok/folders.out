@@ -1,0 +1,11 @@
+inner/ A.txt b.txt
+true
+false
+12
+-1
+c.txt
+ошибка: уже есть: box
+ошибка: папка не пустая: box/inner
+false
+true
+true

@@ -107,7 +107,7 @@ func fits(want: int, got: int)
 // ---------- функции и obj ----------
 
 func is_builtin(name: text)
-    each b in ["print", "show", "len", "round", "code", "char", "cut", "to_int", "to_dec", "read_file", "write_file", "input", "args", "split", "join", "find", "replace", "upper", "lower", "trim", "starts_with", "ends_with", "sort", "abs", "min", "max", "sqrt", "run", "exit", "file_exists"]
+    each b in ["print", "show", "len", "round", "code", "char", "cut", "to_int", "to_dec", "read_file", "write_file", "input", "args", "split", "join", "find", "replace", "upper", "lower", "trim", "starts_with", "ends_with", "sort", "abs", "min", "max", "sqrt", "run", "exit", "file_exists", "list_dir", "is_folder", "make_folder", "move", "remove", "env", "file_size"]
         if b == name
             return true
     each b in kernel_builtins()
@@ -137,8 +137,17 @@ func bare_only(name: text)
             return true
     return false
 
+// только в обычной программе (в ядре нет файлов и папок)
+func os_only(name: text)
+    each w in ["list_dir", "is_folder", "make_folder", "move", "remove", "env", "file_size"]
+        if name == w
+            return true
+    return false
+
 // встроенные функции, которые могут закончиться ошибкой
 func builtin_can_fail(name: text)
+    if name == "list_dir" or name == "make_folder" or name == "move" or name == "remove"
+        return true
     return name == "to_int" or name == "to_dec" or name == "read_file" or name == "write_file" or name == "input"
 
 // ---------- модули ----------
@@ -425,6 +434,8 @@ func check_builtin(c: Comp, n: Node) gives r: int
     name = n.name
     if danger_only(name) and c.danger_depth == 0
         error_at(c, n.line, name + " трогает железо напрямую: пиши его внутри блока danger", "")
+    if os_only(name) and c.bare
+        error_at(c, n.line, name + " нет в ядре без ОС: там нет файлов и папок", "")
     if bare_only(name) and not c.bare
         error_at(c, n.line, name + " работает только в ядре без ОС: собери файл командой tachbit bare", "")
     if starts_with(name, "bit_") or starts_with(name, "shift_")
@@ -534,6 +545,27 @@ func check_builtin(c: Comp, n: Node) gives r: int
     if name == "file_exists"
         builtin_args(c, n, "t", "file_exists(\"путь\")")
         return 3
+    if name == "list_dir"
+        builtin_args(c, n, "t", "list_dir(\"папка\")  →  имена, у папок / в конце")
+        return list_of(c, 4)
+    if name == "is_folder"
+        builtin_args(c, n, "t", "is_folder(\"путь\")")
+        return 3
+    if name == "make_folder"
+        builtin_args(c, n, "t", "make_folder(\"путь\")")
+        return 0
+    if name == "move"
+        builtin_args(c, n, "tt", "move(\"откуда\", \"куда\")")
+        return 0
+    if name == "remove"
+        builtin_args(c, n, "t", "remove(\"файл или пустая папка\")")
+        return 0
+    if name == "env"
+        builtin_args(c, n, "t", "env(\"HOME\")")
+        return 4
+    if name == "file_size"
+        builtin_args(c, n, "t", "file_size(\"путь\")  →  байты или -1")
+        return 1
     if name == "abs"
         builtin_args(c, n, "n", "abs(число)")
         return n.kids[0].ty

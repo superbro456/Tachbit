@@ -65,7 +65,7 @@ func load_program(c: Comp, path: text)
 func quote(s: text)
     return "'" + replace(s, "'", "'\\''") + "'"
 
-func is_folder(path: text)
+func is_dir_cmd(path: text)
     return run("test -d " + quote(path)) == 0
 
 func is_file(path: text)
@@ -85,7 +85,7 @@ func project_main(arg: text) gives main_tb: text, exe: text
         name = "."
     repeat while len(name) > 1 and ends_with(name, "/")
         name = cut(name, 0, len(name) - 2)
-    if is_folder(name)
+    if is_dir_cmd(name)
         main_tb = name + "/main.tb"
         if not is_file(main_tb)
             say_error("в папке " + name + " нет main.tb — с него начинается проект")
@@ -128,6 +128,9 @@ func new_project(name: text)
 
 func build(c: Comp, path: text, exe: text)
     c_path = exe + ".c"
+    if is_dir_cmd(exe)
+        print("готовую программу некуда положить: " + exe + " — это папка. Переименуй папку или файл .tb")
+        return 1
     program = load_program(c, path)
     check(c, program)
     emit_c(c, program)

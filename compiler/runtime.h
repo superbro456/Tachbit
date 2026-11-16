@@ -694,6 +694,10 @@ __asm__(".text\n.global _start\n_start:\n  movl $tb_stack + 1048576, %esp\n  pus
 #include <unistd.h>
 #include <stdint.h>
 #include <sched.h>
+#include <dirent.h>
+#include <errno.h>
+#include <strings.h>
+#include <sys/stat.h>
 #endif
 
 // подсказки для clang / gcc: ошибка бывает редко, а tb_crash не возвращается
@@ -1198,6 +1202,61 @@ static int tb_file_exists(const char *path) {
     fclose(f);
     return 1;
 }
+// ---------- папки (в ядре без ОС их нет) ----------
+#ifndef TB_BARE
+static int tb_name_cmp(const void *a, const void *b) {
+    const char *x = *(const char * const *)a, *y = *(const char * const *)b;
+    size_t lx = strlen(x), ly = strlen(y);
+    int dx = lx > 0 && x[lx - 1] == '/', dy = ly > 0 && y[ly - 1] == '/';
+    if (dx != dy) return dy - dx;          // папки первыми
+    return strcasecmp(x, y);
+}
+static int tb_is_folder(const char *path) {
+    struct stat st;
+    return stat(path, &st) == 0 && S_ISDIR(st.st_mode);
+}
+static tb_list *tb_list_dir(const char *path) {
+    tb_list *l = tb_list_new(sizeof(const char *));
+    DIR *d = opendir(path);
+    if (d == 0) { tb_err = tb_cat("не могу открыть папку: ", path); return l; }
+    struct dirent *e;
+    size_t lp = strlen(path);
+    while ((e = readdir(d)) != 0) {
+        if (strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0) continue;
+        size_t n = strlen(e->d_name);
+        char *full = tb_mem(lp + n + 2);
+        memcpy(full, path, lp); full[lp] = '/'; memcpy(full + lp + 1, e->d_name, n + 1);
+        int dir = tb_is_folder(full);
+        char *name = tb_mem(n + 2);
+        memcpy(name, e->d_name, n);
+        if (dir) name[n++] = '/';
+        name[n] = 0;
+        *(const char **)tb_grow(l) = name;
+    }
+    closedir(d);
+    if (l->len > 1) qsort(l->data, l->len, sizeof(const char *), tb_name_cmp);
+    return l;
+}
+static void tb_make_folder(const char *path) {
+    if (mkdir(path, 0755) != 0) tb_err = tb_cat(errno == EEXIST ? "уже есть: " : "не могу создать папку: ", path);
+}
+static void tb_move(const char *from, const char *to) {
+    if (rename(from, to) != 0) tb_err = tb_cat(errno == EXDEV ? "нельзя переместить на другой диск: " : "не могу переместить: ", from);
+}
+static void tb_remove(const char *path) {
+    int r = tb_is_folder(path) ? rmdir(path) : unlink(path);
+    if (r != 0) tb_err = tb_cat(errno == ENOTEMPTY || errno == EEXIST ? "папка не пустая: " : "не могу удалить: ", path);
+}
+static const char *tb_env(const char *name) {
+    const char *v = getenv(name);
+    return v ? v : "";
+}
+static long long tb_file_size(const char *path) {
+    struct stat st;
+    if (stat(path, &st) != 0) return -1;
+    return (long long)st.st_size;
+}
+#endif
 
 // ---------- числа ----------
 static long long tb_absi(long long x) { return x < 0 ? -x : x; }

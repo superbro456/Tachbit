@@ -1,0 +1,334 @@
+// Папки — маленький файловый менеджер в терминале, написан на Tachbit.
+// Собирается в одну программу: файлы компилятора ей не нужны.
+//   tb start apps/folders            собрать и запустить
+//   apps/folders/build/folders ~/Desktop   открыть нужную папку
+
+func esc(s: text)
+    return char(27) + "[" + s + "m"
+
+func paint(s: text, color: text)
+    return esc(color) + s + esc("0")
+
+// сколько букв видно на экране (русская буква — 2 байта, а видна одна)
+func width(s: text)
+    n = int 0
+    each ch in s
+        if bit_and(code(ch), 192) != 128
+            n += 1
+    return n
+
+func pad(s: text, w: int)
+    r = s
+    repeat while width(r) < w
+        r += " "
+    return r
+
+func join_path(dir: text, name: text)
+    if dir == "/"
+        return "/" + name
+    return dir + "/" + name
+
+func parent(dir: text)
+    last = -1
+    count i from 0 to len(dir) - 1
+        if dir[i] == "/"
+            last = i
+    if last <= 0
+        return "/"
+    return cut(dir, 0, last - 1)
+
+func short(dir: text, home: text)
+    if home != "" and starts_with(dir, home)
+        return "~" + cut(dir, len(home), len(dir) - 1)
+    return dir
+
+func quote(s: text)
+    return "'" + replace(s, "'", "'\\''") + "'"
+
+func human(size: int)
+    if size < 1024
+        return "" + size + " Б"
+    if size < 1024 * 1024
+        return "" + (size / 1024) + " КБ"
+    tenths = size * 10 / (1024 * 1024)
+    return "" + (tenths / 10) + "," + (tenths % 10) + " МБ"
+
+func is_dir_name(name: text)
+    return ends_with(name, "/")
+
+func plain(name: text)
+    if is_dir_name(name)
+        return cut(name, 0, len(name) - 2)
+    return name
+
+func have(cmd: text)
+    return run("command -v " + cmd + " >/dev/null 2>&1") == 0
+
+// ---------- экран ----------
+
+func clear_screen()
+    show(char(27) + "[2J" + char(27) + "[H")
+
+func draw(dir: text, home: text, names: list text, note: text, filter: text)
+    clear_screen()
+    print(paint(" ● Папки ", "1;30;46") + "  " + paint(short(dir, home), "1"))
+    if filter != ""
+        print(paint("  поиск: " + filter + "   (/ без текста — показать всё)", "33"))
+    print("")
+    if len(names) == 0
+        print(paint("  пусто", "90"))
+    shown = int 0
+    count i from 0 to len(names) - 1
+        if shown >= 80
+            print(paint("  ... и ещё " + (len(names) - shown) + ": найди нужное через /текст", "90"))
+            stop
+        name = names[i]
+        num = paint(pad("" + (i + 1), 3), "90")
+        if is_dir_name(name)
+            print("  " + num + " " + paint("▸ " + name, "1;36"))
+        else
+            size = human(file_size(join_path(dir, name)))
+            label = pad("  " + name, 40)
+            if ends_with(name, ".tb")
+                label = paint(label, "33")
+            print("  " + num + " " + label + " " + paint(size, "90"))
+        shown += 1
+    print("")
+    if note != ""
+        print(paint("  " + note, "35"))
+    print(paint("  число открыть · .. наверх · n папка · f файл · r имя · d удалить · m перенести", "90"))
+    print(paint("  c копия · e править · x запустить .tb · / поиск · . скрытые · h домой · q выход", "90"))
+    show(paint("  > ", "1;36"))
+
+// ---------- файл ----------
+
+func view_file(path: text)
+    clear_screen()
+    print(paint(" " + path + " ", "1;30;46") + "  " + paint(human(file_size(path)), "90"))
+    print("")
+    content = read_file(path) else err
+        print(paint("  " + err, "31"))
+        show("  Enter — назад ")
+        back = input() or ""
+        return
+    lines = split(content, "\n")
+    if len(lines) > 1 and lines[len(lines) - 1] == ""
+        last = lines.pop()
+    n = int 0
+    each line in lines
+        n += 1
+        if n > 60
+            print(paint("  ... ещё " + (len(lines) - 60) + " строк (e — открыть в редакторе)", "90"))
+            stop
+        num = paint(pad("" + n, 4), "90")
+        if starts_with(trim(line), "//")
+            print("  " + num + paint(line, "90"))
+        else
+            print("  " + num + line)
+    print("")
+    show(paint("  Enter — назад ", "90"))
+    back = input() or ""
+
+func edit_file(path: text)
+    editor = env("EDITOR")
+    if editor != ""
+        return run(editor + " " + quote(path)) == 0
+    if have("code")
+        return run("code " + quote(path)) == 0
+    if file_exists("/usr/bin/open")
+        return run("open -t " + quote(path)) == 0
+    return run("nano " + quote(path)) == 0
+
+func run_item(dir: text, name: text)
+    path = join_path(dir, plain(name))
+    if not have("tb")
+        return "нет команды tb: поставь её  ./tools/install.sh"
+    clear_screen()
+    exit_code = int 0
+    if is_dir_name(name)
+        if not file_exists(path + "/main.tb")
+            return "в папке нет main.tb: это не проект Tachbit"
+        exit_code = run("cd " + quote(dir) + " && tb start " + quote(plain(name)))
+    else if ends_with(name, ".tb")
+        exit_code = run("cd " + quote(dir) + " && tb run " + quote(name))
+    else
+        return "запускаю только .tb и папки-проекты"
+    print("")
+    show(paint("  программа закончилась (код " + exit_code + "). Enter — назад ", "90"))
+    back = input() or ""
+    return ""
+
+// в Корзину на Mac, иначе спросить и удалить насовсем
+func delete_item(dir: text, name: text, home: text)
+    path = join_path(dir, plain(name))
+    trash = home + "/.Trash"
+    if home != "" and is_folder(trash)
+        target = join_path(trash, plain(name))
+        k = 2
+        repeat while file_exists(target) or is_folder(target)
+            target = join_path(trash, plain(name) + " " + k)
+            k += 1
+        move(path, target) else err
+            return err
+        return "в Корзине: " + plain(name)
+    show(paint("  удалить " + plain(name) + " насовсем? напиши да: ", "31"))
+    yes = input() or ""
+    if trim(yes) != "да" and trim(yes) != "y"
+        return "не удалено"
+    remove(path) else err
+        return err
+    return "удалено: " + plain(name)
+
+func pick(arg: text, names: list text) gives ok: bool, name: text
+    ok = false
+    name = ""
+    n = to_int(trim(arg)) or 0
+    if n < 1 or n > len(names)
+        return
+    ok = true
+    name = names[n - 1]
+
+// первое слово и остальное: "r 3 новое имя" → "r", "3 новое имя"
+func head_rest(s: text) gives head: text, rest: text
+    t = trim(s)
+    at = find(t, " ")
+    if at < 0
+        head = t
+        rest = ""
+        return
+    head = cut(t, 0, at - 1)
+    rest = trim(cut(t, at + 1, len(t) - 1))
+
+func filtered(all: list text, filter: text, hidden: bool) gives names: list text
+    low = lower(filter)
+    each name in all
+        if not hidden and starts_with(name, ".")
+            skip
+        if filter != "" and find(lower(name), low) < 0
+            skip
+        names.add(name)
+
+func main()
+    home = env("HOME")
+    dir = env("PWD")
+    a = args()
+    if len(a) > 0
+        dir = a[0]
+        if starts_with(dir, "~")
+            dir = home + cut(dir, 1, len(dir) - 1)
+        if not starts_with(dir, "/")
+            dir = join_path(env("PWD"), dir)
+    if dir == ""
+        dir = "/"
+    repeat while len(dir) > 1 and ends_with(dir, "/")
+        dir = cut(dir, 0, len(dir) - 2)
+    note = ""
+    filter = ""
+    hidden = false
+    repeat while true
+        all = list_dir(dir) else err
+            note = err
+            dir = parent(dir)
+            skip
+        names = filtered(all, filter, hidden)
+        draw(dir, home, names, note, filter)
+        note = ""
+        line = input() or "q"
+        cmd, rest = head_rest(line)
+        if cmd == "q" or cmd == "й"
+            clear_screen()
+            stop
+        if cmd == ""
+            skip
+        if cmd == ".."
+            dir = parent(dir)
+            filter = ""
+            skip
+        if cmd == "h"
+            dir = home
+            filter = ""
+            skip
+        if cmd == "."
+            hidden = not hidden
+            skip
+        if starts_with(cmd, "/")
+            filter = trim(cut(line, find(line, "/") + 1, len(line) - 1))
+            skip
+        ok, name = pick(cmd, names)
+        if ok
+            if is_dir_name(name)
+                dir = join_path(dir, plain(name))
+                filter = ""
+            else
+                view_file(join_path(dir, name))
+            skip
+        if cmd == "n" or cmd == "f"
+            if rest == "" or find(rest, "/") >= 0
+                note = "напиши имя без /:  " + cmd + " имя"
+                skip
+            path = join_path(dir, rest)
+            if file_exists(path) or is_folder(path)
+                note = "уже есть: " + rest
+                skip
+            if cmd == "n"
+                make_folder(path) else err
+                    note = err
+                    skip
+                note = "новая папка: " + rest
+            else
+                start = ""
+                if ends_with(rest, ".tb")
+                    start = "func main()\n    print(\"Привет!\")\n"
+                write_file(path, start) else err
+                    note = err
+                    skip
+                note = "новый файл: " + rest
+            skip
+        // остальные команды работают с номером: r 3 имя, d 3, m 3 папка, c 3, e 3, x 3
+        num, more = head_rest(rest)
+        ok2, item = pick(num, names)
+        if not ok2
+            note = "не понял: " + trim(line) + "   (номер есть в списке слева)"
+            skip
+        src = join_path(dir, plain(item))
+        if cmd == "r"
+            if more == "" or find(more, "/") >= 0
+                note = "напиши так:  r " + num + " новое имя"
+                skip
+            move(src, join_path(dir, more)) else err
+                note = err
+                skip
+            note = "теперь " + more
+        else if cmd == "d"
+            note = delete_item(dir, item, home)
+        else if cmd == "m"
+            target = more
+            if starts_with(target, "~")
+                target = home + cut(target, 1, len(target) - 1)
+            if not starts_with(target, "/")
+                target = join_path(dir, target)
+            if not is_folder(target)
+                note = "нет такой папки: " + more
+                skip
+            move(src, join_path(target, plain(item))) else err
+                note = err
+                skip
+            note = "перенесено в " + short(target, home)
+        else if cmd == "c"
+            copy = more
+            if copy == ""
+                copy = "копия " + plain(item)
+            if run("cp -R " + quote(src) + " " + quote(join_path(dir, copy))) != 0
+                note = "не получилось скопировать"
+                skip
+            note = "копия: " + copy
+        else if cmd == "e"
+            if is_dir_name(item)
+                note = "это папка: открой её номером"
+                skip
+            if not edit_file(src)
+                note = "редактор не открылся"
+        else if cmd == "x"
+            note = run_item(dir, item)
+        else
+            note = "не понял: " + cmd
