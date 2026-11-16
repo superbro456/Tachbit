@@ -13,7 +13,8 @@ pass=0; fail=0
 run_kernel() {
     ./tachbit-tb bare "$1" > "$work/build.txt" 2>&1 || { cat "$work/build.txt"; return 1; }
     # адреса в сообщении об аварии меняются от сборки к сборке — их убираем
-    timeout 60 qemu-system-i386 -no-reboot -kernel "${1%.tb}.elf" -serial stdio -display none \
+    # на Mac нет команды timeout: ограничение по времени через perl (он есть везде)
+    perl -e 'alarm shift; exec @ARGV' 60 qemu-system-i386 -no-reboot -kernel "${1%.tb}.elf" -serial stdio -display none \
         -device isa-debug-exit,iobase=0xf4,iosize=0x04 2> /dev/null | tr -d '\r' | sed -E 's/ \(0x[0-9a-f]+, 0x[0-9a-f]+\)$//'
     rm -f "${1%.tb}.elf" "${1%.tb}.c"
 }
