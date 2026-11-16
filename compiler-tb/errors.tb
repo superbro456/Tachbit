@@ -1,0 +1,10 @@
+// Ошибки компилятора: тот же текст, что у версии на C.
+use types
+modpub func error_at(c: Comp, line: int, message: text, detail: text)
+    s = c.file_name + ": " + message
+    if line > 0
+        s = c.file_name + ", строка " + line + ": " + message
+    if detail != ""
+        s = s + ": " + detail
+    print(s)
+    exit(1)

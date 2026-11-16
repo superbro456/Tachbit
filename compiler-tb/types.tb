@@ -1,0 +1,44 @@
+// Tachbit 0.5 — общие объекты компилятора, написанного на самом Tachbit.
+// Это тот же компилятор, что в compiler-c/, строчка в строчку,
+// только вместо глобальных переменных — один объект Comp, который
+// передаётся во все функции, а вместо чисел-видов — короткие слова.
+
+// токен: kind = name / command / number / decimal / string / sign /
+//              newline / indent / dedent / end
+obj Token
+    kind: text
+    word: text
+    line: int
+
+// узел дерева: kind = program / func / param / block / obj / type / assign /
+// set / linkdecl / multi / if / each / count / repeat_times / repeat_while /
+// skip / stop / return / expr_stmt / number / decimal / string / bool / name /
+// list / call / arg / binop / unary / index / field / method / dict / use /
+// fail / try / else_err
+obj Node
+    kind: text
+    line: int
+    name: text
+    value: text
+    tsyn: Node
+    has_tsyn: bool
+    ty: int
+    is_const: bool
+    is_link: bool
+    creates: bool
+    ref: Node
+    has_ref: bool
+    mod: text
+    file: text
+    is_pub: bool
+    can_fail: bool
+    temp_no: int
+    kids: list Node
+
+// состояние всего компилятора
+obj Comp
+    file_name: text
+    // лексер
+    tokens: list Token
+    // парсер
+    pos: int

@@ -1,0 +1,16 @@
+// Tachbit 0.5 — компилятор Tachbit, написанный на Tachbit.
+use errors
+use lexer
+
+func main()
+    a = args()
+    if len(a) < 2
+        print("tachbit tokens файл.tb")
+        exit(1)
+    c = Comp(file_name: a[1])
+    src = read_file(a[1]) else err
+        print("не могу открыть файл: " + a[1])
+        exit(1)
+    if a[0] == "tokens"
+        lex(c, src)
+        print_tokens(c)

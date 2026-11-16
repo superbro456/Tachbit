@@ -1,0 +1,44 @@
+obj Node
+    kind: text
+    kids: list Node
+    ref: Node
+    has_ref: bool
+
+obj Comp
+    nodes: dict text Node
+    out: list text
+    pos: int
+
+func mk(kind: text)
+    return Node(kind: kind)
+
+func walk(c: Comp, n: Node, depth: int)
+    c.out.add(n.kind + ":" + depth)
+    each k in n.kids
+        walk(c, k, depth + 1)
+
+func main()
+    root = mk("root")
+    a = mk("a")
+    root.kids.add(a)
+    a.kids.add(mk("b"))
+    a.ref = root
+    a.has_ref = true
+    c = Comp()
+    c.nodes["root"] = root
+    walk(c, root, 0)
+    print(join(c.out, " "))
+    if a.has_ref
+        print(a.ref.kind)
+    x = 5
+    if x == 1
+        print("one")
+    else if x == 5
+        print("five")
+    else
+        print("other")
+    s = "ab\"c\\n"
+    print(len(s), s)
+    print(c.nodes["root"].kids[0].kind)
+    c.pos += 1
+    print(c.pos)

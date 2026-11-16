@@ -1,0 +1,166 @@
+// Слой 1. ЛЕКСЕР: текст → токены.
+// Пробелы в начале строки превращаются в indent / dedent, как в Python.
+// Текст читаем по строкам: так каждый символ берётся быстро.
+use errors
+
+modpub func is_command(word: text)
+    commands = ["func", "return", "gives", "if", "else", "each", "in", "count", "from", "to", "repeat", "times", "while", "skip", "stop", "const", "shared", "obj", "link", "int", "dec", "text", "bool", "and", "or", "not", "true", "false", "use", "modpub", "modpri", "temp", "together", "danger", "by", "list", "dict", "fail", "try"]
+    each c in commands
+        if c == word
+            return true
+    return false
+
+// код символа номер i в строке, 0 — если строка кончилась
+func at(s: text, i: int)
+    if i < len(s)
+        return code(s[i])
+    return 0
+
+func is_letter(c: int)
+    return (c >= 97 and c <= 122) or (c >= 65 and c <= 90) or c == 95
+
+func is_digit(c: int)
+    return c >= 48 and c <= 57
+
+func add_token(c: Comp, kind: text, word: text, line: int)
+    c.tokens.add(Token(kind: kind, word: word, line: line))
+
+// знаки из двух символов
+func two_char_sign(a: text, b: text)
+    if b == "=" and (a == "+" or a == "-" or a == "*" or a == "/" or a == "=" or a == "!" or a == "<" or a == ">")
+        return true
+    if a == "-" and b == ">"
+        return true
+    if a == "." and b == "."
+        return true
+    return false
+
+func one_char_sign(ch: text)
+    return find("()[]{},:=+-*/%<>.", ch) >= 0
+
+modpub func lex(c: Comp, src: text)
+    fresh = list Token
+    c.tokens = fresh
+    indents = [0]
+    lines = split(src, "\n")
+    line = 0
+    each s in lines
+        line += 1
+        n = len(s)
+        // 1) отступ в начале строки
+        spaces = 0
+        pos = 0
+        repeat while pos < n and (at(s, pos) == 32 or at(s, pos) == 9)
+            if at(s, pos) == 9
+                spaces += 4
+            else
+                spaces += 1
+            pos += 1
+        // пустая строка или строка-комментарий: пропускаем целиком
+        if pos >= n or at(s, pos) == 13 or (at(s, pos) == 47 and at(s, pos + 1) == 47)
+            skip
+        top = indents[len(indents) - 1]
+        if spaces > top
+            if len(indents) == 200
+                error_at(c, line, "слишком глубокая вложенность", "")
+            indents.add(spaces)
+            add_token(c, "indent", "", line)
+        else
+            repeat while spaces < indents[len(indents) - 1]
+                gone = indents.pop()
+                add_token(c, "dedent", "", line)
+            if spaces != indents[len(indents) - 1]
+                error_at(c, line, "отступ не совпадает ни с одним уровнем выше", "")
+
+        // 2) токены внутри строки
+        repeat while pos < n
+            ch = at(s, pos)
+            if ch == 32 or ch == 9 or ch == 13
+                pos += 1
+                skip
+            if ch == 47 and at(s, pos + 1) == 47
+                stop
+            start = pos
+            if is_letter(ch)
+                repeat while is_letter(at(s, pos)) or is_digit(at(s, pos))
+                    pos += 1
+                word = cut(s, start, pos - 1)
+                if is_command(word)
+                    add_token(c, "command", word, line)
+                else
+                    add_token(c, "name", word, line)
+            else if is_digit(ch)
+                kind = "number"
+                repeat while is_digit(at(s, pos))
+                    pos += 1
+                if at(s, pos) == 46 and is_digit(at(s, pos + 1))
+                    kind = "decimal"
+                    pos += 1
+                    repeat while is_digit(at(s, pos))
+                        pos += 1
+                add_token(c, kind, cut(s, start, pos - 1), line)
+            else if ch == 34
+                pos += 1
+                repeat while pos < n and at(s, pos) != 34
+                    if at(s, pos) == 92
+                        pos += 1
+                    pos += 1
+                if at(s, pos) != 34
+                    error_at(c, line, "текст в кавычках не закрыт", "")
+                pos += 1
+                add_token(c, "string", cut(s, start, pos - 1), line)
+            else
+                a = s[pos]
+                b = ""
+                if pos + 1 < n
+                    b = s[pos + 1]
+                if two_char_sign(a, b)
+                    add_token(c, "sign", a + b, line)
+                    pos += 2
+                else if one_char_sign(a)
+                    add_token(c, "sign", a, line)
+                    pos += 1
+                else
+                    error_at(c, line, "непонятный символ", a)
+        add_token(c, "newline", "", line)
+    // строка после последнего \n не считается, как в версии на C
+    if len(src) > 0 and ends_with(src, "\n")
+        line -= 1
+    repeat while len(indents) > 1
+        gone = indents.pop()
+        add_token(c, "dedent", "", line + 1)
+    add_token(c, "end", "", line + 1)
+
+modpub func token_kind_name(kind: text)
+    if kind == "name"
+        return "ИМЯ"
+    if kind == "command"
+        return "КОМАНДА"
+    if kind == "number"
+        return "ЧИСЛО"
+    if kind == "decimal"
+        return "ДРОБЬ"
+    if kind == "string"
+        return "ТЕКСТ"
+    if kind == "sign"
+        return "ЗНАК"
+    if kind == "newline"
+        return "КОНЕЦ СТРОКИ"
+    if kind == "indent"
+        return "ОТСТУП"
+    if kind == "dedent"
+        return "ВЫСТУП"
+    return "КОНЕЦ ФАЙЛА"
+
+// как printf("%3d: %-13s %s")
+modpub func print_tokens(c: Comp)
+    out = list text
+    each t in c.tokens
+        num = "" + t.line
+        repeat while len(num) < 3
+            num = " " + num
+        name = token_kind_name(t.kind)
+        repeat while len(name) < 13
+            name = name + " "
+        out.add(num + ": " + name + " " + t.word)
+    print(join(out, "\n"))

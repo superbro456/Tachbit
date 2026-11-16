@@ -1311,6 +1311,22 @@ static int has_fail(Node *n) {
     return 0;
 }
 
+// есть ли внутри return со значением; если нет — функция ничего не возвращает
+static int has_value_return(Node *n) {
+    if (n == 0) {
+        return 0;
+    }
+    if (n->kind == N_RETURN && n->nkids > 0) {
+        return 1;
+    }
+    for (int i = 0; i < n->nkids; i++) {
+        if (has_value_return(n->kids[i])) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static int links_known(Node *fn) {
     Node *params = fn->kids[0];
     for (int i = 0; i < params->nkids; i++) {
@@ -1390,6 +1406,8 @@ void check(Node *program) {
                 top->ty = outputs->kids[0]->ty;
             } else if (outputs->nkids > 1) {
                 top->ty = make_type(TY_MULTI, 0, 0, top);
+            } else if (!has_value_return(top->kids[1])) {
+                top->ty = t_none;   // так функция без return может вызывать сама себя
             }
         }
     }

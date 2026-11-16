@@ -15,3 +15,6 @@ bench/*
 !bench/*_pure.c
 /tb
 build/
+compiler-tb/*
+!compiler-tb/*.tb
+!compiler-tb/README.md
