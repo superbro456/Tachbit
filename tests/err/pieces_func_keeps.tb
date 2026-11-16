@@ -1,0 +1,11 @@
+// 0.7: функция, которая сохраняет кусок, не годится
+func save(p: list int, link all)
+    all = p
+
+func main()
+    data = [1, 2, 3]
+    all = list int
+    save([5], all)
+    each piece in data by 2
+        save(piece, all)
+    print(all)

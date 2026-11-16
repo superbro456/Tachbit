@@ -1,0 +1,6 @@
+// 0.7: список нельзя растить, пока его режут на куски
+func main()
+    data = [1, 2, 3]
+    each piece in data by 2
+        data.add(piece[0])
+    print(data)

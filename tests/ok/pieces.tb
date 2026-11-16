@@ -1,0 +1,36 @@
+// 0.7: each piece in data by N — куски списка
+func total(p: list int) gives s: int
+    s = 0
+    each x in p
+        s += x
+
+func double(p: list int)
+    count i from 0 to len(p) - 1
+        p[i] = p[i] * 2
+
+func deep(p: list int) gives s: int
+    s = total(p)
+
+func main()
+    data = list int
+    count i from 1 to 10
+        data.add(i)
+    each piece in data by 4
+        print(len(piece), total(p: piece), piece[0])
+    each piece in data by 3
+        double(piece)
+    print(data)
+    sum = 0
+    each piece in data by 100
+        sum += deep(piece)
+        each part in piece by 2
+            print(part)
+            stop
+    print(sum)
+    empty = list int
+    each piece in empty by 5
+        print("никогда")
+    words = ["а", "б", "в"]
+    each piece in words by 2
+        each w in piece
+            print(w)

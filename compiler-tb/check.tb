@@ -591,10 +591,13 @@ func check_user_call(c: Comp, n: Node, fi: int) gives r: int
         saved_par = c.par_base
         saved_temp = c.temp_base
         saved_temp_loops = c.temp_loops
+        saved_pieces = c.piece_depth
         c.par_base = -1
         c.temp_base = -1
+        c.piece_depth = 0
         c.var_base = len(c.vars)
         check_func(c, fi)
+        c.piece_depth = saved_pieces
         c.par_base = saved_par
         c.temp_base = saved_temp
         c.temp_loops = saved_temp_loops
@@ -760,6 +763,8 @@ func check_expr(c: Comp, n: Node) gives r: int
             error_at(c, n.line, "внутри " + loop_word(c) + " try нельзя: ядро не может остановить всю функцию, пиши  or  или  else err", "")
         if c.temp_base >= 0
             error_at(c, n.line, "внутри temp try нельзя: пиши  or  или  else err", "")
+        if c.piece_depth > 0
+            error_at(c, n.line, "внутри each ... by N try нельзя: пиши  or  или  else err", "")
         t = check_handled(c, n.kids[0], "try")
     else if k == "else_err"
         t = check_handled(c, n.kids[0], "else")
@@ -1005,10 +1010,13 @@ func check_statement(c: Comp, n: Node)
             error_at(c, n.line, "on all cores ходит по списку (или count from ... to ...)", "")
         if n.by_vec and not (is_list(c, t) and is_number(c.types[t].elem))
             error_at(c, n.line, "by vec ходит по списку чисел: list int или list dec", "")
-        open_scope(c)
-        add_var(c, n.name, elem, true, false, n.line)
-        check_loop_body(c, n, n.kids[1])
-        close_scope(c)
+        if n.by_piece
+            check_pieces(c, n, t)
+        else
+            open_scope(c)
+            add_var(c, n.name, elem, true, false, n.line)
+            check_loop_body(c, n, n.kids[1])
+            close_scope(c)
     else if k == "count"
         need_int(c, n.kids[0], "from")
         need_int(c, n.kids[1], "to")
@@ -1044,12 +1052,16 @@ func check_statement(c: Comp, n: Node)
             error_at(c, n.line, "внутри " + loop_word(c) + " return нельзя", "")
         if c.temp_base >= 0
             error_at(c, n.line, "внутри temp return нельзя: сохрани число в переменную снаружи и выйди из блока", "")
+        if c.piece_depth > 0
+            error_at(c, n.line, "внутри each ... by N return нельзя: сохрани число в переменную снаружи и выйди через stop", "")
         check_return(c, n)
     else if k == "fail"
         if c.par_base >= 0
             error_at(c, n.line, "внутри " + loop_word(c) + " fail нельзя: пиши  or  или  else err", "")
         if c.temp_base >= 0
             error_at(c, n.line, "внутри temp fail нельзя: пиши  or  или  else err", "")
+        if c.piece_depth > 0
+            error_at(c, n.line, "внутри each ... by N fail нельзя: пиши  or  или  else err", "")
         if check_value(c, n.kids[0]) != 4
             error_at(c, n.line, "после fail пишется текст ошибки: fail \"нет файла\"", "")
     else if k == "expr_stmt"
@@ -1062,6 +1074,102 @@ func check_statement(c: Comp, n: Node)
         t = check_expr(c, e)
         if t != 0
             error_at(c, n.line, "результат вызова пропадает: сохрани его, например x = ...", e.name)
+
+// each piece in data by 64: piece — кусок списка data (не копия, а окно в него).
+// Пока цикл идёт, data нельзя растить: так кусок всегда смотрит в живую память.
+func check_pieces(c: Comp, n: Node, t: int)
+    if not is_list(c, t)
+        error_at(c, n.line, "by N режет на куски список: each piece in nums by 64", "")
+    if is_cols_obj(c, c.types[t].elem)
+        error_at(c, n.line, "список колонок (by columns) на куски пока не режется", "")
+    if c.par_base >= 0
+        error_at(c, n.line, "each ... by N внутри " + loop_word(c) + " пока нельзя", "")
+    need_int(c, n.piece_size, "by")
+    n.file = c.file_name
+    c.pieces.add(n)
+    open_scope(c)
+    add_var(c, n.name, t, true, false, n.line)
+    c.piece_depth += 1
+    check_loop_body(c, n, n.kids[1])
+    c.piece_depth -= 1
+    close_scope(c)
+
+// v — это просто имя name?
+func is_name_of(v: Node, name: text)
+    return v.kind == "name" and v.name == name
+
+// где кусок name вылезает наружу; 0 — нигде, иначе номер строки.
+// Можно: name[i] (читать и менять), each x in name, встроенные функции (print, len, sort ...)
+// и функции программиста, которые сами его не сохраняют.
+func piece_leak(c: Comp, n: Node, name: text) gives r: int
+    k = n.kind
+    if k == "name" and n.name == name
+        return n.line
+    if (k == "assign" or k == "linkdecl") and n.name == name
+        return n.line
+    if k == "call" and n.has_ref and n.ref.kind == "func"
+        count i from 0 to len(n.kids) - 1
+            v = n.kids[i].kids[0]
+            if is_name_of(v, name)
+                if not param_keeps_piece(c, n.ref, i)
+                    skip
+                return v.line
+            bad = piece_leak(c, v, name)
+            if bad != 0
+                return bad
+        return 0
+    if k == "call" and is_builtin(n.name)
+        each a in n.kids
+            v = a
+            if a.kind == "arg"
+                v = a.kids[0]
+            if not is_name_of(v, name)
+                bad = piece_leak(c, v, name)
+                if bad != 0
+                    return bad
+        return 0
+    start = 0
+    if (k == "index" or k == "each") and len(n.kids) > 0 and is_name_of(n.kids[0], name)
+        start = 1
+    if k == "each" and n.by_piece
+        bad = piece_leak(c, n.piece_size, name)
+        if bad != 0
+            return bad
+    count i from start to len(n.kids) - 1
+        bad = piece_leak(c, n.kids[i], name)
+        if bad != 0
+            return bad
+    return 0
+
+// сохраняет ли функция f свой параметр номер i (true — сохраняет, кусок туда нельзя)
+func param_keeps_piece(c: Comp, f: Node, i: int)
+    key = f.name + "@" + f.mod + "#" + i
+    count j from 0 to len(c.safe_keys) - 1
+        if c.safe_keys[j] == key
+            return c.safe_vals[j] == 2
+    // пока функция смотрится, считаем, что можно (для рекурсии)
+    c.safe_keys.add(key)
+    c.safe_vals.add(1)
+    slot = len(c.safe_keys) - 1
+    c.safe_busy += 1
+    bad = piece_leak(c, f.kids[1], f.kids[0].kids[i].name)
+    c.safe_busy -= 1
+    if bad != 0
+        c.safe_vals[slot] = 2
+        return true
+    if c.safe_busy > 0
+        // ответ зависел от догадки про другую функцию — не запоминаем его
+        c.safe_vals[slot] = 3
+        c.safe_keys[slot] = ""
+    return false
+
+// после всей проверки: кусок не должен пережить свой цикл
+func check_piece_leaks(c: Comp)
+    each n in c.pieces
+        bad = piece_leak(c, n.kids[1], n.name)
+        if bad != 0
+            c.file_name = n.file
+            error_at(c, bad, "кусок живёт только внутри своего цикла: его можно читать и менять по номеру, ходить по нему each и передавать в функцию, но нельзя сохранять, растить .add и уменьшать .pop", n.name)
 
 // тело each / count; у on all cores своя граница переменных:
 // всё, что объявлено раньше, — снаружи и только для чтения (кроме shared)
@@ -1242,3 +1350,4 @@ modpub func check(c: Comp, program: Node)
         if f.state == 0
             c.file_name = f.node.file
             error_at(c, f.node.line, "функция с link ни разу не вызвана, поэтому тип ярлыка неизвестен", f.name)
+    check_piece_leaks(c)

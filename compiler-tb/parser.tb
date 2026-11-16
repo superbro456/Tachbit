@@ -316,13 +316,19 @@ func parse_each(c: Comp) gives result: Node
     parse_on_all_cores(c, n)
     if is_cmd(c, "by")
         // each x in nums by vec: SIMD, одна команда процессора на 4–8 чисел
+        // each piece in data by 64: куски по 64 элемента
         next(c)
-        if now(c).kind != "name" or now(c).word != "vec"
-            error_at(c, line_now(c), "после each ... by пишется vec: each x in nums by vec", "")
-        next(c)
-        n.by_vec = true
-        if n.is_par
-            error_at(c, n.line, "on all cores и by vec вместе пока нельзя", "")
+        if now(c).kind == "name" and now(c).word == "vec"
+            next(c)
+            n.by_vec = true
+            if n.is_par
+                error_at(c, n.line, "on all cores и by vec вместе пока нельзя", "")
+        else
+            // each piece in data by 64: data режется на куски по 64 элемента
+            n.piece_size = parse_expr(c)
+            n.by_piece = true
+            if n.is_par
+                error_at(c, n.line, "on all cores и by N (куски) вместе пока нельзя", "")
     expect_newline(c)
     add_kid(n, parse_block(c))
     return n

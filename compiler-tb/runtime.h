@@ -23,7 +23,8 @@ typedef struct { char *data; long long len; long long cap; long long size; } tb_
 
 TB_COLD static void tb_crash(int line, const char *msg) {
     fflush(stdout);
-    fprintf(stderr, "строка %d: %s\n", line, msg);
+    if (line > 0) fprintf(stderr, "строка %d: %s\n", line, msg);
+    else fprintf(stderr, "%s\n", msg);
     exit(1);
 }
 // ---------- temp: временная память ----------
@@ -109,7 +110,9 @@ static inline void *tb_at(tb_list *l, long long i, long long size, int line) {
     return l->data + i * size;
 }
 static inline void *tb_grow(tb_list *l) {
-    if (TB_RARE(l->len == l->cap)) {
+    // cap < 0: это кусок (each piece in data by N) или список, который сейчас режут на куски
+    if (TB_RARE(l->len >= l->cap)) {
+        if (l->cap < 0) tb_crash(0, "список нельзя растить, пока по нему идёт each ... by N (и сам кусок растить нельзя)");
         long long old = l->cap * l->size;
         l->cap = l->cap * 2 + 4;
         // realloc часто растит большой кусок на месте, без копирования

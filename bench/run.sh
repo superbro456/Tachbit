@@ -91,3 +91,13 @@ if command -v python3 > /dev/null; then
     echo "   Python:  $(awk "BEGIN { print $py * 10 }") с   (считал 1 млн чисел, время ×10)"
 fi
 rm -f vec vec.c novec novec.c vec_c
+
+# by N: 4 прохода по 20 млн дробей (160 МБ), 5 раз
+../tachbit-tb build pieces.tb > /dev/null || exit 1
+../tachbit-tb build nopieces.tb > /dev/null || exit 1
+cc -O2 -o pieces_c pieces_pure.c || exit 1
+echo "== pieces  (ответ: $(./pieces))"
+echo "   Tachbit by 4096:     $(best ./pieces) с"
+echo "   Tachbit без кусков:  $(best ./nopieces) с"
+echo "   C (проходы подряд):  $(best ./pieces_c) с"
+rm -f pieces pieces.c nopieces nopieces.c pieces_c

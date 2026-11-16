@@ -1,0 +1,5 @@
+// 0.7: у куска нет .add
+func main()
+    data = [1, 2, 3]
+    each piece in data by 2
+        piece.add(1)

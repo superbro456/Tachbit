@@ -1,0 +1,23 @@
+// То же без кусков: каждый проход идёт по всему списку (160 МБ).
+func pass(p: list dec)
+    count i from 0 to len(p) - 1
+        p[i] = p[i] * 0.5 + 1.0
+    count i from 0 to len(p) - 1
+        p[i] = p[i] * p[i] - 0.25
+    count i from 0 to len(p) - 1
+        p[i] = p[i] / 3.0 + 0.1
+
+func sum_of(p: list dec) gives s: dec
+    s = 0.0
+    count i from 0 to len(p) - 1
+        s += p[i]
+
+func main()
+    data = list dec
+    count i from 0 to 19999999
+        data.add((i % 1000) / 1000.0)
+    total = 0.0
+    repeat 5 times
+        pass(data)
+        total += sum_of(data)
+    print(total)

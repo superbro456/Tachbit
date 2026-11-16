@@ -41,6 +41,9 @@ obj Node
     by_cols: bool
     // each x in nums by vec
     by_vec: bool
+    // each piece in data by 64: размер куска
+    by_piece: bool
+    piece_size: Node
     // переменные снаружи, которые видит цикл on all cores
     caps: list Var
 
@@ -118,3 +121,11 @@ obj Comp
     // by vec: имена, которые в теле цикла пишутся иначе (y → tb_a7_y[tb_k])
     vec_names: list text
     vec_repl: list text
+    // each piece in data by N: сколько таких циклов вокруг (return, fail, try внутри нельзя)
+    piece_depth: int
+    // все циклы с кусками: после проверки смотрим, что кусок нигде не сохраняется
+    pieces: list Node
+    // параметр функции, куда передали кусок: "имя@модуль#номер" → 1 можно, 2 сохраняется
+    safe_keys: list text
+    safe_vals: list int
+    safe_busy: int

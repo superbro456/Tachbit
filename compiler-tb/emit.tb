@@ -791,6 +791,9 @@ func emit_each(c: Comp, n: Node, depth: int)
     if n.is_par
         emit_par(c, n, depth)
         return
+    if n.by_piece
+        emit_pieces(c, n, depth)
+        return
     c.label += 1
     id = "" + c.label
     t = n.kids[0].ty
@@ -827,6 +830,53 @@ func emit_each(c: Comp, n: Node, depth: int)
     emit_block(c, n.kids[1], depth + 2)
     indent(c, depth + 1)
     put(c, "}\n")
+    indent(c, depth)
+    put(c, "}\n")
+
+// each piece in data by 64:
+//   piece — окно в data (свои data и len, cap = -1: растить нельзя);
+//   пока цикл идёт, у data cap < 0, и data.add() остановит программу,
+//   а следующий кусок заранее просим у памяти (__builtin_prefetch)
+func emit_pieces(c: Comp, n: Node, depth: int)
+    c.label += 1
+    id = "" + c.label
+    l = "tb_l" + id
+    i = "tb_i" + id
+    p = "tb_p" + id
+    m = "tb_n" + id
+    indent(c, depth)
+    put(c, "{\n")
+    indent(c, depth + 1)
+    put(c, "tb_list *" + l + " = ")
+    emit_expr(c, n.kids[0])
+    put(c, ";\n")
+    indent(c, depth + 1)
+    put(c, "long long " + m + " = ")
+    emit_expr(c, n.piece_size)
+    put(c, ";\n")
+    indent(c, depth + 1)
+    put(c, "if (" + m + " <= 0) tb_crash(" + n.line + ", \"размер куска в by должен быть больше 0\");\n")
+    indent(c, depth + 1)
+    put(c, "tb_list " + p + " = {0, 0, -1, " + l + "->size};\n")
+    indent(c, depth + 1)
+    put(c, "long long tb_cap" + id + " = " + l + "->cap;\n")
+    indent(c, depth + 1)
+    put(c, "if (" + l + "->cap >= 0) " + l + "->cap = -2;\n")
+    indent(c, depth + 1)
+    put(c, "for (long long " + i + " = 0; " + i + " < " + l + "->len; " + i + " += " + m + ") {\n")
+    indent(c, depth + 2)
+    put(c, p + ".data = " + l + "->data + " + i + " * " + l + "->size;\n")
+    indent(c, depth + 2)
+    put(c, p + ".len = " + l + "->len - " + i + " < " + m + " ? " + l + "->len - " + i + " : " + m + ";\n")
+    indent(c, depth + 2)
+    put(c, "if (" + i + " + " + m + " < " + l + "->len) __builtin_prefetch(" + p + ".data + " + m + " * " + l + "->size);\n")
+    indent(c, depth + 2)
+    put(c, "tb_list * const v_" + n.name + " = &" + p + ";\n")
+    emit_block(c, n.kids[1], depth + 2)
+    indent(c, depth + 1)
+    put(c, "}\n")
+    indent(c, depth + 1)
+    put(c, l + "->cap = tb_cap" + id + ";\n")
     indent(c, depth)
     put(c, "}\n")
 

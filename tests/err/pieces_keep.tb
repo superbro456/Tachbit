@@ -1,0 +1,6 @@
+// 0.7: кусок нельзя сохранить в переменную
+func main()
+    data = [1, 2, 3]
+    each piece in data by 2
+        keep = piece
+        print(keep)

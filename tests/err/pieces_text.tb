@@ -1,0 +1,4 @@
+// 0.7: by N режет только список
+func main()
+    each piece in "abc" by 2
+        print(piece)

@@ -1,0 +1,8 @@
+// 0.7: return внутри кусков нельзя
+func first(data: list int) gives r: int
+    each piece in data by 2
+        return piece[0]
+    return 0
+
+func main()
+    print(first([1, 2]))

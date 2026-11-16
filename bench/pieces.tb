@@ -1,0 +1,27 @@
+// 4 прохода по 20 млн дробей (160 МБ), 5 раз.
+// by 4096: кусок (32 КБ) помещается в быстрый кэш процессора,
+// и все 4 прохода идут по нему, пока он там. Без кусков каждый проход
+// заново тянет все 160 МБ из медленной памяти.
+func pass(p: list dec)
+    count i from 0 to len(p) - 1
+        p[i] = p[i] * 0.5 + 1.0
+    count i from 0 to len(p) - 1
+        p[i] = p[i] * p[i] - 0.25
+    count i from 0 to len(p) - 1
+        p[i] = p[i] / 3.0 + 0.1
+
+func sum_of(p: list dec) gives s: dec
+    s = 0.0
+    count i from 0 to len(p) - 1
+        s += p[i]
+
+func main()
+    data = list dec
+    count i from 0 to 19999999
+        data.add((i % 1000) / 1000.0)
+    total = 0.0
+    repeat 5 times
+        each piece in data by 4096
+            pass(piece)
+            total += sum_of(piece)
+    print(total)
