@@ -1,0 +1,876 @@
+// Слой 4. ВЫВОД C: проверенное дерево → текст программы на C.
+// Дальше обычный компилятор C (clang / gcc) делает из него машинный код.
+// Имена программиста получают приставки: v_ у переменных, f_ у функций,
+// tb_o_ у obj, q_ у качеств obj, чтобы не столкнуться со словами C (int, main, printf ...).
+// Текст собирается кусками в c.out, в конце склеивается одним join.
+use check
+use runtime_text
+
+func put(c: Comp, s: text)
+    c.out.add(s)
+
+// имя функции в C: f_<модуль>__<имя>, чтобы две modpri-функции из разных файлов не столкнулись
+func fname(f: Node)
+    mod = ""
+    each ch in f.mod
+        k = code(ch)
+        if (k >= 97 and k <= 122) or (k >= 65 and k <= 90) or (k >= 48 and k <= 57)
+            mod = mod + ch
+        else
+            mod = mod + "_"
+    return "f_" + mod + "__" + f.name
+
+func c_type(c: Comp, t: int)
+    k = kind_of(c, t)
+    if k == "int"
+        return "long long"
+    if k == "dec"
+        return "double"
+    if k == "bool"
+        return "_Bool"
+    if k == "text"
+        return "const char *"
+    if k == "list"
+        return "tb_list *"
+    if k == "dict"
+        return "tb_dict *"
+    if k == "obj"
+        return "tb_o_" + c.types[t].obj_node.name + " *"
+    if k == "multi"
+        return "tb_r_" + fname(c.types[t].func_node)
+    return "void"
+
+func indent(c: Comp, depth: int)
+    count i from 1 to depth
+        put(c, "    ")
+
+func emit_default(c: Comp, t: int)
+    k = kind_of(c, t)
+    if k == "int"
+        put(c, "0LL")
+    else if k == "dec"
+        put(c, "0.0")
+    else if k == "text"
+        put(c, "\"\"")
+    else if k == "list"
+        put(c, "tb_list_new(sizeof(" + c_type(c, c.types[t].elem) + "))")
+    else if k == "dict"
+        is_text = "0"
+        if kind_of(c, c.types[t].key) == "text"
+            is_text = "1"
+        put(c, "tb_dict_new(" + is_text + ", sizeof(" + c_type(c, c.types[t].elem) + "))")
+    else
+        put(c, "0")
+
+func is_simple(c: Comp, t: int)
+    k = kind_of(c, t)
+    return k == "int" or k == "dec" or k == "bool" or k == "text"
+
+// &(K){ключ} — ключ dict как адрес
+func emit_key(c: Comp, dt: int, key: Node)
+    put(c, "&(" + c_type(c, c.types[dt].key) + "){")
+    emit_expr(c, key)
+    put(c, "}")
+
+// ---------- выражения ----------
+
+// значение там, где нужен тип want (int → dec)
+func emit_as(c: Comp, n: Node, want: int)
+    if kind_of(c, want) == "dec" and kind_of(c, n.ty) == "int"
+        put(c, "(double)(")
+        emit_expr(c, n)
+        put(c, ")")
+        return
+    emit_expr(c, n)
+
+// любое простое значение как текст (для  "итог: " + x)
+func emit_as_text(c: Comp, n: Node)
+    k = kind_of(c, n.ty)
+    if k == "text"
+        emit_expr(c, n)
+        return
+    if k == "int"
+        put(c, "tb_itos(")
+    else if k == "dec"
+        put(c, "tb_dtos(")
+    else
+        put(c, "tb_btos(")
+    emit_expr(c, n)
+    put(c, ")")
+
+func emit_print(c: Comp, n: Node)
+    put(c, "(")
+    count i from 0 to len(n.kids) - 1
+        value = n.kids[i].kids[0]
+        if i > 0
+            put(c, ", tb_ps(\" \"), ")
+        put(c, "tb_show_" + value.ty + "(")
+        emit_expr(c, value)
+        put(c, ")")
+    if len(n.kids) > 0
+        put(c, ", ")
+    put(c, "tb_ps(\"\\n\"))")
+
+// встроенные функции: имя → функция из runtime.h и её аргументы
+func emit_args(c: Comp, n: Node, with_line: bool)
+    count i from 0 to len(n.kids) - 1
+        if i > 0
+            put(c, ", ")
+        emit_expr(c, n.kids[i].kids[0])
+    if with_line
+        if len(n.kids) > 0
+            put(c, ", ")
+        put(c, "" + n.line)
+    put(c, ")")
+
+func emit_builtin(c: Comp, n: Node)
+    name = n.name
+    if name == "print"
+        emit_print(c, n)
+        return
+    if name == "args"
+        put(c, "tb_args")
+        return
+    if name == "input"
+        put(c, "tb_input()")
+        return
+    a = n.kids[0].kids[0]
+    if name == "len"
+        k = kind_of(c, a.ty)
+        if k == "text"
+            put(c, "(long long)strlen(")
+            emit_expr(c, a)
+            put(c, ")")
+        else if k == "dict"
+            put(c, "(")
+            emit_expr(c, a)
+            put(c, ")->keys->len")
+        else
+            put(c, "(")
+            emit_expr(c, a)
+            put(c, ")->len")
+        return
+    if name == "sort"
+        k = kind_of(c, c.types[a.ty].elem)
+        put(c, "tb_sort_list(")
+        emit_expr(c, a)
+        if k == "int"
+            put(c, ", tb_cmp_int)")
+        else if k == "dec"
+            put(c, ", tb_cmp_dec)")
+        else
+            put(c, ", tb_cmp_text)")
+        return
+    if name == "abs"
+        if kind_of(c, a.ty) == "int"
+            put(c, "tb_absi(")
+        else
+            put(c, "fabs(")
+        emit_expr(c, a)
+        put(c, ")")
+        return
+    if name == "sqrt"
+        put(c, "tb_sqrt((double)(")
+        emit_expr(c, a)
+        put(c, "), " + n.line + ")")
+        return
+    if name == "min" or name == "max"
+        ints = kind_of(c, n.ty) == "int"
+        if ints
+            put(c, "tb_" + name + "i(")
+            emit_expr(c, a)
+            put(c, ", ")
+            emit_expr(c, n.kids[1].kids[0])
+        else
+            put(c, "tb_" + name + "d(")
+            emit_as(c, a, n.ty)
+            put(c, ", ")
+            emit_as(c, n.kids[1].kids[0], n.ty)
+        put(c, ")")
+        return
+    // остальные: просто имя функции из runtime.h; с номером строки — те, что могут упасть
+    c_names = ["round", "tb_round", "0", "char", "tb_chr", "0", "cut", "tb_cut", "1", "code", "tb_code", "1", "to_int", "tb_to_int", "0", "to_dec", "tb_to_dec", "0", "read_file", "tb_read_file", "0", "write_file", "tb_write_file", "0", "split", "tb_split", "1", "join", "tb_join", "0", "find", "tb_find", "0", "replace", "tb_replace", "1", "upper", "tb_upper", "0", "lower", "tb_lower", "0", "trim", "tb_trim", "0", "starts_with", "tb_starts", "0", "ends_with", "tb_ends", "0", "run", "tb_run", "0", "exit", "tb_exit", "0", "file_exists", "tb_file_exists", "0"]
+    i = 0
+    repeat while i < len(c_names)
+        if c_names[i] == name
+            put(c, c_names[i + 1] + "(")
+            emit_args(c, n, c_names[i + 2] == "1")
+            return
+        i += 3
+    put(c, "/* неизвестная встроенная " + name + " */0")
+
+func emit_call(c: Comp, n: Node)
+    if not n.has_ref
+        emit_builtin(c, n)
+        return
+    if n.ref.kind == "obj"
+        o = n.ref
+        put(c, "tb_new_" + o.name + "(")
+        count i from 0 to len(o.kids) - 1
+            if i > 0
+                put(c, ", ")
+            if n.kids[i].kind == "missing"
+                emit_default(c, o.kids[i].ty)
+            else
+                emit_as(c, n.kids[i].kids[0], o.kids[i].ty)
+        put(c, ")")
+        return
+    params = n.ref.kids[0]
+    put(c, fname(n.ref) + "(")
+    count i from 0 to len(n.kids) - 1
+        if i > 0
+            put(c, ", ")
+        if params.kids[i].is_link
+            put(c, "&(")
+            emit_expr(c, n.kids[i].kids[0])
+            put(c, ")")
+        else
+            emit_as(c, n.kids[i].kids[0], params.kids[i].ty)
+    put(c, ")")
+
+func emit_dict(c: Comp, n: Node)
+    t = c.types[n.ty]
+    kt = c_type(c, t.key)
+    vt = c_type(c, t.elem)
+    is_text = "0"
+    if kind_of(c, t.key) == "text"
+        is_text = "1"
+    put(c, "tb_dict_from(" + is_text + ", sizeof(" + vt + "), " + (len(n.kids) / 2) + ", (" + kt + "[]){")
+    i = 0
+    repeat while i < len(n.kids)
+        if i > 0
+            put(c, ", ")
+        emit_expr(c, n.kids[i])
+        i += 2
+    put(c, "}, (" + vt + "[]){")
+    i = 1
+    repeat while i < len(n.kids)
+        if i > 1
+            put(c, ", ")
+        emit_as(c, n.kids[i], t.elem)
+        i += 2
+    put(c, "})")
+
+// .pop()  и методы dict; .add пишется отдельной строкой (emit_statement)
+func emit_method(c: Comp, n: Node)
+    base = n.kids[0]
+    if kind_of(c, base.ty) == "dict"
+        if n.name == "keys" or n.name == "values"
+            put(c, "tb_copy((")
+            emit_expr(c, base)
+            if n.name == "keys"
+                put(c, ")->keys)")
+            else
+                put(c, ")->vals)")
+            return
+        if n.name == "has"
+            put(c, "tb_dhas(")
+        else
+            put(c, "tb_dremove(")
+        emit_expr(c, base)
+        put(c, ", ")
+        emit_key(c, base.ty, n.kids[1].kids[0])
+        put(c, ")")
+        return
+    put(c, "(*(" + c_type(c, n.ty) + " *)tb_pop(")
+    emit_expr(c, base)
+    put(c, ", " + n.line + "))")
+
+func emit_list(c: Comp, n: Node)
+    elem_ty = c.types[n.ty].elem
+    elem = c_type(c, elem_ty)
+    put(c, "tb_list_from(" + len(n.kids) + ", sizeof(" + elem + "), (" + elem + "[]){")
+    count i from 0 to len(n.kids) - 1
+        if i > 0
+            put(c, ", ")
+        emit_as(c, n.kids[i], elem_ty)
+    put(c, "})")
+
+func emit_binop(c: Comp, n: Node)
+    op = n.value
+    a = n.kids[0]
+    b = n.kids[1]
+    if op == "orelse"
+        // f() or запасное: (tb_t = f(), tb_err ? (tb_err = 0, запасное) : tb_t)
+        put(c, "(tb_t" + n.temp_no + " = ")
+        emit_expr(c, a)
+        put(c, ", tb_err ? (tb_err = 0, ")
+        emit_as(c, b, n.ty)
+        put(c, ") : tb_t" + n.temp_no + ")")
+        return
+    if kind_of(c, n.ty) == "text"
+        put(c, "tb_cat(")
+        emit_as_text(c, a)
+        put(c, ", ")
+        emit_as_text(c, b)
+        put(c, ")")
+        return
+    if kind_of(c, a.ty) == "text"
+        put(c, "(strcmp(")
+        emit_expr(c, a)
+        put(c, ", ")
+        emit_expr(c, b)
+        put(c, ") " + op + " 0)")
+        return
+    if kind_of(c, n.ty) == "int" and (op == "/" or op == "%")
+        if op == "/"
+            put(c, "tb_div(")
+        else
+            put(c, "tb_mod(")
+        emit_expr(c, a)
+        put(c, ", ")
+        emit_expr(c, b)
+        put(c, ", " + n.line + ")")
+        return
+    c_op = op
+    if op == "and"
+        c_op = "&&"
+    else if op == "or"
+        c_op = "||"
+    put(c, "(")
+    if kind_of(c, n.ty) == "dec" and op == "/"
+        emit_as(c, a, n.ty)
+    else
+        emit_expr(c, a)
+    put(c, " " + c_op + " ")
+    emit_expr(c, b)
+    put(c, ")")
+
+func emit_expr(c: Comp, n: Node)
+    k = n.kind
+    if k == "number"
+        put(c, n.value + "LL")
+    else if k == "decimal" or k == "string"
+        put(c, n.value)
+    else if k == "bool"
+        if n.value == "true"
+            put(c, "1")
+        else
+            put(c, "0")
+    else if k == "name"
+        if n.is_link
+            put(c, "(*v_" + n.name + ")")
+        else
+            put(c, "v_" + n.name)
+    else if k == "list"
+        emit_list(c, n)
+    else if k == "dict"
+        emit_dict(c, n)
+    else if k == "try" or k == "else_err"
+        // значение уже посчитано строкой выше (emit_pre)
+        put(c, "tb_v" + n.temp_no)
+    else if k == "call"
+        emit_call(c, n)
+    else if k == "method"
+        emit_method(c, n)
+    else if k == "binop"
+        emit_binop(c, n)
+    else if k == "unary"
+        if n.value == "not"
+            put(c, "(!")
+        else
+            put(c, "(-")
+        emit_expr(c, n.kids[0])
+        put(c, ")")
+    else if k == "index" and kind_of(c, n.kids[0].ty) == "dict"
+        put(c, "(*(" + c_type(c, n.ty) + " *)tb_dget(")
+        emit_expr(c, n.kids[0])
+        put(c, ", ")
+        emit_key(c, n.kids[0].ty, n.kids[1])
+        put(c, ", " + n.line + "))")
+    else if k == "index"
+        if kind_of(c, n.kids[0].ty) == "text"
+            put(c, "tb_char_at(")
+            emit_expr(c, n.kids[0])
+            put(c, ", ")
+            emit_expr(c, n.kids[1])
+            put(c, ", " + n.line + ")")
+        else
+            t = c_type(c, n.ty)
+            put(c, "(*(" + t + " *)tb_at(")
+            emit_expr(c, n.kids[0])
+            put(c, ", ")
+            emit_expr(c, n.kids[1])
+            put(c, ", sizeof(" + t + "), " + n.line + "))")
+    else if k == "field"
+        put(c, "((" + c_type(c, n.kids[0].ty) + ")tb_nn(")
+        emit_expr(c, n.kids[0])
+        put(c, ", " + n.line + "))->q_" + n.name)
+
+// ---------- команды ----------
+
+// что отдать, если функция ломается: обычный return с пустым значением
+func emit_bail(c: Comp)
+    f = c.cur_func
+    outputs = f.kids[2]
+    if f.name == "main"
+        put(c, "tb_die(tb_err);")
+    else if len(outputs.kids) == 1
+        put(c, "return v_" + outputs.kids[0].name + ";")
+    else if len(outputs.kids) > 1
+        put(c, "return (" + c_type(c, f.ty) + "){")
+        count i from 0 to len(outputs.kids) - 1
+            if i > 0
+                put(c, ", ")
+            put(c, "v_" + outputs.kids[i].name)
+        put(c, "};")
+    else if kind_of(c, f.ty) == "none"
+        put(c, "return;")
+    else
+        put(c, "return ")
+        emit_default(c, f.ty)
+        put(c, ";")
+
+// try f()  и  f() else err: вызов отдельной строкой, потом проверка tb_err
+func emit_pre(c: Comp, v: Node, depth: int)
+    if v.kind != "try" and v.kind != "else_err"
+        return
+    call = v.kids[0]
+    c.label += 1
+    v.temp_no = c.label
+    indent(c, depth)
+    if kind_of(c, call.ty) != "none"
+        put(c, c_type(c, call.ty) + " tb_v" + c.label + " = ")
+    emit_expr(c, call)
+    put(c, ";\n")
+    indent(c, depth)
+    if v.kind == "try"
+        put(c, "if (TB_RARE(tb_err != 0)) { ")
+        emit_bail(c)
+        put(c, " }\n")
+        return
+    put(c, "if (tb_err != 0) {\n")
+    indent(c, depth + 1)
+    put(c, "const char * const v_" + v.name + " = tb_err;\n")
+    indent(c, depth + 1)
+    put(c, "tb_err = 0;\n")
+    emit_block(c, v.kids[1], depth + 1)
+    indent(c, depth)
+    put(c, "}\n")
+
+// цель для  =  и  +=: у dict ключ создаётся, если его нет
+func emit_target(c: Comp, t: Node)
+    if t.kind == "index" and kind_of(c, t.kids[0].ty) == "dict"
+        d = t.kids[0].ty
+        elem = c.types[d].elem
+        vt = c_type(c, elem)
+        put(c, "(*(" + vt + " *)tb_dput(")
+        emit_expr(c, t.kids[0])
+        put(c, ", ")
+        emit_key(c, d, t.kids[1])
+        if is_simple(c, elem)
+            put(c, ", &(" + vt + "){")
+            emit_default(c, elem)
+            put(c, "}))")
+        else
+            put(c, ", 0))")
+        return
+    emit_expr(c, t)
+
+func emit_assign(c: Comp, n: Node, depth: int)
+    if len(n.kids) == 1
+        emit_pre(c, n.kids[0], depth)
+    indent(c, depth)
+    if n.creates
+        put(c, c_type(c, n.ty) + " ")
+        if n.is_const
+            put(c, "const ")
+        put(c, "v_" + n.name + " = ")
+    else if n.is_link
+        put(c, "(*v_" + n.name + ") = ")
+    else
+        put(c, "v_" + n.name + " = ")
+    if len(n.kids) == 1
+        emit_as(c, n.kids[0], n.ty)
+    else
+        emit_default(c, n.ty)
+    put(c, ";\n")
+
+// цель = значение: сначала значение, потом адрес цели (значение может менять список)
+func emit_set(c: Comp, n: Node, depth: int)
+    target = n.kids[0]
+    value = n.kids[1]
+    op = n.value
+    t = c_type(c, n.ty)
+    emit_pre(c, value, depth)
+    c.label += 1
+    id = "" + c.label
+    indent(c, depth)
+    put(c, "{ ")
+    if kind_of(c, n.ty) == "text" and op != "="
+        put(c, "const char *tb_v" + id + " = ")
+        emit_as_text(c, value)
+    else
+        if op == "="
+            put(c, t + " tb_v" + id + " = ")
+            emit_as(c, value, n.ty)
+        else
+            put(c, c_type(c, value.ty) + " tb_v" + id + " = ")
+            emit_expr(c, value)
+    put(c, "; " + t + " *tb_p" + id + " = &(")
+    emit_target(c, target)
+    put(c, "); ")
+    if op == "="
+        put(c, "*tb_p" + id + " = tb_v" + id + ";")
+    else if kind_of(c, n.ty) == "text"
+        put(c, "*tb_p" + id + " = tb_cat(*tb_p" + id + ", tb_v" + id + ");")
+    else if kind_of(c, n.ty) == "int" and op == "/="
+        put(c, "*tb_p" + id + " = tb_div(*tb_p" + id + ", tb_v" + id + ", " + n.line + ");")
+    else
+        put(c, "*tb_p" + id + " " + op + " tb_v" + id + ";")
+    put(c, " }\n")
+
+func emit_multi(c: Comp, n: Node, depth: int)
+    names = len(n.kids) - 1
+    call = n.kids[names]
+    emit_pre(c, call, depth)
+    c.label += 1
+    id = "" + c.label
+    count i from 0 to names - 1
+        if n.kids[i].creates
+            indent(c, depth)
+            put(c, c_type(c, n.kids[i].ty) + " v_" + n.kids[i].name + ";\n")
+    indent(c, depth)
+    put(c, "{\n")
+    indent(c, depth + 1)
+    put(c, c_type(c, call.ty) + " tb_m" + id + " = ")
+    emit_expr(c, call)
+    put(c, ";\n")
+    count i from 0 to names - 1
+        indent(c, depth + 1)
+        emit_expr(c, n.kids[i])
+        put(c, " = tb_m" + id + ".o" + i + ";\n")
+    indent(c, depth)
+    put(c, "}\n")
+
+func emit_if(c: Comp, n: Node, depth: int)
+    indent(c, depth)
+    i = 0
+    repeat while i + 1 < len(n.kids)
+        if i > 0
+            put(c, " else ")
+        put(c, "if (")
+        emit_expr(c, n.kids[i])
+        put(c, ") {\n")
+        emit_block(c, n.kids[i + 1], depth + 1)
+        indent(c, depth)
+        put(c, "}")
+        i += 2
+    if len(n.kids) % 2 == 1
+        put(c, " else {\n")
+        emit_block(c, n.kids[len(n.kids) - 1], depth + 1)
+        indent(c, depth)
+        put(c, "}")
+    put(c, "\n")
+
+func emit_each(c: Comp, n: Node, depth: int)
+    c.label += 1
+    id = "" + c.label
+    t = n.kids[0].ty
+    k = kind_of(c, t)
+    elem_ty = -1
+    indent(c, depth)
+    put(c, "{\n")
+    indent(c, depth + 1)
+    if k == "dict"
+        put(c, "tb_list * tb_l" + id + " = (")
+        emit_expr(c, n.kids[0])
+        put(c, ")->keys;\n")
+        k = "list"
+        elem_ty = c.types[t].key
+    else
+        put(c, c_type(c, t) + " tb_l" + id + " = ")
+        emit_expr(c, n.kids[0])
+        put(c, ";\n")
+        if k == "list"
+            elem_ty = c.types[t].elem
+    indent(c, depth + 1)
+    if k == "text"
+        put(c, "for (long long tb_i" + id + " = 0; tb_l" + id + "[tb_i" + id + "] != 0; tb_i" + id + "++) {\n")
+        indent(c, depth + 2)
+        put(c, "const char * const v_" + n.name + " = tb_chr((unsigned char)tb_l" + id + "[tb_i" + id + "]);\n")
+    else
+        elem = c_type(c, elem_ty)
+        put(c, "for (long long tb_i" + id + " = 0; tb_i" + id + " < tb_l" + id + "->len; tb_i" + id + "++) {\n")
+        indent(c, depth + 2)
+        put(c, elem + " const v_" + n.name + " = ((" + elem + " *)tb_l" + id + "->data)[tb_i" + id + "];\n")
+    emit_block(c, n.kids[1], depth + 2)
+    indent(c, depth + 1)
+    put(c, "}\n")
+    indent(c, depth)
+    put(c, "}\n")
+
+func emit_count(c: Comp, n: Node, depth: int)
+    c.label += 1
+    id = "" + c.label
+    indent(c, depth)
+    put(c, "{\n")
+    indent(c, depth + 1)
+    put(c, "long long tb_end" + id + " = ")
+    emit_expr(c, n.kids[1])
+    put(c, ";\n")
+    indent(c, depth + 1)
+    put(c, "for (long long v_" + n.name + " = ")
+    emit_expr(c, n.kids[0])
+    put(c, "; v_" + n.name + " <= tb_end" + id + "; v_" + n.name + "++) {\n")
+    emit_block(c, n.kids[2], depth + 2)
+    indent(c, depth + 1)
+    put(c, "}\n")
+    indent(c, depth)
+    put(c, "}\n")
+
+// return у функции с gives: отдать выходы
+func emit_gives_return(c: Comp, depth: int)
+    outputs = c.cur_func.kids[2]
+    indent(c, depth)
+    if len(outputs.kids) == 1
+        put(c, "return v_" + outputs.kids[0].name + ";\n")
+        return
+    put(c, "return (" + c_type(c, c.cur_func.ty) + "){")
+    count i from 0 to len(outputs.kids) - 1
+        if i > 0
+            put(c, ", ")
+        put(c, "v_" + outputs.kids[i].name)
+    put(c, "};\n")
+
+func emit_statement(c: Comp, n: Node, depth: int)
+    k = n.kind
+    if k == "assign"
+        emit_assign(c, n, depth)
+    else if k == "set"
+        emit_set(c, n, depth)
+    else if k == "linkdecl"
+        indent(c, depth)
+        put(c, c_type(c, n.ty) + " *v_" + n.name + " = &(")
+        emit_expr(c, n.kids[0])
+        put(c, ");\n")
+    else if k == "multi"
+        emit_multi(c, n, depth)
+    else if k == "if"
+        emit_if(c, n, depth)
+    else if k == "each"
+        emit_each(c, n, depth)
+    else if k == "count"
+        emit_count(c, n, depth)
+    else if k == "repeat_times"
+        c.label += 1
+        id = "" + c.label
+        indent(c, depth)
+        put(c, "for (long long tb_r" + id + " = 0, tb_n" + id + " = ")
+        emit_expr(c, n.kids[0])
+        put(c, "; tb_r" + id + " < tb_n" + id + "; tb_r" + id + "++) {\n")
+        emit_block(c, n.kids[1], depth + 1)
+        indent(c, depth)
+        put(c, "}\n")
+    else if k == "repeat_while"
+        indent(c, depth)
+        put(c, "while (")
+        emit_expr(c, n.kids[0])
+        put(c, ") {\n")
+        emit_block(c, n.kids[1], depth + 1)
+        indent(c, depth)
+        put(c, "}\n")
+    else if k == "skip"
+        indent(c, depth)
+        put(c, "continue;\n")
+    else if k == "stop"
+        indent(c, depth)
+        put(c, "break;\n")
+    else if k == "fail"
+        indent(c, depth)
+        put(c, "{ tb_err = ")
+        emit_expr(c, n.kids[0])
+        put(c, "; ")
+        emit_bail(c)
+        put(c, " }\n")
+    else if k == "return"
+        if len(n.kids) == 1
+            emit_pre(c, n.kids[0], depth)
+        if len(c.cur_func.kids[2].kids) > 0 and len(n.kids) == 0
+            emit_gives_return(c, depth)
+        else if len(n.kids) == 1
+            indent(c, depth)
+            put(c, "return ")
+            emit_as(c, n.kids[0], c.cur_func.ty)
+            put(c, ";\n")
+        else
+            indent(c, depth)
+            put(c, "return;\n")
+    else if k == "expr_stmt"
+        e = n.kids[0]
+        if e.kind == "try" or e.kind == "else_err"
+            emit_pre(c, e, depth)
+            return
+        indent(c, depth)
+        if e.kind == "method" and e.name == "add"
+            // list.add(x): сначала значение, потом место под него
+            elem = c.types[e.kids[0].ty].elem
+            c.label += 1
+            id = "" + c.label
+            put(c, "{ " + c_type(c, elem) + " tb_v" + id + " = ")
+            emit_as(c, e.kids[1].kids[0], elem)
+            put(c, "; *(" + c_type(c, elem) + " *)tb_grow(")
+            emit_expr(c, e.kids[0])
+            put(c, ") = tb_v" + id + "; }\n")
+        else
+            emit_expr(c, e)
+            put(c, ";\n")
+
+func emit_block(c: Comp, block: Node, depth: int)
+    each s in block.kids
+        emit_statement(c, s, depth)
+
+// ---------- объявления верхнего уровня ----------
+
+func emit_signature(c: Comp, f: Node)
+    params = f.kids[0]
+    put(c, "static " + c_type(c, f.ty) + " " + fname(f) + "(")
+    if len(params.kids) == 0
+        put(c, "void")
+    count i from 0 to len(params.kids) - 1
+        p = params.kids[i]
+        if i > 0
+            put(c, ", ")
+        if p.is_link
+            put(c, c_type(c, p.ty) + " *v_" + p.name)
+        else
+            put(c, c_type(c, p.ty) + " v_" + p.name)
+    put(c, ")")
+
+func emit_func(c: Comp, f: Node)
+    c.cur_func = f
+    outputs = f.kids[2]
+    put(c, "\n")
+    emit_signature(c, f)
+    put(c, " {\n")
+    each o in outputs.kids
+        if not o.is_const
+            put(c, "    " + c_type(c, o.ty) + " v_" + o.name + " = ")
+            emit_default(c, o.ty)
+            put(c, ";\n")
+    emit_block(c, f.kids[1], 1)
+    if len(outputs.kids) > 0
+        emit_gives_return(c, 1)
+    else if kind_of(c, f.ty) != "none"
+        put(c, "    tb_crash(" + f.line + ", \"функция " + f.name + " дошла до конца без return\");\n")
+        put(c, "    return ")
+        emit_default(c, f.ty)
+        put(c, ";\n")
+    put(c, "}\n")
+
+// tb_show_N: печать значения типа N (для print)
+func emit_show(c: Comp, t: Type)
+    k = t.kind
+    if k == "none" or k == "multi" or k == "unknown"
+        return
+    put(c, "static void tb_show_" + t.id + "(" + c_type(c, t.id) + " x) {\n")
+    if k == "int"
+        put(c, "    printf(\"%lld\", x);\n")
+    else if k == "dec"
+        put(c, "    printf(\"%g\", x);\n")
+    else if k == "bool"
+        put(c, "    tb_ps(x ? \"true\" : \"false\");\n")
+    else if k == "text"
+        put(c, "    tb_ps(x);\n")
+    else if k == "list"
+        elem = c_type(c, t.elem)
+        put(c, "    tb_ps(\"[\");\n")
+        put(c, "    for (long long i = 0; i < x->len; i++) {\n")
+        put(c, "        if (i > 0) tb_ps(\", \");\n")
+        put(c, "        tb_show_" + t.elem + "(((" + elem + " *)x->data)[i]);\n")
+        put(c, "    }\n")
+        put(c, "    tb_ps(\"]\");\n")
+    else if k == "dict"
+        kt = c_type(c, t.key)
+        vt = c_type(c, t.elem)
+        put(c, "    tb_ps(\"{\");\n")
+        put(c, "    for (long long i = 0; i < x->keys->len; i++) {\n")
+        put(c, "        if (i > 0) tb_ps(\", \");\n")
+        put(c, "        tb_show_" + t.key + "(((" + kt + " *)x->keys->data)[i]);\n")
+        put(c, "        tb_ps(\": \");\n")
+        put(c, "        tb_show_" + t.elem + "(((" + vt + " *)x->vals->data)[i]);\n")
+        put(c, "    }\n")
+        put(c, "    tb_ps(\"}\");\n")
+    else if k == "obj"
+        o = t.obj_node
+        put(c, "    if (x == 0) { tb_ps(\"пусто\"); return; }\n")
+        put(c, "    tb_ps(\"" + o.name + "(\");\n")
+        count i from 0 to len(o.kids) - 1
+            sep = ""
+            if i > 0
+                sep = ", "
+            put(c, "    tb_ps(\"" + sep + o.kids[i].name + ": \");\n")
+            put(c, "    tb_show_" + o.kids[i].ty + "(x->q_" + o.kids[i].name + ");\n")
+        put(c, "    tb_ps(\")\");\n")
+    put(c, "}\n")
+
+func emit_obj(c: Comp, o: Node)
+    put(c, "struct tb_o_" + o.name + " {\n")
+    each f in o.kids
+        put(c, "    " + c_type(c, f.ty) + " q_" + f.name + ";\n")
+    if len(o.kids) == 0
+        put(c, "    char empty;\n")
+    put(c, "};\n")
+
+func emit_constructor(c: Comp, o: Node)
+    put(c, "static tb_o_" + o.name + " *tb_new_" + o.name + "(")
+    if len(o.kids) == 0
+        put(c, "void")
+    count i from 0 to len(o.kids) - 1
+        if i > 0
+            put(c, ", ")
+        put(c, c_type(c, o.kids[i].ty) + " a" + i)
+    put(c, ") {\n")
+    put(c, "    tb_o_" + o.name + " *o = tb_mem(sizeof(tb_o_" + o.name + "));\n")
+    count i from 0 to len(o.kids) - 1
+        put(c, "    o->q_" + o.kids[i].name + " = a" + i + ";\n")
+    put(c, "    return o;\n}\n")
+
+modpub func emit_c(c: Comp, program: Node)
+    fresh = list text
+    c.out = fresh
+    c.label = 0
+    put(c, "// Сделано компилятором Tachbit 0.5. Не правь руками: правь файл .tb\n")
+    put(c, runtime_text())
+
+    // obj: сначала имена, потом устройство (obj может хранить другой obj)
+    each top in program.kids
+        if top.kind == "obj"
+            put(c, "typedef struct tb_o_" + top.name + " tb_o_" + top.name + ";\n")
+    each top in program.kids
+        if top.kind == "obj"
+            emit_obj(c, top)
+    // выходы gives: структура на функцию
+    each top in program.kids
+        if top.kind == "func" and len(top.kids[2].kids) > 1
+            put(c, "typedef struct {")
+            count j from 0 to len(top.kids[2].kids) - 1
+                put(c, " " + c_type(c, top.kids[2].kids[j].ty) + " o" + j + ";")
+            put(c, " } tb_r_" + fname(top) + ";\n")
+    each t in c.types
+        k = t.kind
+        if k != "none" and k != "multi" and k != "unknown"
+            put(c, "static void tb_show_" + t.id + "(" + c_type(c, t.id) + " x);\n")
+    count i from 1 to len(c.temp_types) - 1
+        put(c, "static " + c_type(c, c.temp_types[i]) + " tb_t" + i + ";   // для  f() or запасное\n")
+    each top in program.kids
+        if top.kind == "obj"
+            emit_constructor(c, top)
+    each top in program.kids
+        if top.kind == "func"
+            emit_signature(c, top)
+            put(c, ";\n")
+    put(c, "\n")
+    each t in c.types
+        emit_show(c, t)
+    each top in program.kids
+        if top.kind == "func"
+            emit_func(c, top)
+    main_func = program.kids[0]
+    each top in program.kids
+        if top.kind == "func" and top.name == "main" and top.mod == program.kids[0].mod
+            main_func = top
+    put(c, "\nint main(int argc, char **argv) {\n")
+    put(c, "    tb_args = tb_list_new(sizeof(const char *));\n")
+    put(c, "    for (int i = 1; i < argc; i++) *(const char **)tb_grow(tb_args) = argv[i];\n")
+    put(c, "    " + fname(main_func) + "();\n    return 0;\n}\n")

@@ -5,6 +5,7 @@ use errors
 use lexer
 use parser
 use check
+use emit
 
 // "examples/shop.tb" → папка "examples/"
 func folder_of(path: text)
@@ -59,34 +60,157 @@ func load_program(c: Comp, path: text)
     c.file_name = path
     return program
 
+// 'текст' для командной строки: кавычка внутри превращается в '\''
+func quote(s: text)
+    return "'" + replace(s, "'", "'\\''") + "'"
+
+func is_folder(path: text)
+    return run("test -d " + quote(path)) == 0
+
+func is_file(path: text)
+    return run("test -f " + quote(path)) == 0
+
+func say_error(message: text)
+    print(message)
+    exit(1)
+
+// что запускать: файл .tb и куда класть готовую программу
+//   shop      (папка)  → shop/main.tb,  программа shop/build/shop
+//   shop.tb / shop     → shop.tb,       программа shop
+//   ничего             → ./main.tb,     программа build/<имя папки>
+func project_main(arg: text) gives main_tb: text, exe: text
+    name = arg
+    if name == ""
+        name = "."
+    repeat while len(name) > 1 and ends_with(name, "/")
+        name = cut(name, 0, len(name) - 2)
+    if is_folder(name)
+        main_tb = name + "/main.tb"
+        if not is_file(main_tb)
+            say_error("в папке " + name + " нет main.tb — с него начинается проект")
+        base = cut(name, len(folder_of(name)), len(name) - 1)
+        build_dir = name + "/build"
+        code = run("mkdir -p " + quote(build_dir))
+        if name == "."
+            code = run("basename \"$PWD\" > " + quote(build_dir + "/.name"))
+            base = trim(read_file(build_dir + "/.name") or "")
+        if base == "" or base == "." or base == ".."
+            base = "main"
+        exe = build_dir + "/" + base
+        return
+    if is_file(name)
+        main_tb = name
+        exe = without_tb(name)
+        return
+    if is_file(name + ".tb")
+        main_tb = name + ".tb"
+        exe = name
+        return
+    print("нет проекта или файла: " + name)
+    say_error("новый проект делается так:  tb new " + name)
+
+func new_project(name: text)
+    if name == ""
+        say_error("напиши имя проекта:  tb new имя")
+    if run("test -e " + quote(name)) == 0
+        say_error("уже есть папка или файл с именем " + name + " — возьми другое имя")
+    if run("mkdir " + quote(name)) != 0
+        say_error("не могу сделать папку: " + name)
+    write_file(name + "/main.tb", "func main()\n    print(\"Привет из проекта " + name + "!\")\n") else err
+        say_error("не могу записать файл: " + name + "/main.tb")
+    write_file(name + "/.gitignore", "build/\n") else err
+        ignored = err
+    print("готов проект " + name + ":")
+    print("  " + name + "/main.tb   — здесь пишешь программу")
+    print("  " + name + "/build/    — сюда кладётся готовая программа\n")
+    print("запуск:  tb start " + name)
+
+func build(c: Comp, path: text, exe: text)
+    c_path = exe + ".c"
+    program = load_program(c, path)
+    check(c, program)
+    emit_c(c, program)
+    write_file(c_path, join(c.out, "")) else err
+        print("не могу записать файл: " + c_path)
+        return 1
+    command = "${CC:-cc} -O2 -w -o " + quote(exe) + " " + quote(c_path) + " -lm"
+    if run(command) != 0
+        print("компилятор C не справился (это ошибка Tachbit, а не твоя): " + c_path)
+        return 1
+    return 0
+
 func usage()
     print("Tachbit 0.5 (компилятор на Tachbit)\n")
+    print("  tb new   имя             новый проект: папка имя/ с main.tb")
+    print("  tb start имя [слова]     собрать проект и запустить (без имени — текущая папка)\n")
+    print("  tachbit run    файл.tb [слова]   сделать программу и запустить")
+    print("  tachbit build  файл.tb   сделать программу рядом с файлом")
+    print("  tachbit check  файл.tb   только найти ошибки")
+    print("  tachbit c      файл.tb   показать, какой C получился")
     print("  tachbit tree   файл.tb   показать дерево")
     print("  tachbit tokens файл.tb   показать токены")
 
 func main()
     a = args()
-    if len(a) < 2
+    if len(a) < 1
         usage()
         exit(1)
     mode = a[0]
-    c = Comp(file_name: a[1])
+    if mode == "new"
+        name = ""
+        if len(a) > 1
+            name = a[1]
+        new_project(name)
+        return
+    if mode == "help" or mode == "-h" or mode == "--help"
+        usage()
+        return
+    if mode == "version" or mode == "--version"
+        print("Tachbit 0.5 (компилятор на Tachbit)")
+        return
+    if mode == "start"
+        mode = "run"
+    // имя проекта можно не писать: тогда берётся текущая папка
+    if len(a) < 2 and not (mode == "run" or mode == "build" or mode == "check" or mode == "c")
+        usage()
+        exit(1)
+    arg = ""
+    if len(a) > 1
+        arg = a[1]
+    path, exe = project_main(arg)
+    c = Comp(file_name: path)
     if mode == "tokens"
-        if not file_exists(a[1])
-            print("не могу открыть файл: " + a[1])
-            exit(1)
-        src = read_file(a[1]) or ""
+        src = read_file(path) else err
+            say_error("не могу открыть файл: " + path)
         lex(c, src)
         print_tokens(c)
         return
     if mode == "tree"
         out = list text
-        tree_lines(load_program(c, a[1]), 0, out)
+        tree_lines(load_program(c, path), 0, out)
         print(join(out, "\n"))
         return
     if mode == "check"
-        check(c, load_program(c, a[1]))
+        check(c, load_program(c, path))
         print("ошибок нет")
         return
+    if mode == "c"
+        program = load_program(c, path)
+        check(c, program)
+        emit_c(c, program)
+        print(cut(join(c.out, ""), 0, len(join(c.out, "")) - 2))
+        return
+    if mode == "build"
+        exit(build(c, path, exe))
+    if mode == "run"
+        if build(c, path, exe) != 0
+            exit(1)
+        // tachbit run файл.tb a b c  →  программа получит a b c в args()
+        command = quote(exe)
+        if find(exe, "/") < 0
+            command = quote("./" + exe)
+        count i from 2 to len(a) - 1
+            command = command + " " + quote(a[i])
+        exit(run(command))
     usage()
     exit(1)

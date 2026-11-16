@@ -88,3 +88,7 @@ obj Comp
     loop_depth: int
     // типы скрытых переменных tb_t1, tb_t2 ... (номер 0 не занят)
     temp_types: list int
+    // вывод C
+    out: list text
+    label: int
+    cur_func: Node

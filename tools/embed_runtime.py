@@ -13,4 +13,14 @@ for line in src.splitlines():
     lines.append('    "' + escaped + '\\n"')
 lines.append("    ;")
 open(os.path.join(root, "compiler-c", "runtime_text.c"), "w", encoding="utf-8").write("\n".join(lines) + "\n")
-print("готово: compiler-c/runtime_text.c")
+
+# то же для компилятора на Tachbit: функция runtime_text() в compiler-tb/runtime_text.tb
+tb = ["// Сделано tools/embed_runtime.py из compiler-c/runtime.h. Не правь руками.",
+      "modpub func runtime_text()",
+      "    lines = list text"]
+for line in src.splitlines():
+    escaped = line.replace("\\", "\\\\").replace('"', '\\"')
+    tb.append('    lines.add("' + escaped + '\\n")')
+tb.append('    return join(lines, "")')
+open(os.path.join(root, "compiler-tb", "runtime_text.tb"), "w", encoding="utf-8").write("\n".join(tb) + "\n")
+print("готово: compiler-c/runtime_text.c и compiler-tb/runtime_text.tb")

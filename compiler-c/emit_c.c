@@ -936,7 +936,7 @@ static void emit_constructor(Node *obj) {
 void emit_c(Node *program, FILE *file) {
     out = file;
     label = 0;
-    fprintf(out, "// Сделано компилятором Tachbit 0.3. Не правь руками: правь файл .tb\n");
+    fprintf(out, "// Сделано компилятором Tachbit 0.5. Не правь руками: правь файл .tb\n");
     fprintf(out, "%s", runtime_text);
 
     // obj: сначала имена, потом устройство (obj может хранить другой obj)

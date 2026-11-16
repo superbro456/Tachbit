@@ -1,11 +1,14 @@
-# compiler-tb — компилятор Tachbit, написанный на Tachbit (версия 0.5)
+# compiler-tb — компилятор Tachbit, написанный на Tachbit (0.5)
 
-Здесь появится тот же компилятор, но на языке Tachbit.
+Тот же компилятор, что в `compiler-c/`, строчка в строчку, но на Tachbit.
+Вместо глобальных переменных — один объект `Comp`, который передаётся во все функции.
 
-Как это будет работать (раскрутка, bootstrap):
+Раскрутка (bootstrap):
 
-1. `compiler-c/` (компилятор на C) собирается один раз командой `cc` → программа `tachbit`.
-2. `./tachbit build compiler-tb/main.tb` → `tachbit2` (компилятор Tachbit, собранный из Tachbit).
-3. `./tachbit2 build compiler-tb/main.tb` → `tachbit3`. Если `tachbit2` и `tachbit3` выдают одинаковый C — язык сам себя собирает.
+1. `cc -std=c99 -O2 -o tachbit compiler-c/*.c` — стартер на C.
+2. `./tachbit build compiler-tb/main.tb` → `compiler-tb/main` (компилятор на Tachbit). Переименуй его в `tachbit2`.
+3. `./tachbit2 build compiler-tb/main.tb` → снова `compiler-tb/main`: компилятор собрал сам себя.
 
-После этого компилятор на C нужен только как «стартер» на новом компьютере.
+Проверка: `./tests/run_tests.sh --tb` делает эти шаги и гоняет все тесты через компилятор на Tachbit.
+
+`runtime_text.tb` не правь руками: он делается из `compiler-c/runtime.h` командой `python3 tools/embed_runtime.py`.

@@ -1,4 +1,4 @@
-// Tachbit 0.3 — точка входа компилятора.
+// Tachbit 0.5 — точка входа компилятора.
 //
 //   tb new   имя             — новый проект: папка имя/ с main.tb
 //   tb start имя [слова]     — собрать проект (или файл) и запустить
@@ -74,7 +74,7 @@ static int has_slash(char *path) {
 }
 
 static void usage(void) {
-    printf("Tachbit 0.3\n\n");
+    printf("Tachbit 0.5 (компилятор на C)\n\n");
     printf("  tb new   имя             новый проект: папка имя/ с main.tb\n");
     printf("  tb start имя [слова]     собрать проект и запустить (без имени — текущая папка)\n\n");
     printf("  tachbit run    файл.tb [слова]   сделать программу и запустить\n");
@@ -294,7 +294,7 @@ int main(int argc, char **argv) {
         return 0;
     }
     if (same(mode, "version") || same(mode, "--version")) {
-        printf("Tachbit 0.3\n");
+        printf("Tachbit 0.5 (компилятор на C)\n");
         return 0;
     }
     if (same(mode, "start")) {
