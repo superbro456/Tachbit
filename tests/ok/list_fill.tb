@@ -1,0 +1,22 @@
+// 0.7: repeat N times: list.add(x) — сразу N элементов
+func main()
+    a = list int
+    repeat 5 times
+        a.add(7)
+    repeat 3 times
+        a.add(0)
+    b = list bool
+    b.add(false)
+    repeat 130 times
+        b.add(true)
+    repeat 3 times
+        b.add(false)
+    n = 0
+    each v in b
+        if v
+            n += 1
+    print(a, len(b), n, b[0], b[130], b[131], b[133])
+    t = list text
+    repeat 2 times
+        t.add("x")
+    print(t)

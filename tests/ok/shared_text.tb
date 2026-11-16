@@ -1,0 +1,13 @@
+// 0.7: shared text в on all cores: += от всех ядер, порядок кусков любой
+func main()
+    shared out = ""
+    shared n = 0
+    count i from 1 to 100000 on all cores
+        out += "" + i + ","
+        n += 1
+    parts = split(out, ",")
+    total = 0
+    each p in parts
+        if p != ""
+            total += to_int(p) or 0
+    print(n, len(parts) - 1, total)

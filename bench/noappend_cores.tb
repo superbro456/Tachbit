@@ -1,0 +1,7 @@
+// то же на одном ядре
+func main()
+    out = ""
+    count i from 0 to 3999999
+        x = i * i % 1000003
+        out += "line " + i + ",value" + x + "\n"
+    print(len(out))

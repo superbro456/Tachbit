@@ -1,0 +1,51 @@
+// 0.7: s += x дописывает в конец своей памяти; t = s не меняется
+func add_bang(x: text)
+    x += "!"
+    return x
+
+func keeps(link x)
+    x = x + "?"
+
+func main()
+    s = "ab"
+    t = s
+    s += "c"
+    print(s, t)
+    s = s + "d" + 5 + true
+    print(s, len(s), s[0], s[len(s) - 1])
+    u = s
+    s += "e"
+    print(u, s)
+    s += s
+    print(s)
+    s = s + "x" + s
+    print(s)
+    words = list text
+    w = ""
+    count i from 1 to 5
+        w += "w" + i
+        words.add(w)
+    print(words)
+    print(add_bang(w), w)
+    k = "k"
+    keeps(k)
+    print(k)
+    big = ""
+    count i from 1 to 100000
+        big += "abc"
+        if big == "abc"
+            print("first")
+    print(len(big), big[299999])
+    r = ""
+    count i from 1 to 3
+        r = r + i
+        print(r)
+    q = r
+    r = "new"
+    r += "!"
+    print(q, r)
+    temp
+        z = ""
+        count i from 1 to 1000
+            z += "zz"
+        print(len(z))

@@ -518,6 +518,8 @@ func need_place_for(c: Comp, n: Node, why: text, for_link: bool)
         return
     if n.kind == "field"
         return
+    if n.kind == "index" and is_list(c, n.kids[0].ty) and c.types[n.kids[0].ty].elem == 3 and for_link
+        error_at(c, n.line, "ярлык на элемент list bool нельзя: там каждый элемент — один бит, у бита нет своего адреса", "")
     if n.kind == "index" and is_cols_list(c, n.kids[0].ty) and for_link
         error_at(c, n.line, "ярлык на элемент списка колонок нельзя: возьми ярлык на качество, например pts[i].x", "")
     if n.kind == "index" and is_list(c, n.kids[0].ty)
@@ -899,8 +901,8 @@ func check_assign(c: Comp, n: Node)
     if n.is_shared
         if v >= 0
             error_at(c, n.line, "shared пишется только у новой переменной", n.name)
-        if declared != 1 and declared != 2 and t != 1 and t != 2
-            error_at(c, n.line, "shared бывает int или dec: shared y = int 0", n.name)
+        if declared != 1 and declared != 2 and declared != 4 and t != 1 and t != 2 and t != 4
+            error_at(c, n.line, "shared бывает int, dec или text: shared y = int 0, shared out = \"\"", n.name)
     if v < 0
         type = t
         if declared >= 0
@@ -978,7 +980,7 @@ func check_set(c: Comp, n: Node)
 func check_linkdecl(c: Comp, n: Node)
     target = n.kids[0]
     t = check_value(c, target)
-    need_place(c, target, "ярлык link ведёт к переменной, u.age или nums[i]")
+    need_place_for(c, target, "ярлык link ведёт к переменной, u.age или nums[i]", true)
     no_outside_change(c, target)
     if outside_temp(c, root_var(c, target)) and not is_plain(t)
         temp_keep_out(c, n.line, n.name)
@@ -1204,6 +1206,8 @@ func check_pieces(c: Comp, n: Node, t: int)
         error_at(c, n.line, "by N режет на куски список: each piece in nums by 64", "")
     if is_cols_obj(c, c.types[t].elem)
         error_at(c, n.line, "список колонок (by columns) на куски пока не режется", "")
+    if c.types[t].elem == 3
+        error_at(c, n.line, "list bool хранится битами и на куски пока не режется", "")
     if c.par_base >= 0
         error_at(c, n.line, "each ... by N внутри " + loop_word(c) + " пока нельзя", "")
     need_int(c, n.piece_size, "by")

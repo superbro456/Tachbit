@@ -144,3 +144,31 @@ echo "== text  (ответ: $(./text))"
 echo "   Tachbit:  $(best ./text) с"
 echo "   C:        $(best ./text_c) с"
 rm -f text text.c text_c
+
+# склеивание: отчёт из 2 млн строк через out += ... (дописывание в конец своей памяти)
+../tachbit-tb build append.tb > /dev/null || exit 1
+cc -O2 -o append_c append_pure.c || exit 1
+echo "== append  (ответ: $(./append))"
+echo "   Tachbit:  $(best ./append) с"
+echo "   C:        $(best ./append_c) с"
+rm -f append append.c append_c
+
+# решето битами: list bool в Tachbit хранится битами; C — байтами (как primes_pure.c) и битами вручную
+../tachbit-tb build primes.tb > /dev/null || exit 1
+cc -O2 -o primes_c primes_pure.c || exit 1
+cc -O2 -o primes_bits_c primes_bits.c || exit 1
+echo "== list bool  (ответ: $(./primes))"
+echo "   Tachbit:          $(best ./primes) с"
+echo "   C (байты):        $(best ./primes_c) с"
+echo "   C (биты вручную): $(best ./primes_bits_c) с"
+rm -f primes primes.c primes_c primes_bits_c
+
+# склеивание на всех ядрах: shared out = "" и out += ... внутри on all cores
+../tachbit-tb build append_cores.tb > /dev/null || exit 1
+../tachbit-tb build noappend_cores.tb > /dev/null || exit 1
+cc -O2 -o append_cores_c append_cores_pure.c || exit 1
+echo "== append on all cores  (ответ: $(./append_cores))"
+echo "   Tachbit (все ядра):  $(best ./append_cores) с"
+echo "   Tachbit (одно ядро): $(best ./noappend_cores) с"
+echo "   C (одно ядро):       $(best ./append_cores_c) с"
+rm -f append_cores append_cores.c noappend_cores noappend_cores.c append_cores_c

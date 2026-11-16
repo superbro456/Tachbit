@@ -145,3 +145,5 @@ obj Comp
     call_from: list int
     call_to: list int
     call_loop: list bool
+    // текстовые переменные текущей функции, в которые дописывают на месте (s += x)
+    builders: list text

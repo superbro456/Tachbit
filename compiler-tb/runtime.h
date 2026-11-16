@@ -69,6 +69,11 @@ static tb_mark tb_temp_begin(void) {
     tb_temp_depth += 1;
     return (tb_mark){tb_nchunks, tb_nchunks > 0 ? tb_chunks[tb_nchunks - 1].used : 0};
 }
+// длина последних текстов: s[i] в цикле не пересчитывает strlen каждый раз
+static _Thread_local const char *tb_lc_p[2];
+static _Thread_local long long tb_lc_n[2];
+static _Thread_local int tb_lc_next;
+static inline void tb_lc_clear(void) { tb_lc_p[0] = 0; tb_lc_p[1] = 0; }
 static void tb_temp_end(tb_mark m) {
     // первый кусок оставляем пустым: следующий temp возьмёт его без malloc
     while (tb_nchunks > m.n && tb_nchunks > 1) {
@@ -78,6 +83,7 @@ static void tb_temp_end(tb_mark m) {
     if (tb_nchunks > m.n) tb_chunks[0].used = 0;
     else if (tb_nchunks > 0) tb_chunks[tb_nchunks - 1].used = m.used;
     tb_temp_depth -= 1;
+    tb_lc_clear();
 }
 static void *tb_mem(long long n) {
     if (tb_temp_depth > 0) return tb_temp_alloc(n);
@@ -87,6 +93,7 @@ static void *tb_mem(long long n) {
 }
 // вырасти кусок: временный растёт во временной памяти, обычный — через realloc
 static void *tb_resize(void *p, long long old_n, long long new_n) {
+    tb_lc_clear();
     if (tb_nchunks > 0 && tb_in_temp(p)) {
         void *q = tb_temp_alloc(new_n);
         memcpy(q, p, old_n);
@@ -130,6 +137,89 @@ static void *tb_pop(tb_list *l, int line) {
     l->len -= 1;
     return l->data + l->len * l->size;
 }
+// ---------- list bool: по одному биту на элемент (в 8 раз меньше памяти) ----------
+// тот же tb_list: len и cap — в битах, size = 0, data — слова по 64 бита
+static tb_list *tb_bits_new(void) {
+    tb_list *l = tb_mem(sizeof(tb_list));
+    l->len = 0; l->cap = 64; l->size = 0; l->data = tb_mem(8);
+    memset(l->data, 0, 8);
+    return l;
+}
+static tb_list *tb_bits_from(long long n, const unsigned char *src) {
+    tb_list *l = tb_mem(sizeof(tb_list));
+    long long words = (n + 63) / 64 + (n == 0);
+    l->len = n; l->cap = words * 64; l->size = 0; l->data = tb_mem(words * 8);
+    memset(l->data, 0, words * 8);
+    unsigned long long *w = (unsigned long long *)l->data;
+    for (long long i = 0; i < n; i++) if (src[i]) w[i >> 6] |= 1ULL << (i & 63);
+    return l;
+}
+// бит без проверки номера (для each — номер всегда внутри)
+#define TB_BIT(l, i) ((_Bool)((((unsigned long long *)(l)->data)[(i) >> 6] >> ((i) & 63)) & 1))
+static inline _Bool tb_bget(tb_list *l, long long i, int line) {
+    if (TB_RARE((unsigned long long)i >= (unsigned long long)l->len)) tb_crash(line, "номер за пределами списка");
+    return TB_BIT(l, i);
+}
+static inline void tb_bset(tb_list *l, long long i, _Bool v, int line) {
+    if (TB_RARE((unsigned long long)i >= (unsigned long long)l->len)) tb_crash(line, "номер за пределами списка");
+    unsigned long long *w = (unsigned long long *)l->data + (i >> 6), m = 1ULL << (i & 63);
+    *w = v ? (*w | m) : (*w & ~m);
+}
+static inline void tb_badd(tb_list *l, _Bool v) {
+    if (TB_RARE(l->len >= l->cap)) {
+        if (l->cap < 0) tb_crash(0, "список нельзя растить, пока по нему идёт each ... by N (и сам кусок растить нельзя)");
+        long long old = l->cap / 8;
+        l->cap = l->cap * 2;
+        l->data = tb_resize(l->data, old, l->cap / 8);
+        memset(l->data + old, 0, l->cap / 8 - old);
+    }
+    long long i = l->len++;
+    unsigned long long *w = (unsigned long long *)l->data + (i >> 6), m = 1ULL << (i & 63);
+    *w = v ? (*w | m) : (*w & ~m);
+}
+static inline _Bool tb_bpop(tb_list *l, int line) {
+    if (l->len == 0) tb_crash(line, ".pop() у пустого списка");
+    l->len -= 1;
+    return TB_BIT(l, l->len);
+}
+// N одинаковых битов в конец (repeat N times: flags.add(true))
+static void tb_bfill(tb_list *l, long long n, _Bool v) {
+    if (n <= 0) return;
+    if (l->cap < 0) tb_crash(0, "список нельзя растить, пока по нему идёт each ... by N (и сам кусок растить нельзя)");
+    long long need = l->len + n;
+    if (need > l->cap) {
+        long long old = l->cap / 8, cap = l->cap;
+        while (cap < need) cap *= 2;
+        l->data = tb_resize(l->data, old, cap / 8);
+        memset(l->data + old, 0, cap / 8 - old);
+        l->cap = cap;
+    }
+    unsigned long long *w = (unsigned long long *)l->data;
+    long long i = l->len;
+    for (; i < need && (i & 63); i++) w[i >> 6] = v ? (w[i >> 6] | 1ULL << (i & 63)) : (w[i >> 6] & ~(1ULL << (i & 63)));
+    if (need - i >= 64) { memset(w + (i >> 6), v ? 0xff : 0, ((need - i) >> 6) * 8); i += (need - i) & ~63LL; }
+    for (; i < need; i++) w[i >> 6] = v ? (w[i >> 6] | 1ULL << (i & 63)) : (w[i >> 6] & ~(1ULL << (i & 63)));
+    l->len = need;
+}
+// значения dict bool лежат байтами — в list bool их надо переложить в биты
+static tb_list *tb_bits_of_bytes(tb_list *b) { return tb_bits_from(b->len, (const unsigned char *)b->data); }
+// N одинаковых элементов в конец (repeat N times: nums.add(0))
+static void tb_fill(tb_list *l, long long n, const void *v) {
+    if (n <= 0) return;
+    if (l->len + n > l->cap) {
+        if (l->cap < 0) tb_crash(0, "список нельзя растить, пока по нему идёт each ... by N (и сам кусок растить нельзя)");
+        long long cap = l->cap * 2 + 4;
+        if (cap < l->len + n) cap = l->len + n;
+        l->data = tb_resize(l->data, l->cap * l->size, cap * l->size);
+        l->cap = cap;
+    }
+    char *p = l->data + l->len * l->size;
+    int zero = 1;
+    for (long long b = 0; b < l->size; b++) if (((const char *)v)[b]) zero = 0;
+    if (zero) memset(p, 0, n * l->size);
+    else for (long long i = 0; i < n; i++) memcpy(p + i * l->size, v, l->size);
+    l->len += n;
+}
 static void *tb_nn(void *p, int line) {
     if (p == 0) tb_crash(line, "obj пустой: его ещё не создали");
     return p;
@@ -150,9 +240,64 @@ __attribute__((constructor)) static void tb_chars_init(void) {
     for (int i = 0; i < 256; i++) { tb_chars[2 * i] = (char)i; tb_chars[2 * i + 1] = 0; }
 }
 static inline const char *tb_chr(long long c) { return tb_chars + 2 * (unsigned char)c; }
-static const char *tb_char_at(const char *s, long long i, int line) {
-    if (i < 0 || i >= (long long)strlen(s)) tb_crash(line, "номер за пределами текста");
+static inline long long tb_tlen(const char *s) {
+    if (tb_lc_p[0] == s) return tb_lc_n[0];
+    if (tb_lc_p[1] == s) return tb_lc_n[1];
+    long long n = (long long)strlen(s);
+    tb_lc_p[tb_lc_next] = s; tb_lc_n[tb_lc_next] = n; tb_lc_next ^= 1;
+    return n;
+}
+// n — длина, если компилятор её знает (текст, в который дописывают), иначе -1
+static inline const char *tb_char_at(const char *s, long long i, long long n, int line) {
+    if (n < 0) n = tb_tlen(s);
+    if (i < 0 || i >= n) tb_crash(line, "номер за пределами текста");
     return tb_chr((unsigned char)s[i]);
+}
+// s += b: дописать в конец своей памяти s, а не собирать третий текст из двух.
+// *rl — длина s в своей памяти (-1: своей памяти нет, s могли сохранить где-то ещё — сначала копия),
+// *rc — сколько там места.
+static void tb_app_n(const char **p, long long *rl, long long *rc, const char *b, long long lb);
+static inline void tb_app(const char **p, long long *rl, long long *rc, const char *b) {
+    tb_app_n(p, rl, rc, b, (long long)strlen(b));
+}
+// дописать число: цифры пишутся прямо в конец, без отдельного текста
+static inline void tb_app_i(const char **p, long long *rl, long long *rc, long long x) {
+    char d[24]; int n = 0;
+    unsigned long long u = x < 0 ? 0ULL - (unsigned long long)x : (unsigned long long)x;
+    do { d[23 - n++] = (char)('0' + u % 10); u /= 10; } while (u);
+    if (x < 0) d[23 - n++] = '-';
+    tb_app_n(p, rl, rc, d + 24 - n, n);
+}
+static void tb_app_n(const char **p, long long *rl, long long *rc, const char *b, long long lb);
+// ядро отдаёт свой кусок в общий текст: если общий ещё пустой — забирает память куска целиком, без копии
+static void tb_app_take(const char **p, long long *rl, long long *rc, const char *b, long long brl, long long brc) {
+    if (*rl < 0 && (*p)[0] == 0 && brl >= 0) { *p = b; *rl = brl; *rc = brc; return; }
+    tb_app_n(p, rl, rc, b, brl >= 0 ? brl : (long long)strlen(b));
+}
+static void tb_app_n(const char **p, long long *rl, long long *rc, const char *b, long long lb) {
+    char *s = (char *)*p;
+    if (*rl < 0) {
+        long long la = (long long)strlen(s);
+        long long cap = 2 * (la + lb) + 1;
+        if (cap < 64) cap = 64;
+        char *r = tb_mem(cap);
+        memcpy(r, s, la);
+        memcpy(r + la, b, lb);
+        r[la + lb] = 0;
+        *p = r; *rl = la + lb; *rc = cap;
+        return;
+    }
+    long long need = *rl + lb + 1;
+    if (need > *rc) {
+        long long cap = 2 * need;
+        long long off = (b >= s && b < s + *rc) ? b - s : -1;
+        s = tb_resize(s, *rl + 1, cap);
+        if (off >= 0) b = s + off;
+        *p = s; *rc = cap;
+    }
+    memmove(s + *rl, b, lb);
+    *rl += lb;
+    s[*rl] = 0;
 }
 static const char *tb_cut(const char *s, long long from, long long to, int line) {
     long long n = (long long)strlen(s);
@@ -331,7 +476,16 @@ static double tb_sqrt(double x, int line) { if (x < 0) tb_crash(line, "sqrt: к�
 static int tb_cmp_int(const void *a, const void *b) { long long x = *(const long long *)a, y = *(const long long *)b; return (x > y) - (x < y); }
 static int tb_cmp_dec(const void *a, const void *b) { double x = *(const double *)a, y = *(const double *)b; return (x > y) - (x < y); }
 static int tb_cmp_text(const void *a, const void *b) { return strcmp(*(const char * const *)a, *(const char * const *)b); }
-static tb_list *tb_copy(tb_list *l) { return tb_list_from(l->len, l->size, l->data); }
+static tb_list *tb_copy(tb_list *l) {
+    if (l->size == 0) {
+        tb_list *r = tb_mem(sizeof(tb_list));
+        long long bytes = l->cap / 8;
+        r->len = l->len; r->cap = l->cap; r->size = 0; r->data = tb_mem(bytes);
+        memcpy(r->data, l->data, bytes);
+        return r;
+    }
+    return tb_list_from(l->len, l->size, l->data);
+}
 static void tb_sort_list(tb_list *l, int (*cmp)(const void *, const void *)) { qsort(l->data, l->len, l->size, cmp); }
 
 // ---------- dict: ключи и значения лежат в двух списках по порядку добавления,

@@ -1,0 +1,5 @@
+// 0.7: list bool битами — чего с ним нельзя
+func main()
+    f = [true, false]
+    each p in f by 2
+        print(len(p))
