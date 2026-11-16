@@ -140,7 +140,7 @@ func build(c: Comp, path: text, exe: text)
     command = "${CC:-cc} -O2 -w -o " + quote(exe) + " " + quote(c_path) + " -lm -lpthread"
     // окно: на Mac — Cocoa (есть всегда), на Linux — X11
     if c.gfx
-        command += " $( [ \"$(uname)\" = Darwin ] && echo '-framework Cocoa -framework CoreGraphics -lobjc' || echo '-lX11' )"
+        command += " $( [ \"$(uname)\" = Darwin ] && echo '-framework Cocoa -framework CoreGraphics -framework QuartzCore -lobjc' || echo '-lX11' )"
     if run(command) != 0
         print("компилятор C не справился (это ошибка Tachbit, а не твоя): " + c_path)
         return 1

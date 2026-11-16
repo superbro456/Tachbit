@@ -15,8 +15,15 @@ func main()
     repeat 100 times
         flowers.add(random(0, 640 * 480 - 1))
     frames = 0
+    show_ms = 0
     t0 = time_ms()
-    repeat while window_alive() and frames < 1000
+    repeat while frames < 1000
+        // показ кадра на экране отдельно от расчёта и рисования
+        ts = time_ms()
+        alive = window_alive()
+        show_ms += time_ms() - ts
+        if not alive
+            stop
         frames += 1
         each b in bees
             b.x += b.dx
@@ -36,3 +43,4 @@ func main()
     print("кадров:", frames, " время:", ms, "мс")
     print("кадров в секунду:", frames * 1000 / max(ms, 1))
     print("на один кадр:", ms * 1000 / max(frames, 1), "мкс")
+    print("из них расчёт и рисование:", ms - show_ms, "мс, показ на экране:", show_ms, "мс")

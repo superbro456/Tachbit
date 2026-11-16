@@ -1811,19 +1811,10 @@ static const unsigned char tb_mac_keys[128] = {
     [28]='8',[29]='0',[31]='O',[32]='U',[34]='I',[35]='P',[36]=TB_K_ENTER,[37]='L',[38]='J',[40]='K',[45]='N',
     [46]='M',[48]=TB_K_TAB,[49]=TB_K_SPACE,[51]=TB_K_BACK,[53]=TB_K_ESC,[56]=TB_K_SHIFT,[60]=TB_K_SHIFT,
     [76]=TB_K_ENTER,[123]=TB_K_LEFT,[124]=TB_K_RIGHT,[125]=TB_K_DOWN,[126]=TB_K_UP };
-static void tb_view_draw(id v, SEL s, CGRect r) {
-    (void)v; (void)s; (void)r;
-    id gc = TB_MSG(id, TB_CLS("NSGraphicsContext"), "currentContext");
-    CGContextRef ctx = TB_MSG1(BOOL, gc, "respondsToSelector:", SEL, sel_getUid("CGContext"))
-        ? TB_MSG(CGContextRef, gc, "CGContext") : TB_MSG(CGContextRef, gc, "graphicsPort");
-    CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
-    CGDataProviderRef prov = CGDataProviderCreateWithData(0, tb_px, (size_t)tb_gw * tb_gh * 4, 0);
-    CGImageRef img = CGImageCreate(tb_gw, tb_gh, 8, 32, tb_gw * 4, space,
-        kCGImageAlphaNoneSkipFirst | kCGBitmapByteOrder32Little, prov, 0, false, kCGRenderingIntentDefault);
-    CGContextSetInterpolationQuality(ctx, kCGInterpolationNone);
-    CGContextDrawImage(ctx, CGRectMake(0, 0, tb_gw, tb_gh), img);
-    CGImageRelease(img); CGDataProviderRelease(prov); CGColorSpaceRelease(space);
-}
+// кадр отдаём слою окна готовой картинкой: масштаб под Retina делает видеокарта,
+// цвета в пространстве экрана — без пересчёта каждой точки
+static CGContextRef tb_cgctx = 0;
+static id tb_layer = 0;
 static BOOL tb_nswnd_close(id v, SEL s, id w) { (void)v; (void)s; (void)w; tb_gclosed = 1; return YES; }
 static int tb_gfx_open(const char *title) {
     tb_nsapp = TB_MSG(id, TB_CLS("NSApplication"), "sharedApplication");
@@ -1836,10 +1827,18 @@ static int tb_gfx_open(const char *title) {
     class_addMethod(dc, sel_getUid("windowShouldClose:"), (IMP)tb_nswnd_close, "c@:@");
     objc_registerClassPair(dc);
     TB_MSG1(void, tb_wnd, "setDelegate:", id, TB_MSG(id, TB_MSG(id, (id)dc, "alloc"), "init"));
-    Class vc = objc_allocateClassPair((Class)TB_CLS("NSView"), "TachbitView", 0);
-    class_addMethod(vc, sel_getUid("drawRect:"), (IMP)tb_view_draw, "v@:{CGRect={CGPoint=dd}{CGSize=dd}}");
-    objc_registerClassPair(vc);
-    TB_MSG1(void, tb_wnd, "setContentView:", id, TB_MSG(id, TB_MSG(id, (id)vc, "alloc"), "init"));
+    id view = TB_MSG(id, TB_MSG(id, TB_CLS("NSView"), "alloc"), "init");
+    TB_MSG1(void, tb_wnd, "setContentView:", id, view);
+    TB_MSG1(void, view, "setWantsLayer:", BOOL, YES);
+    tb_layer = TB_MSG(id, view, "layer");
+    id nearest = TB_MSG1(id, TB_CLS("NSString"), "stringWithUTF8String:", const char *, "nearest");
+    TB_MSG1(void, tb_layer, "setMagnificationFilter:", id, nearest);
+    CGColorSpaceRef space = CGDisplayCopyColorSpace(CGMainDisplayID());
+    if (!space) space = CGColorSpaceCreateDeviceRGB();
+    tb_cgctx = CGBitmapContextCreate(tb_px, tb_gw, tb_gh, 8, tb_gw * 4, space,
+        kCGImageAlphaNoneSkipFirst | kCGBitmapByteOrder32Little);
+    CGColorSpaceRelease(space);
+    if (!tb_cgctx) return 0;
     TB_MSG1(void, tb_wnd, "setTitle:", id, TB_MSG1(id, TB_CLS("NSString"), "stringWithUTF8String:", const char *, title));
     TB_MSG1(void, tb_wnd, "setAcceptsMouseMovedEvents:", BOOL, YES);
     TB_MSG1(void, tb_wnd, "makeKeyAndOrderFront:", id, 0);
@@ -1849,7 +1848,10 @@ static int tb_gfx_open(const char *title) {
     return 1;
 }
 static void tb_gfx_events(void) {
-    TB_MSG1(void, TB_MSG(id, tb_wnd, "contentView"), "setNeedsDisplay:", BOOL, YES);
+    CGImageRef img = CGBitmapContextCreateImage(tb_cgctx);   // копия кадра
+    TB_MSG1(void, tb_layer, "setContents:", id, (id)img);
+    CGImageRelease(img);
+    TB_MSG(void, TB_CLS("CATransaction"), "flush");
     id mode = TB_MSG1(id, TB_CLS("NSString"), "stringWithUTF8String:", const char *, "kCFRunLoopDefaultMode");
     while (1) {
         id ev = ((id(*)(id, SEL, unsigned long long, id, id, BOOL))objc_msgSend)(tb_nsapp,
