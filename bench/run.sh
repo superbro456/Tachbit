@@ -156,7 +156,7 @@ rm -f append append.c append_c
 # решето битами: list bool в Tachbit хранится битами; C — байтами (как primes_pure.c) и битами вручную
 ../tachbit-tb build primes.tb > /dev/null || exit 1
 cc -O2 -o primes_c primes_pure.c || exit 1
-cc -O2 -o primes_bits_c primes_bits.c || exit 1
+cc -O2 -o primes_bits_c primes_bits_pure.c || exit 1
 echo "== list bool  (ответ: $(./primes))"
 echo "   Tachbit:          $(best ./primes) с"
 echo "   C (байты):        $(best ./primes_c) с"
