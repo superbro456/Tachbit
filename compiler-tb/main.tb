@@ -3,6 +3,7 @@
 use types
 use errors
 use lexer
+use runtime_text
 use parser
 use check
 use emit
@@ -167,11 +168,18 @@ func build_bare(c: Comp, path: text, exe: text)
     if run(cc) != 0
         print("компилятор C не справился (это ошибка Tachbit, а не твоя): " + c_path)
         return 1
-    ld_cmd = "if command -v ld.lld >/dev/null 2>&1; then L=ld.lld; else L=ld; fi; $L -m elf_i386 -T " + quote(ld_path)
-    ld_cmd = ld_cmd + " -o " + quote(elf) + " " + o_path
-    if run(ld_cmd) != 0
-        print("не получилось собрать ядро: нужен ld.lld (на Mac: brew install lld)")
+    // свой компоновщик (на Python, он есть почти везде); если Python нет — ld.lld
+    py_path = exe + ".link.py"
+    write_file(py_path, runtime_text.linker_text()) else err
+        print("не могу записать файл: " + py_path)
         return 1
+    ld_cmd = "if command -v python3 >/dev/null 2>&1; then python3 " + quote(py_path) + " " + o_path + " -o " + quote(elf)
+    ld_cmd = ld_cmd + "; elif command -v ld.lld >/dev/null 2>&1; then ld.lld -m elf_i386 -T " + quote(ld_path) + " -o " + quote(elf) + " " + o_path
+    ld_cmd = ld_cmd + "; else echo 'нужен python3 или ld.lld'; false; fi"
+    if run(ld_cmd) != 0
+        print("не получилось собрать ядро из " + c_path)
+        return 1
+    removed = run("rm -f " + quote(py_path))
     cleaned = run("rm -f " + o_path + " " + quote(ld_path))
     print("готово ядро: " + elf)
     print("запуск:  qemu-system-i386 -kernel " + quote(elf))

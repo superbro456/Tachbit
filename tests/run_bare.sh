@@ -3,7 +3,7 @@
 # командой tachbit bare и запускаются в QEMU; вывод (порт COM1) сравнивается с .out.
 #   ./tests/run_bare.sh            проверить
 #   ./tests/run_bare.sh --update   записать новые .out для tests/bare
-# Нужны qemu-system-i386 и ld.lld (на Mac: brew install qemu lld).
+# Нужны qemu-system-i386 и python3 (на Mac: brew install qemu).
 cd "$(dirname "$0")/.." || exit 1
 command -v qemu-system-i386 > /dev/null || { echo "нет qemu-system-i386 (на Mac: brew install qemu)"; exit 1; }
 [ -x ./tachbit-tb ] || ./tools/build_tb.sh > /dev/null || exit 1

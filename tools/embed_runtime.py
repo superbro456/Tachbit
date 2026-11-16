@@ -24,5 +24,12 @@ for line in src.splitlines():
     escaped = line.replace("\\", "\\\\").replace('"', '\\"')
     tb.append('    lines.add("' + escaped + '\\n")')
 tb.append('    return join(lines, "")')
+# и маленький компоновщик ядер (tachbit bare без ld.lld): функция linker_text()
+src = open(os.path.join(root, "tools", "elf_link.py"), encoding="utf-8").read()
+tb += ["", "modpub func linker_text()", "    lines = list text"]
+for line in src.splitlines():
+    escaped = line.replace("\\", "\\\\").replace('"', '\\"')
+    tb.append('    lines.add("' + escaped + '\\n")')
+tb.append('    return join(lines, "")')
 open(os.path.join(root, "compiler-tb", "runtime_text.tb"), "w", encoding="utf-8").write("\n".join(tb) + "\n")
 print("готово: compiler-c/runtime_text.c и compiler-tb/runtime_text.tb")

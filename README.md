@@ -308,7 +308,7 @@ count i from 0 to len(idx) - 1
 Пишешь на том же Tachbit: `print`, `list`, `dict`, `obj`, циклы, `background` работают как обычно.
 
 ```
-brew install qemu lld                         # на Mac, один раз
+brew install qemu                              # на Mac, один раз (lld не нужен: свой компоновщик на Python)
 ./tools/kernel.sh                             # пример examples/kernel/main.tb в окне QEMU
 ./tools/kernel.sh examples/kernel/main.tb --text   # без окна, вывод в терминал
 ./tests/run_bare.sh                           # все проверки ядер
