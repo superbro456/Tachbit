@@ -1,0 +1,32 @@
+// 0.7: background и .wait
+func slow_sum(n: int) gives s: int
+    s = 0
+    count i from 1 to n
+        s += i % 7
+
+func greet(name: text, many: int) gives r: text
+    r = ""
+    repeat many times
+        r = r + name
+
+func half(x: dec) gives r: dec
+    r = x / 2
+
+func say(word: text)
+    print("фон говорит: " + word)
+
+func main()
+    a = background slow_sum(n: 3000000)
+    b = background slow_sum(4000000)
+    g = background greet("ля", 3)
+    h = background half(5)
+    s = background say("привет")
+    s.wait
+    print(a.wait, b.wait)
+    print(g.wait, h.wait)
+    print(a.wait + 1)
+    tasks = list int
+    count i from 1 to 3
+        t = background slow_sum(i * 10)
+        tasks.add(t.wait)
+    print(tasks)

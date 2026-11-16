@@ -418,6 +418,17 @@ static inline void tb_dpre2(tb_dict *d, unsigned long long i) {
 static inline void tb_lpre(tb_list *l, long long i) {
     __builtin_prefetch(l->data + i * l->size);
 }
+// ---------- background: работа в своём потоке ----------
+typedef struct { pthread_t th; int done; void *res; } tb_task;
+static void tb_task_start(tb_task *t, void *(*run)(void *), void *arg) {
+    t->done = 0;
+    if (pthread_create(&t->th, 0, run, arg) != 0) tb_crash(0, "не получилось запустить background");
+}
+// a.wait: дождаться потока (один раз) и отдать адрес ответа
+static void *tb_wait(tb_task *t) {
+    if (!t->done) { pthread_join(t->th, 0); t->done = 1; }
+    return t->res;
+}
 static int tb_dhas(tb_dict *d, const void *k) { return tb_dfind(d, k) >= 0; }
 static void tb_dremove(tb_dict *d, const void *k) {
     long long at = tb_dfind(d, k);

@@ -1,0 +1,8 @@
+// 0.7: background внутри temp нельзя
+func twice(n: int) gives r: int
+    r = n * 2
+
+func main()
+    temp
+        a = background twice(1)
+        print(a.wait)

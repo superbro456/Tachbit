@@ -1,0 +1,1 @@
+background_list.tb, строка 7: в background функция получает только int, dec, bool и text: списки и obj могли бы меняться сразу из двух мест: l

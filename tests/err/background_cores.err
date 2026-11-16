@@ -1,0 +1,1 @@
+background_cores.tb, строка 9: внутри on all cores .wait нельзя: забери готовое до цикла или после

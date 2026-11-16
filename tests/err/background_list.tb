@@ -1,0 +1,8 @@
+// 0.7: в background только int, dec, bool и text
+func first(l: list int) gives r: int
+    r = l[0]
+
+func main()
+    l = [1, 2]
+    a = background first(l)
+    print(a.wait)

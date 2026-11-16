@@ -36,6 +36,11 @@ modpub func list_of(c: Comp, elem: int)
     nothing = Node(kind: "missing")
     return make_type_key(c, "list", -1, elem, nothing, false, nothing, false)
 
+// номерок background: elem — что отдаст функция (0 — ничего)
+func task_of(c: Comp, elem: int)
+    nothing = Node(kind: "missing")
+    return make_type_key(c, "task", -1, elem, nothing, false, nothing, false)
+
 func dict_of(c: Comp, key: int, value: int)
     nothing = Node(kind: "missing")
     return make_type_key(c, "dict", key, value, nothing, false, nothing, false)
@@ -67,6 +72,8 @@ modpub func type_name(c: Comp, t: int) gives r: text
         return "несколько выходов"
     if ty.kind == "none"
         return "ничего"
+    if ty.kind == "task"
+        return "номерок background"
     return ty.kind
 
 func is_number(t: int)
@@ -804,6 +811,12 @@ func check_expr(c: Comp, n: Node) gives r: int
             t = c.types[base].elem
         else
             error_at(c, n.line, "[номер] берут у списка или текста", "")
+    else if k == "field" and n.name == "wait" and kind_of(c, check_value(c, n.kids[0])) == "task"
+        if c.par_base >= 0
+            error_at(c, n.line, "внутри " + loop_word(c) + " .wait нельзя: забери готовое до цикла или после", "")
+        t = c.types[n.kids[0].ty].elem
+    else if k == "background"
+        t = check_background(c, n)
     else if k == "field"
         base = check_value(c, n.kids[0])
         if kind_of(c, base) != "obj"
@@ -1071,11 +1084,38 @@ func check_statement(c: Comp, n: Node)
         inner = e
         if e.kind == "try" or e.kind == "else_err"
             inner = e.kids[0]
-        if inner.kind != "call" and inner.kind != "method"
+        if inner.kind != "call" and inner.kind != "method" and not (inner.kind == "field" and inner.name == "wait")
             error_at(c, n.line, "строка ничего не делает", "")
         t = check_expr(c, e)
         if t != 0
             error_at(c, n.line, "результат вызова пропадает: сохрани его, например x = ...", e.name)
+
+// a = background f(x): f работает в своём потоке.
+// Чтобы потоки не мешали друг другу, f получает только числа, bool и текст (их никто не меняет)
+// и отдаёт одно значение или ничего.
+func check_background(c: Comp, n: Node) gives r: int
+    if c.par_base >= 0
+        error_at(c, n.line, "внутри " + loop_word(c) + " background нельзя: цикл и так идёт на всех ядрах", "")
+    if c.temp_base >= 0
+        error_at(c, n.line, "внутри temp background нельзя: память блока удалится, пока функция ещё работает", "")
+    call = n.kids[0]
+    if call.kind == "call" and is_builtin(call.name)
+        error_at(c, n.line, "background запускает свою функцию: a = background load(name)", call.name)
+    call.creates = true
+    t = check_expr(c, call)
+    if call.kind != "call" or not call.has_ref or call.ref.kind != "func"
+        error_at(c, n.line, "background запускает свою функцию: a = background load(name)", "")
+    f = call.ref
+    if f.can_fail
+        error_at(c, n.line, "функция с fail в background пока нельзя: пусть она отдаёт текст ошибки обычным выходом", f.name)
+    if len(f.kids[2].kids) > 1
+        error_at(c, n.line, "в background функция с несколькими выходами пока нельзя", f.name)
+    each p in f.kids[0].kids
+        if p.is_link or not (is_plain(p.ty) or p.ty == 4)
+            error_at(c, n.line, "в background функция получает только int, dec, bool и text: списки и obj могли бы меняться сразу из двух мест", p.name)
+    if t < 0
+        t = 0
+    return task_of(c, t)
 
 // together: только новые переменные, и ни одна строка не читает то, что дала строка выше.
 // Переменные видны и после блока.

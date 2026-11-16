@@ -42,6 +42,8 @@ func c_type(c: Comp, t: int)
         return "tb_o_" + c.types[t].obj_node.name + " *"
     if k == "multi"
         return "tb_r_" + fname(c.types[t].func_node)
+    if k == "task"
+        return "tb_task *"
     return "void"
 
 func indent(c: Comp, depth: int)
@@ -424,6 +426,18 @@ func emit_expr(c: Comp, n: Node)
             put(c, ", ")
             emit_expr(c, n.kids[1])
             put(c, ", sizeof(" + t + "), " + n.line + "))")
+    else if k == "field" and kind_of(c, n.kids[0].ty) == "task"
+        rt = c.types[n.kids[0].ty].elem
+        if rt == 0
+            put(c, "((void)tb_wait(")
+            emit_expr(c, n.kids[0])
+            put(c, "))")
+        else
+            put(c, "(*(" + c_type(c, rt) + " *)tb_wait(")
+            emit_expr(c, n.kids[0])
+            put(c, "))")
+    else if k == "background"
+        emit_background(c, n)
     else if k == "field" and is_cols_obj(c, n.kids[0].ty)
         // качество obj by columns: адрес ячейки в колонке
         put(c, "(*tb_colf_" + cols_name(c, n.kids[0].ty) + "_" + n.name + "(")
@@ -880,6 +894,61 @@ func emit_pieces(c: Comp, n: Node, depth: int)
     indent(c, depth)
     put(c, "}\n")
 
+// a = background f(x, y):
+//   tb_bgN(x, y) кладёт значения в свою коробку (malloc) и запускает поток,
+//   поток зовёт f и кладёт ответ в ту же коробку; a.wait ждёт поток и берёт ответ
+func emit_background(c: Comp, n: Node)
+    c.label += 1
+    id = "" + c.label
+    call = n.kids[0]
+    f = call.ref
+    params = f.kids[0]
+    rt = f.ty
+    if rt < 0
+        rt = 0
+    saved = c.out
+    w = list text
+    c.out = w
+    put(c, "\ntypedef struct {\n    tb_task tb_t;\n")
+    if rt != 0
+        put(c, "    " + c_type(c, rt) + " tb_r;\n")
+    count i from 0 to len(params.kids) - 1
+        put(c, "    " + c_type(c, params.kids[i].ty) + " a" + i + ";\n")
+    put(c, "} tb_bgjob" + id + ";\n")
+    put(c, "static void *tb_bgrun" + id + "(void *tb_arg) {\n    tb_bgjob" + id + " *tb_j = tb_arg;\n    ")
+    if rt != 0
+        put(c, "tb_j->tb_r = ")
+    put(c, fname(f) + "(")
+    count i from 0 to len(params.kids) - 1
+        if i > 0
+            put(c, ", ")
+        put(c, "tb_j->a" + i)
+    put(c, ");\n    return 0;\n}\n")
+    put(c, "static tb_task *tb_bg" + id + "(")
+    count i from 0 to len(params.kids) - 1
+        if i > 0
+            put(c, ", ")
+        put(c, c_type(c, params.kids[i].ty) + " a" + i)
+    if len(params.kids) == 0
+        put(c, "void")
+    put(c, ") {\n    tb_bgjob" + id + " *tb_j = malloc(sizeof(tb_bgjob" + id + "));\n")
+    put(c, "    if (tb_j == 0) tb_crash(0, \"не хватило памяти\");\n")
+    count i from 0 to len(params.kids) - 1
+        put(c, "    tb_j->a" + i + " = a" + i + ";\n")
+    if rt != 0
+        put(c, "    tb_j->tb_t.res = &tb_j->tb_r;\n")
+    else
+        put(c, "    tb_j->tb_t.res = 0;\n")
+    put(c, "    tb_task_start(&tb_j->tb_t, tb_bgrun" + id + ", tb_j);\n    return &tb_j->tb_t;\n}\n")
+    c.out = saved
+    c.workers.add(join(w, ""))
+    put(c, "tb_bg" + id + "(")
+    count i from 0 to len(call.kids) - 1
+        if i > 0
+            put(c, ", ")
+        emit_as(c, call.kids[i].kids[0], params.kids[i].ty)
+    put(c, ")")
+
 // значение, которое можно посчитать лишний раз раньше времени: ничего не меняет и не падает
 func is_pure(n: Node)
     k = n.kind
@@ -1133,6 +1202,9 @@ func emit_func(c: Comp, f: Node)
 func emit_show(c: Comp, t: Type)
     k = t.kind
     if k == "none" or k == "multi" or k == "unknown"
+        return
+    if k == "task"
+        put(c, "static void tb_show_" + t.id + "(tb_task *x) { (void)x; tb_ps(\"<background>\"); }\n")
         return
     put(c, "static void tb_show_" + t.id + "(" + c_type(c, t.id) + " x) {\n")
     if k == "int"

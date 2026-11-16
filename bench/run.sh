@@ -111,3 +111,13 @@ echo "   Tachbit together:     $(best ./together) с"
 echo "   Tachbit без together: $(best ./notogether) с"
 echo "   C (та же таблица):    $(best ./together_c) с"
 rm -f together together.c notogether notogether.c together_c
+
+# background: три работы (простые числа на отрезках), две из них в фоне
+../tachbit-tb build background.tb > /dev/null || exit 1
+../tachbit-tb build nobackground.tb > /dev/null || exit 1
+cc -O2 -o background_c background_pure.c || exit 1
+echo "== background  (ответ: $(./background))"
+echo "   Tachbit background:     $(best ./background) с"
+echo "   Tachbit по очереди:     $(best ./nobackground) с"
+echo "   C (по очереди):         $(best ./background_c) с"
+rm -f background background.c nobackground nobackground.c background_c

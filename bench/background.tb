@@ -1,0 +1,23 @@
+// Три работы: две в фоне (background), третья в main, пока те идут.
+// Каждая считает простые числа делением на своём отрезке.
+func is_prime(n: int)
+    if n < 2
+        return false
+    d = 2
+    repeat while d * d <= n
+        if n % d == 0
+            return false
+        d += 1
+    return true
+
+func primes(lo: int, hi: int) gives found: int
+    found = 0
+    count n from lo to hi
+        if is_prime(n)
+            found += 1
+
+func main()
+    a = background primes(1, 2000000)
+    b = background primes(2000001, 3300000)
+    c = primes(3300001, 4500000)
+    print(a.wait + b.wait + c)

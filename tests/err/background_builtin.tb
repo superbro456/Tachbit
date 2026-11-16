@@ -1,0 +1,4 @@
+// 0.7: background запускает свою функцию
+func main()
+    a = background len("abc")
+    print(a.wait)

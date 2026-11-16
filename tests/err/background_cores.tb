@@ -1,0 +1,9 @@
+// 0.7: .wait внутри on all cores нельзя
+func twice(n: int) gives r: int
+    r = n * 2
+
+func main()
+    a = background twice(1)
+    nums = [1, 2]
+    each x in nums on all cores
+        y = a.wait + x
