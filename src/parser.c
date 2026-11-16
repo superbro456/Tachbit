@@ -101,20 +101,33 @@ static void expect_newline(void) {
     next();
 }
 
-// int / dec / text / bool  →  TY_...;  не тип  →  0
-static int type_here(void) {
-    if (is_cmd("int")) {
-        return TY_INT;
+static int at_type_word(void) {
+    return is_cmd("int") || is_cmd("dec") || is_cmd("text") || is_cmd("bool") || is_cmd("list");
+}
+
+// int / dec / text / bool / list int / list list text / User
+static Node *parse_type(void) {
+    Node *t = new_node(N_TYPE, line_now());
+    if (is_cmd("dict")) {
+        fail(line_now(), "dict будет в версии 0.3", 0);
     }
-    if (is_cmd("dec")) {
-        return TY_DEC;
+    if (at_type_word()) {
+        t->name = now()->text;
+        next();
+        if (same(t->name, "list")) {
+            if (!at_type_word() && now()->kind != T_NAME) {
+                fail(line_now(), "после list напиши, что в нём лежит: list int, list text ...", 0);
+            }
+            add_kid(t, parse_type());
+        }
+        return t;
     }
-    if (is_cmd("text")) {
-        return TY_TEXT;
+    if (now()->kind == T_NAME) {
+        t->name = now()->text;
+        next();
+        return t;
     }
-    if (is_cmd("bool")) {
-        return TY_BOOL;
-    }
+    fail(line_now(), "ожидался тип: int, dec, text, bool, list ... или имя obj, а тут", what_is_here());
     return 0;
 }
 
@@ -200,14 +213,35 @@ static Node *parse_primary(void) {
     } else {
         fail(line, "ожидалось значение, а тут", what_is_here());
     }
-    // nums[2]
-    while (is_sign("[")) {
-        Node *index = new_node(N_INDEX, line_now());
-        next();
-        add_kid(index, n);
-        add_kid(index, parse_expr());
-        expect_sign("]");
-        n = index;
+    // nums[2]   u.age   nums.add(5)
+    while (is_sign("[") || is_sign(".")) {
+        if (is_sign("[")) {
+            Node *index = new_node(N_INDEX, line_now());
+            next();
+            add_kid(index, n);
+            add_kid(index, parse_expr());
+            expect_sign("]");
+            n = index;
+        } else {
+            int dot_line = line_now();
+            next();
+            char *name = expect_name();
+            if (is_sign("(")) {
+                Node *call = parse_call(name, dot_line);
+                Node *m = new_node(N_METHOD, dot_line);
+                m->name = name;
+                add_kid(m, n);
+                for (int i = 0; i < call->nkids; i++) {
+                    add_kid(m, call->kids[i]);
+                }
+                n = m;
+            } else {
+                Node *f = new_node(N_FIELD, dot_line);
+                f->name = name;
+                add_kid(f, n);
+                n = f;
+            }
+        }
     }
     return n;
 }
@@ -358,38 +392,99 @@ static Node *parse_repeat(void) {
     return n;
 }
 
-// x = 5   /   x = int 5   /   const x = 5   /   x += 1
+static int is_change_sign(void) {
+    return is_sign("=") || is_sign("+=") || is_sign("-=") || is_sign("*=") || is_sign("/=");
+}
+
+// x = 5   /   x = int 5   /   names = list text   /   const x = 5
 static Node *parse_assign(int is_const) {
     int line = line_now();
-    char *name = expect_name();
-    Node *n;
-    if (is_sign("=")) {
-        next();
-        n = new_node(N_ASSIGN, line);
-        n->declared = type_here();
-        if (n->declared != 0) {
-            next();
-        }
-    } else if (is_sign("+=") || is_sign("-=") || is_sign("*=") || is_sign("/=")) {
-        if (is_const) {
-            fail(line, "после const нужен знак", "=");
-        }
-        n = new_node(N_OPASSIGN, line);
-        n->value = now()->text;
-        next();
-    } else {
-        fail(line, "после имени ожидался знак = или вызов (...)", what_is_here());
-        return 0;
-    }
-    n->name = name;
+    Node *n = new_node(N_ASSIGN, line);
+    n->name = expect_name();
     n->is_const = is_const;
+    expect_sign("=");
+    if (at_type_word() || is_cmd("dict")) {
+        n->tsyn = parse_type();
+    }
+    if (now()->kind != T_NEWLINE) {
+        add_kid(n, parse_expr());
+    } else if (n->tsyn == 0) {
+        fail(line, "после = нужно значение", 0);
+    }
+    if (is_const && n->nkids == 0) {
+        fail(line, "const нужно сразу дать значение", n->name);
+    }
+    expect_newline();
+    return n;
+}
+
+// hp: link u.age
+static Node *parse_linkdecl(void) {
+    Node *n = new_node(N_LINKDECL, line_now());
+    n->name = expect_name();
+    expect_sign(":");
+    if (!is_cmd("link")) {
+        fail(line_now(), "после двоеточия в строке ожидалось link (ярлык)", what_is_here());
+    }
+    next();
     add_kid(n, parse_expr());
     expect_newline();
     return n;
 }
 
+// q, r = divide(a: 17, b: 5)
+static Node *parse_multi(void) {
+    Node *n = new_node(N_MULTI, line_now());
+    while (1) {
+        Node *name = new_node(N_NAME, line_now());
+        name->name = expect_name();
+        add_kid(n, name);
+        if (!is_sign(",")) {
+            break;
+        }
+        next();
+    }
+    expect_sign("=");
+    add_kid(n, parse_expr());
+    expect_newline();
+    return n;
+}
+
+// строка, которая начинается с имени
+static Node *parse_name_statement(void) {
+    int line = line_now();
+    Token *after = &tokens[pos + 1];
+    if (after->kind == T_SIGN && same(after->text, "=")) {
+        return parse_assign(0);
+    }
+    if (after->kind == T_SIGN && same(after->text, ":")) {
+        return parse_linkdecl();
+    }
+    if (after->kind == T_SIGN && same(after->text, ",")) {
+        return parse_multi();
+    }
+    Node *target = parse_primary();
+    if (is_change_sign()) {
+        int k = target->kind;
+        if (k != N_NAME && k != N_INDEX && k != N_FIELD) {
+            fail(line, "слева от знака должно быть имя, nums[i] или u.age", 0);
+        }
+        Node *n = new_node(N_SET, line);
+        n->value = now()->text;
+        next();
+        add_kid(n, target);
+        add_kid(n, parse_expr());
+        expect_newline();
+        return n;
+    }
+    Node *n = new_node(N_EXPR_STMT, line);
+    add_kid(n, target);
+    expect_newline();
+    return n;
+}
+
 static int later_command(void) {
-    char *later[] = {"gives", "shared", "obj", "link", "use", "modpub", "modpri", "temp", "together", "danger", "by"};
+    char *later[] = {"gives", "shared", "obj", "use", "modpub", "modpri", "temp", "together", "danger", "by", "dict"};
     for (int i = 0; i < 11; i++) {
         if (is_cmd(later[i])) {
             return 1;
@@ -437,17 +532,14 @@ static Node *parse_statement(void) {
     if (is_cmd("func")) {
         fail(line, "функцию нельзя писать внутри другой функции", 0);
     }
+    if (is_cmd("link")) {
+        fail(line, "link в начале строки подключает файл: это будет в версии 0.3", 0);
+    }
     if (later_command()) {
         fail(line, "эта команда будет в следующей версии", now()->text);
     }
-    if (now()->kind == T_NAME && tokens[pos + 1].kind == T_SIGN && same(tokens[pos + 1].text, "(")) {
-        Node *n = new_node(N_EXPR_STMT, line);
-        add_kid(n, parse_expr());
-        expect_newline();
-        return n;
-    }
     if (now()->kind == T_NAME) {
-        return parse_assign(0);
+        return parse_name_statement();
     }
     fail(line, "не понимаю, что делает строка, начиная с", what_is_here());
     return 0;
@@ -469,7 +561,25 @@ static Node *parse_block(void) {
     return block;
 }
 
-// func name(a: int, b: dec)
+// name: type   или   link name
+static Node *parse_param(int allow_link) {
+    Node *p = new_node(N_PARAM, line_now());
+    if (is_cmd("link")) {
+        if (!allow_link) {
+            fail(line_now(), "link здесь нельзя", 0);
+        }
+        next();
+        p->is_link = 1;
+        p->name = expect_name();
+        return p;
+    }
+    p->name = expect_name();
+    expect_sign(":");
+    p->tsyn = parse_type();
+    return p;
+}
+
+// func name(a: int, link hp) gives result: int, rest: int
 static Node *parse_func(void) {
     Node *f = new_node(N_FUNC, line_now());
     expect_cmd("func");
@@ -477,28 +587,52 @@ static Node *parse_func(void) {
     expect_sign("(");
     Node *params = new_node(N_BLOCK, line_now());
     while (!is_sign(")")) {
-        Node *p = new_node(N_PARAM, line_now());
-        p->name = expect_name();
-        expect_sign(":");
-        p->declared = type_here();
-        if (p->declared == 0) {
-            fail(line_now(), "после двоеточия нужен тип: int, dec, text или bool", what_is_here());
-        }
-        next();
-        add_kid(params, p);
+        add_kid(params, parse_param(1));
         if (!is_sign(",")) {
             break;
         }
         next();
     }
     expect_sign(")");
+    Node *outputs = new_node(N_BLOCK, line_now());
     if (is_cmd("gives")) {
-        fail(line_now(), "gives будет в следующей версии, пока пиши просто return", 0);
+        next();
+        while (1) {
+            add_kid(outputs, parse_param(0));
+            if (!is_sign(",")) {
+                break;
+            }
+            next();
+        }
     }
     expect_newline();
     add_kid(f, params);
     add_kid(f, parse_block());
+    add_kid(f, outputs);
     return f;
+}
+
+// obj User
+//     name: text
+//     age: int
+static Node *parse_obj(void) {
+    Node *o = new_node(N_OBJ, line_now());
+    expect_cmd("obj");
+    o->name = expect_name();
+    if (is_cmd("by")) {
+        fail(line_now(), "by columns будет в версии 0.7", 0);
+    }
+    expect_newline();
+    if (now()->kind != T_INDENT) {
+        fail(line_now(), "у obj ниже с отступом пишутся качества: name: text", 0);
+    }
+    next();
+    while (now()->kind != T_DEDENT && now()->kind != T_END) {
+        add_kid(o, parse_param(0));
+        expect_newline();
+    }
+    next();
+    return o;
 }
 
 Node *parse(void) {
@@ -507,10 +641,14 @@ Node *parse(void) {
     while (now()->kind != T_END) {
         if (is_cmd("func")) {
             add_kid(program, parse_func());
+        } else if (is_cmd("obj")) {
+            add_kid(program, parse_obj());
+        } else if (is_cmd("link")) {
+            fail(line_now(), "подключение файлов через link будет в версии 0.3", 0);
         } else if (now()->kind == T_INDENT) {
             fail(line_now(), "лишний отступ", 0);
         } else {
-            fail(line_now(), "снаружи функций пока можно писать только func", what_is_here());
+            fail(line_now(), "снаружи функций пока можно писать только func и obj", what_is_here());
         }
     }
     return program;
@@ -520,10 +658,10 @@ Node *parse(void) {
 
 char *node_kind_name(int kind) {
     char *names[] = {
-        "ПРОГРАММА", "ФУНКЦИЯ", "ПАРАМЕТР", "БЛОК", "ПРИСВОИТЬ", "ИЗМЕНИТЬ", "ЕСЛИ",
-        "EACH", "COUNT", "REPEAT TIMES", "REPEAT WHILE", "SKIP", "STOP", "RETURN",
-        "ВЫЗОВ-СТРОКА", "ЧИСЛО", "ДРОБЬ", "ТЕКСТ", "ДА/НЕТ", "ИМЯ", "СПИСОК", "ВЫЗОВ",
-        "АРГУМЕНТ", "ОПЕРАЦИЯ", "ОДИНОЧНАЯ", "ИНДЕКС"
+        "ПРОГРАММА", "ФУНКЦИЯ", "ПАРАМЕТР", "БЛОК", "OBJ", "ТИП", "ПРИСВОИТЬ", "ИЗМЕНИТЬ",
+        "ЯРЛЫК", "НЕСКОЛЬКО", "ЕСЛИ", "EACH", "COUNT", "REPEAT TIMES", "REPEAT WHILE",
+        "SKIP", "STOP", "RETURN", "ВЫЗОВ-СТРОКА", "ЧИСЛО", "ДРОБЬ", "ТЕКСТ", "ДА/НЕТ", "ИМЯ",
+        "СПИСОК", "ВЫЗОВ", "АРГУМЕНТ", "ОПЕРАЦИЯ", "ОДИНОЧНАЯ", "ИНДЕКС", "КАЧЕСТВО", "МЕТОД"
     };
     return names[kind];
 }
@@ -539,13 +677,16 @@ void print_tree(Node *n, int depth) {
     if (n->value != 0) {
         printf(" %s", n->value);
     }
-    if (n->declared != 0) {
-        printf(" : %s", type_name(n->declared));
-    }
     if (n->is_const) {
         printf(" (const)");
     }
+    if (n->is_link) {
+        printf(" (link)");
+    }
     printf("\n");
+    if (n->tsyn != 0) {
+        print_tree(n->tsyn, depth + 1);
+    }
     for (int i = 0; i < n->nkids; i++) {
         print_tree(n->kids[i], depth + 1);
     }

@@ -1,0 +1,6 @@
+func f(a: int) gives x: int
+    x = a
+    return x
+
+func main()
+    print(f(a: 1))

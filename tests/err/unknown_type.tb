@@ -1,0 +1,5 @@
+func f(p: Foo)
+    print(1)
+
+func main()
+    print(2)

@@ -12,9 +12,9 @@ static char *commands[] = {
     "func", "return", "gives", "if", "else", "each", "in", "count", "from", "to",
     "repeat", "times", "while", "skip", "stop", "const", "shared", "obj", "link",
     "int", "dec", "text", "bool", "and", "or", "not", "true", "false", "use",
-    "modpub", "modpri", "temp", "together", "danger", "by"
+    "modpub", "modpri", "temp", "together", "danger", "by", "list", "dict"
 };
-static int command_count = 35;
+static int command_count = 37;
 
 static int is_letter(char c) {
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';

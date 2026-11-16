@@ -1,0 +1,6 @@
+obj User
+    name: text
+    age: int
+
+func main()
+    u = User

@@ -1,0 +1,6 @@
+func hit(link hp, d: int)
+    hp -= d
+
+func main()
+    count i from 1 to 3
+        hit(i, 1)

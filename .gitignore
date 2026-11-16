@@ -5,3 +5,8 @@ examples/*
 !examples/*.tb
 *.o
 .DS_Store
+bench/*
+!bench/*.tb
+!bench/*.py
+!bench/run.sh
+!bench/*_pure.c

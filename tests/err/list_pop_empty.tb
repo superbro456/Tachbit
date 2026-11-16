@@ -1,0 +1,3 @@
+func main()
+    nums = list int
+    x = nums.pop()

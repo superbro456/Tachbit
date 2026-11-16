@@ -1,0 +1,3 @@
+func main()
+    word = "abc"
+    hp: link word[0]

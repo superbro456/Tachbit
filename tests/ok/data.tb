@@ -1,0 +1,47 @@
+// списки, текст, gives
+func divide(a: int, b: int) gives result: int, rest: int
+    result = a / b
+    rest = a % b
+    return
+
+func is_digit(c: text)
+    return c >= "0" and c <= "9"
+
+func read_number(src: text, pos: int) gives value: int, pos: int
+    repeat while pos < len(src) and is_digit(src[pos])
+        value = value * 10 + (code(src[pos]) - code("0"))
+        pos += 1
+    return
+
+func main()
+    q, r = divide(a: 17, b: 5)
+    print("17 / 5 =", q, "остаток", r)
+
+    n, at = read_number(src: "x = 1234;", pos: 4)
+    print("число", n, "кончилось на", at)
+
+    fruits = ["apple", "pear"]
+    fruits.add("kiwi")
+    fruits[0] = "plum"
+    print(fruits, len(fruits))
+    last = fruits.pop()
+    print("сняли", last, "осталось", fruits)
+
+    empty = list int
+    count i from 1 to 5
+        empty.add(i * i)
+    print(empty)
+
+    grid = list list int
+    grid.add([1, 2])
+    grid.add([3, 4])
+    grid[1][0] = 30
+    print(grid, grid[1][0])
+
+    word = "Tachbit"
+    print(word[0], cut(word, 1, 3), len(word), code("A"), char(66))
+    backwards = text
+    each c in word
+        backwards = c + backwards
+    print(backwards)
+    print(to_int("42") + 1)

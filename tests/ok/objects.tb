@@ -1,0 +1,46 @@
+// obj, списки объектов, ярлыки link
+obj User
+    name: text
+    age: int
+    tags: list text
+
+obj Team
+    title: text
+    people: list User
+    boss: User
+
+func hit(link hp, damage: int)
+    hp -= damage
+
+func birthday(u: User)
+    u.age += 1
+
+func main()
+    u = User(name: "Ali", age: 20)
+    u.tags.add("admin")
+    print(u)
+
+    birthday(u)
+    print(u.name, "теперь", u.age)
+
+    hp: link u.age
+    hp += 5
+    print("через ярлык:", u.age)
+
+    hit(u.age, 3)
+    print("после hit:", u.age)
+
+    team = Team(title: "Tachbit")
+    team.people.add(u)
+    team.people.add(User(name: "Vali", age: 30))
+    team.boss = team.people[1]
+    print(team.title, "людей:", len(team.people), "главный:", team.boss.name)
+
+    total = int 0
+    each p in team.people
+        total += p.age
+    print("общий возраст:", total)
+
+    nums = [5, 1, 4]
+    hit(nums[0], 2)
+    print(nums)

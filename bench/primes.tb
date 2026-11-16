@@ -1,0 +1,15 @@
+// решето Эратосфена: сколько простых чисел до 20 миллионов
+func main()
+    limit = 20000000
+    sieve = list bool
+    repeat limit + 1 times
+        sieve.add(true)
+    found = int 0
+    count i from 2 to limit
+        if sieve[i]
+            found += 1
+            j = i * i
+            repeat while j <= limit
+                sieve[j] = false
+                j += i
+    print(found)

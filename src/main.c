@@ -1,4 +1,4 @@
-// Tachbit 0.1 — точка входа компилятора.
+// Tachbit 0.2 — точка входа компилятора.
 //
 //   tachbit tokens файл.tb   — показать токены (слой 1)
 //   tachbit tree   файл.tb   — показать дерево (слой 2)
@@ -68,7 +68,7 @@ static int has_slash(char *path) {
 }
 
 static void usage(void) {
-    printf("Tachbit 0.1\n\n");
+    printf("Tachbit 0.2\n\n");
     printf("  tachbit run    файл.tb   сделать программу и запустить\n");
     printf("  tachbit build  файл.tb   сделать программу рядом с файлом\n");
     printf("  tachbit check  файл.tb   только найти ошибки\n");

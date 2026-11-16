@@ -1,0 +1,10 @@
+obj User
+    name: text
+    age: int
+
+obj Team
+    boss: User
+
+func main()
+    t = Team()
+    print(t.boss.name)

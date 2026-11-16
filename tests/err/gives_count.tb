@@ -1,0 +1,6 @@
+func divide(a: int, b: int) gives q: int, r: int
+    q = a / b
+    return
+
+func main()
+    x, y, z = divide(a: 7, b: 2)
