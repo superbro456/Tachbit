@@ -1738,13 +1738,27 @@ func at_bad(c: Comp, n: Node, inner: list text, fresh: list text, level: int)
 
 // в теле создаётся что-то в памяти (текст, список, obj) — иначе отдавать нечего
 func at_allocates(c: Comp, n: Node)
+    seen = list text
+    return at_alloc_in(c, n, seen)
+
+// вызов своей функции берёт память, только если её берёт сама функция
+// (fib не берёт ничего — ей временная память не нужна, и она остаётся быстрой)
+func at_alloc_in(c: Comp, n: Node, seen: list text)
     k = n.kind
     if (k == "call" or k == "binop" or k == "list" or k == "dict" or k == "method") and n.ty > 0 and not is_plain_ty(n.ty)
         return true
     if k == "call" and n.has_ref
-        return true
+        if n.ref.kind != "func"
+            return true
+        key = n.ref.name + ":" + n.ref.line
+        each name in seen
+            if name == key
+                return false
+        seen.add(key)
+        if at_alloc_in(c, n.ref.kids[1], seen)
+            return true
     each kid in n.kids
-        if at_allocates(c, kid)
+        if at_alloc_in(c, kid, seen)
             return true
     return false
 
