@@ -1805,7 +1805,7 @@ enum { TB_K_ENTER = 10, TB_K_ESC = 27, TB_K_SPACE = 32, TB_K_BACK = 8, TB_K_TAB 
 #define TB_MSG(R, o, s) ((R(*)(id, SEL))objc_msgSend)((id)(o), sel_getUid(s))
 #define TB_MSG1(R, o, s, A, a) ((R(*)(id, SEL, A))objc_msgSend)((id)(o), sel_getUid(s), a)
 #define TB_CLS(n) ((id)objc_getClass(n))
-static id tb_app = 0, tb_wnd = 0;
+static id tb_nsapp = 0, tb_wnd = 0;
 static const unsigned char tb_mac_keys[128] = {
     [0]='A',[1]='S',[2]='D',[3]='F',[4]='H',[5]='G',[6]='Z',[7]='X',[8]='C',[9]='V',[11]='B',[12]='Q',[13]='W',
     [14]='E',[15]='R',[16]='Y',[17]='T',[18]='1',[19]='2',[20]='3',[21]='4',[22]='6',[23]='5',[25]='9',[26]='7',
@@ -1825,16 +1825,16 @@ static void tb_view_draw(id v, SEL s, CGRect r) {
     CGContextDrawImage(ctx, CGRectMake(0, 0, tb_gw, tb_gh), img);
     CGImageRelease(img); CGDataProviderRelease(prov); CGColorSpaceRelease(space);
 }
-static BOOL tb_wnd_close(id v, SEL s, id w) { (void)v; (void)s; (void)w; tb_gclosed = 1; return YES; }
+static BOOL tb_nswnd_close(id v, SEL s, id w) { (void)v; (void)s; (void)w; tb_gclosed = 1; return YES; }
 static int tb_gfx_open(const char *title) {
-    tb_app = TB_MSG(id, TB_CLS("NSApplication"), "sharedApplication");
-    TB_MSG1(void, tb_app, "setActivationPolicy:", long, 0);
+    tb_nsapp = TB_MSG(id, TB_CLS("NSApplication"), "sharedApplication");
+    TB_MSG1(void, tb_nsapp, "setActivationPolicy:", long, 0);
     tb_wnd = ((id(*)(id, SEL, CGRect, unsigned long, unsigned long, BOOL))objc_msgSend)(
         TB_MSG(id, TB_CLS("NSWindow"), "alloc"), sel_getUid("initWithContentRect:styleMask:backing:defer:"),
         CGRectMake(0, 0, tb_gw, tb_gh), 1 | 2 | 4, 2, NO);
     if (!tb_wnd) return 0;
     Class dc = objc_allocateClassPair((Class)TB_CLS("NSObject"), "TachbitWindowDelegate", 0);
-    class_addMethod(dc, sel_getUid("windowShouldClose:"), (IMP)tb_wnd_close, "c@:@");
+    class_addMethod(dc, sel_getUid("windowShouldClose:"), (IMP)tb_nswnd_close, "c@:@");
     objc_registerClassPair(dc);
     TB_MSG1(void, tb_wnd, "setDelegate:", id, TB_MSG(id, TB_MSG(id, (id)dc, "alloc"), "init"));
     Class vc = objc_allocateClassPair((Class)TB_CLS("NSView"), "TachbitView", 0);
@@ -1845,15 +1845,15 @@ static int tb_gfx_open(const char *title) {
     TB_MSG1(void, tb_wnd, "setAcceptsMouseMovedEvents:", BOOL, YES);
     TB_MSG1(void, tb_wnd, "makeKeyAndOrderFront:", id, 0);
     TB_MSG(void, tb_wnd, "center");
-    TB_MSG(void, tb_app, "finishLaunching");
-    TB_MSG1(void, tb_app, "activateIgnoringOtherApps:", BOOL, YES);
+    TB_MSG(void, tb_nsapp, "finishLaunching");
+    TB_MSG1(void, tb_nsapp, "activateIgnoringOtherApps:", BOOL, YES);
     return 1;
 }
 static void tb_gfx_events(void) {
     TB_MSG1(void, TB_MSG(id, tb_wnd, "contentView"), "setNeedsDisplay:", BOOL, YES);
     id mode = TB_MSG1(id, TB_CLS("NSString"), "stringWithUTF8String:", const char *, "kCFRunLoopDefaultMode");
     while (1) {
-        id ev = ((id(*)(id, SEL, unsigned long long, id, id, BOOL))objc_msgSend)(tb_app,
+        id ev = ((id(*)(id, SEL, unsigned long long, id, id, BOOL))objc_msgSend)(tb_nsapp,
             sel_getUid("nextEventMatchingMask:untilDate:inMode:dequeue:"), ~0ULL, 0, mode, YES);
         if (!ev) break;
         unsigned long t = TB_MSG(unsigned long, ev, "type");
@@ -1872,7 +1872,7 @@ static void tb_gfx_events(void) {
             unsigned long m = TB_MSG(unsigned long, ev, "modifierFlags");
             tb_keys[TB_K_SHIFT] = (m & (1UL << 17)) != 0;
         }
-        TB_MSG1(void, tb_app, "sendEvent:", id, ev);
+        TB_MSG1(void, tb_nsapp, "sendEvent:", id, ev);
     }
 }
 #else
@@ -5388,7 +5388,7 @@ static const char * f_runtime_text__runtime_text(void) {
     { const char * tb_v1965 = "#define TB_MSG(R, o, s) ((R(*)(id, SEL))objc_msgSend)((id)(o), sel_getUid(s))\n"; *(const char * *)tb_grow(v_lines) = tb_v1965; }
     { const char * tb_v1966 = "#define TB_MSG1(R, o, s, A, a) ((R(*)(id, SEL, A))objc_msgSend)((id)(o), sel_getUid(s), a)\n"; *(const char * *)tb_grow(v_lines) = tb_v1966; }
     { const char * tb_v1967 = "#define TB_CLS(n) ((id)objc_getClass(n))\n"; *(const char * *)tb_grow(v_lines) = tb_v1967; }
-    { const char * tb_v1968 = "static id tb_app = 0, tb_wnd = 0;\n"; *(const char * *)tb_grow(v_lines) = tb_v1968; }
+    { const char * tb_v1968 = "static id tb_nsapp = 0, tb_wnd = 0;\n"; *(const char * *)tb_grow(v_lines) = tb_v1968; }
     { const char * tb_v1969 = "static const unsigned char tb_mac_keys[128] = {\n"; *(const char * *)tb_grow(v_lines) = tb_v1969; }
     { const char * tb_v1970 = "    [0]='A',[1]='S',[2]='D',[3]='F',[4]='H',[5]='G',[6]='Z',[7]='X',[8]='C',[9]='V',[11]='B',[12]='Q',[13]='W',\n"; *(const char * *)tb_grow(v_lines) = tb_v1970; }
     { const char * tb_v1971 = "    [14]='E',[15]='R',[16]='Y',[17]='T',[18]='1',[19]='2',[20]='3',[21]='4',[22]='6',[23]='5',[25]='9',[26]='7',\n"; *(const char * *)tb_grow(v_lines) = tb_v1971; }
@@ -5408,16 +5408,16 @@ static const char * f_runtime_text__runtime_text(void) {
     { const char * tb_v1985 = "    CGContextDrawImage(ctx, CGRectMake(0, 0, tb_gw, tb_gh), img);\n"; *(const char * *)tb_grow(v_lines) = tb_v1985; }
     { const char * tb_v1986 = "    CGImageRelease(img); CGDataProviderRelease(prov); CGColorSpaceRelease(space);\n"; *(const char * *)tb_grow(v_lines) = tb_v1986; }
     { const char * tb_v1987 = "}\n"; *(const char * *)tb_grow(v_lines) = tb_v1987; }
-    { const char * tb_v1988 = "static BOOL tb_wnd_close(id v, SEL s, id w) { (void)v; (void)s; (void)w; tb_gclosed = 1; return YES; }\n"; *(const char * *)tb_grow(v_lines) = tb_v1988; }
+    { const char * tb_v1988 = "static BOOL tb_nswnd_close(id v, SEL s, id w) { (void)v; (void)s; (void)w; tb_gclosed = 1; return YES; }\n"; *(const char * *)tb_grow(v_lines) = tb_v1988; }
     { const char * tb_v1989 = "static int tb_gfx_open(const char *title) {\n"; *(const char * *)tb_grow(v_lines) = tb_v1989; }
-    { const char * tb_v1990 = "    tb_app = TB_MSG(id, TB_CLS(\"NSApplication\"), \"sharedApplication\");\n"; *(const char * *)tb_grow(v_lines) = tb_v1990; }
-    { const char * tb_v1991 = "    TB_MSG1(void, tb_app, \"setActivationPolicy:\", long, 0);\n"; *(const char * *)tb_grow(v_lines) = tb_v1991; }
+    { const char * tb_v1990 = "    tb_nsapp = TB_MSG(id, TB_CLS(\"NSApplication\"), \"sharedApplication\");\n"; *(const char * *)tb_grow(v_lines) = tb_v1990; }
+    { const char * tb_v1991 = "    TB_MSG1(void, tb_nsapp, \"setActivationPolicy:\", long, 0);\n"; *(const char * *)tb_grow(v_lines) = tb_v1991; }
     { const char * tb_v1992 = "    tb_wnd = ((id(*)(id, SEL, CGRect, unsigned long, unsigned long, BOOL))objc_msgSend)(\n"; *(const char * *)tb_grow(v_lines) = tb_v1992; }
     { const char * tb_v1993 = "        TB_MSG(id, TB_CLS(\"NSWindow\"), \"alloc\"), sel_getUid(\"initWithContentRect:styleMask:backing:defer:\"),\n"; *(const char * *)tb_grow(v_lines) = tb_v1993; }
     { const char * tb_v1994 = "        CGRectMake(0, 0, tb_gw, tb_gh), 1 | 2 | 4, 2, NO);\n"; *(const char * *)tb_grow(v_lines) = tb_v1994; }
     { const char * tb_v1995 = "    if (!tb_wnd) return 0;\n"; *(const char * *)tb_grow(v_lines) = tb_v1995; }
     { const char * tb_v1996 = "    Class dc = objc_allocateClassPair((Class)TB_CLS(\"NSObject\"), \"TachbitWindowDelegate\", 0);\n"; *(const char * *)tb_grow(v_lines) = tb_v1996; }
-    { const char * tb_v1997 = "    class_addMethod(dc, sel_getUid(\"windowShouldClose:\"), (IMP)tb_wnd_close, \"c@:@\");\n"; *(const char * *)tb_grow(v_lines) = tb_v1997; }
+    { const char * tb_v1997 = "    class_addMethod(dc, sel_getUid(\"windowShouldClose:\"), (IMP)tb_nswnd_close, \"c@:@\");\n"; *(const char * *)tb_grow(v_lines) = tb_v1997; }
     { const char * tb_v1998 = "    objc_registerClassPair(dc);\n"; *(const char * *)tb_grow(v_lines) = tb_v1998; }
     { const char * tb_v1999 = "    TB_MSG1(void, tb_wnd, \"setDelegate:\", id, TB_MSG(id, TB_MSG(id, (id)dc, \"alloc\"), \"init\"));\n"; *(const char * *)tb_grow(v_lines) = tb_v1999; }
     { const char * tb_v2000 = "    Class vc = objc_allocateClassPair((Class)TB_CLS(\"NSView\"), \"TachbitView\", 0);\n"; *(const char * *)tb_grow(v_lines) = tb_v2000; }
@@ -5428,15 +5428,15 @@ static const char * f_runtime_text__runtime_text(void) {
     { const char * tb_v2005 = "    TB_MSG1(void, tb_wnd, \"setAcceptsMouseMovedEvents:\", BOOL, YES);\n"; *(const char * *)tb_grow(v_lines) = tb_v2005; }
     { const char * tb_v2006 = "    TB_MSG1(void, tb_wnd, \"makeKeyAndOrderFront:\", id, 0);\n"; *(const char * *)tb_grow(v_lines) = tb_v2006; }
     { const char * tb_v2007 = "    TB_MSG(void, tb_wnd, \"center\");\n"; *(const char * *)tb_grow(v_lines) = tb_v2007; }
-    { const char * tb_v2008 = "    TB_MSG(void, tb_app, \"finishLaunching\");\n"; *(const char * *)tb_grow(v_lines) = tb_v2008; }
-    { const char * tb_v2009 = "    TB_MSG1(void, tb_app, \"activateIgnoringOtherApps:\", BOOL, YES);\n"; *(const char * *)tb_grow(v_lines) = tb_v2009; }
+    { const char * tb_v2008 = "    TB_MSG(void, tb_nsapp, \"finishLaunching\");\n"; *(const char * *)tb_grow(v_lines) = tb_v2008; }
+    { const char * tb_v2009 = "    TB_MSG1(void, tb_nsapp, \"activateIgnoringOtherApps:\", BOOL, YES);\n"; *(const char * *)tb_grow(v_lines) = tb_v2009; }
     { const char * tb_v2010 = "    return 1;\n"; *(const char * *)tb_grow(v_lines) = tb_v2010; }
     { const char * tb_v2011 = "}\n"; *(const char * *)tb_grow(v_lines) = tb_v2011; }
     { const char * tb_v2012 = "static void tb_gfx_events(void) {\n"; *(const char * *)tb_grow(v_lines) = tb_v2012; }
     { const char * tb_v2013 = "    TB_MSG1(void, TB_MSG(id, tb_wnd, \"contentView\"), \"setNeedsDisplay:\", BOOL, YES);\n"; *(const char * *)tb_grow(v_lines) = tb_v2013; }
     { const char * tb_v2014 = "    id mode = TB_MSG1(id, TB_CLS(\"NSString\"), \"stringWithUTF8String:\", const char *, \"kCFRunLoopDefaultMode\");\n"; *(const char * *)tb_grow(v_lines) = tb_v2014; }
     { const char * tb_v2015 = "    while (1) {\n"; *(const char * *)tb_grow(v_lines) = tb_v2015; }
-    { const char * tb_v2016 = "        id ev = ((id(*)(id, SEL, unsigned long long, id, id, BOOL))objc_msgSend)(tb_app,\n"; *(const char * *)tb_grow(v_lines) = tb_v2016; }
+    { const char * tb_v2016 = "        id ev = ((id(*)(id, SEL, unsigned long long, id, id, BOOL))objc_msgSend)(tb_nsapp,\n"; *(const char * *)tb_grow(v_lines) = tb_v2016; }
     { const char * tb_v2017 = "            sel_getUid(\"nextEventMatchingMask:untilDate:inMode:dequeue:\"), ~0ULL, 0, mode, YES);\n"; *(const char * *)tb_grow(v_lines) = tb_v2017; }
     { const char * tb_v2018 = "        if (!ev) break;\n"; *(const char * *)tb_grow(v_lines) = tb_v2018; }
     { const char * tb_v2019 = "        unsigned long t = TB_MSG(unsigned long, ev, \"type\");\n"; *(const char * *)tb_grow(v_lines) = tb_v2019; }
@@ -5455,7 +5455,7 @@ static const char * f_runtime_text__runtime_text(void) {
     { const char * tb_v2032 = "            unsigned long m = TB_MSG(unsigned long, ev, \"modifierFlags\");\n"; *(const char * *)tb_grow(v_lines) = tb_v2032; }
     { const char * tb_v2033 = "            tb_keys[TB_K_SHIFT] = (m & (1UL << 17)) != 0;\n"; *(const char * *)tb_grow(v_lines) = tb_v2033; }
     { const char * tb_v2034 = "        }\n"; *(const char * *)tb_grow(v_lines) = tb_v2034; }
-    { const char * tb_v2035 = "        TB_MSG1(void, tb_app, \"sendEvent:\", id, ev);\n"; *(const char * *)tb_grow(v_lines) = tb_v2035; }
+    { const char * tb_v2035 = "        TB_MSG1(void, tb_nsapp, \"sendEvent:\", id, ev);\n"; *(const char * *)tb_grow(v_lines) = tb_v2035; }
     { const char * tb_v2036 = "    }\n"; *(const char * *)tb_grow(v_lines) = tb_v2036; }
     { const char * tb_v2037 = "}\n"; *(const char * *)tb_grow(v_lines) = tb_v2037; }
     { const char * tb_v2038 = "#else\n"; *(const char * *)tb_grow(v_lines) = tb_v2038; }

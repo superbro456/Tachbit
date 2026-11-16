@@ -1804,7 +1804,7 @@ enum { TB_K_ENTER = 10, TB_K_ESC = 27, TB_K_SPACE = 32, TB_K_BACK = 8, TB_K_TAB 
 #define TB_MSG(R, o, s) ((R(*)(id, SEL))objc_msgSend)((id)(o), sel_getUid(s))
 #define TB_MSG1(R, o, s, A, a) ((R(*)(id, SEL, A))objc_msgSend)((id)(o), sel_getUid(s), a)
 #define TB_CLS(n) ((id)objc_getClass(n))
-static id tb_app = 0, tb_wnd = 0;
+static id tb_nsapp = 0, tb_wnd = 0;
 static const unsigned char tb_mac_keys[128] = {
     [0]='A',[1]='S',[2]='D',[3]='F',[4]='H',[5]='G',[6]='Z',[7]='X',[8]='C',[9]='V',[11]='B',[12]='Q',[13]='W',
     [14]='E',[15]='R',[16]='Y',[17]='T',[18]='1',[19]='2',[20]='3',[21]='4',[22]='6',[23]='5',[25]='9',[26]='7',
@@ -1824,16 +1824,16 @@ static void tb_view_draw(id v, SEL s, CGRect r) {
     CGContextDrawImage(ctx, CGRectMake(0, 0, tb_gw, tb_gh), img);
     CGImageRelease(img); CGDataProviderRelease(prov); CGColorSpaceRelease(space);
 }
-static BOOL tb_wnd_close(id v, SEL s, id w) { (void)v; (void)s; (void)w; tb_gclosed = 1; return YES; }
+static BOOL tb_nswnd_close(id v, SEL s, id w) { (void)v; (void)s; (void)w; tb_gclosed = 1; return YES; }
 static int tb_gfx_open(const char *title) {
-    tb_app = TB_MSG(id, TB_CLS("NSApplication"), "sharedApplication");
-    TB_MSG1(void, tb_app, "setActivationPolicy:", long, 0);
+    tb_nsapp = TB_MSG(id, TB_CLS("NSApplication"), "sharedApplication");
+    TB_MSG1(void, tb_nsapp, "setActivationPolicy:", long, 0);
     tb_wnd = ((id(*)(id, SEL, CGRect, unsigned long, unsigned long, BOOL))objc_msgSend)(
         TB_MSG(id, TB_CLS("NSWindow"), "alloc"), sel_getUid("initWithContentRect:styleMask:backing:defer:"),
         CGRectMake(0, 0, tb_gw, tb_gh), 1 | 2 | 4, 2, NO);
     if (!tb_wnd) return 0;
     Class dc = objc_allocateClassPair((Class)TB_CLS("NSObject"), "TachbitWindowDelegate", 0);
-    class_addMethod(dc, sel_getUid("windowShouldClose:"), (IMP)tb_wnd_close, "c@:@");
+    class_addMethod(dc, sel_getUid("windowShouldClose:"), (IMP)tb_nswnd_close, "c@:@");
     objc_registerClassPair(dc);
     TB_MSG1(void, tb_wnd, "setDelegate:", id, TB_MSG(id, TB_MSG(id, (id)dc, "alloc"), "init"));
     Class vc = objc_allocateClassPair((Class)TB_CLS("NSView"), "TachbitView", 0);
@@ -1844,15 +1844,15 @@ static int tb_gfx_open(const char *title) {
     TB_MSG1(void, tb_wnd, "setAcceptsMouseMovedEvents:", BOOL, YES);
     TB_MSG1(void, tb_wnd, "makeKeyAndOrderFront:", id, 0);
     TB_MSG(void, tb_wnd, "center");
-    TB_MSG(void, tb_app, "finishLaunching");
-    TB_MSG1(void, tb_app, "activateIgnoringOtherApps:", BOOL, YES);
+    TB_MSG(void, tb_nsapp, "finishLaunching");
+    TB_MSG1(void, tb_nsapp, "activateIgnoringOtherApps:", BOOL, YES);
     return 1;
 }
 static void tb_gfx_events(void) {
     TB_MSG1(void, TB_MSG(id, tb_wnd, "contentView"), "setNeedsDisplay:", BOOL, YES);
     id mode = TB_MSG1(id, TB_CLS("NSString"), "stringWithUTF8String:", const char *, "kCFRunLoopDefaultMode");
     while (1) {
-        id ev = ((id(*)(id, SEL, unsigned long long, id, id, BOOL))objc_msgSend)(tb_app,
+        id ev = ((id(*)(id, SEL, unsigned long long, id, id, BOOL))objc_msgSend)(tb_nsapp,
             sel_getUid("nextEventMatchingMask:untilDate:inMode:dequeue:"), ~0ULL, 0, mode, YES);
         if (!ev) break;
         unsigned long t = TB_MSG(unsigned long, ev, "type");
@@ -1871,7 +1871,7 @@ static void tb_gfx_events(void) {
             unsigned long m = TB_MSG(unsigned long, ev, "modifierFlags");
             tb_keys[TB_K_SHIFT] = (m & (1UL << 17)) != 0;
         }
-        TB_MSG1(void, tb_app, "sendEvent:", id, ev);
+        TB_MSG1(void, tb_nsapp, "sendEvent:", id, ev);
     }
 }
 #else
