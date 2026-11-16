@@ -255,6 +255,13 @@ func main()
     if mode == "bare"
         exit(build_bare(c, path, exe))
     if mode == "run"
+        // один файл: программа собирается в ~/.tachbit/run, рядом с .tb ничего не остаётся
+        home = env("HOME")
+        if find(exe, "/build/") < 0 and home != ""
+            run_dir = home + "/.tachbit/run"
+            if not is_folder(run_dir)
+                code = run("mkdir -p " + quote(run_dir))
+            exe = run_dir + "/" + module_of(path)
         if build(c, path, exe) != 0
             exit(1)
         // tachbit run файл.tb a b c  →  программа получит a b c в args()

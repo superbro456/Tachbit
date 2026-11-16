@@ -61,7 +61,7 @@ function check(doc) {
     cp.execFile(tbPath(), ['check', path.basename(doc.fileName)], { cwd: dir, env, timeout: 20000 }, (err, stdout, stderr) => {
         diags.clear();
         if (err && err.code === 'ENOENT') {
-            vscode.window.showErrorMessage('Не нашла команду tb. Запусти tools/install.sh или укажи tachbit.path в настройках.');
+            vscode.window.showErrorMessage('Не найдена команда tb. Запусти tools/install.sh или укажи tachbit.path в настройках.');
             return;
         }
         const byFile = new Map();
