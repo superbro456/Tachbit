@@ -1,0 +1,32 @@
+// Типы: int, dec, text, bool и списки
+func average(a: dec, b: dec)
+    return (a + b) / 2
+
+func grade(score: int)
+    if score >= 90
+        return "отлично"
+    else if score >= 70
+        return "хорошо"
+    else
+        return "надо подтянуть"
+
+func main()
+    const name = "Tachbit"
+    price = dec 9.5
+    ready = true
+    print(name, price, ready)
+
+    print("среднее:", average(a: 3, b: 4))
+    print("округлили:", round(2.6))
+    print("целое деление 7 / 2 =", 7 / 2, ", остаток", 7 % 2)
+
+    each s in [95, 75, 40]
+        print(s, "это", grade(score: s))
+
+    prices = [1.5, 2, 3.25]
+    print("список:", prices, "длина", len(prices), "второй", prices[1])
+
+    greeting = "привет, " + name + "! версия " + 0.1
+    print(greeting)
+    if ready and not (price > 10)
+        print("дешевле 10")

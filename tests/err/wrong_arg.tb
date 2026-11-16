@@ -1,0 +1,5 @@
+func f(a: int)
+    return a
+
+func main()
+    x = f(b: 1)

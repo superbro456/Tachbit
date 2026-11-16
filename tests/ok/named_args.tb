@@ -1,0 +1,7 @@
+func box(width: int, height: int, label: text)
+    print(label, width * height)
+
+func main()
+    box(1, 2, "позиционно")
+    box(height: 3, label: "по именам", width: 4)
+    box(5, label: "смешанно", height: 6)

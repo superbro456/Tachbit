@@ -1,0 +1,17 @@
+func main()
+    s = "a"
+    s += "b"
+    s += 1
+    print(s, len(s))
+    if s == "ab1"
+        print("равно")
+    if s != "x"
+        print("не равно")
+    n = 10
+    n *= 3
+    n /= 4
+    print(n, -n, 17 % 5)
+    d = dec 1
+    d += 0.5
+    d *= 2
+    print(d)

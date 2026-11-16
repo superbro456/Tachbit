@@ -1,0 +1,26 @@
+// Все виды циклов
+func main()
+    nums = [3, 8, 1, 9, 4]
+
+    sum = int 0
+    each n in nums
+        if n == 1
+            skip
+        sum += n
+    print("сумма без единицы:", sum)
+
+    count i from 1 to 5
+        print("шаг", i)
+
+    repeat 3 times
+        print("ура")
+
+    x = 10
+    repeat while x > 0
+        x -= 3
+    print("x стал", x)
+
+    count i from 0 to 100
+        if i * i > 50
+            print("первый квадрат больше 50:", i * i)
+            stop

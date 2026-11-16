@@ -1,0 +1,7 @@
+# собранный компилятор
+/tachbit
+# то, что делает tachbit build: файл .c и программа рядом с .tb
+examples/*
+!examples/*.tb
+*.o
+.DS_Store

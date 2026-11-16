@@ -1,0 +1,7 @@
+// Первая программа на Tachbit
+func add(a: int, b: int)
+    return a + b
+
+func main()
+    total = add(a: 7, b: 8)
+    print(total)
