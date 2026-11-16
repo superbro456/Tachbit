@@ -2,13 +2,8 @@
 # Замер скорости: одна и та же задача на Tachbit, C и Python.
 # Запуск из корня репозитория:  ./bench/run.sh
 cd "$(dirname "$0")/.." || exit 1
-# компилятор на Tachbit: стартер на C собирает его, потом он собирает себя сам
-cc -std=c99 -O2 -o tachbit compiler-c/*.c || exit 1
-./tachbit build compiler-tb/main.tb > /dev/null || exit 1
-mv compiler-tb/main tachbit-tb2
-./tachbit-tb2 build compiler-tb/main.tb > /dev/null || exit 1
-mv compiler-tb/main tachbit-tb
-rm -f tachbit-tb2 compiler-tb/main.c
+# компилятор на Tachbit собирается из семени, без стартера на C
+./tools/build_tb.sh > /dev/null || exit 1
 cd bench || exit 1
 
 # время запуска в секундах: встроенный в bash time, одинаково на Mac и Linux

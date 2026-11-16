@@ -21,3 +21,6 @@ compiler-tb/*
 /tachbit-tb
 !compiler-tb/runtime.h
 /tachbit-tb
+!compiler-tb/seed/
+compiler-tb/seed/*
+!compiler-tb/seed/tb.c

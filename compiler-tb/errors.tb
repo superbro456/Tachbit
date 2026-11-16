@@ -1,10 +1,19 @@
 // Ошибки компилятора: тот же текст, что у версии на C.
 use types
 modpub func error_at(c: Comp, line: int, message: text, detail: text)
-    s = c.file_name + ": " + message
+    // в терминале — с цветом (место жирным, ошибка красным, слово жёлтым);
+    // в файл, тесты или с NO_COLOR=1 — простым текстом
+    color = run("[ -t 1 ] && [ -z \"$NO_COLOR\" ]") == 0
+    place = c.file_name
     if line > 0
-        s = c.file_name + ", строка " + line + ": " + message
+        place = c.file_name + ", строка " + line
+    s = place + ": " + message
     if detail != ""
         s = s + ": " + detail
+    if color
+        esc = char(27)
+        s = esc + "[1m" + place + ":" + esc + "[0m " + esc + "[31m" + message + esc + "[0m"
+        if detail != ""
+            s = s + ": " + esc + "[33m" + detail + esc + "[0m"
     print(s)
     exit(1)

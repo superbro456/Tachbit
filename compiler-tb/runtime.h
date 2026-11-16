@@ -23,8 +23,12 @@ typedef struct { char *data; long long len; long long cap; long long size; } tb_
 
 TB_COLD static void tb_crash(int line, const char *msg) {
     fflush(stdout);
-    if (line > 0) fprintf(stderr, "строка %d: %s\n", line, msg);
-    else fprintf(stderr, "%s\n", msg);
+    // в терминале — красным (если не задан NO_COLOR)
+    int color = isatty(2) && getenv("NO_COLOR") == 0;
+    if (color) fputs("\033[31m", stderr);
+    if (line > 0) fprintf(stderr, "строка %d: %s", line, msg);
+    else fprintf(stderr, "%s", msg);
+    fputs(color ? "\033[0m\n" : "\n", stderr);
     exit(1);
 }
 // ---------- temp: временная память ----------

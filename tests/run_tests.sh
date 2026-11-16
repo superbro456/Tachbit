@@ -5,22 +5,18 @@
 #   tests/mod/*/   — программа из нескольких файлов (main.tb + модули), эталон в expected
 # Запуск из корня репозитория:  ./tests/run_tests.sh
 # Обновить эталоны после намеренной правки:  ./tests/run_tests.sh --update
-# Тесты гоняются через компилятор на Tachbit (сначала он собирает сам себя).
+# Тесты гоняются через компилятор на Tachbit (он собирается из семени, без стартера на C).
 # Только стартер на C (умеет всё до 0.5):  ./tests/run_tests.sh --c
 cd "$(dirname "$0")/.." || exit 1
-cc -std=c99 -Wall -Wextra -o tachbit compiler-c/*.c || exit 1
 export LC_ALL=C.UTF-8 2>/dev/null
 compiler="tachbit-tb"
 if [ "$1" = "--c" ]; then
     compiler="tachbit"
+    cc -std=c99 -Wall -Wextra -o tachbit compiler-c/*.c || exit 1
     echo "проверяю стартер на C (тесты до 0.5)"
 else
-    # раскрутка: стартер на C собирает компилятор на Tachbit, тот собирает себя сам
-    ./tachbit build compiler-tb/main.tb || exit 1
-    mv compiler-tb/main tachbit-tb2
-    ./tachbit-tb2 build compiler-tb/main.tb || exit 1
-    mv compiler-tb/main tachbit-tb
-    rm -f tachbit-tb2 compiler-tb/main.c
+    # без стартера: семя compiler-tb/seed/tb.c → компилятор из compiler-tb/*.tb → он же сам собой
+    ./tools/build_tb.sh > /dev/null || exit 1
 fi
 
 pass=0
