@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <img src="assets/tachbit-mascot.jpg" alt="Колибри — маскот Tachbit" width="560">
+  <img src="assets/mascot/hover.jpg" alt="Колибри — маскот Tachbit" width="560">
 </p>
 
 # Tachbit 0.7
@@ -32,7 +32,7 @@ Tachbit работает сам, без стартера на C:
 | `tests/` | проверки компилятора |
 | `bench/` | замер скорости против C и Python |
 | `tools/` | синхронизация с Mac и служебные скрипты (в том числе свой компоновщик ядра `elf_link.py`) |
-| `assets/` | логотип, значки и маскот Tachbit (колибри) |
+| `assets/` | логотип, значки и маскот Tachbit (колибри, `assets/mascot/`) |
 | `apps/` | приложения на самом Tachbit (`apps/folders` — менеджер папок) |
 
 Всё в этих папках — наше. Чужое только то, что ставится отдельно: `cc`/clang (переводит C в команды процессора), `python3` (для компоновки ядра), `qemu` (запуск ядра), VS Code. Файлы `tachbit`, `tachbit-tb` и `hello.txt` в корне — собранные или временные, их нет в репозитории, можно удалять.
@@ -96,6 +96,17 @@ apps/folders/build/folders ~/Desktop  # открыть нужную папку
 Команды: число — открыть папку или посмотреть файл, `..` наверх, `n имя` новая папка, `f имя` новый файл, `r 3 имя` переименовать, `d 3` в Корзину, `m 3 папка` перенести, `c 3` копия, `e 3` открыть в редакторе, `x 3` запустить `.tb` или проект, `/текст` поиск, `.` скрытые файлы, `h` домой, `q` выход.
 
 Для неё в язык добавлены функции для папок: `list_dir(папка)` (имена, у папок `/` в конце, папки первыми), `is_folder`, `make_folder`, `move(откуда, куда)`, `remove` (файл или пустая папка), `file_size`, `env("HOME")`. `list_dir`, `make_folder`, `move`, `remove` могут закончиться ошибкой: пиши `try` или `else err`.
+
+## Маскот: колибри
+
+Колибри маленькая, а крыльями машет до 80 раз в секунду и умеет точно зависать на месте. Так и Tachbit: лёгкий, быстрый и точный.
+
+| | | |
+|:---:|:---:|:---:|
+| <img src="assets/mascot/hover.jpg" width="250"><br>зависает | <img src="assets/mascot/speed.jpg" width="250"><br>в полёте | <img src="assets/mascot/front.jpg" width="250"><br>смотрит на нас |
+| <img src="assets/mascot/landing.jpg" width="250"><br>садится | <img src="assets/mascot/portrait.jpg" width="250"><br>портрет | <img src="assets/mascot/simple.jpg" width="250"><br>простая |
+
+Все картинки лежат в `assets/mascot/`.
 
 ## Как собрать и запустить
 
@@ -419,6 +430,8 @@ lock total                            // блок, который в один м
 и диска, клавиатура — латиница (US), программы ядра и пользователя ещё не разделены (всё в кольце 0).
 
 ## Скорость
+
+<p align="center"><img src="assets/mascot/speed.jpg" alt="Колибри в полёте" width="520"></p>
 
 `./bench/run.sh` решает одни и те же задачи на Tachbit, на чистом C и на Python.
 Замер на MacBook Pro (cc -O2, лучшее из 3 запусков):
