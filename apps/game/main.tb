@@ -68,8 +68,8 @@ func main()
     frame = 0
     safe_until = 120
     over = false
-    fx = random(30, W - 30)
-    fy = random(60, H - 30)
+    fx = random(40, W - 40)
+    fy = random(70, H - 40)
     bees = list Bee
     bees.add(new_bee())
     // звёзды на фоне
@@ -91,13 +91,15 @@ func main()
                 y -= 5
             if key_down("down")
                 y += 5
-            x = max(50, min(x, W - 40))
-            y = max(40, min(y, H - 14))
+            // вся птица в окне: клюв слева, хвост справа и снизу, крыло сверху
+            x = max(46, min(x, W - 32))
+            y = max(70, min(y, H - 30))
 
-            if near(x - 40, y - 7, fx, fy, 26)
+            // цветок берётся клювом или всей птицей
+            if near(x - 40, y - 7, fx, fy, 26) or near(x, y, fx, fy, 30)
                 score += 1
-                fx = random(30, W - 30)
-                fy = random(60, H - 30)
+                fx = random(40, W - 40)
+                fy = random(70, H - 40)
                 // каждые 5 цветов — ещё одна пчела
                 if score % 5 == 0
                     bees.add(new_bee())
