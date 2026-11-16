@@ -771,7 +771,7 @@ static void emit_statement(Node *n, int depth) {
         if (n->nkids == 1) {
             emit_pre(n->kids[0], depth);
         }
-        if (cur_func->kids[2]->nkids > 0) {
+        if (cur_func->kids[2]->nkids > 0 && n->nkids == 0) {
             emit_gives_return(depth);
         } else if (n->nkids == 1) {
             indent(depth);

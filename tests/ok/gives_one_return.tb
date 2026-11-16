@@ -1,0 +1,8 @@
+// один выход gives: так тип функции написан заранее, и она может звать себя
+func depth(n: int) gives d: int
+    if n > 0
+        return depth(n - 1) + 1
+    return 0
+
+func main()
+    print(depth(5))

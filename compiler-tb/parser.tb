@@ -1,0 +1,636 @@
+// Слой 2. ПАРСЕР: токены → дерево.
+// Рекурсивный спуск: на каждое правило языка своя маленькая функция.
+use errors
+
+// ---------- узлы ----------
+
+modpub func new_node(kind: text, line: int)
+    return Node(kind: kind, line: line, ty: -1)
+
+modpub func add_kid(parent: Node, kid: Node)
+    parent.kids.add(kid)
+
+// ---------- чтение токенов ----------
+
+func now(c: Comp)
+    return c.tokens[c.pos]
+
+func ahead(c: Comp)
+    if c.pos + 1 < len(c.tokens)
+        return c.tokens[c.pos + 1]
+    return c.tokens[c.pos]
+
+func line_now(c: Comp)
+    return c.tokens[c.pos].line
+
+func next(c: Comp)
+    if c.tokens[c.pos].kind != "end"
+        c.pos += 1
+
+func is_sign(c: Comp, s: text)
+    t = now(c)
+    return t.kind == "sign" and t.word == s
+
+func is_cmd(c: Comp, s: text)
+    t = now(c)
+    return t.kind == "command" and t.word == s
+
+func ahead_is_sign(c: Comp, s: text)
+    t = ahead(c)
+    return t.kind == "sign" and t.word == s
+
+func what_is_here(c: Comp)
+    k = now(c).kind
+    if k == "newline"
+        return "конец строки"
+    if k == "indent"
+        return "лишний отступ"
+    if k == "dedent"
+        return "конец блока"
+    if k == "end"
+        return "конец файла"
+    return now(c).word
+
+func expect_sign(c: Comp, s: text)
+    if not is_sign(c, s)
+        error_at(c, line_now(c), "ожидался знак", s)
+    next(c)
+
+func expect_cmd(c: Comp, s: text)
+    if not is_cmd(c, s)
+        error_at(c, line_now(c), "ожидалась команда", s)
+    next(c)
+
+func expect_name(c: Comp)
+    t = now(c)
+    if t.kind != "name"
+        if t.kind == "command"
+            error_at(c, line_now(c), "это слово занято языком, возьми другое имя", t.word)
+        error_at(c, line_now(c), "ожидалось имя, а тут", what_is_here(c))
+    next(c)
+    return t.word
+
+func expect_newline(c: Comp)
+    if now(c).kind != "newline"
+        error_at(c, line_now(c), "лишнее в конце строки", what_is_here(c))
+    next(c)
+
+func at_type_word(c: Comp)
+    return is_cmd(c, "int") or is_cmd(c, "dec") or is_cmd(c, "text") or is_cmd(c, "bool") or is_cmd(c, "list") or is_cmd(c, "dict")
+
+// int / dec / text / bool / list int / list list text / User
+func parse_type(c: Comp) gives result: Node
+    t = new_node("type", line_now(c))
+    if is_cmd(c, "dict")
+        // dict text int: ключ text, значение int
+        t.name = "dict"
+        next(c)
+        key = parse_type(c)
+        if key.name != "text" and key.name != "int"
+            error_at(c, key.line, "ключ у dict бывает text или int", key.name)
+        add_kid(t, key)
+        if now(c).kind == "newline"
+            error_at(c, line_now(c), "после ключа напиши тип значения: dict text int", "")
+        add_kid(t, parse_type(c))
+        return t
+    if at_type_word(c)
+        t.name = now(c).word
+        next(c)
+        if t.name == "list"
+            if not at_type_word(c) and now(c).kind != "name"
+                error_at(c, line_now(c), "после list напиши, что в нём лежит: list int, list text ...", "")
+            add_kid(t, parse_type(c))
+        return t
+    if now(c).kind == "name"
+        t.name = now(c).word
+        next(c)
+        return t
+    error_at(c, line_now(c), "ожидался тип: int, dec, text, bool, list ... или имя obj, а тут", what_is_here(c))
+    return t
+
+// ---------- выражения (от слабых операций к сильным) ----------
+
+func binop(sign: text, left: Node, right: Node, line: int) gives result: Node
+    n = new_node("binop", line)
+    n.value = sign
+    add_kid(n, left)
+    add_kid(n, right)
+    return n
+
+func parse_call(c: Comp, name: text, line: int) gives result: Node
+    call = new_node("call", line)
+    call.name = name
+    expect_sign(c, "(")
+    repeat while not is_sign(c, ")")
+        arg = new_node("arg", line_now(c))
+        // именованный аргумент:  add(a: 2)
+        if now(c).kind == "name" and ahead_is_sign(c, ":")
+            arg.name = now(c).word
+            next(c)
+            next(c)
+        add_kid(arg, parse_expr(c))
+        add_kid(call, arg)
+        if not is_sign(c, ",")
+            stop
+        next(c)
+    expect_sign(c, ")")
+    return call
+
+modpub func parse_primary(c: Comp) gives result: Node
+    t = now(c)
+    line = t.line
+    n = new_node("missing", line)
+    if t.kind == "number" or t.kind == "decimal" or t.kind == "string"
+        n = new_node(t.kind, line)
+        n.value = t.word
+        next(c)
+    else if is_cmd(c, "true") or is_cmd(c, "false")
+        n = new_node("bool", line)
+        n.value = t.word
+        next(c)
+    else if t.kind == "name"
+        next(c)
+        if is_sign(c, "(")
+            n = parse_call(c, t.word, line)
+        else
+            n = new_node("name", line)
+            n.name = t.word
+    else if is_sign(c, "(")
+        next(c)
+        n = parse_expr(c)
+        expect_sign(c, ")")
+    else if is_sign(c, "{")
+        // {"Ali": 20, "Vali": 30}
+        next(c)
+        n = new_node("dict", line)
+        repeat while not is_sign(c, "}")
+            add_kid(n, parse_expr(c))
+            expect_sign(c, ":")
+            add_kid(n, parse_expr(c))
+            if not is_sign(c, ",")
+                stop
+            next(c)
+        expect_sign(c, "}")
+    else if is_sign(c, "[")
+        next(c)
+        n = new_node("list", line)
+        repeat while not is_sign(c, "]")
+            add_kid(n, parse_expr(c))
+            if not is_sign(c, ",")
+                stop
+            next(c)
+        expect_sign(c, "]")
+    else
+        error_at(c, line, "ожидалось значение, а тут", what_is_here(c))
+    // nums[2]   u.age   nums.add(5)
+    repeat while is_sign(c, "[") or is_sign(c, ".")
+        if is_sign(c, "[")
+            index = new_node("index", line_now(c))
+            next(c)
+            add_kid(index, n)
+            add_kid(index, parse_expr(c))
+            expect_sign(c, "]")
+            n = index
+        else
+            dot_line = line_now(c)
+            next(c)
+            name = expect_name(c)
+            if is_sign(c, "(")
+                call = parse_call(c, name, dot_line)
+                m = new_node("method", dot_line)
+                m.name = name
+                add_kid(m, n)
+                each k in call.kids
+                    add_kid(m, k)
+                n = m
+            else
+                f = new_node("field", dot_line)
+                f.name = name
+                add_kid(f, n)
+                n = f
+    return n
+
+func parse_unary(c: Comp) gives result: Node
+    if is_sign(c, "-")
+        n = new_node("unary", line_now(c))
+        n.value = "-"
+        next(c)
+        add_kid(n, parse_unary(c))
+        return n
+    return parse_primary(c)
+
+func parse_mul(c: Comp) gives result: Node
+    left = parse_unary(c)
+    repeat while is_sign(c, "*") or is_sign(c, "/") or is_sign(c, "%")
+        sign = now(c).word
+        line = line_now(c)
+        next(c)
+        left = binop(sign, left, parse_unary(c), line)
+    return left
+
+func parse_add(c: Comp) gives result: Node
+    left = parse_mul(c)
+    repeat while is_sign(c, "+") or is_sign(c, "-")
+        sign = now(c).word
+        line = line_now(c)
+        next(c)
+        left = binop(sign, left, parse_mul(c), line)
+    return left
+
+func parse_compare(c: Comp) gives result: Node
+    left = parse_add(c)
+    if is_sign(c, "==") or is_sign(c, "!=") or is_sign(c, "<") or is_sign(c, ">") or is_sign(c, "<=") or is_sign(c, ">=")
+        sign = now(c).word
+        line = line_now(c)
+        next(c)
+        left = binop(sign, left, parse_add(c), line)
+    if is_sign(c, "=")
+        error_at(c, line_now(c), "в условии сравнение пишется двумя знаками", "==")
+    return left
+
+func parse_not(c: Comp) gives result: Node
+    if is_cmd(c, "not")
+        n = new_node("unary", line_now(c))
+        n.value = "not"
+        next(c)
+        add_kid(n, parse_not(c))
+        return n
+    return parse_compare(c)
+
+func parse_and(c: Comp) gives result: Node
+    left = parse_not(c)
+    repeat while is_cmd(c, "and")
+        line = line_now(c)
+        next(c)
+        left = binop("and", left, parse_not(c), line)
+    return left
+
+modpub func parse_expr(c: Comp) gives result: Node
+    left = parse_and(c)
+    repeat while is_cmd(c, "or")
+        line = line_now(c)
+        next(c)
+        left = binop("or", left, parse_and(c), line)
+    return left
+
+// ---------- команды ----------
+
+func parse_if(c: Comp) gives result: Node
+    n = new_node("if", line_now(c))
+    expect_cmd(c, "if")
+    add_kid(n, parse_expr(c))
+    expect_newline(c)
+    add_kid(n, parse_block(c))
+    repeat while is_cmd(c, "else")
+        next(c)
+        if is_cmd(c, "if")
+            next(c)
+            add_kid(n, parse_expr(c))
+            expect_newline(c)
+            add_kid(n, parse_block(c))
+        else
+            expect_newline(c)
+            add_kid(n, parse_block(c))
+            stop
+    return n
+
+func parse_each(c: Comp) gives result: Node
+    n = new_node("each", line_now(c))
+    expect_cmd(c, "each")
+    n.name = expect_name(c)
+    expect_cmd(c, "in")
+    add_kid(n, parse_expr(c))
+    expect_newline(c)
+    add_kid(n, parse_block(c))
+    return n
+
+func parse_count(c: Comp) gives result: Node
+    n = new_node("count", line_now(c))
+    expect_cmd(c, "count")
+    n.name = expect_name(c)
+    expect_cmd(c, "from")
+    add_kid(n, parse_expr(c))
+    expect_cmd(c, "to")
+    add_kid(n, parse_expr(c))
+    expect_newline(c)
+    add_kid(n, parse_block(c))
+    return n
+
+func parse_repeat(c: Comp) gives result: Node
+    line = line_now(c)
+    expect_cmd(c, "repeat")
+    n = new_node("repeat_times", line)
+    if is_cmd(c, "while")
+        next(c)
+        n = new_node("repeat_while", line)
+        add_kid(n, parse_expr(c))
+    else
+        add_kid(n, parse_expr(c))
+        expect_cmd(c, "times")
+    expect_newline(c)
+    add_kid(n, parse_block(c))
+    return n
+
+// значение справа: обычное, или  try f(),  или  f() else err  + блок
+func parse_value(c: Comp) gives result: Node
+    if is_cmd(c, "try")
+        t = new_node("try", line_now(c))
+        next(c)
+        add_kid(t, parse_expr(c))
+        return t
+    v = parse_expr(c)
+    if is_cmd(c, "else")
+        e = new_node("else_err", line_now(c))
+        next(c)
+        e.name = expect_name(c)
+        expect_newline(c)
+        add_kid(e, v)
+        add_kid(e, parse_block(c))
+        return e
+    return v
+
+// после  else err  блок уже съел конец строки
+func end_statement(c: Comp, value: Node)
+    if value.kind != "else_err"
+        expect_newline(c)
+
+func is_change_sign(c: Comp)
+    return is_sign(c, "=") or is_sign(c, "+=") or is_sign(c, "-=") or is_sign(c, "*=") or is_sign(c, "/=")
+
+// x = 5   /   x = int 5   /   names = list text   /   const x = 5
+func parse_assign(c: Comp, is_const: bool) gives result: Node
+    line = line_now(c)
+    n = new_node("assign", line)
+    n.name = expect_name(c)
+    n.is_const = is_const
+    expect_sign(c, "=")
+    if at_type_word(c) or is_cmd(c, "dict")
+        n.tsyn = parse_type(c)
+        n.has_tsyn = true
+    if now(c).kind != "newline"
+        add_kid(n, parse_value(c))
+    else if not n.has_tsyn
+        error_at(c, line, "после = нужно значение", "")
+    if is_const and len(n.kids) == 0
+        error_at(c, line, "const нужно сразу дать значение", n.name)
+    if len(n.kids) == 1
+        end_statement(c, n.kids[0])
+    else
+        expect_newline(c)
+    return n
+
+// hp: link u.age
+func parse_linkdecl(c: Comp) gives result: Node
+    n = new_node("linkdecl", line_now(c))
+    n.name = expect_name(c)
+    expect_sign(c, ":")
+    if not is_cmd(c, "link")
+        error_at(c, line_now(c), "после двоеточия в строке ожидалось link (ярлык)", what_is_here(c))
+    next(c)
+    add_kid(n, parse_expr(c))
+    expect_newline(c)
+    return n
+
+// q, r = divide(a: 17, b: 5)
+func parse_multi(c: Comp) gives result: Node
+    n = new_node("multi", line_now(c))
+    repeat while true
+        name = new_node("name", line_now(c))
+        name.name = expect_name(c)
+        add_kid(n, name)
+        if not is_sign(c, ",")
+            stop
+        next(c)
+    expect_sign(c, "=")
+    value = parse_value(c)
+    add_kid(n, value)
+    end_statement(c, value)
+    return n
+
+// строка, которая начинается с имени
+func parse_name_statement(c: Comp) gives result: Node
+    line = line_now(c)
+    if ahead_is_sign(c, "=")
+        return parse_assign(c, false)
+    if ahead_is_sign(c, ":")
+        return parse_linkdecl(c)
+    if ahead_is_sign(c, ",")
+        return parse_multi(c)
+    target = parse_primary(c)
+    if is_change_sign(c)
+        k = target.kind
+        if k != "name" and k != "index" and k != "field"
+            error_at(c, line, "слева от знака должно быть имя, nums[i] или u.age", "")
+        n = new_node("set", line)
+        n.value = now(c).word
+        next(c)
+        add_kid(n, target)
+        value = parse_value(c)
+        add_kid(n, value)
+        end_statement(c, value)
+        return n
+    n = new_node("expr_stmt", line)
+    if is_cmd(c, "else")
+        e = new_node("else_err", line_now(c))
+        next(c)
+        e.name = expect_name(c)
+        expect_newline(c)
+        add_kid(e, target)
+        add_kid(e, parse_block(c))
+        add_kid(n, e)
+        return n
+    add_kid(n, target)
+    expect_newline(c)
+    return n
+
+func later_command(c: Comp)
+    each w in ["gives", "shared", "obj", "temp", "together", "danger", "by"]
+        if is_cmd(c, w)
+            return true
+    return false
+
+func parse_statement(c: Comp) gives result: Node
+    line = line_now(c)
+    if is_cmd(c, "if")
+        return parse_if(c)
+    if is_cmd(c, "each")
+        return parse_each(c)
+    if is_cmd(c, "count")
+        return parse_count(c)
+    if is_cmd(c, "repeat")
+        return parse_repeat(c)
+    if is_cmd(c, "skip") or is_cmd(c, "stop")
+        n = new_node(now(c).word, line)
+        next(c)
+        expect_newline(c)
+        return n
+    if is_cmd(c, "return")
+        n = new_node("return", line)
+        next(c)
+        if now(c).kind != "newline"
+            value = parse_value(c)
+            add_kid(n, value)
+            end_statement(c, value)
+        else
+            expect_newline(c)
+        return n
+    if is_cmd(c, "fail")
+        n = new_node("fail", line)
+        next(c)
+        add_kid(n, parse_expr(c))
+        expect_newline(c)
+        return n
+    if is_cmd(c, "try")
+        n = new_node("expr_stmt", line)
+        add_kid(n, parse_value(c))
+        expect_newline(c)
+        return n
+    if is_cmd(c, "const")
+        next(c)
+        return parse_assign(c, true)
+    if is_cmd(c, "else")
+        error_at(c, line, "else без if над ним (проверь отступ)", "")
+    if is_cmd(c, "func")
+        error_at(c, line, "функцию нельзя писать внутри другой функции", "")
+    if is_cmd(c, "link")
+        error_at(c, line, "link в начале строки подключает файл: это будет в версии 0.3", "")
+    if is_cmd(c, "use") or is_cmd(c, "modpub") or is_cmd(c, "modpri")
+        error_at(c, line, "use, modpub и modpri пишутся снаружи функций, в начале строки", "")
+    if later_command(c)
+        error_at(c, line, "эта команда будет в следующей версии", now(c).word)
+    if now(c).kind == "name"
+        return parse_name_statement(c)
+    if now(c).kind == "command" and ahead_is_sign(c, "=")
+        error_at(c, line, "это слово занято языком, возьми другое имя", now(c).word)
+    error_at(c, line, "не понимаю, что делает строка, начиная с", what_is_here(c))
+    return new_node("missing", line)
+
+func parse_block(c: Comp) gives result: Node
+    block = new_node("block", line_now(c))
+    if now(c).kind != "indent"
+        error_at(c, line_now(c), "после этой строки нужен блок с отступом", "")
+    next(c)
+    repeat while now(c).kind != "dedent" and now(c).kind != "end"
+        if now(c).kind == "indent"
+            error_at(c, line_now(c), "лишний отступ", "")
+        add_kid(block, parse_statement(c))
+    next(c)
+    return block
+
+// name: type   или   link name
+func parse_param(c: Comp, allow_link: bool) gives result: Node
+    p = new_node("param", line_now(c))
+    if is_cmd(c, "link")
+        if not allow_link
+            error_at(c, line_now(c), "link здесь нельзя", "")
+        next(c)
+        p.is_link = true
+        p.name = expect_name(c)
+        return p
+    p.name = expect_name(c)
+    expect_sign(c, ":")
+    p.tsyn = parse_type(c)
+    p.has_tsyn = true
+    return p
+
+// func name(a: int, link hp) gives result: int, rest: int
+func parse_func(c: Comp) gives result: Node
+    f = new_node("func", line_now(c))
+    expect_cmd(c, "func")
+    f.name = expect_name(c)
+    expect_sign(c, "(")
+    params = new_node("block", line_now(c))
+    repeat while not is_sign(c, ")")
+        add_kid(params, parse_param(c, true))
+        if not is_sign(c, ",")
+            stop
+        next(c)
+    expect_sign(c, ")")
+    outputs = new_node("block", line_now(c))
+    if is_cmd(c, "gives")
+        next(c)
+        repeat while true
+            add_kid(outputs, parse_param(c, false))
+            if not is_sign(c, ",")
+                stop
+            next(c)
+    expect_newline(c)
+    add_kid(f, params)
+    add_kid(f, parse_block(c))
+    add_kid(f, outputs)
+    return f
+
+// obj User
+//     name: text
+//     age: int
+func parse_obj(c: Comp) gives result: Node
+    o = new_node("obj", line_now(c))
+    expect_cmd(c, "obj")
+    o.name = expect_name(c)
+    if is_cmd(c, "by")
+        error_at(c, line_now(c), "by columns будет в версии 0.7", "")
+    expect_newline(c)
+    if now(c).kind != "indent"
+        error_at(c, line_now(c), "у obj ниже с отступом пишутся качества: name: text", "")
+    next(c)
+    repeat while now(c).kind != "dedent" and now(c).kind != "end"
+        add_kid(o, parse_param(c, false))
+        expect_newline(c)
+    next(c)
+    return o
+
+modpub func parse(c: Comp)
+    c.pos = 0
+    program = new_node("program", 1)
+    repeat while now(c).kind != "end"
+        if is_cmd(c, "use")
+            // use money  —  подключить файл money.tb рядом
+            u = new_node("use", line_now(c))
+            next(c)
+            u.name = expect_name(c)
+            expect_newline(c)
+            add_kid(program, u)
+        else if is_cmd(c, "modpub") or is_cmd(c, "modpri")
+            is_pub = is_cmd(c, "modpub")
+            next(c)
+            if not is_cmd(c, "func")
+                error_at(c, line_now(c), "modpub и modpri ставятся перед func", "")
+            f = parse_func(c)
+            f.is_pub = is_pub
+            add_kid(program, f)
+        else if is_cmd(c, "func")
+            add_kid(program, parse_func(c))
+        else if is_cmd(c, "obj")
+            add_kid(program, parse_obj(c))
+        else if is_cmd(c, "link")
+            error_at(c, line_now(c), "подключение C-файлов через link будет в версии 0.9 (вместе с danger); файлы Tachbit подключает use", "")
+        else if now(c).kind == "indent"
+            error_at(c, line_now(c), "лишний отступ", "")
+        else
+            error_at(c, line_now(c), "снаружи функций можно писать только use, func и obj", what_is_here(c))
+    return program
+
+// ---------- печать дерева (команда tree) ----------
+
+modpub func node_kind_name(kind: text)
+    names = {"program": "ПРОГРАММА", "func": "ФУНКЦИЯ", "param": "ПАРАМЕТР", "block": "БЛОК", "obj": "OBJ", "type": "ТИП", "assign": "ПРИСВОИТЬ", "set": "ИЗМЕНИТЬ", "linkdecl": "ЯРЛЫК", "multi": "НЕСКОЛЬКО", "if": "ЕСЛИ", "each": "EACH", "count": "COUNT", "repeat_times": "REPEAT TIMES", "repeat_while": "REPEAT WHILE", "skip": "SKIP", "stop": "STOP", "return": "RETURN", "expr_stmt": "ВЫЗОВ-СТРОКА", "number": "ЧИСЛО", "decimal": "ДРОБЬ", "string": "ТЕКСТ", "bool": "ДА/НЕТ", "name": "ИМЯ", "list": "СПИСОК", "call": "ВЫЗОВ", "arg": "АРГУМЕНТ", "binop": "ОПЕРАЦИЯ", "unary": "ОДИНОЧНАЯ", "index": "ИНДЕКС", "field": "КАЧЕСТВО", "method": "МЕТОД", "dict": "СЛОВАРЬ", "use": "USE", "fail": "FAIL", "try": "TRY", "else_err": "ELSE ERR"}
+    return names[kind]
+
+modpub func tree_lines(n: Node, depth: int, out: list text)
+    s = ""
+    count i from 1 to depth
+        s = s + "  "
+    s = s + node_kind_name(n.kind)
+    if n.name != ""
+        s = s + " " + n.name
+    if n.value != ""
+        s = s + " " + n.value
+    if n.is_const
+        s = s + " (const)"
+    if n.is_link
+        s = s + " (link)"
+    out.add(s)
+    if n.has_tsyn
+        tree_lines(n.tsyn, depth + 1, out)
+    each k in n.kids
+        tree_lines(k, depth + 1, out)

@@ -1129,7 +1129,14 @@ static void check_return(Node *n) {
     Node *f = current->node;
     if (f->kids[2]->nkids > 0) {
         if (n->nkids != 0) {
-            fail(n->line, "у функции с gives return пишется без значения: он отдаёт выходы", 0);
+            // один выход:  func f() gives r: int  ...  return 5  — можно сразу отдать значение
+            if (f->kids[2]->nkids > 1) {
+                fail(n->line, "у функции с несколькими gives return пишется без значения: он отдаёт выходы", 0);
+            }
+            Type *t = check_value(n->kids[0]);
+            if (!fits(f->ty, t)) {
+                fail(n->line, "return отдаёт другой тип, чем написано в gives", type_name(f->ty));
+            }
         }
         return;
     }

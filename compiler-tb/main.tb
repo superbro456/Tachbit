@@ -1,16 +1,87 @@
 // Tachbit 0.5 — компилятор Tachbit, написанный на Tachbit.
+//   tokens / tree / check / c / build / run  файл.tb
+use types
 use errors
 use lexer
+use parser
+
+// "examples/shop.tb" → папка "examples/"
+func folder_of(path: text)
+    cut_at = 0
+    count i from 0 to len(path) - 1
+        if path[i] == "/"
+            cut_at = i + 1
+    if cut_at == 0
+        return ""
+    return cut(path, 0, cut_at - 1)
+
+func without_tb(path: text)
+    if len(path) > 3 and ends_with(path, ".tb")
+        return cut(path, 0, len(path) - 4)
+    return path
+
+func module_of(path: text)
+    folder = folder_of(path)
+    return without_tb(cut(path, len(folder), len(path) - 1))
+
+func load_module(c: Comp, program: Node, path: text, line_of_use: int, used_from: text, loaded: list text)
+    name = module_of(path)
+    each m in loaded
+        if m == name
+            return
+    if len(loaded) == 200
+        error_at(c, 0, "слишком много модулей", "")
+    loaded.add(name)
+    if not file_exists(path)
+        c.file_name = used_from
+        error_at(c, line_of_use, "нет файла для use", path)
+    source = read_file(path) else err
+        print("не могу открыть файл: " + path)
+        exit(1)
+    c.file_name = path
+    lex(c, source)
+    part = parse(c)
+    each k in part.kids
+        k.mod = name
+        k.file = path
+        add_kid(program, k)
+    // теперь файлы, которые этот файл подключает через use
+    each u in part.kids
+        if u.kind == "use"
+            next_path = folder_of(path) + u.name + ".tb"
+            load_module(c, program, next_path, u.line, path, loaded)
+
+func load_program(c: Comp, path: text)
+    program = new_node("program", 1)
+    loaded = list text
+    load_module(c, program, path, 0, path, loaded)
+    c.file_name = path
+    return program
+
+func usage()
+    print("Tachbit 0.5 (компилятор на Tachbit)\n")
+    print("  tachbit tree   файл.tb   показать дерево")
+    print("  tachbit tokens файл.tb   показать токены")
 
 func main()
     a = args()
     if len(a) < 2
-        print("tachbit tokens файл.tb")
+        usage()
         exit(1)
+    mode = a[0]
     c = Comp(file_name: a[1])
-    src = read_file(a[1]) else err
-        print("не могу открыть файл: " + a[1])
-        exit(1)
-    if a[0] == "tokens"
+    if mode == "tokens"
+        if not file_exists(a[1])
+            print("не могу открыть файл: " + a[1])
+            exit(1)
+        src = read_file(a[1]) or ""
         lex(c, src)
         print_tokens(c)
+        return
+    if mode == "tree"
+        out = list text
+        tree_lines(load_program(c, a[1]), 0, out)
+        print(join(out, "\n"))
+        return
+    usage()
+    exit(1)
