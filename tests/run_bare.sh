@@ -6,7 +6,8 @@
 # Нужны qemu-system-i386 и python3 (на Mac: brew install qemu).
 cd "$(dirname "$0")/.." || exit 1
 command -v qemu-system-i386 > /dev/null || { echo "нет qemu-system-i386 (на Mac: brew install qemu)"; exit 1; }
-[ -x ./tachbit-tb ] || ./tools/build_tb.sh > /dev/null || exit 1
+# компилятор собираем заново: после git pull старый ./tachbit-tb мог остаться
+./tools/build_tb.sh > /dev/null || exit 1
 work=$(mktemp -d)
 pass=0; fail=0
 run_kernel() {
@@ -19,7 +20,7 @@ run_kernel() {
 for f in tests/bare/*.tb; do
     got=$(run_kernel "$f")
     if [ "$1" = "--update" ]; then printf '%s\n' "$got" > "${f%.tb}.out"; continue; fi
-    if [ "$got" = "$(cat "${f%.tb}.out")" ]; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "не прошёл: $f"; fi
+    if [ "$got" = "$(cat "${f%.tb}.out")" ]; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "не прошёл: $f"; [ $fail -eq 1 ] && printf '%s\n' "$got" | head -5 | sed 's/^/    /'; fi
 done
 # обычные тесты тоже должны работать как ядра (кроме тех, где нужны файлы — их без ОС нет)
 for f in tests/ok/*.tb; do
