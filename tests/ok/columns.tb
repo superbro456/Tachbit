@@ -1,0 +1,33 @@
+// 0.7: obj by columns
+obj Point by columns
+    x: dec
+    y: dec
+    name: text
+
+func main()
+    pts = list Point
+    pts.add(Point(x: 1.5, y: 2.0, name: "a"))
+    pts.add(Point(x: 3.0, y: 4.0, name: "b"))
+    p = Point(x: 10.0, name: "c")
+    pts.add(p)
+    p.x = 99.0
+    print(pts, len(pts))
+    print(p)
+    pts[0].y += 100.0
+    q = pts[1]
+    q.name = "B"
+    pts[2] = Point(x: 7.0, y: 7.0, name: "z")
+    total = 0.0
+    each a in pts
+        total += a.x
+    print(total, pts)
+    more = [Point(x: 1.0), Point(y: 2.0)]
+    print(more)
+    shared s = dec 0.0
+    each a in pts on all cores
+        s += a.y
+    print(s)
+    d = {"k": Point(x: 5.0)}
+    print(d, d.values())
+    empty = Point()
+    print(empty)

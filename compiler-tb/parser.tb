@@ -591,7 +591,12 @@ func parse_obj(c: Comp) gives result: Node
     expect_cmd(c, "obj")
     o.name = expect_name(c)
     if is_cmd(c, "by")
-        error_at(c, line_now(c), "by columns будет в версии 0.7", "")
+        // obj Point by columns: в списке хранится колонками
+        next(c)
+        if now(c).kind != "name" or now(c).word != "columns"
+            error_at(c, line_now(c), "после obj ... by пишется columns: obj Point by columns", "")
+        next(c)
+        o.by_cols = true
     expect_newline(c)
     if now(c).kind != "indent"
         error_at(c, line_now(c), "у obj ниже с отступом пишутся качества: name: text", "")
@@ -656,6 +661,8 @@ modpub func tree_lines(n: Node, depth: int, out: list text)
         s = s + " (shared)"
     if n.is_par
         s = s + " (on all cores)"
+    if n.by_cols
+        s = s + " (by columns)"
     out.add(s)
     if n.has_tsyn
         tree_lines(n.tsyn, depth + 1, out)

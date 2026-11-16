@@ -1,0 +1,19 @@
+// Сумма одного качества у 20 млн объектов, 10 раз.
+// obj by columns: все mass лежат подряд, процессор читает только их.
+obj Particle by columns
+    x: dec
+    y: dec
+    z: dec
+    mass: dec
+    id: int
+    alive: bool
+
+func main()
+    parts = list Particle
+    count i from 0 to 19999999
+        parts.add(Particle(x: 1.0, y: 2.0, z: 3.0, mass: (i % 100) / 10.0, id: i, alive: true))
+    total = 0.0
+    repeat 10 times
+        each p in parts
+            total += p.mass
+    print(total)

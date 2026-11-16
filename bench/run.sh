@@ -40,3 +40,17 @@ for task in fib primes cores; do
     fi
     rm -f $task $task.c ${task}_c
 done
+
+# by columns: сумма одного качества у 20 млн объектов (10 раз)
+../tachbit-tb build columns.tb > /dev/null || exit 1
+../tachbit-tb build cards.tb > /dev/null || exit 1
+cc -O2 -o columns_c columns_pure.c || exit 1
+echo "== columns  (ответ: $(./columns))"
+echo "   Tachbit by columns:   $(best ./columns) с"
+echo "   Tachbit обычный obj:  $(best ./cards) с"
+echo "   C (массив структур):  $(best ./columns_c) с"
+if command -v python3 > /dev/null; then
+    py=$(seconds python3 columns.py)
+    echo "   Python:  $(awk "BEGIN { print $py * 10 }") с   (считал 2 млн объектов, время ×10)"
+fi
+rm -f columns columns.c cards cards.c columns_c

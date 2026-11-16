@@ -1,0 +1,11 @@
+// 0.7
+obj Point by columns
+    x: dec
+
+obj Box
+    p: Point
+
+func main()
+    b = Box()
+    print(b)
+    print(b.p.x)

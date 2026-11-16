@@ -1,0 +1,7 @@
+// 0.7
+obj P by columns
+    x: int
+
+func main()
+    ps = [P(x: 1)]
+    q = ps.pop()

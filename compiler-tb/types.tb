@@ -37,6 +37,8 @@ obj Node
     // 0.7: each / count ... on all cores; shared x = ...
     is_par: bool
     is_shared: bool
+    // obj Point by columns
+    by_cols: bool
     // переменные снаружи, которые видит цикл on all cores
     caps: list Var
 

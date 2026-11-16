@@ -78,6 +78,14 @@ func is_list(c: Comp, t: int)
 func is_dict(c: Comp, t: int)
     return kind_of(c, t) == "dict"
 
+// obj ... by columns
+modpub func is_cols_obj(c: Comp, t: int)
+    return kind_of(c, t) == "obj" and c.types[t].obj_node.by_cols
+
+// list Point, где Point by columns: хранится колонками
+modpub func is_cols_list(c: Comp, t: int)
+    return kind_of(c, t) == "list" and is_cols_obj(c, c.types[t].elem)
+
 func is_scalar(t: int)
     return t == 1 or t == 2 or t == 3 or t == 4
 
@@ -477,6 +485,8 @@ func need_place_for(c: Comp, n: Node, why: text, for_link: bool)
         return
     if n.kind == "field"
         return
+    if n.kind == "index" and is_cols_list(c, n.kids[0].ty) and for_link
+        error_at(c, n.line, "ярлык на элемент списка колонок нельзя: возьми ярлык на качество, например pts[i].x", "")
     if n.kind == "index" and is_list(c, n.kids[0].ty)
         return
     if n.kind == "index"
@@ -631,6 +641,8 @@ func check_method(c: Comp, n: Node) gives r: int
         n.kids[1].ty = elem
         return 0
     if n.name == "pop"
+        if is_cols_obj(c, elem)
+            error_at(c, n.line, "у списка колонок (by columns) .pop() пока нет", "")
         if args != 0
             error_at(c, n.line, ".pop() пишется без значений", "")
         return elem
