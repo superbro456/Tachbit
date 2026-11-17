@@ -1,0 +1,1 @@
+match_missing.tb, строка 8: match разбирает не все варианты Status (или добавь else), нет: sent

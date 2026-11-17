@@ -46,6 +46,8 @@ func c_type(c: Comp, t: int)
         return "tb_task *"
     if k == "channel"
         return "tb_chan *"
+    if k == "enum"
+        return "long long"
     return "void"
 
 func indent(c: Comp, depth: int)
@@ -490,7 +492,7 @@ func emit_binop(c: Comp, n: Node)
 
 func emit_expr(c: Comp, n: Node)
     k = n.kind
-    if k == "number"
+    if k == "number" or k == "enumval"
         put(c, n.value + "LL")
     else if k == "decimal" or k == "string"
         put(c, n.value)
@@ -1703,7 +1705,7 @@ func fast_body_ok(c: Comp, n: Node, var_name: text, names: list text)
         if n.ref.kind != "func" and n.ref.kind != "obj"
             return false
         each arg in n.kids
-            if not is_plain_ty(arg.kids[0].ty)
+            if not is_plain_ty(c, arg.kids[0].ty)
                 return false
     if k == "assign" and (n.name == var_name or has_text(names, n.name))
         return false
@@ -1876,9 +1878,53 @@ func fill_form(c: Comp, n: Node)
     k = v.kind
     return k == "number" or k == "decimal" or k == "string" or k == "bool"
 
+// match: одно значение, дальше цепочка if / else if
+func emit_match(c: Comp, n: Node, depth: int)
+    c.label += 1
+    m = "tb_m" + c.label
+    subj = n.kids[0]
+    is_text = subj.ty == 4
+    indent(c, depth)
+    put(c, "{\n")
+    indent(c, depth + 1)
+    put(c, c_type(c, subj.ty) + " " + m + " = ")
+    emit_expr(c, subj)
+    put(c, ";\n")
+    first = true
+    count i from 1 to len(n.kids) - 1
+        cs = n.kids[i]
+        indent(c, depth + 1)
+        if not first
+            put(c, "else ")
+        first = false
+        if cs.name == "else"
+            put(c, "{\n")
+        else
+            put(c, "if (")
+            vi = 0
+            each v in cs.kids[0].kids
+                if vi > 0
+                    put(c, " || ")
+                vi += 1
+                if is_text
+                    put(c, "strcmp(" + m + ", ")
+                    emit_expr(c, v)
+                    put(c, ") == 0")
+                else
+                    put(c, m + " == ")
+                    emit_expr(c, v)
+            put(c, ") {\n")
+        emit_block(c, cs.kids[1], depth + 2)
+        indent(c, depth + 1)
+        put(c, "}\n")
+    indent(c, depth)
+    put(c, "}\n")
+
 func emit_statement(c: Comp, n: Node, depth: int)
     k = n.kind
-    if k == "assign"
+    if k == "match"
+        emit_match(c, n, depth)
+    else if k == "assign"
         emit_assign(c, n, depth)
     else if k == "set"
         emit_set(c, n, depth)
@@ -2219,8 +2265,8 @@ func emit_app(c: Comp, name: text, part: Node)
 // всё, что создано за шаг, берётся из временной памяти и отдаётся разом в конце шага.
 // Это то же, что temp, только компилятор ставит его сам, а память берётся быстрее malloc.
 
-func is_plain_ty(t: int)
-    return t == 1 or t == 2 or t == 3
+func is_plain_ty(c: Comp, t: int)
+    return t == 1 or t == 2 or t == 3 or is_enum(c, t)
 
 // имена, которые создаются внутри тела
 func at_inner(n: Node, inner: list text)
@@ -2235,8 +2281,8 @@ func at_inner(n: Node, inner: list text)
         at_inner(kid, inner)
 
 // список, dict или obj (их можно менять; текст менять нельзя)
-func is_box(t: int)
-    return t > 4
+func is_box(c: Comp, t: int)
+    return t > 4 and not is_enum(c, t)
 
 // имя, от которого идёт u.list[i].x
 func root_name(n: Node)
@@ -2248,11 +2294,11 @@ func root_name(n: Node)
     return ""
 
 // значение не тянет за собой список, dict или obj снаружи шага (или изнутри, но «не свежий»)
-func at_fresh_expr(n: Node, inner: list text, fresh: list text)
-    if n.kind == "name" and is_box(n.ty) and not (bld_has(inner, n.name) and bld_has(fresh, n.name))
+func at_fresh_expr(c: Comp, n: Node, inner: list text, fresh: list text)
+    if n.kind == "name" and is_box(c, n.ty) and not (bld_has(inner, n.name) and bld_has(fresh, n.name))
         return false
     each k in n.kids
-        if not at_fresh_expr(k, inner, fresh)
+        if not at_fresh_expr(c, k, inner, fresh)
             return false
     return true
 
@@ -2260,13 +2306,13 @@ func at_fresh_expr(n: Node, inner: list text, fresh: list text)
 func at_unfresh(c: Comp, n: Node, inner: list text, fresh: list text) gives changed: bool
     k = n.kind
     lose = ""
-    if k == "assign" and len(n.kids) == 1 and is_box(n.kids[0].ty) and not at_fresh_expr(n.kids[0], inner, fresh)
+    if k == "assign" and len(n.kids) == 1 and is_box(c, n.kids[0].ty) and not at_fresh_expr(c, n.kids[0], inner, fresh)
         lose = n.name
-    if k == "each" and not at_fresh_expr(n.kids[0], inner, fresh)
+    if k == "each" and not at_fresh_expr(c, n.kids[0], inner, fresh)
         lose = n.name
-    if k == "set" and n.kids[0].kind != "name" and is_box(n.kids[1].ty) and not at_fresh_expr(n.kids[1], inner, fresh)
+    if k == "set" and n.kids[0].kind != "name" and is_box(c, n.kids[1].ty) and not at_fresh_expr(c, n.kids[1], inner, fresh)
         lose = root_name(n.kids[0])
-    if k == "method" and n.name == "add" and is_box(n.kids[1].kids[0].ty) and not at_fresh_expr(n.kids[1].kids[0], inner, fresh)
+    if k == "method" and n.name == "add" and is_box(c, n.kids[1].kids[0].ty) and not at_fresh_expr(c, n.kids[1].kids[0], inner, fresh)
         lose = root_name(n.kids[0])
     if k == "multi"
         count i from 0 to len(n.kids) - 2
@@ -2306,33 +2352,33 @@ func at_bad(c: Comp, n: Node, inner: list text, fresh: list text, level: int)
         return true
     if (k == "each" or k == "count") and (n.is_par or n.by_vec or n.by_piece)
         return true
-    if k == "assign" and not n.creates and not is_plain_ty(n.ty) and not bld_has(inner, n.name)
+    if k == "assign" and not n.creates and not is_plain_ty(c, n.ty) and not bld_has(inner, n.name)
         return true
     if k == "set"
         target = n.kids[0]
-        if target.kind == "name" and not is_plain_ty(target.ty) and not bld_has(inner, target.name)
+        if target.kind == "name" and not is_plain_ty(c, target.ty) and not bld_has(inner, target.name)
             return true
         if target.kind != "name" and not at_own(target, inner, fresh)
-            if not is_plain_ty(n.kids[1].ty)
+            if not is_plain_ty(c, n.kids[1].ty)
                 return true
-            if target.kind == "index" and kind_of(c, target.kids[0].ty) == "dict" and not is_plain_ty(target.kids[1].ty)
+            if target.kind == "index" and kind_of(c, target.kids[0].ty) == "dict" and not is_plain_ty(c, target.kids[1].ty)
                 return true
-    if k == "method" and n.name == "add" and not is_plain_ty(n.kids[1].kids[0].ty) and not at_own(n.kids[0], inner, fresh)
+    if k == "method" and n.name == "add" and not is_plain_ty(c, n.kids[1].kids[0].ty) and not at_own(n.kids[0], inner, fresh)
         return true
     if k == "multi"
         count i from 0 to len(n.kids) - 2
-            if not is_plain_ty(n.kids[i].ty) and not bld_has(inner, n.kids[i].name)
+            if not is_plain_ty(c, n.kids[i].ty) and not bld_has(inner, n.kids[i].name)
                 return true
-    if k == "linkdecl" and not is_plain_ty(n.ty)
+    if k == "linkdecl" and not is_plain_ty(c, n.ty)
         return true
     if k == "call" and n.has_ref and n.ref.kind == "func"
         params = n.ref.kids[0]
         count i from 0 to len(n.kids) - 1
             a = n.kids[i].kids[0]
             // в функцию ушёл список, dict или obj снаружи: она может положить в него новое
-            if is_box(a.ty) and not at_fresh_expr(a, inner, fresh)
+            if is_box(c, a.ty) and not at_fresh_expr(c, a, inner, fresh)
                 return true
-            if i < len(params.kids) and params.kids[i].is_link and not is_plain_ty(a.ty) and not bld_has(inner, root_name(a))
+            if i < len(params.kids) and params.kids[i].is_link and not is_plain_ty(c, a.ty) and not bld_has(inner, root_name(a))
                 return true
     next_level = level
     if k == "each" or k == "count" or k == "repeat_times" or k == "repeat_while"
@@ -2351,7 +2397,7 @@ func at_allocates(c: Comp, n: Node)
 // (fib не берёт ничего — ей временная память не нужна, и она остаётся быстрой)
 func at_alloc_in(c: Comp, n: Node, seen: list text)
     k = n.kind
-    if (k == "call" or k == "binop" or k == "list" or k == "dict" or k == "method") and n.ty > 0 and not is_plain_ty(n.ty)
+    if (k == "call" or k == "binop" or k == "list" or k == "dict" or k == "method") and n.ty > 0 and not is_plain_ty(c, n.ty)
         return true
     if k == "call" and n.has_ref
         if n.ref.kind != "func"
@@ -2383,10 +2429,10 @@ func auto_temp_ok(c: Comp, body: Node)
 // функция отдаёт наружу только число, dec, bool или ничего, и ничего не кладёт
 // в то, что ей передали: вся её память временная (main не трогаем: она и так до конца)
 func func_arena_ok(c: Comp, f: Node)
-    if f.name == "main" or not (kind_of(c, f.ty) == "none" or kind_of(c, f.ty) == "multi" or is_plain_ty(f.ty))
+    if f.name == "main" or not (kind_of(c, f.ty) == "none" or kind_of(c, f.ty) == "multi" or is_plain_ty(c, f.ty))
         return false
     each o in f.kids[2].kids
-        if not is_plain_ty(o.ty)
+        if not is_plain_ty(c, o.ty)
             return false
     body = f.kids[1]
     if not at_allocates(c, body)
@@ -2466,6 +2512,13 @@ func emit_show(c: Comp, t: Type)
         return
     if k == "channel"
         put(c, "static void tb_show_" + t.id + "(tb_chan *x) { (void)x; tb_ps(\"<channel>\"); }\n")
+        return
+    if k == "enum"
+        // печать варианта enum — его имя
+        put(c, "static void tb_show_" + t.id + "(long long x) {\n    static const char *names[] = {")
+        each v in t.obj_node.kids
+            put(c, "\"" + v.name + "\", ")
+        put(c, "0};\n    tb_ps(names[x]);\n}\n")
         return
     put(c, "static void tb_show_" + t.id + "(" + c_type(c, t.id) + " x) {\n")
     if k == "int"

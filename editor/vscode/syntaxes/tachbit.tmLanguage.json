@@ -26,7 +26,7 @@
       }
     },
     "obj-def": {
-      "match": "\\b(obj)\\s+([A-Za-z_][A-Za-z0-9_]*)(\\s+by\\s+columns)?",
+      "match": "\\b(obj|enum)\\s+([A-Za-z_][A-Za-z0-9_]*)(\\s+by\\s+columns)?",
       "captures": {
         "1": { "name": "keyword.declaration.type.tachbit" },
         "2": { "name": "entity.name.type.tachbit" },
@@ -35,11 +35,11 @@
     },
     "keywords": {
       "patterns": [
-        { "match": "\\b(if|else|each|in|count|from|to|repeat|times|while|skip|stop|return|gives|fail|try)\\b", "name": "keyword.control.tachbit" },
-        { "match": "\\b(on\\s+all\\s+cores|by\\s+vec|by|shared|temp|together|background|danger|lock|unlock|on\\s+(keyboard|timer|interrupt))\\b", "name": "keyword.other.speed.tachbit" },
-        { "match": "\\.(wait)\\b", "captures": { "1": { "name": "keyword.other.speed.tachbit" } } },
+        { "match": "\\b(if|else|each|in|count|from|to|repeat|times|while|skip|stop|return|gives|fail|try|match)\\b", "name": "keyword.control.tachbit" },
+        { "match": "\\b(on\\s+all\\s+cores|by\\s+vec|by|shared|temp|together|background|danger|lock|unlock|move|on\\s+(keyboard|timer|interrupt))\\b", "name": "keyword.other.speed.tachbit" },
+        { "match": "\\.(wait|send|receive|close)\\b", "captures": { "1": { "name": "keyword.other.speed.tachbit" } } },
         { "match": "\\b(and|or|not)\\b", "name": "keyword.operator.word.tachbit" },
-        { "match": "\\b(int|dec|text|bool|list|dict)\\b", "name": "storage.type.tachbit" },
+        { "match": "\\b(int|dec|text|bool|list|dict|channel)\\b", "name": "storage.type.tachbit" },
         { "match": "\\b(const|link|use|modpub|modpri)\\b", "name": "storage.modifier.tachbit" },
         { "match": "\\b(true|false)\\b", "name": "constant.language.tachbit" },
         { "match": "\\b(print|len|round|code|char|cut|to_int|to_dec|read_file|write_file|input|args|split|join|find|replace|upper|lower|trim|starts_with|ends_with|sort|abs|min|max|sqrt|run|exit|file_exists|show|bit_and|bit_or|bit_xor|bit_not|shift_left|shift_right|read8|read16|read32|read64|write8|write16|write32|write64|asm|address_of|port_in8|port_in16|port_in32|port_out8|port_out16|port_out32|page_new|page_free|interrupts_on|interrupts_off|uptime_ms|wait_ms|read_key|yield)\\b(?=\\s*\\()", "name": "support.function.builtin.tachbit" }

@@ -53,6 +53,23 @@ func obj_type(c: Comp, o: Node)
     nothing = Node(kind: "missing")
     return make_type_key(c, "obj", -1, -1, o, true, nothing, false)
 
+func enum_type(c: Comp, e: Node)
+    nothing = Node(kind: "missing")
+    return make_type_key(c, "enum", -1, -1, e, true, nothing, false)
+
+func find_enum(c: Comp, name: text)
+    count i from 0 to len(c.enums) - 1
+        if c.enums[i].name == name
+            return i
+    return -1
+
+// номер варианта в enum (или -1)
+func enum_index(e: Node, name: text)
+    count i from 0 to len(e.kids) - 1
+        if e.kids[i].name == name
+            return i
+    return -1
+
 func multi_type(c: Comp, fnode: Node)
     nothing = Node(kind: "missing")
     return make_type_key(c, "multi", -1, -1, nothing, false, fnode, true)
@@ -80,6 +97,8 @@ modpub func type_name(c: Comp, t: int) gives r: text
         return "номерок background"
     if ty.kind == "channel"
         return "channel " + type_name(c, ty.elem)
+    if ty.kind == "enum"
+        return ty.obj_node.name
     return ty.kind
 
 func is_number(t: int)
@@ -99,8 +118,8 @@ modpub func is_cols_obj(c: Comp, t: int)
 modpub func is_cols_list(c: Comp, t: int)
     return kind_of(c, t) == "list" and is_cols_obj(c, c.types[t].elem)
 
-func is_scalar(t: int)
-    return t == 1 or t == 2 or t == 3 or t == 4
+func is_scalar(c: Comp, t: int)
+    return t == 1 or t == 2 or t == 3 or t == 4 or is_enum(c, t)
 
 // можно ли положить значение типа from туда, где ждут to
 func fits(want: int, got: int)
@@ -237,7 +256,7 @@ func resolve_type(c: Comp, t: Node) gives r: int
         return list_of(c, resolve_type(c, t.kids[0]))
     if t.name == "channel"
         elem = resolve_type(c, t.kids[0])
-        if not is_scalar(elem)
+        if not is_scalar(c, elem)
             error_at(c, t.line, "по каналу пока идут только int, dec, bool и text", "")
         return chan_of(c, elem)
     if t.name == "dict"
@@ -246,7 +265,10 @@ func resolve_type(c: Comp, t: Node) gives r: int
         return dict_of(c, key, value)
     o = find_obj(c, t.name)
     if o < 0
-        error_at(c, t.line, "нет такого типа и такого obj", t.name)
+        en = find_enum(c, t.name)
+        if en >= 0
+            return enum_type(c, c.enums[en])
+        error_at(c, t.line, "нет такого типа, obj и enum", t.name)
     return obj_type(c, c.objs[o])
 
 // ---------- переменные ----------
@@ -324,16 +346,20 @@ func capture(c: Comp, v: int)
 func outside_temp(c: Comp, v: int)
     return c.temp_base >= 0 and v >= c.n_globals and v < c.temp_base
 
-func is_plain(t: int)
-    return t == 1 or t == 2 or t == 3
+func is_plain(c: Comp, t: int)
+    return t == 1 or t == 2 or t == 3 or is_enum(c, t)
+
+// enum: значение — просто номер варианта
+modpub func is_enum(c: Comp, t: int)
+    return t > 4 and c.types[t].kind == "enum"
 
 func temp_can_see(c: Comp, t: int)
-    if is_plain(t) or t == 4
+    if is_plain(c, t) or t == 4
         return true
     if is_list(c, t)
-        return is_plain(c.types[t].elem)
+        return is_plain(c, c.types[t].elem)
     if is_dict(c, t)
-        return c.types[t].key == 1 and is_plain(c.types[t].elem)
+        return c.types[t].key == 1 and is_plain(c, c.types[t].elem)
     return false
 
 func temp_keep_out(c: Comp, line: int, name: text)
@@ -344,7 +370,7 @@ func no_outside_change(c: Comp, n: Node)
 
 // значение кладут куда-то на хранение: список, на который оно ведёт, теперь не только у своей переменной
 func note_escape(c: Comp, value: Node)
-    if not is_ref(value.ty)
+    if not is_ref(c, value.ty)
         return
     s = src_of(c, value)
     if s >= 0
@@ -361,7 +387,7 @@ func check_move(c: Comp, value: Node, p: Node)
     v = find_var(c, value.name)
     var = c.vars[v]
     t = var.type
-    ok = (is_list(c, t) and is_scalar(c.types[t].elem)) or (is_dict(c, t) and is_scalar(c.types[t].elem))
+    ok = (is_list(c, t) and is_scalar(c, c.types[t].elem)) or (is_dict(c, t) and is_scalar(c, c.types[t].elem))
     if not ok
         error_at(c, value.line, "через move пока отдают список или dict из int, dec, bool или text: obj внутри могли бы быть видны ещё откуда-то", value.name)
     if var.is_link or var.pno > 0 or v < c.n_globals
@@ -382,8 +408,8 @@ func check_move(c: Comp, value: Node, p: Node)
 // через другие функции), отдавать ей цеховое внутри on all cores нельзя.
 
 // список, dict или obj: их можно менять (текст менять нельзя)
-func is_ref(t: int)
-    return t > 4
+func is_ref(c: Comp, t: int)
+    return t > 4 and not is_enum(c, t)
 
 // откуда данные у переменной: ys = xs → xs (иначе она сама)
 func origin(c: Comp, v: int) gives r: int
@@ -393,7 +419,7 @@ func origin(c: Comp, v: int) gives r: int
 
 // переменная, через которую значение n может вести к тем же спискам/obj (или -1)
 func src_of(c: Comp, n: Node) gives r: int
-    if not is_ref(n.ty) and n.kind != "arg"
+    if not is_ref(c, n.ty) and n.kind != "arg"
         return -1
     if n.kind == "name"
         v = find_var(c, n.name)
@@ -631,7 +657,7 @@ func check_binop(c: Comp, n: Node) gives r: int
     if op == "==" or op == "!="
         if not (is_number(a) and is_number(b)) and a != b
             error_at(c, n.line, "нельзя сравнить разные типы", "")
-        if not is_scalar(a)
+        if not is_scalar(c, a)
             error_at(c, n.line, "списки и объекты пока нельзя сравнивать", "")
         return 3
     if op == "<" or op == ">" or op == "<=" or op == ">="
@@ -641,7 +667,9 @@ func check_binop(c: Comp, n: Node) gives r: int
             error_at(c, n.line, "больше / меньше работают с числами или с двумя текстами", op)
         return 3
     if op == "+" and (a == 4 or b == 4)
-        if not is_scalar(a) or not is_scalar(b)
+        if is_enum(c, a) or is_enum(c, b)
+            error_at(c, n.line, "enum к тексту пока не приписывается: print(s) печатает имя варианта", "")
+        if not is_scalar(c, a) or not is_scalar(c, b)
             error_at(c, n.line, "список или объект нельзя сложить с текстом", "")
         return 4
     if not is_number(a) or not is_number(b)
@@ -998,7 +1026,7 @@ func check_user_call(c: Comp, n: Node, fi: int) gives r: int
                     if j != i and lr >= 0 and src_of(c, n.kids[j].kids[0]) == lr
                         error_at(c, value.line, "в функцию отдают ярлык на элемент списка и сам список: если функция вырастит список, ярлык поведёт в пустоту", n.name)
             no_outside_change(c, value)
-            if outside_temp(c, root_var(c, value)) and not is_plain(t)
+            if outside_temp(c, root_var(c, value)) and not is_plain(c, t)
                 temp_keep_out(c, value.line, p.name)
             if p.ty < 0
                 // тип ярлыка узнаём по первому вызову
@@ -1007,7 +1035,7 @@ func check_user_call(c: Comp, n: Node, fi: int) gives r: int
                 error_at(c, value.line, "этот ярлык уже был другого типа", type_name(c, p.ty))
         else if not fits(p.ty, t)
             error_at(c, value.line, "параметр ждёт другой тип", p.name)
-        else if is_ref(t)
+        else if is_ref(c, t)
             s = src_of(c, value)
             if s >= 0
                 key = "f" + fi + "#" + i
@@ -1098,7 +1126,7 @@ func check_user_call(c: Comp, n: Node, fi: int) gives r: int
     // функция хранит полученный список: он теперь виден не только у своей переменной
     count i from 0 to len(n.kids) - 1
         value = n.kids[i].kids[0]
-        if is_ref(value.ty) and text_in(c.keep_keys, "f" + fi + "#" + i)
+        if is_ref(c, value.ty) and text_in(c.keep_keys, "f" + fi + "#" + i)
             note_escape(c, value)
     c.last_call = fi
     return f.node.ty
@@ -1342,6 +1370,17 @@ func check_expr(c: Comp, n: Node) gives r: int
         t = c.types[n.kids[0].ty].elem
     else if k == "background"
         t = check_background(c, n)
+    else if k == "field" and n.kids[0].kind == "name" and find_var(c, n.kids[0].name) < 0 and find_enum(c, n.kids[0].name) >= 0
+        // Status.paid  —  вариант enum
+        e = c.enums[find_enum(c, n.kids[0].name)]
+        at = enum_index(e, n.name)
+        if at < 0
+            error_at(c, n.line, "в этом enum нет такого варианта", n.name)
+        n.kind = "enumval"
+        n.value = "" + at
+        t = enum_type(c, e)
+    else if k == "enumval"
+        t = n.ty
     else if k == "field"
         base = check_value(c, n.kids[0])
         if kind_of(c, base) != "obj"
@@ -1429,10 +1468,10 @@ func check_assign(c: Comp, n: Node)
         n.ty = type
         add_var(c, n.name, type, n.is_const, false, n.line)
         c.vars[len(c.vars) - 1].is_shared = n.is_shared
-        if t >= 0 and is_ref(type)
+        if t >= 0 and is_ref(c, type)
             set_src(c, len(c.vars) - 1, src_of(c, n.kids[0]), n.line)
         return
-    if outside_temp(c, v) and not is_plain(c.vars[v].type)
+    if outside_temp(c, v) and not is_plain(c, c.vars[v].type)
         temp_keep_out(c, n.line, n.name)
     if outside_par(c, v)
         if c.par_vec
@@ -1450,7 +1489,7 @@ func check_assign(c: Comp, n: Node)
     n.is_link = c.vars[v].is_link
     c.vars[v].moved = false
     c.vars[v].escaped = false
-    if is_ref(t)
+    if is_ref(c, t)
         set_src(c, v, src_of(c, n.kids[0]), n.line)
     n.ty = c.vars[v].type
 
@@ -1462,7 +1501,7 @@ func check_set(c: Comp, n: Node)
     c.shared_ok = false
     need_place(c, target, "менять можно только переменную, u.age или nums[i]")
     r = root_var(c, target)
-    if outside_temp(c, r) and target.kind == "name" and not is_plain(c.vars[r].type)
+    if outside_temp(c, r) and target.kind == "name" and not is_plain(c, c.vars[r].type)
         temp_keep_out(c, n.line, target.name)
     if outside_par(c, r) and c.par_vec
         if target.kind != "name"
@@ -1501,7 +1540,7 @@ func check_set(c: Comp, n: Node)
             error_at(c, n.line, "здесь лежит другой тип", type_name(c, to_ty))
         return
     if to_ty == 4 and op == "+="
-        if not is_scalar(t)
+        if not is_scalar(c, t)
             error_at(c, n.line, "к тексту можно приписать только текст, число или bool", "")
         return
     if not is_number(to_ty) or not is_number(t)
@@ -1514,7 +1553,7 @@ func check_linkdecl(c: Comp, n: Node)
     t = check_value(c, target)
     need_place_for(c, target, "ярлык link ведёт к переменной, u.age или nums[i]", true)
     no_outside_change(c, target)
-    if outside_temp(c, root_var(c, target)) and not is_plain(t)
+    if outside_temp(c, root_var(c, target)) and not is_plain(c, t)
         temp_keep_out(c, n.line, n.name)
     n.ty = t
     add_var(c, n.name, t, false, true, n.line)
@@ -1544,12 +1583,12 @@ func check_multi(c: Comp, n: Node)
         if v < 0
             name.creates = true
             add_var(c, name.name, out, false, false, name.line)
-            if is_ref(out)
+            if is_ref(c, out)
                 set_src(c, len(c.vars) - 1, src_of(c, value), name.line)
         else
             if outside_par(c, v)
                 error_at(c, name.line, "внутри " + loop_word(c) + " нельзя менять переменную снаружи: сделай её shared и меняй через += или -=", name.name)
-            if outside_temp(c, v) and not is_plain(c.vars[v].type)
+            if outside_temp(c, v) and not is_plain(c, c.vars[v].type)
                 temp_keep_out(c, name.line, name.name)
             note_global_write(c, v, name.line)
             if c.vars[v].is_const
@@ -1557,7 +1596,7 @@ func check_multi(c: Comp, n: Node)
             if not fits(c.vars[v].type, out)
                 error_at(c, name.line, "переменная другого типа", type_name(c, c.vars[v].type))
             name.is_link = c.vars[v].is_link
-            if is_ref(out)
+            if is_ref(c, out)
                 set_src(c, v, src_of(c, value), name.line)
         name.ty = out
 
@@ -1584,9 +1623,60 @@ func check_return(c: Comp, n: Node)
     else if not fits(f.ty, t)
         error_at(c, n.line, "раньше эта функция вернула другой тип", type_name(c, f.ty))
 
+// match: варианты enum (все, или есть else), числа или текст
+func check_match(c: Comp, n: Node)
+    t = check_value(c, n.kids[0])
+    en = is_enum(c, t)
+    if not en and t != 1 and t != 4
+        error_at(c, n.line, "match разбирает enum, int или text", type_name(c, t))
+    seen = list text
+    has_else = false
+    count i from 1 to len(n.kids) - 1
+        cs = n.kids[i]
+        if has_else
+            error_at(c, cs.line, "else пишется последним вариантом match", "")
+        if cs.name == "else"
+            has_else = true
+        each v in cs.kids[0].kids
+            key = ""
+            if en
+                e = c.types[t].obj_node
+                if v.kind == "name"
+                    at = enum_index(e, v.name)
+                    if at < 0
+                        error_at(c, v.line, "в " + e.name + " нет такого варианта", v.name)
+                    v.kind = "enumval"
+                    v.value = "" + at
+                    v.ty = t
+                else if check_value(c, v) != t
+                    error_at(c, v.line, "здесь нужен вариант " + e.name, "")
+                key = v.value
+            else
+                if v.kind != "number" and v.kind != "string" and not (v.kind == "unary" and v.kids[0].kind == "number")
+                    error_at(c, v.line, "в match варианты пишутся числом или текстом в кавычках", "")
+                if check_value(c, v) != t
+                    error_at(c, v.line, "вариант другого типа", type_name(c, t))
+                key = v.value
+                if v.kind == "unary"
+                    key = "-" + v.kids[0].value
+            if text_in(seen, key)
+                error_at(c, v.line, "этот вариант уже разобран выше", "")
+            seen.add(key)
+        check_block(c, cs.kids[1])
+    if en and not has_else
+        e = c.types[t].obj_node
+        missing = list text
+        count j from 0 to len(e.kids) - 1
+            if not text_in(seen, "" + j)
+                missing.add(e.kids[j].name)
+        if len(missing) > 0
+            error_at(c, n.line, "match разбирает не все варианты " + e.name + " (или добавь else), нет", join(missing, ", "))
+
 func check_statement(c: Comp, n: Node)
     k = n.kind
-    if k == "assign"
+    if k == "match"
+        check_match(c, n)
+    else if k == "assign"
         check_assign(c, n)
     else if k == "set"
         check_set(c, n)
@@ -1626,7 +1716,7 @@ func check_statement(c: Comp, n: Node)
         else
             open_scope(c)
             add_var(c, n.name, elem, true, false, n.line)
-            if is_ref(elem) and not n.is_par
+            if is_ref(c, elem) and not n.is_par
                 set_src(c, len(c.vars) - 1, src_of(c, n.kids[0]), n.line)
             busy = is_dict(c, t)
             if busy
@@ -1774,7 +1864,7 @@ func check_background(c: Comp, n: Node) gives r: int
         arg = call.kids[pi]
         if arg.moved
             check_move(c, arg.kids[0], p)
-        else if p.is_link or not (is_plain(p.ty) or p.ty == 4 or kind_of(c, p.ty) == "channel")
+        else if p.is_link or not (is_plain(c, p.ty) or p.ty == 4 or kind_of(c, p.ty) == "channel")
             error_at(c, n.line, "в background функция получает только int, dec, bool, text и channel (а список — через move: f(move xs)): списки и obj могли бы меняться сразу из двух мест", p.name)
     if t < 0
         t = 0
@@ -2006,6 +2096,17 @@ func check_func(c: Comp, fi: int)
         f.node.ty = 0
     f.state = 2
 
+func register_enum(c: Comp, e: Node)
+    if find_obj(c, e.name) >= 0 or find_enum(c, e.name) >= 0 or is_builtin(e.name)
+        error_at(c, e.line, "это имя уже занято", e.name)
+    if len(e.kids) == 0
+        error_at(c, e.line, "у enum должен быть хотя бы один вариант", e.name)
+    count i from 0 to len(e.kids) - 1
+        count j from 0 to i - 1
+            if e.kids[j].name == e.kids[i].name
+                error_at(c, e.kids[i].line, "такой вариант уже есть", e.kids[i].name)
+    c.enums.add(e)
+
 func register_obj(c: Comp, o: Node)
     if find_obj(c, o.name) >= 0 or is_builtin(o.name)
         error_at(c, o.line, "это имя уже занято", o.name)
@@ -2068,7 +2169,7 @@ func check_global(c: Comp, g: Node)
         if not fits(want, t)
             error_at(c, g.line, "значение другого типа", type_name(c, want))
         t = want
-    if not is_plain(t)
+    if not is_plain(c, t)
         error_at(c, g.line, "shared снаружи функций пока бывает только int, dec или bool", g.name)
     count i from 0 to len(c.vars) - 1
         if c.vars[i].name == g.name
@@ -2105,6 +2206,8 @@ modpub func check(c: Comp, program: Node)
         c.file_name = top.file
         if top.kind == "obj"
             register_obj(c, top)
+        else if top.kind == "enum"
+            register_enum(c, top)
         else if top.kind == "func"
             register_func(c, top)
             top.can_fail = has_fail(top.kids[1])

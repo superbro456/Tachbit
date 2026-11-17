@@ -118,6 +118,7 @@ obj Comp
     types: list Type
     funcs: list Func
     objs: list Node
+    enums: list Node
     uses: list Use
     all_mods: list text
     cur_mod: text

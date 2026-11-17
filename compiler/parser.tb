@@ -503,6 +503,8 @@ func parse_statement(c: Comp) gives result: Node
         return parse_if(c)
     if is_cmd(c, "each")
         return parse_each(c)
+    if is_cmd(c, "match")
+        return parse_match(c)
     if is_cmd(c, "count")
         return parse_count(c)
     if is_cmd(c, "repeat")
@@ -693,6 +695,51 @@ func parse_obj(c: Comp) gives result: Node
     next(c)
     return o
 
+// enum Status  —  ниже с отступом варианты, по одному в строке
+func parse_enum(c: Comp) gives result: Node
+    e = new_node("enum", line_now(c))
+    next(c)
+    e.name = expect_name(c)
+    expect_newline(c)
+    if now(c).kind != "indent"
+        error_at(c, line_now(c), "у enum ниже с отступом пишутся варианты, по одному в строке", "")
+    next(c)
+    repeat while now(c).kind != "dedent" and now(c).kind != "end"
+        v = new_node("name", line_now(c))
+        v.name = expect_name(c)
+        add_kid(e, v)
+        expect_newline(c)
+    next(c)
+    return e
+
+// match значение  —  ниже варианты:  paid, sent  /  1  /  "да"  /  else, у каждого свой блок
+func parse_match(c: Comp) gives result: Node
+    n = new_node("match", line_now(c))
+    next(c)
+    add_kid(n, parse_expr(c))
+    expect_newline(c)
+    if now(c).kind != "indent"
+        error_at(c, line_now(c), "у match ниже с отступом пишутся варианты: paid  или  1, 2  или  else", "")
+    next(c)
+    repeat while now(c).kind != "dedent" and now(c).kind != "end"
+        cs = new_node("case", line_now(c))
+        values = new_node("list", line_now(c))
+        if is_cmd(c, "else")
+            cs.name = "else"
+            next(c)
+        else
+            repeat while true
+                add_kid(values, parse_expr(c))
+                if not is_sign(c, ",")
+                    stop
+                next(c)
+        expect_newline(c)
+        add_kid(cs, values)
+        add_kid(cs, parse_block(c))
+        add_kid(n, cs)
+    next(c)
+    return n
+
 modpub func parse(c: Comp)
     c.pos = 0
     program = new_node("program", 1)
@@ -716,6 +763,8 @@ modpub func parse(c: Comp)
             add_kid(program, parse_func(c))
         else if is_cmd(c, "obj")
             add_kid(program, parse_obj(c))
+        else if is_cmd(c, "enum")
+            add_kid(program, parse_enum(c))
         else if is_cmd(c, "shared")
             // shared ticks = int 0 снаружи функций: одна переменная на всю программу
             line = line_now(c)

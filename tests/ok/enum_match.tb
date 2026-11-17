@@ -1,0 +1,40 @@
+// 1.0: enum и match
+enum Status
+    new
+    paid
+    sent
+
+obj Order
+    id: int
+    status: Status
+
+func label(s: Status) gives r: text
+    match s
+        new
+            return "новый"
+        paid, sent
+            return "оплачен"
+    return "?"
+
+func main()
+    o = Order(id: 7, status: Status.new)
+    print(o.status, label(o.status))
+    o.status = Status.sent
+    print(o.status, label(o.status), o.status == Status.sent)
+    all = [Status.new, Status.paid]
+    each s in all
+        print(s)
+    code = 404
+    match code
+        200
+            print("ок")
+        404, 410
+            print("нет страницы")
+        else
+            print("другое")
+    word = "да"
+    match word
+        "да"
+            print("согласен")
+        else
+            print("нет")

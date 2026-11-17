@@ -1,0 +1,7 @@
+// 1.0: enum и match
+enum Status
+    new
+    paid
+func main()
+    s = Status.paid
+    x = s + 1

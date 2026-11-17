@@ -1,1 +1,1 @@
-unknown_type.tb, строка 1: нет такого типа и такого obj: Foo
+unknown_type.tb, строка 1: нет такого типа, obj и enum: Foo
