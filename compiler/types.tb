@@ -142,6 +142,7 @@ obj Comp
     out: list text
     label: int
     cur_func: Node
+    narrow: list text           // списки int этой функции, где все числа влезают в 32 бита: по 4 байта
     // функции-работники для on all cores: пишутся перед остальными функциями
     workers: list text
     // by vec: имена, которые в теле цикла пишутся иначе (y → tb_a7_y[tb_k])

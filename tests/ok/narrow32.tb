@@ -1,0 +1,21 @@
+// списки int по 4 байта: add, xs[i] = ..., +=, чтение, len
+func main()
+    xs = list int
+    count i from 0 to 99
+        xs.add(i * 3)
+    idx = list int
+    count i from 0 to 99
+        idx.add(99 - i)
+    count i from 0 to 99
+        xs[i] = xs[i] + 1
+    s = 0
+    count i from 0 to len(xs) - 1
+        s += xs[idx[i]]
+    print(s)
+    print(xs[0])
+    print(xs[99])
+    print(len(xs))
+    big = list int
+    big.add(2000000000)
+    big.add(-2000000000)
+    print(big[0] + big[1])

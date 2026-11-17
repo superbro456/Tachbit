@@ -567,6 +567,8 @@ func emit_expr(c: Comp, n: Node)
         else if fast_index(c, n)
             // граница проверена до цикла: прямо в память, без проверки на каждом шаге
             t = c_type(c, n.ty)
+            if is_narrow(c, n.kids[0])
+                t = "int"
             put(c, "(((" + t + " *)(")
             emit_expr(c, n.kids[0])
             put(c, ")->data)[")
@@ -574,6 +576,8 @@ func emit_expr(c: Comp, n: Node)
             put(c, "])")
         else
             t = c_type(c, n.ty)
+            if is_narrow(c, n.kids[0])
+                t = "int"
             put(c, "(*(" + t + " *)tb_at(")
             emit_expr(c, n.kids[0])
             put(c, ", ")
@@ -671,6 +675,20 @@ func emit_target(c: Comp, t: Node)
         return
     emit_expr(c, t)
 
+// список int по 4 байта на число (int в C): все числа в нём доказанно в пределах ±2 147 483 647
+func is_narrow(c: Comp, n: Node)
+    return n.kind == "name" and has_text(c.narrow, n.name)
+
+// какие списки этой функции можно хранить по 4 байта: создаются пустыми (xs = list int),
+// дальше только add, xs[i] = ..., xs[i] и len — и все числа в коробке 32 бит
+func find_narrow(c: Comp, f: Node, n: Node)
+    if n.kind == "assign" and n.creates and len(n.kids) == 0 and kind_of(c, n.ty) == "list" and c.types[n.ty].elem == 1 and not has_text(c.narrow, n.name)
+        hl, lo, hh, hi = seal_range(c, f, n.name)
+        if hl and hh and lo >= -2147483647 and hi <= 2147483647
+            c.narrow.add(n.name)
+    each kid in n.kids
+        find_narrow(c, f, kid)
+
 func emit_assign(c: Comp, n: Node, depth: int)
     if len(n.kids) == 1
         emit_pre(c, n.kids[0], depth)
@@ -694,6 +712,8 @@ func emit_assign(c: Comp, n: Node, depth: int)
         put(c, "v_" + n.name + " = ")
     if len(n.kids) == 1
         emit_as(c, n.kids[0], n.ty)
+    else if has_text(c.narrow, n.name) and kind_of(c, n.ty) == "list" and c.types[n.ty].elem == 1
+        put(c, "tb_list_new_np(sizeof(int))")
     else
         emit_default(c, n.ty)
     put(c, ";")
@@ -708,6 +728,8 @@ func emit_set(c: Comp, n: Node, depth: int)
     value = n.kids[1]
     op = n.value
     t = c_type(c, n.ty)
+    if target.kind == "index" and is_narrow(c, target.kids[0])
+        t = "int"
     emit_pre(c, value, depth)
     c.label += 1
     id = "" + c.label
@@ -1272,6 +1294,8 @@ func emit_prefetch(c: Comp, n: Node, depth: int, list_c: text, i_c: text, elem: 
         el = elem
         if n.pre_idx[j].kind == "name"
             el = c_type(c, c.types[n.pre_idx[j].ty].elem)
+            if is_narrow(c, n.pre_idx[j])
+                el = "int"
         put(c, el + " " + f + " = ((" + el + " *)" + plan + "->data)[" + i_c + " + 16]; ")
         base = n.pre_bases[j]
         if kind_of(c, base.ty) == "dict"
@@ -1962,11 +1986,14 @@ func emit_statement(c: Comp, n: Node, depth: int)
             put(c, ");\n")
         else
             elem = c.types[lst.ty].elem
+            et = c_type(c, elem)
+            if is_narrow(c, lst)
+                et = "int"
             put(c, "tb_fill(")
             emit_expr(c, lst)
             put(c, ", ")
             emit_expr(c, n.kids[0])
-            put(c, ", &(" + c_type(c, elem) + "){")
+            put(c, ", &(" + et + "){")
             emit_as(c, value, elem)
             put(c, "});\n")
     else if k == "repeat_times"
@@ -2114,9 +2141,12 @@ func emit_statement(c: Comp, n: Node, depth: int)
                 emit_expr(c, e.kids[0])
                 put(c, ", tb_v" + id + "); }\n")
                 return
-            put(c, "{ " + c_type(c, elem) + " tb_v" + id + " = ")
+            et = c_type(c, elem)
+            if is_narrow(c, e.kids[0])
+                et = "int"
+            put(c, "{ " + et + " tb_v" + id + " = ")
             emit_as(c, e.kids[1].kids[0], elem)
-            put(c, "; *(" + c_type(c, elem) + " *)tb_grow(")
+            put(c, "; *(" + et + " *)tb_grow(")
             emit_expr(c, e.kids[0])
             put(c, ") = tb_v" + id + "; }\n")
         else
@@ -2474,6 +2504,9 @@ func emit_loop_body(c: Comp, body: Node, depth: int)
 
 func emit_func(c: Comp, f: Node)
     c.cur_func = f
+    no_narrow = list text
+    c.narrow = no_narrow
+    find_narrow(c, f, f.kids[1])
     outputs = f.kids[2]
     put(c, "\n")
     emit_signature(c, f)
