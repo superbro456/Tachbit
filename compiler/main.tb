@@ -8,11 +8,12 @@ use parser
 use check
 use emit
 
-// "examples/shop.tb" → папка "examples/"
+// "examples/shop.tb" → папка "examples/" (на Windows и "examples\\shop.tb")
 func folder_of(path: text)
+    win = on_windows()
     cut_at = 0
     count i from 0 to len(path) - 1
-        if path[i] == "/"
+        if path[i] == "/" or (win and path[i] == "\\")
             cut_at = i + 1
     if cut_at == 0
         return ""
@@ -62,14 +63,43 @@ func load_program(c: Comp, path: text)
     return program
 
 // 'текст' для командной строки: кавычка внутри превращается в '\''
+// на Windows (cmd.exe) — "текст", и / в пути становится \ (кавычек в именах Windows не бывает)
 func quote(s: text)
+    if on_windows()
+        return "\"" + replace(s, "/", "\\") + "\""
     return "'" + replace(s, "'", "'\\''") + "'"
 
 func is_dir_cmd(path: text)
-    return run("test -d " + quote(path)) == 0
+    return is_folder(path)
 
 func is_file(path: text)
-    return run("test -f " + quote(path)) == 0
+    return file_exists(path) and not is_folder(path)
+
+// папка вместе с недостающими папками над ней (как mkdir -p)
+func make_folders(path: text)
+    if path == "" or is_folder(path)
+        return
+    up = folder_of(path)
+    if len(up) > 1
+        make_folders(cut(up, 0, len(up) - 2))
+    make_folder(path) else err
+        ignored = err
+
+// на Windows программа — это файл .exe
+func exe_file(exe: text)
+    if on_windows()
+        return exe + ".exe"
+    return exe
+
+// компилятор C на Windows: $CC, иначе gcc или clang (MinGW-w64, llvm-mingw, MSYS2)
+func windows_cc()
+    cc = env("CC")
+    if cc != ""
+        return cc
+    each name in ["gcc", "clang", "cc"]
+        if run("where " + name + " >NUL 2>NUL") == 0
+            return name
+    return ""
 
 func say_error(message: text)
     print(message)
@@ -83,7 +113,7 @@ func project_main(arg: text) gives main_tb: text, exe: text
     name = arg
     if name == ""
         name = "."
-    repeat while len(name) > 1 and ends_with(name, "/")
+    repeat while len(name) > 1 and (ends_with(name, "/") or (on_windows() and ends_with(name, "\\")))
         name = cut(name, 0, len(name) - 2)
     if is_dir_cmd(name)
         main_tb = name + "/main.tb"
@@ -91,10 +121,16 @@ func project_main(arg: text) gives main_tb: text, exe: text
             say_error("в папке " + name + " нет main.tb — с него начинается проект")
         base = cut(name, len(folder_of(name)), len(name) - 1)
         build_dir = name + "/build"
-        code = run("mkdir -p " + quote(build_dir))
+        make_folders(build_dir)
         if name == "."
-            code = run("basename \"$PWD\" > " + quote(build_dir + "/.name"))
-            base = trim(read_file(build_dir + "/.name") or "")
+            if on_windows()
+                // cd без слов в cmd.exe печатает текущую папку: C:\\Users\\я\\shop
+                code = run("cd > " + quote(build_dir + "/.name"))
+                here = trim(read_file(build_dir + "/.name") or "")
+                base = cut(here, len(folder_of(here)), len(here) - 1)
+            else
+                code = run("basename \"$PWD\" > " + quote(build_dir + "/.name"))
+                base = trim(read_file(build_dir + "/.name") or "")
         if base == "" or base == "." or base == ".."
             base = "main"
         exe = build_dir + "/" + base
@@ -113,9 +149,9 @@ func project_main(arg: text) gives main_tb: text, exe: text
 func new_project(name: text)
     if name == ""
         say_error("напиши имя проекта:  tb new имя")
-    if run("test -e " + quote(name)) == 0
+    if file_exists(name) or is_folder(name)
         say_error("уже есть папка или файл с именем " + name + " — возьми другое имя")
-    if run("mkdir " + quote(name)) != 0
+    make_folder(name) else err
         say_error("не могу сделать папку: " + name)
     write_file(name + "/main.tb", "func main()\n    print(\"Привет из проекта " + name + "!\")\n") else err
         say_error("не могу записать файл: " + name + "/main.tb")
@@ -141,6 +177,17 @@ func build(c: Comp, path: text, exe: text)
     // окно: на Mac — Cocoa (есть всегда), на Linux — X11
     if c.gfx
         command += " $( [ \"$(uname)\" = Darwin ] && echo '-framework Cocoa -framework CoreGraphics -framework QuartzCore -lobjc' || echo '-lX11' )"
+    if on_windows()
+        cc = windows_cc()
+        if cc == ""
+            print("нет компилятора C (gcc или clang). Поставь его, например:")
+            print("  winget install -e --id MartinStorsjo.LLVM-MinGW.UCRT")
+            print("и открой терминал заново. Подробнее: tools/install.ps1")
+            return 1
+        // -static: программе не нужны чужие .dll; стек 8 МБ, как на Linux
+        command = cc + " -O2 -w -o " + quote(exe_file(exe)) + " " + quote(c_path) + " -static -Wl,--stack,8388608 -lm -lpthread"
+        if c.gfx
+            command += " -lgdi32"
     // сообщения cc — в отдельный файл: человеку не нужна простыня на C
     log = exe + ".cc.log"
     command += " 2> " + quote(log)
@@ -154,6 +201,9 @@ func build(c: Comp, path: text, exe: text)
 
 // режим «без ОС»: файл.tb → ядро .elf, которое грузит QEMU (или GRUB) без всякой ОС
 func build_bare(c: Comp, path: text, exe: text)
+    if on_windows()
+        print("ядро без ОС пока собирается только на Linux и Mac")
+        return 1
     c.bare = true
     c_path = exe + ".c"
     ld_path = exe + ".ld"
@@ -266,17 +316,18 @@ func main()
     if mode == "run"
         // один файл: программа собирается в ~/.tachbit/run, рядом с .tb ничего не остаётся
         home = env("HOME")
+        if on_windows()
+            home = env("USERPROFILE")
         if find(exe, "/build/") < 0 and home != ""
             run_dir = home + "/.tachbit/run"
-            if not is_folder(run_dir)
-                code = run("mkdir -p " + quote(run_dir))
+            make_folders(run_dir)
             exe = run_dir + "/" + module_of(path)
         if build(c, path, exe) != 0
             exit(1)
         // tachbit run файл.tb a b c  →  программа получит a b c в args()
-        command = quote(exe)
+        command = quote(exe_file(exe))
         if find(exe, "/") < 0
-            command = quote("./" + exe)
+            command = quote("./" + exe_file(exe))
         count i from 2 to len(a) - 1
             command = command + " " + quote(a[i])
         exit(run(command))

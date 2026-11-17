@@ -54,6 +54,12 @@ tb start hello.tb  # или просто один файл (можно без .t
 ```
 `install.sh` собирает `tb` из семени.
 
+**Windows.** Нужен компилятор C из MinGW-w64: `winget install -e --id MartinStorsjo.LLVM-MinGW.UCRT` (или MSYS2 с gcc). Потом в PowerShell из папки Tachbit:
+```
+powershell -ExecutionPolicy Bypass -File tools\install.ps1
+```
+Он собирает `tb.exe`, кладёт его в `%USERPROFILE%\.tachbit\bin` и добавляет эту папку в PATH. Окно (`window_open`) работает через GDI; ядро без ОС (`tachbit bare`) пока собирается только на Linux и Mac.
+
 Ошибки в терминале цветные: место жирным, сама ошибка красным. `NO_COLOR=1` выключает цвет.
 
 ## VS Code

@@ -1,9 +1,16 @@
 // Ошибки компилятора: тот же текст, что у версии на C.
 use types
+
+// Windows: команды run() выполняет cmd.exe, а не sh
+modpub func on_windows()
+    return env("OS") == "Windows_NT"
+
 modpub func error_at(c: Comp, line: int, message: text, detail: text)
     // в терминале — с цветом (место жирным, ошибка красным, слово жёлтым);
-    // в файл, тесты или с NO_COLOR=1 — простым текстом
-    color = run("[ -t 1 ] && [ -z \"$NO_COLOR\" ]") == 0
+    // в файл, тесты или с NO_COLOR=1 — простым текстом (в cmd.exe нет [ -t 1 ]: там без цвета)
+    color = false
+    if not on_windows()
+        color = run("[ -t 1 ] && [ -z \"$NO_COLOR\" ]") == 0
     place = c.file_name
     if line > 0
         place = c.file_name + ", строка " + line
