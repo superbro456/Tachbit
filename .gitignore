@@ -25,3 +25,4 @@ compiler/*
 !compiler/seed/
 compiler/seed/*
 !compiler/seed/tb.c
+.claude/
