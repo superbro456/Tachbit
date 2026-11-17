@@ -7,7 +7,9 @@
 
 # Tachbit 1.0
 
-A fast and safe systems language with a simple, indentation-based syntax. Tachbit compiles to C, then `cc` (clang or gcc) makes a native program. The compiler is written in Tachbit itself and builds itself.
+**Write complex programs in a clear language and get a real, fast program, not a prototype.**
+
+Code reads almost like Python and runs like C. The compiler does the hard part (memory, cores, safety checks) and explains mistakes in plain words before the program runs. Tachbit compiles to C, then `cc` (clang or gcc) makes a native program. The compiler is written in Tachbit itself and builds itself.
 
 [Русская версия (полная документация)](README.md)
 
