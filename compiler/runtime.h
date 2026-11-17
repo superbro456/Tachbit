@@ -761,6 +761,14 @@ static void tb_guard_thread(char *here, long long lim) {
 // поток background или ядра: сначала ставим защиту стека, потом сама работа
 // сколько потоков background / ядер работает сейчас: уборка памяти ждёт, пока их нет
 static int tb_gthreads = 0;
+// короткое ожидание без сна (подсказка процессору)
+#if defined(__x86_64__) || defined(__i386__)
+#define __builtin_ia32_pause_or_yield() __builtin_ia32_pause()
+#elif defined(__aarch64__)
+#define __builtin_ia32_pause_or_yield() __asm__ volatile("yield")
+#else
+#define __builtin_ia32_pause_or_yield() ((void)0)
+#endif
 typedef struct { void *(*run)(void *); void *arg; } tb_tramp;
 static void *tb_tramp_run(void *p) {
     tb_tramp t = *(tb_tramp *)p;
@@ -934,8 +942,8 @@ static long long tb_gsince = 0, tb_glive = 0, tb_gnext = 8LL << 20, tb_gstress =
 static int tb_gready = 0, tb_goff = 0, tb_gstats = 0;
 static char *tb_gtop = 0;
 static pthread_mutex_t tb_glock = PTHREAD_MUTEX_INITIALIZER;
-static tb_grange *tb_groots = 0, *tb_gstk = 0;
-static long long tb_gnroots = 0, tb_gcaproots = 0, tb_gsn = 0, tb_gscap = 0;
+static tb_grange *tb_groots = 0;
+static long long tb_gnroots = 0, tb_gcaproots = 0;
 
 static void tb_gsetup(void) {
     int c = 0;
@@ -1157,8 +1165,22 @@ static void tb_gc_root(void *p, long long n) {
     tb_groots[tb_gnroots].n = n;
     tb_gnroots++;
 }
-// последняя страница обхода: соседние адреса обычно ведут на ту же страницу — без поиска по таблице
-static tb_gpage *tb_glast[16];
+// очередь обхода
+typedef struct { tb_grange *a; long long n, cap; } tb_gms;
+static _Thread_local tb_gms *tb_gcur = 0;
+static tb_gms tb_gmain_q = {0, 0, 0};
+static inline void tb_gpush(tb_gms *q, char *p, long long n) {
+    if (TB_RARE(q->n == q->cap)) {
+        q->cap = q->cap * 2 + 1024;
+        q->a = realloc(q->a, sizeof(tb_grange) * q->cap);
+        if (!q->a) tb_crash(0, "не хватило памяти для уборки");
+    }
+    q->a[q->n].p = p;
+    q->a[q->n].n = n;
+    q->n++;
+}
+// последние страницы обхода: соседние адреса обычно ведут на ту же страницу — без поиска по таблице
+static _Thread_local tb_gpage *tb_glast[16];
 static inline void tb_gmark(uintptr_t a) {
     tb_gpage *pg = tb_glast[(a >> TB_GSH) & 15];
     char *b;
@@ -1178,33 +1200,28 @@ static inline void tb_gmark(uintptr_t a) {
     if (*f & 2) return;
     *f |= 2;
     if (pg->np) return;
-    if (tb_gsn == tb_gscap) {
-        tb_gscap = tb_gscap * 2 + 1024;
-        tb_gstk = realloc(tb_gstk, sizeof(tb_grange) * tb_gscap);
-        if (!tb_gstk) tb_crash(0, "не хватило памяти для уборки");
-    }
-    tb_gstk[tb_gsn].p = b;
-    tb_gstk[tb_gsn].n = pg->large ? pg->nbytes : pg->bsize;
-    tb_gsn++;
+    tb_gpush(tb_gcur, b, pg->large ? pg->nbytes : pg->bsize);
     __builtin_prefetch(b);
 }
 static void tb_gscan(const char *lo, const char *hi) {
     uintptr_t p = ((uintptr_t)lo + 7) & ~(uintptr_t)7;
     for (; p + 8 <= (uintptr_t)hi; p += 8) tb_gmark(*(const uintptr_t *)p);
 }
-// большой блок читаем кусками по 4 КБ: остаток кладём обратно, а найденное в куске
-// обходим сразу — так очередь остаётся маленькой (а не миллионы записей)
-static void tb_gdrain(void) {
-    while (tb_gsn > 0) {
-        tb_grange r = tb_gstk[--tb_gsn];
-        if (r.n > 4096) {
-            tb_gstk[tb_gsn].p = r.p + 4096;
-            tb_gstk[tb_gsn].n = r.n - 4096;
-            tb_gsn++;
-            r.n = 4096;
-        }
-        tb_gscan(r.p, r.p + r.n);
+// одна запись очереди: большой блок читаем кусками по 4 КБ, остаток кладём обратно,
+// а найденное в куске обходим сразу — так очередь остаётся маленькой
+static inline void tb_gstep(tb_gms *q) {
+    tb_grange r = q->a[--q->n];
+    if (r.n > 4096) {
+        q->a[q->n].p = r.p + 4096;
+        q->a[q->n].n = r.n - 4096;
+        q->n++;
+        r.n = 4096;
     }
+    tb_gscan(r.p, r.p + r.n);
+}
+static void tb_gdrain(void) {
+    tb_gms *q = tb_gcur;
+    while (q->n > 0) tb_gstep(q);
 }
 __attribute__((noinline)) static void tb_gscan_stack(void) {
     volatile char here = 0;
@@ -1212,6 +1229,7 @@ __attribute__((noinline)) static void tb_gscan_stack(void) {
 }
 __attribute__((noinline)) static void tb_gc_run(void) {
     memset(tb_glast, 0, sizeof tb_glast);
+    tb_gcur = &tb_gmain_q;
     // регистры процессора — на стек: в них тоже могут быть нужные адреса
     __builtin_unwind_init();
     jmp_buf jb;
@@ -1301,8 +1319,15 @@ static void tb_gc_collect(void) {
     tb_gsince = 0;
     // следующий обход — когда новой памяти станет вдвое больше нужной
     // если мусора почти не нашлось (программа копит данные), следующий обход — ещё позже
-    long long k = live * 4 > before * 3 ? 4 : 2;
-    tb_gnext = k * live > (8LL << 20) ? k * live : (8LL << 20);
+    // если мусора почти не нашлось (программа копит данные) два раза подряд — ещё реже (×8),
+    // но лишней памяти сверх «вдвое» не больше 512 МБ
+    static int tb_gkeep = 0;
+    tb_gkeep = live * 10 > before * 9 ? tb_gkeep + 1 : 0;
+    long long k = tb_gkeep >= 2 ? 8 : (live * 4 > before * 3 ? 4 : 2);
+    long long next = k * live;
+    long long cap = 2 * live > live + (512LL << 20) ? 2 * live : live + (512LL << 20);
+    if (next > cap) next = cap;
+    tb_gnext = next > (8LL << 20) ? next : (8LL << 20);
     if (tb_gstats) fprintf(stderr, "[уборка %lld: нужно %lld МБ, было %lld МБ, обход %.1f мс, чистка %.1f мс]\n",
         tb_gruns, live >> 20, before >> 20, t1 - t0, tb_gnow() - t1);
 }
@@ -2042,6 +2067,9 @@ typedef struct {
     int mode; long long base; long long *pos; long long npos;
 } tb_dict;
 
+// ячейка таблицы: номер ключа + 1 (младшие 40 бит) и метка из старших битов хеша
+#define TB_DAT ((1LL << 40) - 1)
+#define TB_DTAG(h) ((long long)(((h) >> 40) << 40) & ~TB_DAT & 0x7FFFFFFFFFFFFFFFLL)
 static unsigned long long tb_hash(tb_dict *d, const void *k) {
     unsigned long long h = 1469598103934665603ULL;
     if (d->text) {
@@ -2066,10 +2094,15 @@ static inline long long tb_dfind(tb_dict *d, const void *k) {
         unsigned long long o = (unsigned long long)(*(const long long *)k - d->base);
         return o < (unsigned long long)d->npos ? d->pos[o] - 1 : -1;
     }
-    unsigned long long mask = d->nslots - 1, i = tb_hash(d, k) & mask;
+    unsigned long long h = tb_hash(d, k), mask = d->nslots - 1, i = h & mask;
+    long long tag = TB_DTAG(h);
     while (d->slots[i] != 0) {
-        long long at = d->slots[i] - 1;
-        if (tb_keq(d, d->keys->data + at * d->keys->size, k)) return at;
+        long long sl = d->slots[i];
+        // метка хеша совпала — только тогда сравниваем сами ключи (текст — дорого)
+        if ((sl & ~TB_DAT) == tag) {
+            long long at = (sl & TB_DAT) - 1;
+            if (tb_keq(d, d->keys->data + at * d->keys->size, k)) return at;
+        }
         i = (i + 1) & mask;
     }
     return -1;
@@ -2092,9 +2125,9 @@ static void tb_dreindex(tb_dict *d, long long nslots) {
     memset(d->slots, 0, nslots * sizeof(long long));
     unsigned long long mask = nslots - 1;
     for (long long at = 0; at < d->keys->len; at++) {
-        unsigned long long i = tb_hash(d, d->keys->data + at * d->keys->size) & mask;
+        unsigned long long h = tb_hash(d, d->keys->data + at * d->keys->size), i = h & mask;
         while (d->slots[i] != 0) i = (i + 1) & mask;
-        d->slots[i] = at + 1;
+        d->slots[i] = (at + 1) | TB_DTAG(h);
     }
 }
 // перейти на таблицу с хешем (ключ ушёл далеко от остальных или его удалили)
@@ -2181,9 +2214,9 @@ static void *tb_dput(tb_dict *d, const void *k, const void *def) {
     }
     if (d->keys->len * 2 > d->nslots) tb_dreindex(d, d->nslots * 2);
     else {
-        unsigned long long mask = d->nslots - 1, i = tb_hash(d, k) & mask;
+        unsigned long long h = tb_hash(d, k), mask = d->nslots - 1, i = h & mask;
         while (d->slots[i] != 0) i = (i + 1) & mask;
-        d->slots[i] = d->keys->len;
+        d->slots[i] = d->keys->len | TB_DTAG(h);
     }
     return v;
 }
@@ -2214,7 +2247,7 @@ static inline unsigned long long tb_dpre1(tb_dict *d, const void *k) {
 // шаг 2 — место приехало: просим принести ключ и значение
 static inline void tb_dpre2(tb_dict *d, unsigned long long i) {
     if (i == ~0ULL || d->mode == 1) return;
-    long long s = d->mode == 2 ? d->pos[i] : d->slots[i];
+    long long s = d->mode == 2 ? d->pos[i] : (d->slots[i] & TB_DAT);
     if (s != 0) {
         if (d->mode == 0) __builtin_prefetch(d->keys->data + (s - 1) * d->keys->size);
         __builtin_prefetch(d->vals->data + (s - 1) * d->vals->size);
@@ -2287,15 +2320,6 @@ static tb_dict *tb_dict_from(int text, long long vsize, long long n, const void 
 // пока они не кончатся (так ядра не простаивают, если куски разные по тяжести).
 // shared: каждое ядро копит своё на «листке», потом один раз добавляет под замком.
 static pthread_mutex_t tb_par_lock = PTHREAD_MUTEX_INITIALIZER;
-#ifndef TB_BARE
-#if defined(__x86_64__) || defined(__i386__)
-#define __builtin_ia32_pause_or_yield() __builtin_ia32_pause()
-#elif defined(__aarch64__)
-#define __builtin_ia32_pause_or_yield() __asm__ volatile("yield")
-#else
-#define __builtin_ia32_pause_or_yield() ((void)0)
-#endif
-#endif
 static int tb_cores(void) {
     const char *want = getenv("TB_CORES");   // TB_CORES=1 — проверить на одном ядре
     long n = want != 0 ? atol(want) : sysconf(_SC_NPROCESSORS_ONLN);
