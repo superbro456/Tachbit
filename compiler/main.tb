@@ -141,9 +141,15 @@ func build(c: Comp, path: text, exe: text)
     // окно: на Mac — Cocoa (есть всегда), на Linux — X11
     if c.gfx
         command += " $( [ \"$(uname)\" = Darwin ] && echo '-framework Cocoa -framework CoreGraphics -framework QuartzCore -lobjc' || echo '-lX11' )"
+    // сообщения cc — в отдельный файл: человеку не нужна простыня на C
+    log = exe + ".cc.log"
+    command += " 2> " + quote(log)
     if run(command) != 0
-        print("компилятор C не справился (это ошибка Tachbit, а не твоя): " + c_path)
+        print("не получилось собрать программу. Это ошибка Tachbit, а не твоя: твой код прошёл все проверки.")
+        print("подробности для разработчиков Tachbit: " + log + " (и код на C: " + c_path + ")")
         return 1
+    remove(log) else err
+        ignored = err
     return 0
 
 // режим «без ОС»: файл.tb → ядро .elf, которое грузит QEMU (или GRUB) без всякой ОС

@@ -1333,6 +1333,196 @@ static long long tb_file_size(const char *path) {
     if (stat(path, &st) != 0) return -1;
     return (long long)st.st_size;
 }
+
+// ---------- время и дата ----------
+static long long tb_unix_time(void) { return (long long)time(0); }
+static const char *tb_date_now(void) {
+    time_t t = time(0);
+    struct tm tmv;
+    localtime_r(&t, &tmv);
+    char *s = tb_mem(32);
+    strftime(s, 32, "%Y-%m-%d %H:%M:%S", &tmv);
+    return s;
+}
+
+// ---------- http_get: страница из интернета через curl (есть на Mac и почти на любом Linux) ----------
+static const char *tb_http_get(const char *url) {
+    if (strncmp(url, "http://", 7) != 0 && strncmp(url, "https://", 8) != 0) {
+        tb_err = tb_cat("адрес должен начинаться с http:// или https://: ", url);
+        return "";
+    }
+    // адрес — в одинарных кавычках для shell: ' внутри адреса пишется как '\''
+    size_t n = strlen(url);
+    char *cmd = malloc(n * 4 + 80);
+    if (!cmd) { tb_err = "не хватило памяти"; return ""; }
+    size_t k = (size_t)sprintf(cmd, "curl -fsSL --max-time 30 '");
+    for (size_t i = 0; i < n; i++) {
+        if (url[i] == '\'') { memcpy(cmd + k, "'\\''", 4); k += 4; }
+        else cmd[k++] = url[i];
+    }
+    strcpy(cmd + k, "' 2>/dev/null");
+    FILE *p = popen(cmd, "r");
+    free(cmd);
+    if (p == 0) { tb_err = "не могу запустить curl"; return ""; }
+    size_t cap = 4096, len = 0, got;
+    char *buf = tb_mem(cap);
+    while ((got = fread(buf + len, 1, cap - len - 1, p)) > 0) {
+        len += got;
+        if (len + 1 == cap) { buf = tb_resize(buf, cap, cap * 2); cap *= 2; }
+    }
+    buf[len] = 0;
+    if (pclose(p) != 0) { tb_err = tb_cat("не получилось скачать (нет сети, нет curl или сервер ответил ошибкой): ", url); return ""; }
+    return buf;
+}
+
+// ---------- JSON: json_get(текст, "users.0.name") и json_text(текст) ----------
+static const char *tb_js_ws(const char *p) { while (*p == ' ' || *p == '\n' || *p == '\r' || *p == '\t') p++; return p; }
+// пропустить одно значение; адрес после него или 0, если JSON сломан
+static const char *tb_js_skip(const char *p) {
+    p = tb_js_ws(p);
+    if (*p == '"') {
+        p++;
+        while (*p && *p != '"') { if (*p == '\\' && p[1]) p++; p++; }
+        return *p ? p + 1 : 0;
+    }
+    if (*p == '{' || *p == '[') {
+        int d = 0;
+        while (*p) {
+            if (*p == '"') { p = tb_js_skip(p); if (!p) return 0; continue; }
+            if (*p == '{' || *p == '[') d++;
+            else if (*p == '}' || *p == ']') { d--; if (d == 0) return p + 1; }
+            p++;
+        }
+        return 0;
+    }
+    const char *s = p;
+    while (*p && *p != ',' && *p != '}' && *p != ']' && *p != ' ' && *p != '\n' && *p != '\r' && *p != '\t') p++;
+    return p == s ? 0 : p;
+}
+static int tb_js_hex(const char *p) {
+    int v = 0;
+    for (int i = 0; i < 4; i++) {
+        char ch = p[i]; v <<= 4;
+        if (ch >= '0' && ch <= '9') v |= ch - '0';
+        else if (ch >= 'a' && ch <= 'f') v |= ch - 'a' + 10;
+        else if (ch >= 'A' && ch <= 'F') v |= ch - 'A' + 10;
+        else return -1;
+    }
+    return v;
+}
+// строка JSON (p смотрит на ") → обычный текст
+static const char *tb_js_str(const char *p) {
+    const char *e = tb_js_skip(p);
+    if (!e) return 0;
+    char *out = tb_mem(e - p + 1), *o = out;
+    p++;
+    while (*p != '"') {
+        if (*p != '\\') { *o++ = *p++; continue; }
+        p++;
+        char ch = *p++;
+        if (ch == 'n') *o++ = '\n'; else if (ch == 't') *o++ = '\t'; else if (ch == 'r') *o++ = '\r';
+        else if (ch == 'b') *o++ = '\b'; else if (ch == 'f') *o++ = '\f';
+        else if (ch == 'u') {
+            int cp = tb_js_hex(p);
+            if (cp < 0) return 0;
+            p += 4;
+            if (cp >= 0xD800 && cp < 0xDC00 && p[0] == '\\' && p[1] == 'u') {
+                int lo = tb_js_hex(p + 2);
+                if (lo >= 0xDC00 && lo < 0xE000) { cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00); p += 6; }
+            }
+            if (cp < 0x80) *o++ = (char)cp;
+            else if (cp < 0x800) { *o++ = (char)(0xC0 | (cp >> 6)); *o++ = (char)(0x80 | (cp & 63)); }
+            else if (cp < 0x10000) { *o++ = (char)(0xE0 | (cp >> 12)); *o++ = (char)(0x80 | ((cp >> 6) & 63)); *o++ = (char)(0x80 | (cp & 63)); }
+            else { *o++ = (char)(0xF0 | (cp >> 18)); *o++ = (char)(0x80 | ((cp >> 12) & 63)); *o++ = (char)(0x80 | ((cp >> 6) & 63)); *o++ = (char)(0x80 | (cp & 63)); }
+        }
+        else *o++ = ch;
+    }
+    *o = 0;
+    return out;
+}
+static const char *tb_json_get(const char *js, const char *path) {
+    const char *p = tb_js_ws(js), *seg = path;
+    while (*seg) {
+        char key[256];
+        size_t k = 0;
+        while (seg[k] && seg[k] != '.' && k < 255) { key[k] = seg[k]; k++; }
+        key[k] = 0;
+        seg += k;
+        if (*seg == '.') seg++;
+        p = tb_js_ws(p);
+        if (*p == '{') {
+            p++;
+            int found = 0;
+            for (;;) {
+                p = tb_js_ws(p);
+                if (*p == '}') break;
+                if (*p != '"') goto bad;
+                const char *name = tb_js_str(p);
+                p = tb_js_skip(p);
+                if (!name || !p) goto bad;
+                p = tb_js_ws(p);
+                if (*p != ':') goto bad;
+                p = tb_js_ws(p + 1);
+                if (strcmp(name, key) == 0) { found = 1; break; }
+                p = tb_js_skip(p);
+                if (!p) goto bad;
+                p = tb_js_ws(p);
+                if (*p == ',') { p++; continue; }
+                if (*p == '}') break;
+                goto bad;
+            }
+            if (!found) { tb_err = tb_cat("в JSON нет ключа: ", key); return ""; }
+        } else if (*p == '[') {
+            char *end;
+            long long want = strtoll(key, &end, 10);
+            if (key[0] == 0 || *end != 0 || want < 0) { tb_err = tb_cat("у списка в JSON номер — число, а тут: ", key); return ""; }
+            p++;
+            for (long long i = 0;; i++) {
+                p = tb_js_ws(p);
+                if (*p == ']') { tb_err = tb_cat("в списке JSON нет номера ", key); return ""; }
+                if (i == want) break;
+                p = tb_js_skip(p);
+                if (!p) goto bad;
+                p = tb_js_ws(p);
+                if (*p == ',') p++;
+                else if (*p != ']') goto bad;
+            }
+        } else {
+            tb_err = tb_cat("тут в JSON не объект и не список, а дальше в пути ещё: ", key);
+            return "";
+        }
+    }
+    p = tb_js_ws(p);
+    if (*p == '"') { const char *s = tb_js_str(p); if (!s) goto bad; return s; }
+    {
+        const char *e = tb_js_skip(p);
+        if (!e) goto bad;
+        char *out = tb_mem(e - p + 1);
+        memcpy(out, p, e - p);
+        out[e - p] = 0;
+        return out;
+    }
+bad:
+    tb_err = "JSON сломан: не могу разобрать";
+    return "";
+}
+// текст → строка JSON в кавычках: "a\"b"
+static const char *tb_json_text(const char *s) {
+    size_t n = strlen(s);
+    char *out = tb_mem(n * 6 + 3), *o = out;
+    *o++ = '"';
+    for (const unsigned char *p = (const unsigned char *)s; *p; p++) {
+        if (*p == '"' || *p == '\\') { *o++ = '\\'; *o++ = (char)*p; }
+        else if (*p == '\n') { *o++ = '\\'; *o++ = 'n'; }
+        else if (*p == '\r') { *o++ = '\\'; *o++ = 'r'; }
+        else if (*p == '\t') { *o++ = '\\'; *o++ = 't'; }
+        else if (*p < 32) o += sprintf(o, "\\u%04x", *p);
+        else *o++ = (char)*p;
+    }
+    *o++ = '"';
+    *o = 0;
+    return out;
+}
 // ---------- время и случайные числа ----------
 static long long tb_time_ms(void) {
     struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);

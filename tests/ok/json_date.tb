@@ -1,0 +1,18 @@
+// 1.0: json, время
+func main()
+    js = "{\"users\": [{\"name\": \"Азиз\", \"age\": 31, \"tags\": [\"a\", \"b\"]}, {\"name\": \"Ли \\\"Ко\\\"\\n\", \"ok\": true}], \"n\": -2.5, \"e\": \"\\u0416\"}"
+    print(json_get(js, "users.0.name") or "ОШИБКА")
+    print(json_get(js, "users.0.age") or "ОШИБКА")
+    print(json_get(js, "users.0.tags") or "ОШИБКА")
+    print(json_get(js, "users.1.name") or "ОШИБКА")
+    print(json_get(js, "users.1.ok") or "ОШИБКА")
+    print(json_get(js, "n") or "ОШИБКА")
+    print(json_get(js, "e") or "ОШИБКА")
+    x = json_get(js, "users.5.name") or "нет"
+    print(x)
+    y = json_get(js, "nope") or "нет ключа"
+    print(y)
+    print(json_text("а\"б\nв"))
+    print(len(date_now()) == 19, unix_time() > 1700000000)
+    page = http_get("ftp://x") or "плохой адрес"
+    print(page)

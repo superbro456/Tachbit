@@ -132,7 +132,7 @@ func fits(want: int, got: int)
 // ---------- функции и obj ----------
 
 func is_builtin(name: text)
-    each b in ["print", "show", "len", "round", "code", "char", "cut", "to_int", "to_dec", "read_file", "write_file", "input", "args", "split", "join", "find", "replace", "upper", "lower", "trim", "starts_with", "ends_with", "sort", "abs", "min", "max", "sqrt", "run", "exit", "file_exists", "list_dir", "is_folder", "make_folder", "move", "remove", "env", "file_size", "window_open", "window_alive", "clear_window", "draw_pixel", "draw_rect", "draw_circle", "draw_line", "draw_text", "key_down", "mouse_x", "mouse_y", "mouse_down", "rgb", "random", "time_ms"]
+    each b in ["print", "show", "len", "round", "code", "char", "cut", "to_int", "to_dec", "read_file", "write_file", "input", "args", "split", "join", "find", "replace", "upper", "lower", "trim", "starts_with", "ends_with", "sort", "abs", "min", "max", "sqrt", "run", "exit", "file_exists", "list_dir", "is_folder", "make_folder", "move", "remove", "env", "file_size", "window_open", "window_alive", "clear_window", "draw_pixel", "draw_rect", "draw_circle", "draw_line", "draw_text", "key_down", "mouse_x", "mouse_y", "mouse_down", "rgb", "random", "time_ms", "http_get", "json_get", "json_text", "date_now", "unix_time"]
         if b == name
             return true
     each b in kernel_builtins()
@@ -164,7 +164,7 @@ func bare_only(name: text)
 
 // только в обычной программе (в ядре нет файлов и папок)
 func os_only(name: text)
-    each w in ["list_dir", "is_folder", "make_folder", "move", "remove", "env", "file_size", "window_open", "window_alive", "clear_window", "draw_pixel", "draw_rect", "draw_circle", "draw_line", "draw_text", "key_down", "mouse_x", "mouse_y", "mouse_down", "rgb", "random", "time_ms"]
+    each w in ["list_dir", "is_folder", "make_folder", "move", "remove", "env", "file_size", "window_open", "window_alive", "clear_window", "draw_pixel", "draw_rect", "draw_circle", "draw_line", "draw_text", "key_down", "mouse_x", "mouse_y", "mouse_down", "rgb", "random", "time_ms", "http_get", "json_get", "json_text", "date_now", "unix_time"]
         if name == w
             return true
     return false
@@ -180,7 +180,7 @@ func gfx_builtin(name: text)
 func builtin_can_fail(name: text)
     if name == "list_dir" or name == "make_folder" or name == "move" or name == "remove" or name == "window_open"
         return true
-    return name == "to_int" or name == "to_dec" or name == "read_file" or name == "write_file" or name == "input"
+    return name == "to_int" or name == "to_dec" or name == "read_file" or name == "write_file" or name == "input" or name == "http_get" or name == "json_get"
 
 // ---------- модули ----------
 // use money: модуль main видит modpub-функции модуля money
@@ -864,6 +864,21 @@ func check_builtin(c: Comp, n: Node) gives r: int
     if name == "env"
         builtin_args(c, n, "t", "env(\"HOME\")")
         return 4
+    if name == "http_get"
+        builtin_args(c, n, "t", "http_get(\"https://...\")  →  текст страницы")
+        return 4
+    if name == "json_get"
+        builtin_args(c, n, "tt", "json_get(текст_json, \"users.0.name\")  →  текст")
+        return 4
+    if name == "json_text"
+        builtin_args(c, n, "t", "json_text(текст)  →  строка JSON в кавычках")
+        return 4
+    if name == "date_now"
+        builtin_args(c, n, "", "date_now()  →  \"2026-11-17 12:30:00\"")
+        return 4
+    if name == "unix_time"
+        builtin_args(c, n, "", "unix_time()  →  секунды с 1970 года")
+        return 1
     if name == "file_size"
         builtin_args(c, n, "t", "file_size(\"путь\")  →  байты или -1")
         return 1
