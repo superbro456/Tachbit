@@ -1516,6 +1516,26 @@ static void *tb_cold_mem(long long n) {
     memset(r, 0, n);
     return r;
 }
+// ---------- obj: память пачкой ----------
+// obj никогда не отдают по одному (нет free), поэтому их не надо брать через malloc
+// поштучно: берём кусок на тысячи объектов и раздаём подряд. Быстрее, и соседние
+// объекты лежат рядом в памяти. Внутри temp и шага цикла — как раньше, из временной памяти.
+static void *tb_obj_mem(long long n) {
+    if (tb_temp_depth > 0) return tb_mem(n);
+    static _Thread_local char *p = 0;
+    static _Thread_local long long left = 0;
+    n = (n + 7) & ~7LL;
+    if (left < n) {
+        long long size = n > (1LL << 20) ? n : (1LL << 20);
+        p = malloc(size);
+        if (!p) tb_crash(0, "не хватило памяти");
+        left = size;
+    }
+    void *r = p;
+    p += n;
+    left -= n;
+    return r;
+}
 // ---------- background: работа в своём потоке ----------
 #ifndef TB_BARE
 typedef struct { pthread_t th; int done; void *res; } tb_task;

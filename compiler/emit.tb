@@ -2196,7 +2196,7 @@ func emit_constructor(c: Comp, o: Node)
             put(c, ", ")
         put(c, c_type(c, o.kids[i].ty) + " a" + i)
     put(c, ") {\n")
-    put(c, "    tb_o_" + o.name + " *o = tb_mem(sizeof(tb_o_" + o.name + "));\n")
+    put(c, "    tb_o_" + o.name + " *o = tb_obj_mem(sizeof(tb_o_" + o.name + "));\n")
     if has_cold(o)
         put(c, "    o->tb_cold = tb_cold_mem(sizeof(struct tb_c_" + o.name + "));\n")
     count i from 0 to len(o.kids) - 1
