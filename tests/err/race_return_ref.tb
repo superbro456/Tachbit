@@ -1,3 +1,4 @@
+// 0.9: защита (потоки, ярлыки, замки)
 func first(a: list list int) gives r: list int
     return a[0]
 func main()

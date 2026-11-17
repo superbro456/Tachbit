@@ -25,8 +25,8 @@ tmp="$(mktemp -d)"
 
 for f in tests/ok/*.tb tests/err/*.tb; do
     name="$(basename "$f" .tb)"
-    if [ "$compiler" = "tachbit" ] && head -1 "$f" | grep -q "0.7"; then
-        continue   # новое в 0.7 умеет только компилятор на Tachbit
+    if [ "$compiler" = "tachbit" ] && head -1 "$f" | grep -Eq "0\.[789]"; then
+        continue   # новое с 0.7 умеет только компилятор на Tachbit
     fi
     cp "$f" "$tmp/$name.tb"
     got="$( (cd "$tmp" && "$OLDPWD/$compiler" run "$name.tb") 2>&1)"

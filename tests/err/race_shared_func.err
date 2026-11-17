@@ -1,1 +1,1 @@
-race_shared_func.tb, строка 3: эту shared меняет функция, которая идёт параллельно (background, on all cores или together): меняй её под замком  lock имя: total
+race_shared_func.tb, строка 4: эту shared меняет функция, которая идёт параллельно (background или on all cores): меняй её под замком  lock имя: total

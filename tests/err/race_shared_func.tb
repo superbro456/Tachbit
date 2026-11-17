@@ -1,3 +1,4 @@
+// 0.9: защита (потоки, ярлыки, замки)
 shared total = int 0
 func bump()
     total += 1

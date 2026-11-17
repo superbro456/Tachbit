@@ -1,0 +1,9 @@
+// 0.9: защита (потоки, ярлыки, замки)
+func grow(a: list int)
+    a.add(1)
+func main()
+    xs = [1, 2, 3]
+    e: link xs[0]
+    grow(xs)
+    e = 5
+    print(xs[0])

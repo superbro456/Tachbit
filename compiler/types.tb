@@ -96,6 +96,8 @@ obj Var
     pno: int
     // через эту переменную уже меняли данные (a.add, a[i] = ..., a.n += 1)
     changed: bool
+    // ярлык на элемент списка/dict (e: link xs[0]): номер+1 переменной xs — её нельзя растить, пока ярлык жив
+    link_root1: int
 
 // состояние всего компилятора
 obj Comp
@@ -164,7 +166,22 @@ obj Comp
     call_par: list bool
     last_call: int
     bg_funcs: list int
-    together_depth: int
+    // each по dict: эти dict внутри цикла нельзя уменьшать
+    each_busy: list int
+    // замки: какие замки сейчас взяты; кто какой замок берёт; вызовы под замком
+    held: list text
+    lk_func: list int
+    lk_name: list text
+    lc_func: list int
+    lc_held: list text
+    lc_line: list int
+    lc_file: list text
+    lc_name: list text
+    // вызовы, которые отдают список, на элемент которого смотрит живой ярлык
+    lr_keys: list text
+    lr_lines: list int
+    lr_names: list text
+    lr_files: list text
     gw_func: list int
     gw_lock: list bool
     gw_line: list int

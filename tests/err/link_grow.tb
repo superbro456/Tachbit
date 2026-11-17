@@ -1,0 +1,8 @@
+// 0.9: защита (потоки, ярлыки, замки)
+func main()
+    xs = [1, 2, 3]
+    e: link xs[0]
+    count i from 1 to 100000
+        xs.add(i)
+    e = 77
+    print(xs[0])

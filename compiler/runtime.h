@@ -723,6 +723,42 @@ TB_COLD static void tb_crash(int line, const char *msg) {
     fputs(color ? "\033[0m\n" : "\n", stderr);
     exit(1);
 }
+#ifndef TB_BARE
+// ---------- падение по памяти: понятное сообщение вместо «Segmentation fault» ----------
+// Чаще всего это стек: функция зовёт себя слишком глубоко. Обработчик работает
+// на своём маленьком стеке (sigaltstack), потому что основной уже кончился.
+#include <signal.h>
+#include <sys/resource.h>
+static char *tb_main_sp;
+static void tb_on_segv(int sig, siginfo_t *si, void *u) {
+    (void)sig; (void)u;
+    char *a = (char *)si->si_addr;
+    long long lim = 8LL << 20;
+    struct rlimit rl;
+    if (getrlimit(RLIMIT_STACK, &rl) == 0 && rl.rlim_cur != RLIM_INFINITY) lim = (long long)rl.rlim_cur;
+    const char *m;
+    if (tb_main_sp && a <= tb_main_sp + 65536 && a >= tb_main_sp - lim - (1 << 20))
+        m = "стек переполнен: функция зовёт себя слишком глубоко (рекурсия без конца?)\n";
+    else
+        m = "программа упала: ошибка памяти. Это ошибка Tachbit, а не твоя: пришли, пожалуйста, эту программу\n";
+    if (write(2, m, strlen(m)) < 0) _exit(1);
+    _exit(1);
+}
+static void tb_guard_init(void) {
+    static char alt[65536];
+    stack_t ss;
+    ss.ss_sp = alt; ss.ss_size = sizeof alt; ss.ss_flags = 0;
+    sigaltstack(&ss, 0);
+    struct sigaction sa;
+    memset(&sa, 0, sizeof sa);
+    sa.sa_sigaction = tb_on_segv;
+    sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
+    sigaction(SIGSEGV, &sa, 0);
+    sigaction(SIGBUS, &sa, 0);
+    char here;
+    tb_main_sp = &here;
+}
+#endif
 // ---------- temp: временная память ----------
 // Внутри блока temp память берётся из больших кусков подряд (быстро, без malloc),
 // а в конце блока все куски отдаются разом. У каждого ядра свои куски.

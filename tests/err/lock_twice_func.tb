@@ -1,0 +1,9 @@
+// 0.9: защита (потоки, ярлыки, замки)
+shared n = int 0
+func inc()
+    lock m
+        n += 1
+func main()
+    lock m
+        inc()
+    print(n)

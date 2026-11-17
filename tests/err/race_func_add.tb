@@ -1,3 +1,4 @@
+// 0.9: защита (потоки, ярлыки, замки)
 func push(a: list int, x: int)
     a.add(x)
 

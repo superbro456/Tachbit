@@ -1,3 +1,4 @@
+// 0.9: защита (потоки, ярлыки, замки)
 func main()
     m = [[1, 2], [3, 4]]
     count i from 0 to 1 on all cores

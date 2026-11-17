@@ -1,0 +1,9 @@
+// 0.9: защита (потоки, ярлыки, замки)
+obj U
+    n: int
+func main()
+    us = [U(n: 1)]
+    e: link us[0]
+    us.clear()
+    e.n = 5
+    print(len(us))
