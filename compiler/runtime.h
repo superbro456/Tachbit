@@ -2287,26 +2287,106 @@ static tb_dict *tb_dict_from(int text, long long vsize, long long n, const void 
 // пока они не кончатся (так ядра не простаивают, если куски разные по тяжести).
 // shared: каждое ядро копит своё на «листке», потом один раз добавляет под замком.
 static pthread_mutex_t tb_par_lock = PTHREAD_MUTEX_INITIALIZER;
+#ifndef TB_BARE
+#if defined(__x86_64__) || defined(__i386__)
+#define __builtin_ia32_pause_or_yield() __builtin_ia32_pause()
+#elif defined(__aarch64__)
+#define __builtin_ia32_pause_or_yield() __asm__ volatile("yield")
+#else
+#define __builtin_ia32_pause_or_yield() ((void)0)
+#endif
+#endif
 static int tb_cores(void) {
     const char *want = getenv("TB_CORES");   // TB_CORES=1 — проверить на одном ядре
     long n = want != 0 ? atol(want) : sysconf(_SC_NPROCESSORS_ONLN);
     return n < 1 ? 1 : (n > 256 ? 256 : (int)n);
 }
+#ifdef TB_BARE
 static void tb_par_run(void *(*work)(void *), void *job, long long total) {
     int n = tb_cores();
     if (n > total) n = (int)total;
     if (n < 1) n = 1;
     pthread_t t[256];
-    for (int i = 1; i < n; i++) {
-#ifdef TB_BARE
+    for (int i = 1; i < n; i++)
         if (pthread_create(&t[i], 0, work, job) != 0) tb_crash(0, "не получилось запустить ядро");
-#else
-        if (tb_thread_create(&t[i], work, job) != 0) tb_crash(0, "не получилось запустить ядро");
-#endif
-    }
     work(job);
     for (int i = 1; i < n; i++) pthread_join(t[i], 0);
 }
+#else
+// Готовые потоки: создаются один раз (при первом on all cores) и ждут работу.
+// Раньше каждый цикл на ядрах создавал и закрывал потоки — для коротких циклов это было дольше самой работы.
+static pthread_mutex_t tb_pool_m = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t tb_pool_go = PTHREAD_COND_INITIALIZER, tb_pool_end = PTHREAD_COND_INITIALIZER;
+static int tb_pool_n = 0, tb_pool_want = 0, tb_pool_busy = 0;
+static volatile long long tb_pool_gen = 0;
+static volatile int tb_pool_left = 0;
+static void *(*tb_pool_work)(void *) = 0;
+static void *tb_pool_job = 0;
+static void *tb_pool_loop(void *arg) {
+    int me = (int)(long long)arg;
+    // поток пула не считается «работающим», пока ждёт: уборка памяти может идти
+    __atomic_sub_fetch(&tb_gthreads, 1, __ATOMIC_RELEASE);
+    long long seen = 0;
+    for (;;) {
+        // немного ждём без сна: циклы на ядрах часто идут один за другим
+        for (int spin = 0; spin < 20000 && __atomic_load_n(&tb_pool_gen, __ATOMIC_ACQUIRE) == seen; spin++)
+            __builtin_ia32_pause_or_yield();
+        pthread_mutex_lock(&tb_pool_m);
+        while (tb_pool_gen == seen) pthread_cond_wait(&tb_pool_go, &tb_pool_m);
+        seen = tb_pool_gen;
+        int mine = me < tb_pool_want;
+        void *(*work)(void *) = tb_pool_work;
+        void *job = tb_pool_job;
+        pthread_mutex_unlock(&tb_pool_m);
+        if (!mine) continue;
+        work(job);
+        __atomic_sub_fetch(&tb_gthreads, 1, __ATOMIC_RELEASE);
+        if (__atomic_sub_fetch(&tb_pool_left, 1, __ATOMIC_ACQ_REL) == 0) {
+            pthread_mutex_lock(&tb_pool_m);
+            pthread_cond_signal(&tb_pool_end);
+            pthread_mutex_unlock(&tb_pool_m);
+        }
+    }
+    return 0;
+}
+static void tb_par_run(void *(*work)(void *), void *job, long long total) {
+    int n = tb_cores();
+    if (n > total) n = (int)total;
+    if (n < 1) n = 1;
+    if (n == 1) { work(job); return; }
+    // пул уже занят (цикл на ядрах из background или изнутри другого) — по-старому, своими потоками
+    if (__atomic_exchange_n(&tb_pool_busy, 1, __ATOMIC_ACQ_REL)) {
+        pthread_t t[256];
+        for (int i = 1; i < n; i++)
+            if (tb_thread_create(&t[i], work, job) != 0) tb_crash(0, "не получилось запустить ядро");
+        work(job);
+        for (int i = 1; i < n; i++) pthread_join(t[i], 0);
+        return;
+    }
+    while (tb_pool_n < n - 1) {
+        pthread_t th;
+        if (tb_thread_create(&th, tb_pool_loop, (void *)(long long)tb_pool_n) != 0) tb_crash(0, "не получилось запустить ядро");
+        pthread_detach(th);
+        tb_pool_n++;
+    }
+    pthread_mutex_lock(&tb_pool_m);
+    tb_pool_work = work; tb_pool_job = job; tb_pool_want = n - 1;
+    __atomic_store_n(&tb_pool_left, n - 1, __ATOMIC_RELEASE);
+    __atomic_add_fetch(&tb_gthreads, n - 1, __ATOMIC_ACQ_REL);
+    __atomic_add_fetch(&tb_pool_gen, 1, __ATOMIC_RELEASE);
+    pthread_cond_broadcast(&tb_pool_go);
+    pthread_mutex_unlock(&tb_pool_m);
+    work(job);
+    if (__atomic_load_n(&tb_pool_left, __ATOMIC_ACQUIRE) != 0) {
+        for (int spin = 0; spin < 20000 && __atomic_load_n(&tb_pool_left, __ATOMIC_ACQUIRE) != 0; spin++)
+            __builtin_ia32_pause_or_yield();
+        pthread_mutex_lock(&tb_pool_m);
+        while (__atomic_load_n(&tb_pool_left, __ATOMIC_ACQUIRE) != 0) pthread_cond_wait(&tb_pool_end, &tb_pool_m);
+        pthread_mutex_unlock(&tb_pool_m);
+    }
+    __atomic_store_n(&tb_pool_busy, 0, __ATOMIC_RELEASE);
+}
+#endif
 static long long tb_par_step(long long total) {
     long long s = total / ((long long)tb_cores() * 16);
     return s < 1 ? 1 : s;

@@ -126,7 +126,8 @@ func new_project(name: text)
     print("  " + name + "/build/    — сюда кладётся готовая программа\n")
     print("запуск:  tb start " + name)
 
-func build(c: Comp, path: text, exe: text)
+// native: программа только для этого компьютера (tb run) — можно все команды его процессора
+func build(c: Comp, path: text, exe: text, native: bool)
     c_path = exe + ".c"
     if is_dir_cmd(exe)
         print("готовую программу некуда положить: " + exe + " — это папка. Переименуй папку или файл .tb")
@@ -138,13 +139,18 @@ func build(c: Comp, path: text, exe: text)
         print("не могу записать файл: " + c_path)
         return 1
     command = "${CC:-cc} -O2 -w -o " + quote(exe) + " " + quote(c_path) + " -lm -lpthread"
+    flags_native = ""
+    if native
+        flags_native = " -march=native"
     // окно: на Mac — Cocoa (есть всегда), на Linux — X11
     if c.gfx
         command += " $( [ \"$(uname)\" = Darwin ] && echo '-framework Cocoa -framework CoreGraphics -framework QuartzCore -lobjc' || echo '-lX11' )"
     // сообщения cc — в отдельный файл: человеку не нужна простыня на C
     log = exe + ".cc.log"
-    command += " 2> " + quote(log)
-    if run(command) != 0
+    plain = command + " 2> " + quote(log)
+    command += flags_native + " 2> " + quote(log)
+    // если cc не знает -march=native (бывает на Apple M), собираем как обычно
+    if run(command) != 0 and (flags_native == "" or run(plain) != 0)
         print("не получилось собрать программу. Это ошибка Tachbit, а не твоя: твой код прошёл все проверки.")
         print("подробности для разработчиков Tachbit: " + log + " (и код на C: " + c_path + ")")
         return 1
@@ -260,7 +266,7 @@ func main()
         print(cut(join(c.out, ""), 0, len(join(c.out, "")) - 2))
         return
     if mode == "build"
-        exit(build(c, path, exe))
+        exit(build(c, path, exe, false))
     if mode == "bare"
         exit(build_bare(c, path, exe))
     if mode == "run"
@@ -271,7 +277,7 @@ func main()
             if not is_folder(run_dir)
                 code = run("mkdir -p " + quote(run_dir))
             exe = run_dir + "/" + module_of(path)
-        if build(c, path, exe) != 0
+        if build(c, path, exe, true) != 0
             exit(1)
         // tachbit run файл.tb a b c  →  программа получит a b c в args()
         command = quote(exe)
