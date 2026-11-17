@@ -160,6 +160,10 @@ obj Comp
     // пары «номер<TAB>список»; fast_depth — сколько таких циклов вокруг (не больше 2)
     fast_lists: list text
     fast_depth: int
+    // «мяч в коробке»: пределы целых чисел (ключ → 4 числа: есть низ, низ, есть верх, верх)
+    rg_keys: list text
+    rg_vals: list int
+    rg_busy: list text
     // внутри danger (сколько блоков вокруг), внутри lock и сколько циклов было снаружи lock
     danger_depth: int
     lock_depth: int

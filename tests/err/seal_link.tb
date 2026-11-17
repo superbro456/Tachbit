@@ -1,0 +1,19 @@
+// 0.7: ярлык на ячейку списка номеров — «пломба» сорвана, проверка остаётся
+func bump(link x)
+    x += 100
+
+func main()
+    xs = list int
+    repeat 10 times
+        xs.add(0)
+    idx = list int
+    count i from 0 to 9
+        idx.add(i)
+    j: link idx[2]
+    j = 77
+    k = 4
+    bump(k)
+    print(xs[idx[1]])
+    count i from 0 to 9
+        print(xs[idx[i]] + i)
+    print(xs[k])

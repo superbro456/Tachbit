@@ -1,0 +1,28 @@
+// 0.7: «коробка» и «пломба» — номера, про которые компилятор знает пределы
+func cell(v: int)
+    return max(0, min(v / 10, 9))
+
+func main()
+    xs = list int
+    count i from 0 to 99
+        xs.add(i)
+    // пломба: в order кладут только номера от 0 до 99
+    order = list int
+    count i from 0 to 99
+        order.add(99 - i)
+    s = 0
+    count i from 0 to 99
+        s += xs[order[i]]
+    print("пломба:", s)
+    // коробка: cell всегда от 0 до 9
+    counts = list int
+    repeat 10 times
+        counts.add(0)
+    count i from 0 to 99
+        counts[cell(xs[i] * 3 - 50)] += 1
+    print("коробка:", counts[0], counts[9])
+    // остаток и деление
+    t = 0
+    count i from 0 to 999
+        t += xs[i % 100] + xs[i / 10]
+    print("остаток:", t)

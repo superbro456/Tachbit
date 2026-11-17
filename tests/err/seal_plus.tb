@@ -1,0 +1,13 @@
+// 0.7: idx[3] += 20 — «пломба» сорвана, проверка остаётся
+func main()
+    xs = list int
+    repeat 10 times
+        xs.add(0)
+    idx = list int
+    count i from 0 to 9
+        idx.add(i)
+    idx[3] += 20
+    s = 0
+    count i from 0 to 9
+        s += xs[idx[i]]
+    print(s)

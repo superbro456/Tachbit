@@ -1266,13 +1266,365 @@ func plain_list_index(c: Comp, n: Node)
     t = n.kids[0].ty
     return kind_of(c, t) == "list" and not is_bits(c, t) and not is_cols_list(c, t)
 
+// ---------- «мяч в коробке» и «пломба»: в каких пределах лежит целое число ----------
+// Пределы считаются по всей функции сразу: у переменной — все её значения из всех
+// присваиваний, у списка («пломба») — все числа, которые в него кладут. Если хоть одно
+// значение без пределов (параметр, x += 1, список ушёл в функцию) — пределов нет.
+// Всё это только убирает проверку края, когда её можно доказать; иначе проверка остаётся.
+
+func rg_ok(v: int)
+    return v > -1000000000000 and v < 1000000000000
+
+func rg_get(c: Comp, key: text) gives found: bool, hl: bool, lo: int, hh: bool, hi: int
+    count j from 0 to len(c.rg_keys) - 1
+        if c.rg_keys[j] == key
+            found = true
+            hl = c.rg_vals[j * 4] == 1
+            lo = c.rg_vals[j * 4 + 1]
+            hh = c.rg_vals[j * 4 + 2] == 1
+            hi = c.rg_vals[j * 4 + 3]
+            return
+
+func rg_put(c: Comp, key: text, hl: bool, lo: int, hh: bool, hi: int)
+    c.rg_keys.add(key)
+    if hl
+        c.rg_vals.add(1)
+    else
+        c.rg_vals.add(0)
+    c.rg_vals.add(lo)
+    if hh
+        c.rg_vals.add(1)
+    else
+        c.rg_vals.add(0)
+    c.rg_vals.add(hi)
+
+func rg_busy_has(c: Comp, key: text)
+    each x in c.rg_busy
+        if x == key
+            return true
+    return false
+
+func rg_busy_drop(c: Comp)
+    keep = list text
+    count j from 0 to len(c.rg_busy) - 2
+        keep.add(c.rg_busy[j])
+    c.rg_busy = keep
+
+func expr_range(c: Comp, f: Node, n: Node) gives hl: bool, lo: int, hh: bool, hi: int
+    if n.ty != 1
+        return
+    k = n.kind
+    if k == "number"
+        v = to_int(n.value) else err
+            return
+        hl = true
+        lo = v
+        hh = true
+        hi = v
+    else if k == "name"
+        hl, lo, hh, hi = var_range(c, f, n.name)
+    else if k == "unary" and n.value == "-"
+        al, a_lo, ah, a_hi = expr_range(c, f, n.kids[0])
+        hl = ah
+        lo = 0 - a_hi
+        hh = al
+        hi = 0 - a_lo
+    else if k == "binop"
+        al, a_lo, ah, a_hi = expr_range(c, f, n.kids[0])
+        bl, b_lo, bh, b_hi = expr_range(c, f, n.kids[1])
+        if n.value == "+"
+            hl = al and bl
+            lo = a_lo + b_lo
+            hh = ah and bh
+            hi = a_hi + b_hi
+        else if n.value == "-"
+            hl = al and bh
+            lo = a_lo - b_hi
+            hh = ah and bl
+            hi = a_hi - b_lo
+        else if n.value == "*" and al and ah and bl and bh and a_lo >= 0 and b_lo >= 0 and a_hi < 1000000 and b_hi < 1000000
+            hl = true
+            lo = a_lo * b_lo
+            hh = true
+            hi = a_hi * b_hi
+        else if (n.value == "/" or n.value == "%") and al and a_lo >= 0 and bl and bh and b_lo == b_hi and b_lo > 0
+            if n.value == "%"
+                hl = true
+                lo = 0
+                hh = true
+                hi = b_lo - 1
+            else
+                hl = true
+                lo = a_lo / b_lo
+                hh = ah
+                hi = a_hi / b_lo
+    else if k == "call" and not n.has_ref and (n.name == "max" or n.name == "min") and len(n.kids) == 2
+        al, a_lo, ah, a_hi = expr_range(c, f, n.kids[0].kids[0])
+        bl, b_lo, bh, b_hi = expr_range(c, f, n.kids[1].kids[0])
+        if n.name == "max"
+            // max не меньше каждого: хватит одного известного низа
+            if al or bl
+                hl = true
+                lo = a_lo
+                if not al or (bl and b_lo > a_lo)
+                    lo = b_lo
+            hh = ah and bh
+            hi = max(a_hi, b_hi)
+        else
+            if ah or bh
+                hh = true
+                hi = a_hi
+                if not ah or (bh and b_hi < a_hi)
+                    hi = b_hi
+            hl = al and bl
+            lo = min(a_lo, b_lo)
+    else if k == "call" and not n.has_ref and n.name == "len"
+        hl = true
+        lo = 0
+    else if k == "call" and n.has_ref and n.ref.kind == "func"
+        hl, lo, hh, hi = func_range(c, n.ref)
+    else if k == "index" and n.kids[0].kind == "name" and kind_of(c, n.kids[0].ty) == "list" and not is_bits(c, n.kids[0].ty)
+        hl, lo, hh, hi = seal_range(c, f, n.kids[0].name)
+    if hl and not rg_ok(lo)
+        hl = false
+    if hh and not rg_ok(hi)
+        hh = false
+
+// объединить пределы: новое значение расширяет коробку
+func rg_union(first: bool, hl: bool, lo: int, hh: bool, hi: int, bl: bool, b_lo: int, bh: bool, b_hi: int) gives rl: bool, r_lo: int, rh: bool, r_hi: int
+    if first
+        rl = bl
+        r_lo = b_lo
+        rh = bh
+        r_hi = b_hi
+        return
+    rl = hl and bl
+    r_lo = min(lo, b_lo)
+    rh = hh and bh
+    r_hi = max(hi, b_hi)
+
+func is_param(f: Node, name: text)
+    each p in f.kids[0].kids
+        if p.name == name
+            return true
+    return false
+
+func is_global(c: Comp, name: text)
+    each g in c.globals
+        if g.name == name
+            return true
+    return false
+
+// имя где-то внутри (для ярлыков и link-аргументов)
+func mentions(n: Node, name: text)
+    if n.kind == "name" and n.name == name
+        return true
+    each kid in n.kids
+        if mentions(kid, name)
+            return true
+    return false
+
+// пределы переменной: все её значения в функции
+func var_range(c: Comp, f: Node, name: text) gives hl: bool, lo: int, hh: bool, hi: int
+    key = f.name + ":" + f.line + ":" + name
+    found, gl, g_lo, gh, g_hi = rg_get(c, key)
+    if found
+        hl = gl
+        lo = g_lo
+        hh = gh
+        hi = g_hi
+        return
+    if rg_busy_has(c, key) or is_param(f, name) or is_global(c, name)
+        return
+    c.rg_busy.add(key)
+    any = false
+    bad = false
+    hl, lo, hh, hi, any, bad = var_scan(c, f, f.kids[1], name, hl, lo, hh, hi, any, bad)
+    rg_busy_drop(c)
+    if bad or not any
+        hl = false
+        hh = false
+    rg_put(c, key, hl, lo, hh, hi)
+
+func var_scan(c: Comp, f: Node, n: Node, name: text, hl0: bool, lo0: int, hh0: bool, hi0: int, any0: bool, bad0: bool) gives hl: bool, lo: int, hh: bool, hi: int, any: bool, bad: bool
+    hl = hl0
+    lo = lo0
+    hh = hh0
+    hi = hi0
+    any = any0
+    bad = bad0
+    if bad
+        return
+    k = n.kind
+    if k == "assign" and n.name == name
+        if len(n.kids) == 0
+            hl, lo, hh, hi = rg_union(not any, hl, lo, hh, hi, true, 0, true, 0)
+        else
+            bl, b_lo, bh, b_hi = expr_range(c, f, n.kids[0])
+            hl, lo, hh, hi = rg_union(not any, hl, lo, hh, hi, bl, b_lo, bh, b_hi)
+        any = true
+    else if k == "count" and n.name == name
+        bl, b_lo, x1, x2 = expr_range(c, f, n.kids[0])
+        y1, y2, bh, b_hi = expr_range(c, f, n.kids[1])
+        hl, lo, hh, hi = rg_union(not any, hl, lo, hh, hi, bl, b_lo, bh, b_hi)
+        any = true
+    else if (k == "set" and n.kids[0].kind == "name" and n.kids[0].name == name) or ((k == "each" or k == "else_err") and n.name == name)
+        bad = true
+        return
+    else if k == "multi" or k == "linkdecl"
+        if mentions(n, name)
+            bad = true
+            return
+    else if k == "call" and n.has_ref and n.ref.kind == "func"
+        // func f(link x): функция может поменять переменную
+        params = n.ref.kids[0]
+        count i from 0 to len(n.kids) - 1
+            if i < len(params.kids) and params.kids[i].is_link and mentions(n.kids[i], name)
+                bad = true
+                return
+    each kid in n.kids
+        hl, lo, hh, hi, any, bad = var_scan(c, f, kid, name, hl, lo, hh, hi, any, bad)
+
+// пределы результата своей функции: все return с числом
+func func_range(c: Comp, fn: Node) gives hl: bool, lo: int, hh: bool, hi: int
+    key = "func:" + fn.name + ":" + fn.line
+    found, gl, g_lo, gh, g_hi = rg_get(c, key)
+    if found
+        hl = gl
+        lo = g_lo
+        hh = gh
+        hi = g_hi
+        return
+    if rg_busy_has(c, key) or len(fn.kids[2].kids) > 0
+        return
+    c.rg_busy.add(key)
+    any = false
+    bad = false
+    hl, lo, hh, hi, any, bad = ret_scan(c, fn, fn.kids[1], hl, lo, hh, hi, any, bad)
+    rg_busy_drop(c)
+    if bad or not any
+        hl = false
+        hh = false
+    rg_put(c, key, hl, lo, hh, hi)
+
+func ret_scan(c: Comp, fn: Node, n: Node, hl0: bool, lo0: int, hh0: bool, hi0: int, any0: bool, bad0: bool) gives hl: bool, lo: int, hh: bool, hi: int, any: bool, bad: bool
+    hl = hl0
+    lo = lo0
+    hh = hh0
+    hi = hi0
+    any = any0
+    bad = bad0
+    if bad
+        return
+    if n.kind == "return"
+        if len(n.kids) == 0
+            bad = true
+            return
+        bl, b_lo, bh, b_hi = expr_range(c, fn, n.kids[0])
+        hl, lo, hh, hi = rg_union(not any, hl, lo, hh, hi, bl, b_lo, bh, b_hi)
+        any = true
+        return
+    each kid in n.kids
+        hl, lo, hh, hi, any, bad = ret_scan(c, fn, kid, hl, lo, hh, hi, any, bad)
+
+// «пломба» на списке: пределы всех чисел, которые в него кладут.
+// Список должен быть своим в функции (не параметр) и никуда не уходить.
+func seal_range(c: Comp, f: Node, name: text) gives hl: bool, lo: int, hh: bool, hi: int
+    key = f.name + ":" + f.line + ":[]" + name
+    found, gl, g_lo, gh, g_hi = rg_get(c, key)
+    if found
+        hl = gl
+        lo = g_lo
+        hh = gh
+        hi = g_hi
+        return
+    if rg_busy_has(c, key) or is_param(f, name) or is_global(c, name)
+        return
+    c.rg_busy.add(key)
+    any = false
+    bad = false
+    hl, lo, hh, hi, any, bad = seal_scan(c, f, f.kids[1], name, hl, lo, hh, hi, any, bad)
+    rg_busy_drop(c)
+    if bad or not any
+        hl = false
+        hh = false
+    rg_put(c, key, hl, lo, hh, hi)
+
+func seal_scan(c: Comp, f: Node, n: Node, name: text, hl0: bool, lo0: int, hh0: bool, hi0: int, any0: bool, bad0: bool) gives hl: bool, lo: int, hh: bool, hi: int, any: bool, bad: bool
+    hl = hl0
+    lo = lo0
+    hh = hh0
+    hi = hi0
+    any = any0
+    bad = bad0
+    if bad
+        return
+    k = n.kind
+    is_me = len(n.kids) > 0 and n.kids[0].kind == "name" and n.kids[0].name == name
+    if k == "assign" and n.name == name
+        // только новый пустой список: xs = list int
+        if len(n.kids) > 0
+            bad = true
+            return
+    else if k == "method" and is_me
+        if n.name != "add" or len(n.kids) != 2
+            bad = true
+            return
+        bl, b_lo, bh, b_hi = expr_range(c, f, n.kids[1].kids[0])
+        hl, lo, hh, hi = rg_union(not any, hl, lo, hh, hi, bl, b_lo, bh, b_hi)
+        any = true
+        each kid in n.kids[1].kids
+            hl, lo, hh, hi, any, bad = seal_scan(c, f, kid, name, hl, lo, hh, hi, any, bad)
+        return
+    else if k == "set" and n.kids[0].kind == "index" and n.kids[0].kids[0].kind == "name" and n.kids[0].kids[0].name == name
+        if n.value != "="
+            bad = true
+            return
+        bl, b_lo, bh, b_hi = expr_range(c, f, n.kids[1])
+        hl, lo, hh, hi = rg_union(not any, hl, lo, hh, hi, bl, b_lo, bh, b_hi)
+        any = true
+        hl, lo, hh, hi, any, bad = seal_scan(c, f, n.kids[0].kids[1], name, hl, lo, hh, hi, any, bad)
+        hl, lo, hh, hi, any, bad = seal_scan(c, f, n.kids[1], name, hl, lo, hh, hi, any, bad)
+        return
+    else if k == "index" and is_me
+        // читать можно; номер тоже смотрим
+        hl, lo, hh, hi, any, bad = seal_scan(c, f, n.kids[1], name, hl, lo, hh, hi, any, bad)
+        return
+    else if k == "call" and not n.has_ref and n.name == "len" and len(n.kids) == 1 and n.kids[0].kids[0].kind == "name"
+        return
+    else if k == "name" and n.name == name
+        // список ушёл куда-то целиком: в функцию, в другую переменную, в each ...
+        bad = true
+        return
+    else if k == "linkdecl" and mentions(n, name)
+        bad = true
+        return
+    else if k == "call" and n.has_ref and n.ref.kind == "func"
+        params = n.ref.kids[0]
+        count i from 0 to len(n.kids) - 1
+            if i < len(params.kids) and params.kids[i].is_link and mentions(n.kids[i], name)
+                bad = true
+                return
+    each kid in n.kids
+        hl, lo, hh, hi, any, bad = seal_scan(c, f, kid, name, hl, lo, hh, hi, any, bad)
+
 func fast_index(c: Comp, n: Node)
     if c.fast_depth == 0 or not plain_list_index(c, n)
         return false
     each key in c.fast_lists
         cut_at = find(key, "\t")
-        if cut(key, cut_at + 1, len(key) - 1) == n.kids[0].name
-            ok, shift = index_shift(n.kids[1], cut(key, 0, cut_at - 1))
+        var_name = cut(key, 0, cut_at - 1)
+        rest = cut(key, cut_at + 1, len(key) - 1)
+        if var_name == "#"
+            // номер в коробке: проверено до цикла, что список длиннее верхнего предела
+            at2 = find(rest, "\t")
+            if cut(rest, 0, at2 - 1) == n.kids[0].name
+                top = to_int(cut(rest, at2 + 1, len(rest) - 1)) or -1
+                hl, lo, hh, hi = expr_range(c, c.cur_func, n.kids[1])
+                if hl and lo >= 0 and hh and hi <= top
+                    return true
+        else if rest == n.kids[0].name
+            ok, shift = index_shift(n.kids[1], var_name)
             if ok
                 return true
     return false
@@ -1334,6 +1686,21 @@ func fast_collect(c: Comp, n: Node, var_name: text, names: list text, nodes: lis
                 nodes.add(n.kids[0])
                 lo.add(shift)
                 hi.add(shift)
+        else if n.ty == 1 or n.ty == 2 or n.ty == 3
+            // номер не от цикла, но в коробке: проверим один раз, что список длиннее верхнего предела
+            hl, rlo, hh, rhi = expr_range(c, c.cur_func, n.kids[1])
+            if hl and rlo >= 0 and hh
+                key = "#" + n.kids[0].name
+                found = false
+                count j from 0 to len(names) - 1
+                    if names[j] == key
+                        found = true
+                        hi[j] = max(hi[j], rhi)
+                if not found
+                    names.add(key)
+                    nodes.add(n.kids[0])
+                    lo.add(0)
+                    hi.add(rhi)
     each kid in n.kids
         fast_collect(c, kid, var_name, names, nodes, lo, hi)
 
@@ -1348,7 +1715,13 @@ func emit_count(c: Comp, n: Node, depth: int)
         hi = list int
         fast_collect(c, n.kids[2], n.name, names, nodes, lo, hi)
         // границы из списка (count p from starts[k] to ...): шагов обычно мало, проверка до цикла не окупится
-        if len(names) > 0 and not has_index(n.kids[0]) and not has_index(n.kids[1]) and fast_body_ok(c, n.kids[2], n.name, names)
+        plain = list text
+        each x in names
+            if starts_with(x, "#")
+                plain.add(cut(x, 1, len(x) - 1))
+            else
+                plain.add(x)
+        if len(names) > 0 and not has_index(n.kids[0]) and not has_index(n.kids[1]) and fast_body_ok(c, n.kids[2], n.name, plain)
             emit_count_fast(c, n, depth, names, nodes, lo, hi)
             return
     c.label += 1
@@ -1389,9 +1762,14 @@ func emit_count_fast(c: Comp, n: Node, depth: int, names: list text, nodes: list
     put(c, "if (tb_end" + id + " < tb_lo" + id)
     put(c, " || (1")
     count j from 0 to len(names) - 1
-        put(c, " && tb_lo" + id + " >= " + (0 - lo[j]) + "LL && tb_end" + id + " < (")
-        emit_expr(c, nodes[j])
-        put(c, ")->len - " + hi[j] + "LL")
+        if starts_with(names[j], "#")
+            put(c, " && (")
+            emit_expr(c, nodes[j])
+            put(c, ")->len > " + hi[j] + "LL")
+        else
+            put(c, " && tb_lo" + id + " >= " + (0 - lo[j]) + "LL && tb_end" + id + " < (")
+            emit_expr(c, nodes[j])
+            put(c, ")->len - " + hi[j] + "LL")
     put(c, ")) {\n")
     keep = list text
     each key in c.fast_lists
@@ -1399,8 +1777,11 @@ func emit_count_fast(c: Comp, n: Node, depth: int, names: list text, nodes: list
     with_mine = list text
     each key in c.fast_lists
         with_mine.add(key)
-    each name in names
-        with_mine.add(n.name + "\t" + name)
+    count j from 0 to len(names) - 1
+        if starts_with(names[j], "#")
+            with_mine.add("#\t" + cut(names[j], 1, len(names[j]) - 1) + "\t" + hi[j])
+        else
+            with_mine.add(n.name + "\t" + names[j])
     c.fast_lists = with_mine
     c.fast_depth += 1
     indent(c, depth + 2)

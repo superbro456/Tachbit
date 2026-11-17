@@ -2173,6 +2173,9 @@ struct tb_o_Comp {
     _Bool q_gfx;
     tb_list * q_fast_lists;
     long long q_fast_depth;
+    tb_list * q_rg_keys;
+    tb_list * q_rg_vals;
+    tb_list * q_rg_busy;
     long long q_danger_depth;
     long long q_lock_depth;
     long long q_lock_loops;
@@ -2183,6 +2186,15 @@ struct tb_o_Comp {
 };
 typedef struct { const char * o0; const char * o1; } tb_r_f_main__project_main;
 typedef struct { _Bool o0; long long o1; } tb_r_f_emit__index_shift;
+typedef struct { _Bool o0; _Bool o1; long long o2; _Bool o3; long long o4; } tb_r_f_emit__rg_get;
+typedef struct { _Bool o0; long long o1; _Bool o2; long long o3; } tb_r_f_emit__expr_range;
+typedef struct { _Bool o0; long long o1; _Bool o2; long long o3; } tb_r_f_emit__rg_union;
+typedef struct { _Bool o0; long long o1; _Bool o2; long long o3; } tb_r_f_emit__var_range;
+typedef struct { _Bool o0; long long o1; _Bool o2; long long o3; _Bool o4; _Bool o5; } tb_r_f_emit__var_scan;
+typedef struct { _Bool o0; long long o1; _Bool o2; long long o3; } tb_r_f_emit__func_range;
+typedef struct { _Bool o0; long long o1; _Bool o2; long long o3; _Bool o4; _Bool o5; } tb_r_f_emit__ret_scan;
+typedef struct { _Bool o0; long long o1; _Bool o2; long long o3; } tb_r_f_emit__seal_range;
+typedef struct { _Bool o0; long long o1; _Bool o2; long long o3; _Bool o4; _Bool o5; } tb_r_f_emit__seal_scan;
 static void tb_show_1(long long x);
 static void tb_show_2(double x);
 static void tb_show_3(_Bool x);
@@ -2203,10 +2215,11 @@ static void tb_show_18(tb_o_Use * x);
 static void tb_show_19(tb_list * x);
 static void tb_show_20(tb_list * x);
 static void tb_show_21(tb_list * x);
-static void tb_show_23(tb_dict * x);
+static void tb_show_32(tb_dict * x);
 static _Thread_local const char * tb_t1;   // для  f() or запасное
 static _Thread_local long long tb_t2;   // для  f() or запасное
 static _Thread_local long long tb_t3;   // для  f() or запасное
+static _Thread_local long long tb_t4;   // для  f() or запасное
 static tb_o_Token *tb_new_Token(const char * a0, const char * a1, long long a2) {
     tb_o_Token *o = tb_obj_mem(sizeof(tb_o_Token));
     o->q_kind = a0;
@@ -2285,7 +2298,7 @@ static tb_o_Var *tb_new_Var(const char * a0, long long a1, _Bool a2, _Bool a3, l
     o->q_op = a6;
     return o;
 }
-static tb_o_Comp *tb_new_Comp(const char * a0, tb_list * a1, long long a2, tb_list * a3, tb_list * a4, tb_list * a5, tb_list * a6, tb_list * a7, const char * a8, tb_list * a9, long long a10, long long a11, long long a12, long long a13, tb_list * a14, long long a15, tb_o_Node * a16, long long a17, long long a18, _Bool a19, _Bool a20, tb_list * a21, long long a22, tb_o_Node * a23, tb_list * a24, tb_list * a25, tb_list * a26, long long a27, tb_list * a28, tb_list * a29, tb_list * a30, long long a31, tb_list * a32, tb_list * a33, tb_list * a34, tb_list * a35, tb_list * a36, tb_list * a37, tb_list * a38, tb_list * a39, const char * a40, _Bool a41, _Bool a42, _Bool a43, tb_list * a44, long long a45, long long a46, long long a47, long long a48, tb_list * a49, tb_list * a50, long long a51, tb_list * a52) {
+static tb_o_Comp *tb_new_Comp(const char * a0, tb_list * a1, long long a2, tb_list * a3, tb_list * a4, tb_list * a5, tb_list * a6, tb_list * a7, const char * a8, tb_list * a9, long long a10, long long a11, long long a12, long long a13, tb_list * a14, long long a15, tb_o_Node * a16, long long a17, long long a18, _Bool a19, _Bool a20, tb_list * a21, long long a22, tb_o_Node * a23, tb_list * a24, tb_list * a25, tb_list * a26, long long a27, tb_list * a28, tb_list * a29, tb_list * a30, long long a31, tb_list * a32, tb_list * a33, tb_list * a34, tb_list * a35, tb_list * a36, tb_list * a37, tb_list * a38, tb_list * a39, const char * a40, _Bool a41, _Bool a42, _Bool a43, tb_list * a44, long long a45, tb_list * a46, tb_list * a47, tb_list * a48, long long a49, long long a50, long long a51, tb_list * a52, tb_list * a53, long long a54, tb_list * a55) {
     tb_o_Comp *o = tb_obj_mem(sizeof(tb_o_Comp));
     o->q_file_name = a0;
     o->q_tokens = a1;
@@ -2333,13 +2346,16 @@ static tb_o_Comp *tb_new_Comp(const char * a0, tb_list * a1, long long a2, tb_li
     o->q_gfx = a43;
     o->q_fast_lists = a44;
     o->q_fast_depth = a45;
-    o->q_danger_depth = a46;
-    o->q_lock_depth = a47;
-    o->q_lock_loops = a48;
-    o->q_locks = a49;
-    o->q_irqs = a50;
-    o->q_n_globals = a51;
-    o->q_globals = a52;
+    o->q_rg_keys = a46;
+    o->q_rg_vals = a47;
+    o->q_rg_busy = a48;
+    o->q_danger_depth = a49;
+    o->q_lock_depth = a50;
+    o->q_lock_loops = a51;
+    o->q_locks = a52;
+    o->q_irqs = a53;
+    o->q_n_globals = a54;
+    o->q_globals = a55;
     return o;
 }
 static const char * f_main__folder_of(const char * v_path);
@@ -2555,6 +2571,22 @@ static void f_emit__emit_prefetch(tb_o_Comp * v_c, tb_o_Node * v_n, long long v_
 static _Bool f_emit__short_literal(tb_o_Node * v_n);
 static tb_r_f_emit__index_shift f_emit__index_shift(tb_o_Node * v_n, const char * v_var_name);
 static _Bool f_emit__plain_list_index(tb_o_Comp * v_c, tb_o_Node * v_n);
+static _Bool f_emit__rg_ok(long long v_v);
+static tb_r_f_emit__rg_get f_emit__rg_get(tb_o_Comp * v_c, const char * v_key);
+static void f_emit__rg_put(tb_o_Comp * v_c, const char * v_key, _Bool v_hl, long long v_lo, _Bool v_hh, long long v_hi);
+static _Bool f_emit__rg_busy_has(tb_o_Comp * v_c, const char * v_key);
+static void f_emit__rg_busy_drop(tb_o_Comp * v_c);
+static tb_r_f_emit__expr_range f_emit__expr_range(tb_o_Comp * v_c, tb_o_Node * v_f, tb_o_Node * v_n);
+static tb_r_f_emit__rg_union f_emit__rg_union(_Bool v_first, _Bool v_hl, long long v_lo, _Bool v_hh, long long v_hi, _Bool v_bl, long long v_b_lo, _Bool v_bh, long long v_b_hi);
+static _Bool f_emit__is_param(tb_o_Node * v_f, const char * v_name);
+static _Bool f_emit__is_global(tb_o_Comp * v_c, const char * v_name);
+static _Bool f_emit__mentions(tb_o_Node * v_n, const char * v_name);
+static tb_r_f_emit__var_range f_emit__var_range(tb_o_Comp * v_c, tb_o_Node * v_f, const char * v_name);
+static tb_r_f_emit__var_scan f_emit__var_scan(tb_o_Comp * v_c, tb_o_Node * v_f, tb_o_Node * v_n, const char * v_name, _Bool v_hl0, long long v_lo0, _Bool v_hh0, long long v_hi0, _Bool v_any0, _Bool v_bad0);
+static tb_r_f_emit__func_range f_emit__func_range(tb_o_Comp * v_c, tb_o_Node * v_fn);
+static tb_r_f_emit__ret_scan f_emit__ret_scan(tb_o_Comp * v_c, tb_o_Node * v_fn, tb_o_Node * v_n, _Bool v_hl0, long long v_lo0, _Bool v_hh0, long long v_hi0, _Bool v_any0, _Bool v_bad0);
+static tb_r_f_emit__seal_range f_emit__seal_range(tb_o_Comp * v_c, tb_o_Node * v_f, const char * v_name);
+static tb_r_f_emit__seal_scan f_emit__seal_scan(tb_o_Comp * v_c, tb_o_Node * v_f, tb_o_Node * v_n, const char * v_name, _Bool v_hl0, long long v_lo0, _Bool v_hh0, long long v_hi0, _Bool v_any0, _Bool v_bad0);
 static _Bool f_emit__fast_index(tb_o_Comp * v_c, tb_o_Node * v_n);
 static _Bool f_emit__has_index(tb_o_Node * v_n);
 static _Bool f_emit__has_text(tb_list * v_names, const char * v_name);
@@ -2709,6 +2741,12 @@ static void tb_show_5(tb_o_Comp * x) {
     tb_show_7(x->q_fast_lists);
     tb_ps(", fast_depth: ");
     tb_show_1(x->q_fast_depth);
+    tb_ps(", rg_keys: ");
+    tb_show_7(x->q_rg_keys);
+    tb_ps(", rg_vals: ");
+    tb_show_20(x->q_rg_vals);
+    tb_ps(", rg_busy: ");
+    tb_show_7(x->q_rg_busy);
     tb_ps(", danger_depth: ");
     tb_show_1(x->q_danger_depth);
     tb_ps(", lock_depth: ");
@@ -2935,7 +2973,7 @@ static void tb_show_21(tb_list * x) {
     }
     tb_ps("]");
 }
-static void tb_show_23(tb_dict * x) {
+static void tb_show_32(tb_dict * x) {
     tb_ps("{");
     for (long long i = 0; i < x->keys->len; i++) {
         if (i > 0) tb_ps(", ");
@@ -3287,7 +3325,7 @@ static void f_main__main(void) {
         v_path = tb_m89.o0;
         v_exe = tb_m89.o1;
     }
-    tb_o_Comp * v_c = tb_new_Comp(v_path, tb_list_new(sizeof(tb_o_Token *)), 0LL, tb_list_new(sizeof(tb_o_Type *)), tb_list_new(sizeof(tb_o_Func *)), tb_list_new(sizeof(tb_o_Node *)), tb_list_new(sizeof(tb_o_Use *)), tb_list_new(sizeof(const char *)), "", tb_list_new(sizeof(tb_o_Var *)), 0LL, 0LL, 0LL, 0LL, tb_list_new(sizeof(long long)), 0LL, 0, 0LL, 0LL, 0, 0, tb_list_new(sizeof(const char *)), 0LL, 0, tb_list_new(sizeof(const char *)), tb_list_new(sizeof(const char *)), tb_list_new(sizeof(const char *)), 0LL, tb_list_new(sizeof(tb_o_Node *)), tb_list_new(sizeof(const char *)), tb_list_new(sizeof(long long)), 0LL, tb_list_new(sizeof(tb_o_Node *)), tb_list_new(sizeof(tb_o_Node *)), tb_list_new(sizeof(long long)), tb_bits_new(), tb_list_new(sizeof(long long)), tb_list_new(sizeof(long long)), tb_bits_new(), tb_list_new(sizeof(const char *)), "", 0, 0, 0, tb_list_new(sizeof(const char *)), 0LL, 0LL, 0LL, 0LL, tb_list_new(sizeof(const char *)), tb_list_new(sizeof(const char *)), 0LL, tb_list_new(sizeof(tb_o_Node *)));
+    tb_o_Comp * v_c = tb_new_Comp(v_path, tb_list_new(sizeof(tb_o_Token *)), 0LL, tb_list_new(sizeof(tb_o_Type *)), tb_list_new(sizeof(tb_o_Func *)), tb_list_new(sizeof(tb_o_Node *)), tb_list_new(sizeof(tb_o_Use *)), tb_list_new(sizeof(const char *)), "", tb_list_new(sizeof(tb_o_Var *)), 0LL, 0LL, 0LL, 0LL, tb_list_new(sizeof(long long)), 0LL, 0, 0LL, 0LL, 0, 0, tb_list_new(sizeof(const char *)), 0LL, 0, tb_list_new(sizeof(const char *)), tb_list_new(sizeof(const char *)), tb_list_new(sizeof(const char *)), 0LL, tb_list_new(sizeof(tb_o_Node *)), tb_list_new(sizeof(const char *)), tb_list_new(sizeof(long long)), 0LL, tb_list_new(sizeof(tb_o_Node *)), tb_list_new(sizeof(tb_o_Node *)), tb_list_new(sizeof(long long)), tb_bits_new(), tb_list_new(sizeof(long long)), tb_list_new(sizeof(long long)), tb_bits_new(), tb_list_new(sizeof(const char *)), "", 0, 0, 0, tb_list_new(sizeof(const char *)), 0LL, tb_list_new(sizeof(const char *)), tb_list_new(sizeof(long long)), tb_list_new(sizeof(const char *)), 0LL, 0LL, 0LL, tb_list_new(sizeof(const char *)), tb_list_new(sizeof(const char *)), 0LL, tb_list_new(sizeof(tb_o_Node *)));
     if (({ const char *tb_s90 = v_mode; ((unsigned char)tb_s90[0] == 116 && (unsigned char)tb_s90[1] == 111 && (unsigned char)tb_s90[2] == 107 && (unsigned char)tb_s90[3] == 101 && (unsigned char)tb_s90[4] == 110 && (unsigned char)tb_s90[5] == 115 && tb_s90[6] == 0); })) {
         const char * tb_v91 = tb_read_file(v_path);
         if (tb_err != 0) {
@@ -11026,7 +11064,7 @@ static tb_r_f_emit__index_shift f_emit__index_shift(tb_o_Node * v_n, const char 
         return (tb_r_f_emit__index_shift){v_ok, v_shift};
     }
     if (((((({ const char *tb_s3432 = ((tb_o_Node *)tb_nn(v_n, 1253))->q_kind; ((unsigned char)tb_s3432[0] == 98 && (unsigned char)tb_s3432[1] == 105 && (unsigned char)tb_s3432[2] == 110 && (unsigned char)tb_s3432[3] == 111 && (unsigned char)tb_s3432[4] == 112 && tb_s3432[5] == 0); }) && (({ const char *tb_s3433 = ((tb_o_Node *)tb_nn(v_n, 1253))->q_value; ((unsigned char)tb_s3433[0] == 43 && tb_s3433[1] == 0); }) || ({ const char *tb_s3434 = ((tb_o_Node *)tb_nn(v_n, 1253))->q_value; ((unsigned char)tb_s3434[0] == 45 && tb_s3434[1] == 0); }))) && ({ const char *tb_s3435 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1253))->q_kids, 0LL, sizeof(tb_o_Node *), 1253)), 1253))->q_kind; ((unsigned char)tb_s3435[0] == 110 && (unsigned char)tb_s3435[1] == 97 && (unsigned char)tb_s3435[2] == 109 && (unsigned char)tb_s3435[3] == 101 && tb_s3435[4] == 0); })) && (strcmp(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1253))->q_kids, 0LL, sizeof(tb_o_Node *), 1253)), 1253))->q_name, v_var_name) == 0)) && ({ const char *tb_s3436 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1253))->q_kids, 1LL, sizeof(tb_o_Node *), 1253)), 1253))->q_kind; ((unsigned char)tb_s3436[0] == 110 && (unsigned char)tb_s3436[1] == 117 && (unsigned char)tb_s3436[2] == 109 && (unsigned char)tb_s3436[3] == 98 && (unsigned char)tb_s3436[4] == 101 && (unsigned char)tb_s3436[5] == 114 && tb_s3436[6] == 0); }))) {
-        long long v_v = (tb_t3 = tb_to_int(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1254))->q_kids, 1LL, sizeof(tb_o_Node *), 1254)), 1254))->q_value), tb_err ? (tb_err = 0, 1000000LL) : tb_t3);
+        long long v_v = (tb_t4 = tb_to_int(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1254))->q_kids, 1LL, sizeof(tb_o_Node *), 1254)), 1254))->q_value), tb_err ? (tb_err = 0, 1000000LL) : tb_t4);
         if ((v_v > 1000LL)) {
             return (tb_r_f_emit__index_shift){v_ok, v_shift};
         }
@@ -11049,22 +11087,830 @@ static _Bool f_emit__plain_list_index(tb_o_Comp * v_c, tb_o_Node * v_n) {
     return 0;
 }
 
+static _Bool f_emit__rg_ok(long long v_v) {
+    return ((v_v > (-1000000000000LL)) && (v_v < 1000000000000LL));
+    tb_crash(1275, "функция rg_ok дошла до конца без return");
+    return 0;
+}
+
+static tb_r_f_emit__rg_get f_emit__rg_get(tb_o_Comp * v_c, const char * v_key) {
+    _Bool v_found = 0;
+    _Bool v_hl = 0;
+    long long v_lo = 0LL;
+    _Bool v_hh = 0;
+    long long v_hi = 0LL;
+    {
+        long long tb_end3441 = ((((tb_o_Comp *)tb_nn(v_c, 1279))->q_rg_keys)->len - 1LL);
+        for (long long v_j = 0LL; v_j <= tb_end3441; v_j++) {
+            if ((strcmp((*(const char * *)tb_at(((tb_o_Comp *)tb_nn(v_c, 1280))->q_rg_keys, v_j, sizeof(const char *), 1280)), v_key) == 0)) {
+                v_found = 1;
+                v_hl = ((*(long long *)tb_at(((tb_o_Comp *)tb_nn(v_c, 1282))->q_rg_vals, (v_j * 4LL), sizeof(long long), 1282)) == 1LL);
+                v_lo = (*(long long *)tb_at(((tb_o_Comp *)tb_nn(v_c, 1283))->q_rg_vals, ((v_j * 4LL) + 1LL), sizeof(long long), 1283));
+                v_hh = ((*(long long *)tb_at(((tb_o_Comp *)tb_nn(v_c, 1284))->q_rg_vals, ((v_j * 4LL) + 2LL), sizeof(long long), 1284)) == 1LL);
+                v_hi = (*(long long *)tb_at(((tb_o_Comp *)tb_nn(v_c, 1285))->q_rg_vals, ((v_j * 4LL) + 3LL), sizeof(long long), 1285));
+                return (tb_r_f_emit__rg_get){v_found, v_hl, v_lo, v_hh, v_hi};
+            }
+        }
+    }
+    return (tb_r_f_emit__rg_get){v_found, v_hl, v_lo, v_hh, v_hi};
+}
+
+static void f_emit__rg_put(tb_o_Comp * v_c, const char * v_key, _Bool v_hl, long long v_lo, _Bool v_hh, long long v_hi) {
+    { const char * tb_v3442 = v_key; *(const char * *)tb_grow(((tb_o_Comp *)tb_nn(v_c, 1289))->q_rg_keys) = tb_v3442; }
+    if (v_hl) {
+        { long long tb_v3443 = 1LL; *(long long *)tb_grow(((tb_o_Comp *)tb_nn(v_c, 1291))->q_rg_vals) = tb_v3443; }
+    } else {
+        { long long tb_v3444 = 0LL; *(long long *)tb_grow(((tb_o_Comp *)tb_nn(v_c, 1293))->q_rg_vals) = tb_v3444; }
+    }
+    { long long tb_v3445 = v_lo; *(long long *)tb_grow(((tb_o_Comp *)tb_nn(v_c, 1294))->q_rg_vals) = tb_v3445; }
+    if (v_hh) {
+        { long long tb_v3446 = 1LL; *(long long *)tb_grow(((tb_o_Comp *)tb_nn(v_c, 1296))->q_rg_vals) = tb_v3446; }
+    } else {
+        { long long tb_v3447 = 0LL; *(long long *)tb_grow(((tb_o_Comp *)tb_nn(v_c, 1298))->q_rg_vals) = tb_v3447; }
+    }
+    { long long tb_v3448 = v_hi; *(long long *)tb_grow(((tb_o_Comp *)tb_nn(v_c, 1299))->q_rg_vals) = tb_v3448; }
+}
+
+static _Bool f_emit__rg_busy_has(tb_o_Comp * v_c, const char * v_key) {
+    {
+        tb_list * tb_l3449 = ((tb_o_Comp *)tb_nn(v_c, 1302))->q_rg_busy;
+        for (long long tb_i3449 = 0; tb_i3449 < tb_l3449->len; tb_i3449++) {
+            const char * const v_x = ((const char * *)tb_l3449->data)[tb_i3449];
+            if ((strcmp(v_x, v_key) == 0)) {
+                return 1;
+            }
+        }
+    }
+    return 0;
+    tb_crash(1301, "функция rg_busy_has дошла до конца без return");
+    return 0;
+}
+
+static void f_emit__rg_busy_drop(tb_o_Comp * v_c) {
+    tb_list * v_keep = tb_list_new(sizeof(const char *));
+    {
+        long long tb_end3450 = ((((tb_o_Comp *)tb_nn(v_c, 1309))->q_rg_busy)->len - 2LL);
+        for (long long v_j = 0LL; v_j <= tb_end3450; v_j++) {
+            { const char * tb_v3451 = (*(const char * *)tb_at(((tb_o_Comp *)tb_nn(v_c, 1310))->q_rg_busy, v_j, sizeof(const char *), 1310)); *(const char * *)tb_grow(v_keep) = tb_v3451; }
+        }
+    }
+    { tb_list * tb_v3452 = v_keep; tb_list * *tb_p3452 = &(((tb_o_Comp *)tb_nn(v_c, 1311))->q_rg_busy); *tb_p3452 = tb_v3452; }
+}
+
+static tb_r_f_emit__expr_range f_emit__expr_range(tb_o_Comp * v_c, tb_o_Node * v_f, tb_o_Node * v_n) {
+    _Bool v_hl = 0;
+    long long v_lo = 0LL;
+    _Bool v_hh = 0;
+    long long v_hi = 0LL;
+    if ((((tb_o_Node *)tb_nn(v_n, 1314))->q_ty != 1LL)) {
+        return (tb_r_f_emit__expr_range){v_hl, v_lo, v_hh, v_hi};
+    }
+    const char * v_k = ((tb_o_Node *)tb_nn(v_n, 1316))->q_kind;
+    if (({ const char *tb_s3453 = v_k; ((unsigned char)tb_s3453[0] == 110 && (unsigned char)tb_s3453[1] == 117 && (unsigned char)tb_s3453[2] == 109 && (unsigned char)tb_s3453[3] == 98 && (unsigned char)tb_s3453[4] == 101 && (unsigned char)tb_s3453[5] == 114 && tb_s3453[6] == 0); })) {
+        long long tb_v3454 = tb_to_int(((tb_o_Node *)tb_nn(v_n, 1318))->q_value);
+        if (tb_err != 0) {
+            const char * const v_err = tb_err;
+            tb_err = 0;
+            return (tb_r_f_emit__expr_range){v_hl, v_lo, v_hh, v_hi};
+        }
+        long long v_v = tb_v3454;
+        v_hl = 1;
+        v_lo = v_v;
+        v_hh = 1;
+        v_hi = v_v;
+    } else if (({ const char *tb_s3455 = v_k; ((unsigned char)tb_s3455[0] == 110 && (unsigned char)tb_s3455[1] == 97 && (unsigned char)tb_s3455[2] == 109 && (unsigned char)tb_s3455[3] == 101 && tb_s3455[4] == 0); })) {
+        {
+            tb_r_f_emit__var_range tb_m3456 = f_emit__var_range(v_c, v_f, ((tb_o_Node *)tb_nn(v_n, 1325))->q_name);
+            v_hl = tb_m3456.o0;
+            v_lo = tb_m3456.o1;
+            v_hh = tb_m3456.o2;
+            v_hi = tb_m3456.o3;
+        }
+    } else if ((({ const char *tb_s3457 = v_k; ((unsigned char)tb_s3457[0] == 117 && (unsigned char)tb_s3457[1] == 110 && (unsigned char)tb_s3457[2] == 97 && (unsigned char)tb_s3457[3] == 114 && (unsigned char)tb_s3457[4] == 121 && tb_s3457[5] == 0); }) && ({ const char *tb_s3458 = ((tb_o_Node *)tb_nn(v_n, 1326))->q_value; ((unsigned char)tb_s3458[0] == 45 && tb_s3458[1] == 0); }))) {
+        _Bool v_al;
+        long long v_a_lo;
+        _Bool v_ah;
+        long long v_a_hi;
+        {
+            tb_r_f_emit__expr_range tb_m3459 = f_emit__expr_range(v_c, v_f, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1327))->q_kids, 0LL, sizeof(tb_o_Node *), 1327)));
+            v_al = tb_m3459.o0;
+            v_a_lo = tb_m3459.o1;
+            v_ah = tb_m3459.o2;
+            v_a_hi = tb_m3459.o3;
+        }
+        v_hl = v_ah;
+        v_lo = (0LL - v_a_hi);
+        v_hh = v_al;
+        v_hi = (0LL - v_a_lo);
+    } else if (({ const char *tb_s3460 = v_k; ((unsigned char)tb_s3460[0] == 98 && (unsigned char)tb_s3460[1] == 105 && (unsigned char)tb_s3460[2] == 110 && (unsigned char)tb_s3460[3] == 111 && (unsigned char)tb_s3460[4] == 112 && tb_s3460[5] == 0); })) {
+        _Bool v_al;
+        long long v_a_lo;
+        _Bool v_ah;
+        long long v_a_hi;
+        {
+            tb_r_f_emit__expr_range tb_m3461 = f_emit__expr_range(v_c, v_f, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1333))->q_kids, 0LL, sizeof(tb_o_Node *), 1333)));
+            v_al = tb_m3461.o0;
+            v_a_lo = tb_m3461.o1;
+            v_ah = tb_m3461.o2;
+            v_a_hi = tb_m3461.o3;
+        }
+        _Bool v_bl;
+        long long v_b_lo;
+        _Bool v_bh;
+        long long v_b_hi;
+        {
+            tb_r_f_emit__expr_range tb_m3462 = f_emit__expr_range(v_c, v_f, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1334))->q_kids, 1LL, sizeof(tb_o_Node *), 1334)));
+            v_bl = tb_m3462.o0;
+            v_b_lo = tb_m3462.o1;
+            v_bh = tb_m3462.o2;
+            v_b_hi = tb_m3462.o3;
+        }
+        if (({ const char *tb_s3463 = ((tb_o_Node *)tb_nn(v_n, 1335))->q_value; ((unsigned char)tb_s3463[0] == 43 && tb_s3463[1] == 0); })) {
+            v_hl = (v_al && v_bl);
+            v_lo = (v_a_lo + v_b_lo);
+            v_hh = (v_ah && v_bh);
+            v_hi = (v_a_hi + v_b_hi);
+        } else if (({ const char *tb_s3464 = ((tb_o_Node *)tb_nn(v_n, 1340))->q_value; ((unsigned char)tb_s3464[0] == 45 && tb_s3464[1] == 0); })) {
+            v_hl = (v_al && v_bh);
+            v_lo = (v_a_lo - v_b_hi);
+            v_hh = (v_ah && v_bl);
+            v_hi = (v_a_hi - v_b_lo);
+        } else if (((((((((({ const char *tb_s3465 = ((tb_o_Node *)tb_nn(v_n, 1345))->q_value; ((unsigned char)tb_s3465[0] == 42 && tb_s3465[1] == 0); }) && v_al) && v_ah) && v_bl) && v_bh) && (v_a_lo >= 0LL)) && (v_b_lo >= 0LL)) && (v_a_hi < 1000000LL)) && (v_b_hi < 1000000LL))) {
+            v_hl = 1;
+            v_lo = (v_a_lo * v_b_lo);
+            v_hh = 1;
+            v_hi = (v_a_hi * v_b_hi);
+        } else if ((((((((({ const char *tb_s3466 = ((tb_o_Node *)tb_nn(v_n, 1350))->q_value; ((unsigned char)tb_s3466[0] == 47 && tb_s3466[1] == 0); }) || ({ const char *tb_s3467 = ((tb_o_Node *)tb_nn(v_n, 1350))->q_value; ((unsigned char)tb_s3467[0] == 37 && tb_s3467[1] == 0); })) && v_al) && (v_a_lo >= 0LL)) && v_bl) && v_bh) && (v_b_lo == v_b_hi)) && (v_b_lo > 0LL))) {
+            if (({ const char *tb_s3468 = ((tb_o_Node *)tb_nn(v_n, 1351))->q_value; ((unsigned char)tb_s3468[0] == 37 && tb_s3468[1] == 0); })) {
+                v_hl = 1;
+                v_lo = 0LL;
+                v_hh = 1;
+                v_hi = (v_b_lo - 1LL);
+            } else {
+                v_hl = 1;
+                v_lo = tb_div(v_a_lo, v_b_lo, 1358);
+                v_hh = v_ah;
+                v_hi = tb_div(v_a_hi, v_b_lo, 1360);
+            }
+        }
+    } else if ((((({ const char *tb_s3469 = v_k; ((unsigned char)tb_s3469[0] == 99 && (unsigned char)tb_s3469[1] == 97 && (unsigned char)tb_s3469[2] == 108 && (unsigned char)tb_s3469[3] == 108 && tb_s3469[4] == 0); }) && (!((tb_o_Node *)tb_nn(v_n, 1361))->q_has_ref)) && (({ const char *tb_s3470 = ((tb_o_Node *)tb_nn(v_n, 1361))->q_name; ((unsigned char)tb_s3470[0] == 109 && (unsigned char)tb_s3470[1] == 97 && (unsigned char)tb_s3470[2] == 120 && tb_s3470[3] == 0); }) || ({ const char *tb_s3471 = ((tb_o_Node *)tb_nn(v_n, 1361))->q_name; ((unsigned char)tb_s3471[0] == 109 && (unsigned char)tb_s3471[1] == 105 && (unsigned char)tb_s3471[2] == 110 && tb_s3471[3] == 0); }))) && ((((tb_o_Node *)tb_nn(v_n, 1361))->q_kids)->len == 2LL))) {
+        _Bool v_al;
+        long long v_a_lo;
+        _Bool v_ah;
+        long long v_a_hi;
+        {
+            tb_r_f_emit__expr_range tb_m3472 = f_emit__expr_range(v_c, v_f, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1362))->q_kids, 0LL, sizeof(tb_o_Node *), 1362)), 1362))->q_kids, 0LL, sizeof(tb_o_Node *), 1362)));
+            v_al = tb_m3472.o0;
+            v_a_lo = tb_m3472.o1;
+            v_ah = tb_m3472.o2;
+            v_a_hi = tb_m3472.o3;
+        }
+        _Bool v_bl;
+        long long v_b_lo;
+        _Bool v_bh;
+        long long v_b_hi;
+        {
+            tb_r_f_emit__expr_range tb_m3473 = f_emit__expr_range(v_c, v_f, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1363))->q_kids, 1LL, sizeof(tb_o_Node *), 1363)), 1363))->q_kids, 0LL, sizeof(tb_o_Node *), 1363)));
+            v_bl = tb_m3473.o0;
+            v_b_lo = tb_m3473.o1;
+            v_bh = tb_m3473.o2;
+            v_b_hi = tb_m3473.o3;
+        }
+        if (({ const char *tb_s3474 = ((tb_o_Node *)tb_nn(v_n, 1364))->q_name; ((unsigned char)tb_s3474[0] == 109 && (unsigned char)tb_s3474[1] == 97 && (unsigned char)tb_s3474[2] == 120 && tb_s3474[3] == 0); })) {
+            if ((v_al || v_bl)) {
+                v_hl = 1;
+                v_lo = v_a_lo;
+                if (((!v_al) || (v_bl && (v_b_lo > v_a_lo)))) {
+                    v_lo = v_b_lo;
+                }
+            }
+            v_hh = (v_ah && v_bh);
+            v_hi = tb_maxi(v_a_hi, v_b_hi);
+        } else {
+            if ((v_ah || v_bh)) {
+                v_hh = 1;
+                v_hi = v_a_hi;
+                if (((!v_ah) || (v_bh && (v_b_hi < v_a_hi)))) {
+                    v_hi = v_b_hi;
+                }
+            }
+            v_hl = (v_al && v_bl);
+            v_lo = tb_mini(v_a_lo, v_b_lo);
+        }
+    } else if (((({ const char *tb_s3475 = v_k; ((unsigned char)tb_s3475[0] == 99 && (unsigned char)tb_s3475[1] == 97 && (unsigned char)tb_s3475[2] == 108 && (unsigned char)tb_s3475[3] == 108 && tb_s3475[4] == 0); }) && (!((tb_o_Node *)tb_nn(v_n, 1381))->q_has_ref)) && ({ const char *tb_s3476 = ((tb_o_Node *)tb_nn(v_n, 1381))->q_name; ((unsigned char)tb_s3476[0] == 108 && (unsigned char)tb_s3476[1] == 101 && (unsigned char)tb_s3476[2] == 110 && tb_s3476[3] == 0); }))) {
+        v_hl = 1;
+        v_lo = 0LL;
+    } else if (((({ const char *tb_s3477 = v_k; ((unsigned char)tb_s3477[0] == 99 && (unsigned char)tb_s3477[1] == 97 && (unsigned char)tb_s3477[2] == 108 && (unsigned char)tb_s3477[3] == 108 && tb_s3477[4] == 0); }) && ((tb_o_Node *)tb_nn(v_n, 1384))->q_has_ref) && ({ const char *tb_s3478 = ((tb_o_Node *)tb_nn(((tb_o_Node *)tb_nn(v_n, 1384))->q_ref, 1384))->q_kind; ((unsigned char)tb_s3478[0] == 102 && (unsigned char)tb_s3478[1] == 117 && (unsigned char)tb_s3478[2] == 110 && (unsigned char)tb_s3478[3] == 99 && tb_s3478[4] == 0); }))) {
+        {
+            tb_r_f_emit__func_range tb_m3479 = f_emit__func_range(v_c, ((tb_o_Node *)tb_nn(v_n, 1385))->q_ref);
+            v_hl = tb_m3479.o0;
+            v_lo = tb_m3479.o1;
+            v_hh = tb_m3479.o2;
+            v_hi = tb_m3479.o3;
+        }
+    } else if ((((({ const char *tb_s3480 = v_k; ((unsigned char)tb_s3480[0] == 105 && (unsigned char)tb_s3480[1] == 110 && (unsigned char)tb_s3480[2] == 100 && (unsigned char)tb_s3480[3] == 101 && (unsigned char)tb_s3480[4] == 120 && tb_s3480[5] == 0); }) && ({ const char *tb_s3481 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1386))->q_kids, 0LL, sizeof(tb_o_Node *), 1386)), 1386))->q_kind; ((unsigned char)tb_s3481[0] == 110 && (unsigned char)tb_s3481[1] == 97 && (unsigned char)tb_s3481[2] == 109 && (unsigned char)tb_s3481[3] == 101 && tb_s3481[4] == 0); })) && ({ const char *tb_s3482 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1386))->q_kids, 0LL, sizeof(tb_o_Node *), 1386)), 1386))->q_ty); ((unsigned char)tb_s3482[0] == 108 && (unsigned char)tb_s3482[1] == 105 && (unsigned char)tb_s3482[2] == 115 && (unsigned char)tb_s3482[3] == 116 && tb_s3482[4] == 0); })) && (!f_emit__is_bits(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1386))->q_kids, 0LL, sizeof(tb_o_Node *), 1386)), 1386))->q_ty)))) {
+        {
+            tb_r_f_emit__seal_range tb_m3483 = f_emit__seal_range(v_c, v_f, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1387))->q_kids, 0LL, sizeof(tb_o_Node *), 1387)), 1387))->q_name);
+            v_hl = tb_m3483.o0;
+            v_lo = tb_m3483.o1;
+            v_hh = tb_m3483.o2;
+            v_hi = tb_m3483.o3;
+        }
+    }
+    if ((v_hl && (!f_emit__rg_ok(v_lo)))) {
+        v_hl = 0;
+    }
+    if ((v_hh && (!f_emit__rg_ok(v_hi)))) {
+        v_hh = 0;
+    }
+    return (tb_r_f_emit__expr_range){v_hl, v_lo, v_hh, v_hi};
+}
+
+static tb_r_f_emit__rg_union f_emit__rg_union(_Bool v_first, _Bool v_hl, long long v_lo, _Bool v_hh, long long v_hi, _Bool v_bl, long long v_b_lo, _Bool v_bh, long long v_b_hi) {
+    _Bool v_rl = 0;
+    long long v_r_lo = 0LL;
+    _Bool v_rh = 0;
+    long long v_r_hi = 0LL;
+    if (v_first) {
+        v_rl = v_bl;
+        v_r_lo = v_b_lo;
+        v_rh = v_bh;
+        v_r_hi = v_b_hi;
+        return (tb_r_f_emit__rg_union){v_rl, v_r_lo, v_rh, v_r_hi};
+    }
+    v_rl = (v_hl && v_bl);
+    v_r_lo = tb_mini(v_lo, v_b_lo);
+    v_rh = (v_hh && v_bh);
+    v_r_hi = tb_maxi(v_hi, v_b_hi);
+    return (tb_r_f_emit__rg_union){v_rl, v_r_lo, v_rh, v_r_hi};
+}
+
+static _Bool f_emit__is_param(tb_o_Node * v_f, const char * v_name) {
+    {
+        tb_list * tb_l3484 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_f, 1407))->q_kids, 0LL, sizeof(tb_o_Node *), 1407)), 1407))->q_kids;
+        for (long long tb_i3484 = 0; tb_i3484 < tb_l3484->len; tb_i3484++) {
+            tb_o_Node * const v_p = ((tb_o_Node * *)tb_l3484->data)[tb_i3484];
+            if ((strcmp(((tb_o_Node *)tb_nn(v_p, 1408))->q_name, v_name) == 0)) {
+                return 1;
+            }
+        }
+    }
+    return 0;
+    tb_crash(1406, "функция is_param дошла до конца без return");
+    return 0;
+}
+
+static _Bool f_emit__is_global(tb_o_Comp * v_c, const char * v_name) {
+    {
+        tb_list * tb_l3485 = ((tb_o_Comp *)tb_nn(v_c, 1413))->q_globals;
+        for (long long tb_i3485 = 0; tb_i3485 < tb_l3485->len; tb_i3485++) {
+            tb_o_Node * const v_g = ((tb_o_Node * *)tb_l3485->data)[tb_i3485];
+            if ((strcmp(((tb_o_Node *)tb_nn(v_g, 1414))->q_name, v_name) == 0)) {
+                return 1;
+            }
+        }
+    }
+    return 0;
+    tb_crash(1412, "функция is_global дошла до конца без return");
+    return 0;
+}
+
+static _Bool f_emit__mentions(tb_o_Node * v_n, const char * v_name) {
+    if ((({ const char *tb_s3486 = ((tb_o_Node *)tb_nn(v_n, 1420))->q_kind; ((unsigned char)tb_s3486[0] == 110 && (unsigned char)tb_s3486[1] == 97 && (unsigned char)tb_s3486[2] == 109 && (unsigned char)tb_s3486[3] == 101 && tb_s3486[4] == 0); }) && (strcmp(((tb_o_Node *)tb_nn(v_n, 1420))->q_name, v_name) == 0))) {
+        return 1;
+    }
+    {
+        tb_list * tb_l3487 = ((tb_o_Node *)tb_nn(v_n, 1422))->q_kids;
+        for (long long tb_i3487 = 0; tb_i3487 < tb_l3487->len; tb_i3487++) {
+            tb_o_Node * const v_kid = ((tb_o_Node * *)tb_l3487->data)[tb_i3487];
+            if (f_emit__mentions(v_kid, v_name)) {
+                return 1;
+            }
+        }
+    }
+    return 0;
+    tb_crash(1419, "функция mentions дошла до конца без return");
+    return 0;
+}
+
+static tb_r_f_emit__var_range f_emit__var_range(tb_o_Comp * v_c, tb_o_Node * v_f, const char * v_name) {
+    _Bool v_hl = 0;
+    long long v_lo = 0LL;
+    _Bool v_hh = 0;
+    long long v_hi = 0LL;
+    const char * v_key = ({ const char *tb_c3488_0 = ((tb_o_Node *)tb_nn(v_f, 1429))->q_name; long long tb_c3488_0n = (long long)strlen(tb_c3488_0); const char *tb_c3488_1 = ":"; long long tb_c3488_1n = sizeof(":") - 1; char tb_c3488_2d[24]; long long tb_c3488_2n; const char *tb_c3488_2 = tb_digits(((tb_o_Node *)tb_nn(v_f, 1429))->q_line, tb_c3488_2d, &tb_c3488_2n); const char *tb_c3488_3 = ":"; long long tb_c3488_3n = sizeof(":") - 1; const char *tb_c3488_4 = v_name; long long tb_c3488_4n = (long long)strlen(tb_c3488_4); char *tb_c3488r = tb_mem(tb_c3488_0n + tb_c3488_1n + tb_c3488_2n + tb_c3488_3n + tb_c3488_4n + 1), *tb_c3488rw = tb_c3488r; memcpy(tb_c3488rw, tb_c3488_0, tb_c3488_0n); tb_c3488rw += tb_c3488_0n; memcpy(tb_c3488rw, tb_c3488_1, tb_c3488_1n); tb_c3488rw += tb_c3488_1n; memcpy(tb_c3488rw, tb_c3488_2, tb_c3488_2n); tb_c3488rw += tb_c3488_2n; memcpy(tb_c3488rw, tb_c3488_3, tb_c3488_3n); tb_c3488rw += tb_c3488_3n; memcpy(tb_c3488rw, tb_c3488_4, tb_c3488_4n); tb_c3488rw += tb_c3488_4n; *tb_c3488rw = 0; (const char *)tb_c3488r; });
+    _Bool v_found;
+    _Bool v_gl;
+    long long v_g_lo;
+    _Bool v_gh;
+    long long v_g_hi;
+    {
+        tb_r_f_emit__rg_get tb_m3489 = f_emit__rg_get(v_c, v_key);
+        v_found = tb_m3489.o0;
+        v_gl = tb_m3489.o1;
+        v_g_lo = tb_m3489.o2;
+        v_gh = tb_m3489.o3;
+        v_g_hi = tb_m3489.o4;
+    }
+    if (v_found) {
+        v_hl = v_gl;
+        v_lo = v_g_lo;
+        v_hh = v_gh;
+        v_hi = v_g_hi;
+        return (tb_r_f_emit__var_range){v_hl, v_lo, v_hh, v_hi};
+    }
+    if (((f_emit__rg_busy_has(v_c, v_key) || f_emit__is_param(v_f, v_name)) || f_emit__is_global(v_c, v_name))) {
+        return (tb_r_f_emit__var_range){v_hl, v_lo, v_hh, v_hi};
+    }
+    { const char * tb_v3490 = v_key; *(const char * *)tb_grow(((tb_o_Comp *)tb_nn(v_c, 1439))->q_rg_busy) = tb_v3490; }
+    _Bool v_any = 0;
+    _Bool v_bad = 0;
+    {
+        tb_r_f_emit__var_scan tb_m3491 = f_emit__var_scan(v_c, v_f, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_f, 1442))->q_kids, 1LL, sizeof(tb_o_Node *), 1442)), v_name, v_hl, v_lo, v_hh, v_hi, v_any, v_bad);
+        v_hl = tb_m3491.o0;
+        v_lo = tb_m3491.o1;
+        v_hh = tb_m3491.o2;
+        v_hi = tb_m3491.o3;
+        v_any = tb_m3491.o4;
+        v_bad = tb_m3491.o5;
+    }
+    f_emit__rg_busy_drop(v_c);
+    if ((v_bad || (!v_any))) {
+        v_hl = 0;
+        v_hh = 0;
+    }
+    f_emit__rg_put(v_c, v_key, v_hl, v_lo, v_hh, v_hi);
+    return (tb_r_f_emit__var_range){v_hl, v_lo, v_hh, v_hi};
+}
+
+static tb_r_f_emit__var_scan f_emit__var_scan(tb_o_Comp * v_c, tb_o_Node * v_f, tb_o_Node * v_n, const char * v_name, _Bool v_hl0, long long v_lo0, _Bool v_hh0, long long v_hi0, _Bool v_any0, _Bool v_bad0) {
+    _Bool v_hl = 0;
+    long long v_lo = 0LL;
+    _Bool v_hh = 0;
+    long long v_hi = 0LL;
+    _Bool v_any = 0;
+    _Bool v_bad = 0;
+    v_hl = v_hl0;
+    v_lo = v_lo0;
+    v_hh = v_hh0;
+    v_hi = v_hi0;
+    v_any = v_any0;
+    v_bad = v_bad0;
+    if (v_bad) {
+        return (tb_r_f_emit__var_scan){v_hl, v_lo, v_hh, v_hi, v_any, v_bad};
+    }
+    const char * v_k = ((tb_o_Node *)tb_nn(v_n, 1458))->q_kind;
+    if ((({ const char *tb_s3492 = v_k; ((unsigned char)tb_s3492[0] == 97 && (unsigned char)tb_s3492[1] == 115 && (unsigned char)tb_s3492[2] == 115 && (unsigned char)tb_s3492[3] == 105 && (unsigned char)tb_s3492[4] == 103 && (unsigned char)tb_s3492[5] == 110 && tb_s3492[6] == 0); }) && (strcmp(((tb_o_Node *)tb_nn(v_n, 1459))->q_name, v_name) == 0))) {
+        if (((((tb_o_Node *)tb_nn(v_n, 1460))->q_kids)->len == 0LL)) {
+            {
+                tb_r_f_emit__rg_union tb_m3493 = f_emit__rg_union((!v_any), v_hl, v_lo, v_hh, v_hi, 1, 0LL, 1, 0LL);
+                v_hl = tb_m3493.o0;
+                v_lo = tb_m3493.o1;
+                v_hh = tb_m3493.o2;
+                v_hi = tb_m3493.o3;
+            }
+        } else {
+            _Bool v_bl;
+            long long v_b_lo;
+            _Bool v_bh;
+            long long v_b_hi;
+            {
+                tb_r_f_emit__expr_range tb_m3494 = f_emit__expr_range(v_c, v_f, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1463))->q_kids, 0LL, sizeof(tb_o_Node *), 1463)));
+                v_bl = tb_m3494.o0;
+                v_b_lo = tb_m3494.o1;
+                v_bh = tb_m3494.o2;
+                v_b_hi = tb_m3494.o3;
+            }
+            {
+                tb_r_f_emit__rg_union tb_m3495 = f_emit__rg_union((!v_any), v_hl, v_lo, v_hh, v_hi, v_bl, v_b_lo, v_bh, v_b_hi);
+                v_hl = tb_m3495.o0;
+                v_lo = tb_m3495.o1;
+                v_hh = tb_m3495.o2;
+                v_hi = tb_m3495.o3;
+            }
+        }
+        v_any = 1;
+    } else if ((({ const char *tb_s3496 = v_k; ((unsigned char)tb_s3496[0] == 99 && (unsigned char)tb_s3496[1] == 111 && (unsigned char)tb_s3496[2] == 117 && (unsigned char)tb_s3496[3] == 110 && (unsigned char)tb_s3496[4] == 116 && tb_s3496[5] == 0); }) && (strcmp(((tb_o_Node *)tb_nn(v_n, 1466))->q_name, v_name) == 0))) {
+        _Bool v_bl;
+        long long v_b_lo;
+        _Bool v_x1;
+        long long v_x2;
+        {
+            tb_r_f_emit__expr_range tb_m3497 = f_emit__expr_range(v_c, v_f, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1467))->q_kids, 0LL, sizeof(tb_o_Node *), 1467)));
+            v_bl = tb_m3497.o0;
+            v_b_lo = tb_m3497.o1;
+            v_x1 = tb_m3497.o2;
+            v_x2 = tb_m3497.o3;
+        }
+        _Bool v_y1;
+        long long v_y2;
+        _Bool v_bh;
+        long long v_b_hi;
+        {
+            tb_r_f_emit__expr_range tb_m3498 = f_emit__expr_range(v_c, v_f, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1468))->q_kids, 1LL, sizeof(tb_o_Node *), 1468)));
+            v_y1 = tb_m3498.o0;
+            v_y2 = tb_m3498.o1;
+            v_bh = tb_m3498.o2;
+            v_b_hi = tb_m3498.o3;
+        }
+        {
+            tb_r_f_emit__rg_union tb_m3499 = f_emit__rg_union((!v_any), v_hl, v_lo, v_hh, v_hi, v_bl, v_b_lo, v_bh, v_b_hi);
+            v_hl = tb_m3499.o0;
+            v_lo = tb_m3499.o1;
+            v_hh = tb_m3499.o2;
+            v_hi = tb_m3499.o3;
+        }
+        v_any = 1;
+    } else if ((((({ const char *tb_s3500 = v_k; ((unsigned char)tb_s3500[0] == 115 && (unsigned char)tb_s3500[1] == 101 && (unsigned char)tb_s3500[2] == 116 && tb_s3500[3] == 0); }) && ({ const char *tb_s3501 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1471))->q_kids, 0LL, sizeof(tb_o_Node *), 1471)), 1471))->q_kind; ((unsigned char)tb_s3501[0] == 110 && (unsigned char)tb_s3501[1] == 97 && (unsigned char)tb_s3501[2] == 109 && (unsigned char)tb_s3501[3] == 101 && tb_s3501[4] == 0); })) && (strcmp(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1471))->q_kids, 0LL, sizeof(tb_o_Node *), 1471)), 1471))->q_name, v_name) == 0)) || ((({ const char *tb_s3502 = v_k; ((unsigned char)tb_s3502[0] == 101 && (unsigned char)tb_s3502[1] == 97 && (unsigned char)tb_s3502[2] == 99 && (unsigned char)tb_s3502[3] == 104 && tb_s3502[4] == 0); }) || ({ const char *tb_s3503 = v_k; ((unsigned char)tb_s3503[0] == 101 && (unsigned char)tb_s3503[1] == 108 && (unsigned char)tb_s3503[2] == 115 && (unsigned char)tb_s3503[3] == 101 && (unsigned char)tb_s3503[4] == 95 && (unsigned char)tb_s3503[5] == 101 && (unsigned char)tb_s3503[6] == 114 && (unsigned char)tb_s3503[7] == 114 && tb_s3503[8] == 0); })) && (strcmp(((tb_o_Node *)tb_nn(v_n, 1471))->q_name, v_name) == 0)))) {
+        v_bad = 1;
+        return (tb_r_f_emit__var_scan){v_hl, v_lo, v_hh, v_hi, v_any, v_bad};
+    } else if ((({ const char *tb_s3504 = v_k; ((unsigned char)tb_s3504[0] == 109 && (unsigned char)tb_s3504[1] == 117 && (unsigned char)tb_s3504[2] == 108 && (unsigned char)tb_s3504[3] == 116 && (unsigned char)tb_s3504[4] == 105 && tb_s3504[5] == 0); }) || ({ const char *tb_s3505 = v_k; ((unsigned char)tb_s3505[0] == 108 && (unsigned char)tb_s3505[1] == 105 && (unsigned char)tb_s3505[2] == 110 && (unsigned char)tb_s3505[3] == 107 && (unsigned char)tb_s3505[4] == 100 && (unsigned char)tb_s3505[5] == 101 && (unsigned char)tb_s3505[6] == 99 && (unsigned char)tb_s3505[7] == 108 && tb_s3505[8] == 0); }))) {
+        if (f_emit__mentions(v_n, v_name)) {
+            v_bad = 1;
+            return (tb_r_f_emit__var_scan){v_hl, v_lo, v_hh, v_hi, v_any, v_bad};
+        }
+    } else if (((({ const char *tb_s3506 = v_k; ((unsigned char)tb_s3506[0] == 99 && (unsigned char)tb_s3506[1] == 97 && (unsigned char)tb_s3506[2] == 108 && (unsigned char)tb_s3506[3] == 108 && tb_s3506[4] == 0); }) && ((tb_o_Node *)tb_nn(v_n, 1478))->q_has_ref) && ({ const char *tb_s3507 = ((tb_o_Node *)tb_nn(((tb_o_Node *)tb_nn(v_n, 1478))->q_ref, 1478))->q_kind; ((unsigned char)tb_s3507[0] == 102 && (unsigned char)tb_s3507[1] == 117 && (unsigned char)tb_s3507[2] == 110 && (unsigned char)tb_s3507[3] == 99 && tb_s3507[4] == 0); }))) {
+        tb_o_Node * v_params = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(((tb_o_Node *)tb_nn(v_n, 1480))->q_ref, 1480))->q_kids, 0LL, sizeof(tb_o_Node *), 1480));
+        {
+            long long tb_end3508 = ((((tb_o_Node *)tb_nn(v_n, 1481))->q_kids)->len - 1LL);
+            for (long long v_i = 0LL; v_i <= tb_end3508; v_i++) {
+                if ((((v_i < (((tb_o_Node *)tb_nn(v_params, 1482))->q_kids)->len) && ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_params, 1482))->q_kids, v_i, sizeof(tb_o_Node *), 1482)), 1482))->q_is_link) && f_emit__mentions((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1482))->q_kids, v_i, sizeof(tb_o_Node *), 1482)), v_name))) {
+                    v_bad = 1;
+                    return (tb_r_f_emit__var_scan){v_hl, v_lo, v_hh, v_hi, v_any, v_bad};
+                }
+            }
+        }
+    }
+    {
+        tb_list * tb_l3509 = ((tb_o_Node *)tb_nn(v_n, 1485))->q_kids;
+        for (long long tb_i3509 = 0; tb_i3509 < tb_l3509->len; tb_i3509++) {
+            tb_o_Node * const v_kid = ((tb_o_Node * *)tb_l3509->data)[tb_i3509];
+            {
+                tb_r_f_emit__var_scan tb_m3510 = f_emit__var_scan(v_c, v_f, v_kid, v_name, v_hl, v_lo, v_hh, v_hi, v_any, v_bad);
+                v_hl = tb_m3510.o0;
+                v_lo = tb_m3510.o1;
+                v_hh = tb_m3510.o2;
+                v_hi = tb_m3510.o3;
+                v_any = tb_m3510.o4;
+                v_bad = tb_m3510.o5;
+            }
+        }
+    }
+    return (tb_r_f_emit__var_scan){v_hl, v_lo, v_hh, v_hi, v_any, v_bad};
+}
+
+static tb_r_f_emit__func_range f_emit__func_range(tb_o_Comp * v_c, tb_o_Node * v_fn) {
+    _Bool v_hl = 0;
+    long long v_lo = 0LL;
+    _Bool v_hh = 0;
+    long long v_hi = 0LL;
+    const char * v_key = ({ const char *tb_c3511_0 = "func:"; long long tb_c3511_0n = sizeof("func:") - 1; const char *tb_c3511_1 = ((tb_o_Node *)tb_nn(v_fn, 1490))->q_name; long long tb_c3511_1n = (long long)strlen(tb_c3511_1); const char *tb_c3511_2 = ":"; long long tb_c3511_2n = sizeof(":") - 1; char tb_c3511_3d[24]; long long tb_c3511_3n; const char *tb_c3511_3 = tb_digits(((tb_o_Node *)tb_nn(v_fn, 1490))->q_line, tb_c3511_3d, &tb_c3511_3n); char *tb_c3511r = tb_mem(tb_c3511_0n + tb_c3511_1n + tb_c3511_2n + tb_c3511_3n + 1), *tb_c3511rw = tb_c3511r; memcpy(tb_c3511rw, tb_c3511_0, tb_c3511_0n); tb_c3511rw += tb_c3511_0n; memcpy(tb_c3511rw, tb_c3511_1, tb_c3511_1n); tb_c3511rw += tb_c3511_1n; memcpy(tb_c3511rw, tb_c3511_2, tb_c3511_2n); tb_c3511rw += tb_c3511_2n; memcpy(tb_c3511rw, tb_c3511_3, tb_c3511_3n); tb_c3511rw += tb_c3511_3n; *tb_c3511rw = 0; (const char *)tb_c3511r; });
+    _Bool v_found;
+    _Bool v_gl;
+    long long v_g_lo;
+    _Bool v_gh;
+    long long v_g_hi;
+    {
+        tb_r_f_emit__rg_get tb_m3512 = f_emit__rg_get(v_c, v_key);
+        v_found = tb_m3512.o0;
+        v_gl = tb_m3512.o1;
+        v_g_lo = tb_m3512.o2;
+        v_gh = tb_m3512.o3;
+        v_g_hi = tb_m3512.o4;
+    }
+    if (v_found) {
+        v_hl = v_gl;
+        v_lo = v_g_lo;
+        v_hh = v_gh;
+        v_hi = v_g_hi;
+        return (tb_r_f_emit__func_range){v_hl, v_lo, v_hh, v_hi};
+    }
+    if ((f_emit__rg_busy_has(v_c, v_key) || ((((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_fn, 1498))->q_kids, 2LL, sizeof(tb_o_Node *), 1498)), 1498))->q_kids)->len > 0LL))) {
+        return (tb_r_f_emit__func_range){v_hl, v_lo, v_hh, v_hi};
+    }
+    { const char * tb_v3513 = v_key; *(const char * *)tb_grow(((tb_o_Comp *)tb_nn(v_c, 1500))->q_rg_busy) = tb_v3513; }
+    _Bool v_any = 0;
+    _Bool v_bad = 0;
+    {
+        tb_r_f_emit__ret_scan tb_m3514 = f_emit__ret_scan(v_c, v_fn, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_fn, 1503))->q_kids, 1LL, sizeof(tb_o_Node *), 1503)), v_hl, v_lo, v_hh, v_hi, v_any, v_bad);
+        v_hl = tb_m3514.o0;
+        v_lo = tb_m3514.o1;
+        v_hh = tb_m3514.o2;
+        v_hi = tb_m3514.o3;
+        v_any = tb_m3514.o4;
+        v_bad = tb_m3514.o5;
+    }
+    f_emit__rg_busy_drop(v_c);
+    if ((v_bad || (!v_any))) {
+        v_hl = 0;
+        v_hh = 0;
+    }
+    f_emit__rg_put(v_c, v_key, v_hl, v_lo, v_hh, v_hi);
+    return (tb_r_f_emit__func_range){v_hl, v_lo, v_hh, v_hi};
+}
+
+static tb_r_f_emit__ret_scan f_emit__ret_scan(tb_o_Comp * v_c, tb_o_Node * v_fn, tb_o_Node * v_n, _Bool v_hl0, long long v_lo0, _Bool v_hh0, long long v_hi0, _Bool v_any0, _Bool v_bad0) {
+    _Bool v_hl = 0;
+    long long v_lo = 0LL;
+    _Bool v_hh = 0;
+    long long v_hi = 0LL;
+    _Bool v_any = 0;
+    _Bool v_bad = 0;
+    v_hl = v_hl0;
+    v_lo = v_lo0;
+    v_hh = v_hh0;
+    v_hi = v_hi0;
+    v_any = v_any0;
+    v_bad = v_bad0;
+    if (v_bad) {
+        return (tb_r_f_emit__ret_scan){v_hl, v_lo, v_hh, v_hi, v_any, v_bad};
+    }
+    if (({ const char *tb_s3515 = ((tb_o_Node *)tb_nn(v_n, 1519))->q_kind; ((unsigned char)tb_s3515[0] == 114 && (unsigned char)tb_s3515[1] == 101 && (unsigned char)tb_s3515[2] == 116 && (unsigned char)tb_s3515[3] == 117 && (unsigned char)tb_s3515[4] == 114 && (unsigned char)tb_s3515[5] == 110 && tb_s3515[6] == 0); })) {
+        if (((((tb_o_Node *)tb_nn(v_n, 1520))->q_kids)->len == 0LL)) {
+            v_bad = 1;
+            return (tb_r_f_emit__ret_scan){v_hl, v_lo, v_hh, v_hi, v_any, v_bad};
+        }
+        _Bool v_bl;
+        long long v_b_lo;
+        _Bool v_bh;
+        long long v_b_hi;
+        {
+            tb_r_f_emit__expr_range tb_m3516 = f_emit__expr_range(v_c, v_fn, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1523))->q_kids, 0LL, sizeof(tb_o_Node *), 1523)));
+            v_bl = tb_m3516.o0;
+            v_b_lo = tb_m3516.o1;
+            v_bh = tb_m3516.o2;
+            v_b_hi = tb_m3516.o3;
+        }
+        {
+            tb_r_f_emit__rg_union tb_m3517 = f_emit__rg_union((!v_any), v_hl, v_lo, v_hh, v_hi, v_bl, v_b_lo, v_bh, v_b_hi);
+            v_hl = tb_m3517.o0;
+            v_lo = tb_m3517.o1;
+            v_hh = tb_m3517.o2;
+            v_hi = tb_m3517.o3;
+        }
+        v_any = 1;
+        return (tb_r_f_emit__ret_scan){v_hl, v_lo, v_hh, v_hi, v_any, v_bad};
+    }
+    {
+        tb_list * tb_l3518 = ((tb_o_Node *)tb_nn(v_n, 1527))->q_kids;
+        for (long long tb_i3518 = 0; tb_i3518 < tb_l3518->len; tb_i3518++) {
+            tb_o_Node * const v_kid = ((tb_o_Node * *)tb_l3518->data)[tb_i3518];
+            {
+                tb_r_f_emit__ret_scan tb_m3519 = f_emit__ret_scan(v_c, v_fn, v_kid, v_hl, v_lo, v_hh, v_hi, v_any, v_bad);
+                v_hl = tb_m3519.o0;
+                v_lo = tb_m3519.o1;
+                v_hh = tb_m3519.o2;
+                v_hi = tb_m3519.o3;
+                v_any = tb_m3519.o4;
+                v_bad = tb_m3519.o5;
+            }
+        }
+    }
+    return (tb_r_f_emit__ret_scan){v_hl, v_lo, v_hh, v_hi, v_any, v_bad};
+}
+
+static tb_r_f_emit__seal_range f_emit__seal_range(tb_o_Comp * v_c, tb_o_Node * v_f, const char * v_name) {
+    _Bool v_hl = 0;
+    long long v_lo = 0LL;
+    _Bool v_hh = 0;
+    long long v_hi = 0LL;
+    const char * v_key = ({ const char *tb_c3520_0 = ((tb_o_Node *)tb_nn(v_f, 1533))->q_name; long long tb_c3520_0n = (long long)strlen(tb_c3520_0); const char *tb_c3520_1 = ":"; long long tb_c3520_1n = sizeof(":") - 1; char tb_c3520_2d[24]; long long tb_c3520_2n; const char *tb_c3520_2 = tb_digits(((tb_o_Node *)tb_nn(v_f, 1533))->q_line, tb_c3520_2d, &tb_c3520_2n); const char *tb_c3520_3 = ":[]"; long long tb_c3520_3n = sizeof(":[]") - 1; const char *tb_c3520_4 = v_name; long long tb_c3520_4n = (long long)strlen(tb_c3520_4); char *tb_c3520r = tb_mem(tb_c3520_0n + tb_c3520_1n + tb_c3520_2n + tb_c3520_3n + tb_c3520_4n + 1), *tb_c3520rw = tb_c3520r; memcpy(tb_c3520rw, tb_c3520_0, tb_c3520_0n); tb_c3520rw += tb_c3520_0n; memcpy(tb_c3520rw, tb_c3520_1, tb_c3520_1n); tb_c3520rw += tb_c3520_1n; memcpy(tb_c3520rw, tb_c3520_2, tb_c3520_2n); tb_c3520rw += tb_c3520_2n; memcpy(tb_c3520rw, tb_c3520_3, tb_c3520_3n); tb_c3520rw += tb_c3520_3n; memcpy(tb_c3520rw, tb_c3520_4, tb_c3520_4n); tb_c3520rw += tb_c3520_4n; *tb_c3520rw = 0; (const char *)tb_c3520r; });
+    _Bool v_found;
+    _Bool v_gl;
+    long long v_g_lo;
+    _Bool v_gh;
+    long long v_g_hi;
+    {
+        tb_r_f_emit__rg_get tb_m3521 = f_emit__rg_get(v_c, v_key);
+        v_found = tb_m3521.o0;
+        v_gl = tb_m3521.o1;
+        v_g_lo = tb_m3521.o2;
+        v_gh = tb_m3521.o3;
+        v_g_hi = tb_m3521.o4;
+    }
+    if (v_found) {
+        v_hl = v_gl;
+        v_lo = v_g_lo;
+        v_hh = v_gh;
+        v_hi = v_g_hi;
+        return (tb_r_f_emit__seal_range){v_hl, v_lo, v_hh, v_hi};
+    }
+    if (((f_emit__rg_busy_has(v_c, v_key) || f_emit__is_param(v_f, v_name)) || f_emit__is_global(v_c, v_name))) {
+        return (tb_r_f_emit__seal_range){v_hl, v_lo, v_hh, v_hi};
+    }
+    { const char * tb_v3522 = v_key; *(const char * *)tb_grow(((tb_o_Comp *)tb_nn(v_c, 1543))->q_rg_busy) = tb_v3522; }
+    _Bool v_any = 0;
+    _Bool v_bad = 0;
+    {
+        tb_r_f_emit__seal_scan tb_m3523 = f_emit__seal_scan(v_c, v_f, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_f, 1546))->q_kids, 1LL, sizeof(tb_o_Node *), 1546)), v_name, v_hl, v_lo, v_hh, v_hi, v_any, v_bad);
+        v_hl = tb_m3523.o0;
+        v_lo = tb_m3523.o1;
+        v_hh = tb_m3523.o2;
+        v_hi = tb_m3523.o3;
+        v_any = tb_m3523.o4;
+        v_bad = tb_m3523.o5;
+    }
+    f_emit__rg_busy_drop(v_c);
+    if ((v_bad || (!v_any))) {
+        v_hl = 0;
+        v_hh = 0;
+    }
+    f_emit__rg_put(v_c, v_key, v_hl, v_lo, v_hh, v_hi);
+    return (tb_r_f_emit__seal_range){v_hl, v_lo, v_hh, v_hi};
+}
+
+static tb_r_f_emit__seal_scan f_emit__seal_scan(tb_o_Comp * v_c, tb_o_Node * v_f, tb_o_Node * v_n, const char * v_name, _Bool v_hl0, long long v_lo0, _Bool v_hh0, long long v_hi0, _Bool v_any0, _Bool v_bad0) {
+    _Bool v_hl = 0;
+    long long v_lo = 0LL;
+    _Bool v_hh = 0;
+    long long v_hi = 0LL;
+    _Bool v_any = 0;
+    _Bool v_bad = 0;
+    v_hl = v_hl0;
+    v_lo = v_lo0;
+    v_hh = v_hh0;
+    v_hi = v_hi0;
+    v_any = v_any0;
+    v_bad = v_bad0;
+    if (v_bad) {
+        return (tb_r_f_emit__seal_scan){v_hl, v_lo, v_hh, v_hi, v_any, v_bad};
+    }
+    const char * v_k = ((tb_o_Node *)tb_nn(v_n, 1562))->q_kind;
+    _Bool v_is_me = ((((((tb_o_Node *)tb_nn(v_n, 1563))->q_kids)->len > 0LL) && ({ const char *tb_s3524 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1563))->q_kids, 0LL, sizeof(tb_o_Node *), 1563)), 1563))->q_kind; ((unsigned char)tb_s3524[0] == 110 && (unsigned char)tb_s3524[1] == 97 && (unsigned char)tb_s3524[2] == 109 && (unsigned char)tb_s3524[3] == 101 && tb_s3524[4] == 0); })) && (strcmp(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1563))->q_kids, 0LL, sizeof(tb_o_Node *), 1563)), 1563))->q_name, v_name) == 0));
+    if ((({ const char *tb_s3525 = v_k; ((unsigned char)tb_s3525[0] == 97 && (unsigned char)tb_s3525[1] == 115 && (unsigned char)tb_s3525[2] == 115 && (unsigned char)tb_s3525[3] == 105 && (unsigned char)tb_s3525[4] == 103 && (unsigned char)tb_s3525[5] == 110 && tb_s3525[6] == 0); }) && (strcmp(((tb_o_Node *)tb_nn(v_n, 1564))->q_name, v_name) == 0))) {
+        if (((((tb_o_Node *)tb_nn(v_n, 1566))->q_kids)->len > 0LL)) {
+            v_bad = 1;
+            return (tb_r_f_emit__seal_scan){v_hl, v_lo, v_hh, v_hi, v_any, v_bad};
+        }
+    } else if ((({ const char *tb_s3526 = v_k; ((unsigned char)tb_s3526[0] == 109 && (unsigned char)tb_s3526[1] == 101 && (unsigned char)tb_s3526[2] == 116 && (unsigned char)tb_s3526[3] == 104 && (unsigned char)tb_s3526[4] == 111 && (unsigned char)tb_s3526[5] == 100 && tb_s3526[6] == 0); }) && v_is_me)) {
+        if ((({ const char *tb_s3527 = ((tb_o_Node *)tb_nn(v_n, 1570))->q_name; !((unsigned char)tb_s3527[0] == 97 && (unsigned char)tb_s3527[1] == 100 && (unsigned char)tb_s3527[2] == 100 && tb_s3527[3] == 0); }) || ((((tb_o_Node *)tb_nn(v_n, 1570))->q_kids)->len != 2LL))) {
+            v_bad = 1;
+            return (tb_r_f_emit__seal_scan){v_hl, v_lo, v_hh, v_hi, v_any, v_bad};
+        }
+        _Bool v_bl;
+        long long v_b_lo;
+        _Bool v_bh;
+        long long v_b_hi;
+        {
+            tb_r_f_emit__expr_range tb_m3528 = f_emit__expr_range(v_c, v_f, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1573))->q_kids, 1LL, sizeof(tb_o_Node *), 1573)), 1573))->q_kids, 0LL, sizeof(tb_o_Node *), 1573)));
+            v_bl = tb_m3528.o0;
+            v_b_lo = tb_m3528.o1;
+            v_bh = tb_m3528.o2;
+            v_b_hi = tb_m3528.o3;
+        }
+        {
+            tb_r_f_emit__rg_union tb_m3529 = f_emit__rg_union((!v_any), v_hl, v_lo, v_hh, v_hi, v_bl, v_b_lo, v_bh, v_b_hi);
+            v_hl = tb_m3529.o0;
+            v_lo = tb_m3529.o1;
+            v_hh = tb_m3529.o2;
+            v_hi = tb_m3529.o3;
+        }
+        v_any = 1;
+        {
+            tb_list * tb_l3530 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1576))->q_kids, 1LL, sizeof(tb_o_Node *), 1576)), 1576))->q_kids;
+            for (long long tb_i3530 = 0; tb_i3530 < tb_l3530->len; tb_i3530++) {
+                tb_o_Node * const v_kid = ((tb_o_Node * *)tb_l3530->data)[tb_i3530];
+                {
+                    tb_r_f_emit__seal_scan tb_m3531 = f_emit__seal_scan(v_c, v_f, v_kid, v_name, v_hl, v_lo, v_hh, v_hi, v_any, v_bad);
+                    v_hl = tb_m3531.o0;
+                    v_lo = tb_m3531.o1;
+                    v_hh = tb_m3531.o2;
+                    v_hi = tb_m3531.o3;
+                    v_any = tb_m3531.o4;
+                    v_bad = tb_m3531.o5;
+                }
+            }
+        }
+        return (tb_r_f_emit__seal_scan){v_hl, v_lo, v_hh, v_hi, v_any, v_bad};
+    } else if ((((({ const char *tb_s3532 = v_k; ((unsigned char)tb_s3532[0] == 115 && (unsigned char)tb_s3532[1] == 101 && (unsigned char)tb_s3532[2] == 116 && tb_s3532[3] == 0); }) && ({ const char *tb_s3533 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1579))->q_kids, 0LL, sizeof(tb_o_Node *), 1579)), 1579))->q_kind; ((unsigned char)tb_s3533[0] == 105 && (unsigned char)tb_s3533[1] == 110 && (unsigned char)tb_s3533[2] == 100 && (unsigned char)tb_s3533[3] == 101 && (unsigned char)tb_s3533[4] == 120 && tb_s3533[5] == 0); })) && ({ const char *tb_s3534 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1579))->q_kids, 0LL, sizeof(tb_o_Node *), 1579)), 1579))->q_kids, 0LL, sizeof(tb_o_Node *), 1579)), 1579))->q_kind; ((unsigned char)tb_s3534[0] == 110 && (unsigned char)tb_s3534[1] == 97 && (unsigned char)tb_s3534[2] == 109 && (unsigned char)tb_s3534[3] == 101 && tb_s3534[4] == 0); })) && (strcmp(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1579))->q_kids, 0LL, sizeof(tb_o_Node *), 1579)), 1579))->q_kids, 0LL, sizeof(tb_o_Node *), 1579)), 1579))->q_name, v_name) == 0))) {
+        if (({ const char *tb_s3535 = ((tb_o_Node *)tb_nn(v_n, 1580))->q_value; !((unsigned char)tb_s3535[0] == 61 && tb_s3535[1] == 0); })) {
+            v_bad = 1;
+            return (tb_r_f_emit__seal_scan){v_hl, v_lo, v_hh, v_hi, v_any, v_bad};
+        }
+        _Bool v_bl;
+        long long v_b_lo;
+        _Bool v_bh;
+        long long v_b_hi;
+        {
+            tb_r_f_emit__expr_range tb_m3536 = f_emit__expr_range(v_c, v_f, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1583))->q_kids, 1LL, sizeof(tb_o_Node *), 1583)));
+            v_bl = tb_m3536.o0;
+            v_b_lo = tb_m3536.o1;
+            v_bh = tb_m3536.o2;
+            v_b_hi = tb_m3536.o3;
+        }
+        {
+            tb_r_f_emit__rg_union tb_m3537 = f_emit__rg_union((!v_any), v_hl, v_lo, v_hh, v_hi, v_bl, v_b_lo, v_bh, v_b_hi);
+            v_hl = tb_m3537.o0;
+            v_lo = tb_m3537.o1;
+            v_hh = tb_m3537.o2;
+            v_hi = tb_m3537.o3;
+        }
+        v_any = 1;
+        {
+            tb_r_f_emit__seal_scan tb_m3538 = f_emit__seal_scan(v_c, v_f, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1586))->q_kids, 0LL, sizeof(tb_o_Node *), 1586)), 1586))->q_kids, 1LL, sizeof(tb_o_Node *), 1586)), v_name, v_hl, v_lo, v_hh, v_hi, v_any, v_bad);
+            v_hl = tb_m3538.o0;
+            v_lo = tb_m3538.o1;
+            v_hh = tb_m3538.o2;
+            v_hi = tb_m3538.o3;
+            v_any = tb_m3538.o4;
+            v_bad = tb_m3538.o5;
+        }
+        {
+            tb_r_f_emit__seal_scan tb_m3539 = f_emit__seal_scan(v_c, v_f, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1587))->q_kids, 1LL, sizeof(tb_o_Node *), 1587)), v_name, v_hl, v_lo, v_hh, v_hi, v_any, v_bad);
+            v_hl = tb_m3539.o0;
+            v_lo = tb_m3539.o1;
+            v_hh = tb_m3539.o2;
+            v_hi = tb_m3539.o3;
+            v_any = tb_m3539.o4;
+            v_bad = tb_m3539.o5;
+        }
+        return (tb_r_f_emit__seal_scan){v_hl, v_lo, v_hh, v_hi, v_any, v_bad};
+    } else if ((({ const char *tb_s3540 = v_k; ((unsigned char)tb_s3540[0] == 105 && (unsigned char)tb_s3540[1] == 110 && (unsigned char)tb_s3540[2] == 100 && (unsigned char)tb_s3540[3] == 101 && (unsigned char)tb_s3540[4] == 120 && tb_s3540[5] == 0); }) && v_is_me)) {
+        {
+            tb_r_f_emit__seal_scan tb_m3541 = f_emit__seal_scan(v_c, v_f, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1591))->q_kids, 1LL, sizeof(tb_o_Node *), 1591)), v_name, v_hl, v_lo, v_hh, v_hi, v_any, v_bad);
+            v_hl = tb_m3541.o0;
+            v_lo = tb_m3541.o1;
+            v_hh = tb_m3541.o2;
+            v_hi = tb_m3541.o3;
+            v_any = tb_m3541.o4;
+            v_bad = tb_m3541.o5;
+        }
+        return (tb_r_f_emit__seal_scan){v_hl, v_lo, v_hh, v_hi, v_any, v_bad};
+    } else if (((((({ const char *tb_s3542 = v_k; ((unsigned char)tb_s3542[0] == 99 && (unsigned char)tb_s3542[1] == 97 && (unsigned char)tb_s3542[2] == 108 && (unsigned char)tb_s3542[3] == 108 && tb_s3542[4] == 0); }) && (!((tb_o_Node *)tb_nn(v_n, 1593))->q_has_ref)) && ({ const char *tb_s3543 = ((tb_o_Node *)tb_nn(v_n, 1593))->q_name; ((unsigned char)tb_s3543[0] == 108 && (unsigned char)tb_s3543[1] == 101 && (unsigned char)tb_s3543[2] == 110 && tb_s3543[3] == 0); })) && ((((tb_o_Node *)tb_nn(v_n, 1593))->q_kids)->len == 1LL)) && ({ const char *tb_s3544 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1593))->q_kids, 0LL, sizeof(tb_o_Node *), 1593)), 1593))->q_kids, 0LL, sizeof(tb_o_Node *), 1593)), 1593))->q_kind; ((unsigned char)tb_s3544[0] == 110 && (unsigned char)tb_s3544[1] == 97 && (unsigned char)tb_s3544[2] == 109 && (unsigned char)tb_s3544[3] == 101 && tb_s3544[4] == 0); }))) {
+        return (tb_r_f_emit__seal_scan){v_hl, v_lo, v_hh, v_hi, v_any, v_bad};
+    } else if ((({ const char *tb_s3545 = v_k; ((unsigned char)tb_s3545[0] == 110 && (unsigned char)tb_s3545[1] == 97 && (unsigned char)tb_s3545[2] == 109 && (unsigned char)tb_s3545[3] == 101 && tb_s3545[4] == 0); }) && (strcmp(((tb_o_Node *)tb_nn(v_n, 1595))->q_name, v_name) == 0))) {
+        v_bad = 1;
+        return (tb_r_f_emit__seal_scan){v_hl, v_lo, v_hh, v_hi, v_any, v_bad};
+    } else if ((({ const char *tb_s3546 = v_k; ((unsigned char)tb_s3546[0] == 108 && (unsigned char)tb_s3546[1] == 105 && (unsigned char)tb_s3546[2] == 110 && (unsigned char)tb_s3546[3] == 107 && (unsigned char)tb_s3546[4] == 100 && (unsigned char)tb_s3546[5] == 101 && (unsigned char)tb_s3546[6] == 99 && (unsigned char)tb_s3546[7] == 108 && tb_s3546[8] == 0); }) && f_emit__mentions(v_n, v_name))) {
+        v_bad = 1;
+        return (tb_r_f_emit__seal_scan){v_hl, v_lo, v_hh, v_hi, v_any, v_bad};
+    } else if (((({ const char *tb_s3547 = v_k; ((unsigned char)tb_s3547[0] == 99 && (unsigned char)tb_s3547[1] == 97 && (unsigned char)tb_s3547[2] == 108 && (unsigned char)tb_s3547[3] == 108 && tb_s3547[4] == 0); }) && ((tb_o_Node *)tb_nn(v_n, 1602))->q_has_ref) && ({ const char *tb_s3548 = ((tb_o_Node *)tb_nn(((tb_o_Node *)tb_nn(v_n, 1602))->q_ref, 1602))->q_kind; ((unsigned char)tb_s3548[0] == 102 && (unsigned char)tb_s3548[1] == 117 && (unsigned char)tb_s3548[2] == 110 && (unsigned char)tb_s3548[3] == 99 && tb_s3548[4] == 0); }))) {
+        tb_o_Node * v_params = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(((tb_o_Node *)tb_nn(v_n, 1603))->q_ref, 1603))->q_kids, 0LL, sizeof(tb_o_Node *), 1603));
+        {
+            long long tb_end3549 = ((((tb_o_Node *)tb_nn(v_n, 1604))->q_kids)->len - 1LL);
+            for (long long v_i = 0LL; v_i <= tb_end3549; v_i++) {
+                if ((((v_i < (((tb_o_Node *)tb_nn(v_params, 1605))->q_kids)->len) && ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_params, 1605))->q_kids, v_i, sizeof(tb_o_Node *), 1605)), 1605))->q_is_link) && f_emit__mentions((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1605))->q_kids, v_i, sizeof(tb_o_Node *), 1605)), v_name))) {
+                    v_bad = 1;
+                    return (tb_r_f_emit__seal_scan){v_hl, v_lo, v_hh, v_hi, v_any, v_bad};
+                }
+            }
+        }
+    }
+    {
+        tb_list * tb_l3550 = ((tb_o_Node *)tb_nn(v_n, 1608))->q_kids;
+        for (long long tb_i3550 = 0; tb_i3550 < tb_l3550->len; tb_i3550++) {
+            tb_o_Node * const v_kid = ((tb_o_Node * *)tb_l3550->data)[tb_i3550];
+            {
+                tb_r_f_emit__seal_scan tb_m3551 = f_emit__seal_scan(v_c, v_f, v_kid, v_name, v_hl, v_lo, v_hh, v_hi, v_any, v_bad);
+                v_hl = tb_m3551.o0;
+                v_lo = tb_m3551.o1;
+                v_hh = tb_m3551.o2;
+                v_hi = tb_m3551.o3;
+                v_any = tb_m3551.o4;
+                v_bad = tb_m3551.o5;
+            }
+        }
+    }
+    return (tb_r_f_emit__seal_scan){v_hl, v_lo, v_hh, v_hi, v_any, v_bad};
+}
+
 static _Bool f_emit__fast_index(tb_o_Comp * v_c, tb_o_Node * v_n) {
-    if (((((tb_o_Comp *)tb_nn(v_c, 1270))->q_fast_depth == 0LL) || (!f_emit__plain_list_index(v_c, v_n)))) {
+    if (((((tb_o_Comp *)tb_nn(v_c, 1612))->q_fast_depth == 0LL) || (!f_emit__plain_list_index(v_c, v_n)))) {
         return 0;
     }
     {
-        tb_list * tb_l3441 = ((tb_o_Comp *)tb_nn(v_c, 1272))->q_fast_lists;
-        for (long long tb_i3441 = 0; tb_i3441 < tb_l3441->len; tb_i3441++) {
-            const char * const v_key = ((const char * *)tb_l3441->data)[tb_i3441];
+        tb_list * tb_l3552 = ((tb_o_Comp *)tb_nn(v_c, 1614))->q_fast_lists;
+        for (long long tb_i3552 = 0; tb_i3552 < tb_l3552->len; tb_i3552++) {
+            const char * const v_key = ((const char * *)tb_l3552->data)[tb_i3552];
             long long v_cut_at = tb_find(v_key, "\t");
-            if ((strcmp(tb_cut(v_key, (v_cut_at + 1LL), (tb_tlen(v_key) - 1LL), 1274), ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1274))->q_kids, 0LL, sizeof(tb_o_Node *), 1274)), 1274))->q_name) == 0)) {
+            const char * v_var_name = tb_cut(v_key, 0LL, (v_cut_at - 1LL), 1616);
+            const char * v_rest = tb_cut(v_key, (v_cut_at + 1LL), (tb_tlen(v_key) - 1LL), 1617);
+            if (({ const char *tb_s3553 = v_var_name; ((unsigned char)tb_s3553[0] == 35 && tb_s3553[1] == 0); })) {
+                long long v_at2 = tb_find(v_rest, "\t");
+                if ((strcmp(tb_cut(v_rest, 0LL, (v_at2 - 1LL), 1621), ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1621))->q_kids, 0LL, sizeof(tb_o_Node *), 1621)), 1621))->q_name) == 0)) {
+                    long long v_top = (tb_t3 = tb_to_int(tb_cut(v_rest, (v_at2 + 1LL), (tb_tlen(v_rest) - 1LL), 1622)), tb_err ? (tb_err = 0, (-1LL)) : tb_t3);
+                    _Bool v_hl;
+                    long long v_lo;
+                    _Bool v_hh;
+                    long long v_hi;
+                    {
+                        tb_r_f_emit__expr_range tb_m3554 = f_emit__expr_range(v_c, ((tb_o_Comp *)tb_nn(v_c, 1623))->q_cur_func, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1623))->q_kids, 1LL, sizeof(tb_o_Node *), 1623)));
+                        v_hl = tb_m3554.o0;
+                        v_lo = tb_m3554.o1;
+                        v_hh = tb_m3554.o2;
+                        v_hi = tb_m3554.o3;
+                    }
+                    if ((((v_hl && (v_lo >= 0LL)) && v_hh) && (v_hi <= v_top))) {
+                        return 1;
+                    }
+                }
+            } else if ((strcmp(v_rest, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1626))->q_kids, 0LL, sizeof(tb_o_Node *), 1626)), 1626))->q_name) == 0)) {
                 _Bool v_ok;
                 long long v_shift;
                 {
-                    tb_r_f_emit__index_shift tb_m3442 = f_emit__index_shift((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1275))->q_kids, 1LL, sizeof(tb_o_Node *), 1275)), tb_cut(v_key, 0LL, (v_cut_at - 1LL), 1275));
-                    v_ok = tb_m3442.o0;
-                    v_shift = tb_m3442.o1;
+                    tb_r_f_emit__index_shift tb_m3555 = f_emit__index_shift((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1627))->q_kids, 1LL, sizeof(tb_o_Node *), 1627)), v_var_name);
+                    v_ok = tb_m3555.o0;
+                    v_shift = tb_m3555.o1;
                 }
                 if (v_ok) {
                     return 1;
@@ -11073,85 +11919,85 @@ static _Bool f_emit__fast_index(tb_o_Comp * v_c, tb_o_Node * v_n) {
         }
     }
     return 0;
-    tb_crash(1269, "функция fast_index дошла до конца без return");
+    tb_crash(1611, "функция fast_index дошла до конца без return");
     return 0;
 }
 
 static _Bool f_emit__has_index(tb_o_Node * v_n) {
-    if (({ const char *tb_s3443 = ((tb_o_Node *)tb_nn(v_n, 1281))->q_kind; ((unsigned char)tb_s3443[0] == 105 && (unsigned char)tb_s3443[1] == 110 && (unsigned char)tb_s3443[2] == 100 && (unsigned char)tb_s3443[3] == 101 && (unsigned char)tb_s3443[4] == 120 && tb_s3443[5] == 0); })) {
+    if (({ const char *tb_s3556 = ((tb_o_Node *)tb_nn(v_n, 1633))->q_kind; ((unsigned char)tb_s3556[0] == 105 && (unsigned char)tb_s3556[1] == 110 && (unsigned char)tb_s3556[2] == 100 && (unsigned char)tb_s3556[3] == 101 && (unsigned char)tb_s3556[4] == 120 && tb_s3556[5] == 0); })) {
         return 1;
     }
     {
-        tb_list * tb_l3444 = ((tb_o_Node *)tb_nn(v_n, 1283))->q_kids;
-        for (long long tb_i3444 = 0; tb_i3444 < tb_l3444->len; tb_i3444++) {
-            tb_o_Node * const v_kid = ((tb_o_Node * *)tb_l3444->data)[tb_i3444];
+        tb_list * tb_l3557 = ((tb_o_Node *)tb_nn(v_n, 1635))->q_kids;
+        for (long long tb_i3557 = 0; tb_i3557 < tb_l3557->len; tb_i3557++) {
+            tb_o_Node * const v_kid = ((tb_o_Node * *)tb_l3557->data)[tb_i3557];
             if (f_emit__has_index(v_kid)) {
                 return 1;
             }
         }
     }
     return 0;
-    tb_crash(1280, "функция has_index дошла до конца без return");
+    tb_crash(1632, "функция has_index дошла до конца без return");
     return 0;
 }
 
 static _Bool f_emit__has_text(tb_list * v_names, const char * v_name) {
     {
-        tb_list * tb_l3445 = v_names;
-        for (long long tb_i3445 = 0; tb_i3445 < tb_l3445->len; tb_i3445++) {
-            const char * const v_x = ((const char * *)tb_l3445->data)[tb_i3445];
+        tb_list * tb_l3558 = v_names;
+        for (long long tb_i3558 = 0; tb_i3558 < tb_l3558->len; tb_i3558++) {
+            const char * const v_x = ((const char * *)tb_l3558->data)[tb_i3558];
             if ((strcmp(v_x, v_name) == 0)) {
                 return 1;
             }
         }
     }
     return 0;
-    tb_crash(1288, "функция has_text дошла до конца без return");
+    tb_crash(1640, "функция has_text дошла до конца без return");
     return 0;
 }
 
 static _Bool f_emit__fast_body_ok(tb_o_Comp * v_c, tb_o_Node * v_n, const char * v_var_name, tb_list * v_names) {
-    const char * v_k = ((tb_o_Node *)tb_nn(v_n, 1297))->q_kind;
-    if ((((((((({ const char *tb_s3446 = v_k; ((unsigned char)tb_s3446[0] == 109 && (unsigned char)tb_s3446[1] == 101 && (unsigned char)tb_s3446[2] == 116 && (unsigned char)tb_s3446[3] == 104 && (unsigned char)tb_s3446[4] == 111 && (unsigned char)tb_s3446[5] == 100 && tb_s3446[6] == 0); }) || ({ const char *tb_s3447 = v_k; ((unsigned char)tb_s3447[0] == 100 && (unsigned char)tb_s3447[1] == 97 && (unsigned char)tb_s3447[2] == 110 && (unsigned char)tb_s3447[3] == 103 && (unsigned char)tb_s3447[4] == 101 && (unsigned char)tb_s3447[5] == 114 && tb_s3447[6] == 0); })) || (strcmp(v_k, "background") == 0)) || ({ const char *tb_s3448 = v_k; ((unsigned char)tb_s3448[0] == 116 && (unsigned char)tb_s3448[1] == 111 && (unsigned char)tb_s3448[2] == 103 && (unsigned char)tb_s3448[3] == 101 && (unsigned char)tb_s3448[4] == 116 && (unsigned char)tb_s3448[5] == 104 && (unsigned char)tb_s3448[6] == 101 && (unsigned char)tb_s3448[7] == 114 && tb_s3448[8] == 0); })) || ({ const char *tb_s3449 = v_k; ((unsigned char)tb_s3449[0] == 108 && (unsigned char)tb_s3449[1] == 111 && (unsigned char)tb_s3449[2] == 99 && (unsigned char)tb_s3449[3] == 107 && tb_s3449[4] == 0); })) || ({ const char *tb_s3450 = v_k; ((unsigned char)tb_s3450[0] == 108 && (unsigned char)tb_s3450[1] == 105 && (unsigned char)tb_s3450[2] == 110 && (unsigned char)tb_s3450[3] == 107 && (unsigned char)tb_s3450[4] == 100 && (unsigned char)tb_s3450[5] == 101 && (unsigned char)tb_s3450[6] == 99 && (unsigned char)tb_s3450[7] == 108 && tb_s3450[8] == 0); })) || ({ const char *tb_s3451 = v_k; ((unsigned char)tb_s3451[0] == 109 && (unsigned char)tb_s3451[1] == 117 && (unsigned char)tb_s3451[2] == 108 && (unsigned char)tb_s3451[3] == 116 && (unsigned char)tb_s3451[4] == 105 && tb_s3451[5] == 0); })) || ({ const char *tb_s3452 = v_k; ((unsigned char)tb_s3452[0] == 116 && (unsigned char)tb_s3452[1] == 101 && (unsigned char)tb_s3452[2] == 109 && (unsigned char)tb_s3452[3] == 112 && tb_s3452[4] == 0); }))) {
+    const char * v_k = ((tb_o_Node *)tb_nn(v_n, 1649))->q_kind;
+    if ((((((((({ const char *tb_s3559 = v_k; ((unsigned char)tb_s3559[0] == 109 && (unsigned char)tb_s3559[1] == 101 && (unsigned char)tb_s3559[2] == 116 && (unsigned char)tb_s3559[3] == 104 && (unsigned char)tb_s3559[4] == 111 && (unsigned char)tb_s3559[5] == 100 && tb_s3559[6] == 0); }) || ({ const char *tb_s3560 = v_k; ((unsigned char)tb_s3560[0] == 100 && (unsigned char)tb_s3560[1] == 97 && (unsigned char)tb_s3560[2] == 110 && (unsigned char)tb_s3560[3] == 103 && (unsigned char)tb_s3560[4] == 101 && (unsigned char)tb_s3560[5] == 114 && tb_s3560[6] == 0); })) || (strcmp(v_k, "background") == 0)) || ({ const char *tb_s3561 = v_k; ((unsigned char)tb_s3561[0] == 116 && (unsigned char)tb_s3561[1] == 111 && (unsigned char)tb_s3561[2] == 103 && (unsigned char)tb_s3561[3] == 101 && (unsigned char)tb_s3561[4] == 116 && (unsigned char)tb_s3561[5] == 104 && (unsigned char)tb_s3561[6] == 101 && (unsigned char)tb_s3561[7] == 114 && tb_s3561[8] == 0); })) || ({ const char *tb_s3562 = v_k; ((unsigned char)tb_s3562[0] == 108 && (unsigned char)tb_s3562[1] == 111 && (unsigned char)tb_s3562[2] == 99 && (unsigned char)tb_s3562[3] == 107 && tb_s3562[4] == 0); })) || ({ const char *tb_s3563 = v_k; ((unsigned char)tb_s3563[0] == 108 && (unsigned char)tb_s3563[1] == 105 && (unsigned char)tb_s3563[2] == 110 && (unsigned char)tb_s3563[3] == 107 && (unsigned char)tb_s3563[4] == 100 && (unsigned char)tb_s3563[5] == 101 && (unsigned char)tb_s3563[6] == 99 && (unsigned char)tb_s3563[7] == 108 && tb_s3563[8] == 0); })) || ({ const char *tb_s3564 = v_k; ((unsigned char)tb_s3564[0] == 109 && (unsigned char)tb_s3564[1] == 117 && (unsigned char)tb_s3564[2] == 108 && (unsigned char)tb_s3564[3] == 116 && (unsigned char)tb_s3564[4] == 105 && tb_s3564[5] == 0); })) || ({ const char *tb_s3565 = v_k; ((unsigned char)tb_s3565[0] == 116 && (unsigned char)tb_s3565[1] == 101 && (unsigned char)tb_s3565[2] == 109 && (unsigned char)tb_s3565[3] == 112 && tb_s3565[4] == 0); }))) {
         return 0;
     }
-    if (((({ const char *tb_s3453 = v_k; ((unsigned char)tb_s3453[0] == 101 && (unsigned char)tb_s3453[1] == 97 && (unsigned char)tb_s3453[2] == 99 && (unsigned char)tb_s3453[3] == 104 && tb_s3453[4] == 0); }) || ({ const char *tb_s3454 = v_k; ((unsigned char)tb_s3454[0] == 99 && (unsigned char)tb_s3454[1] == 111 && (unsigned char)tb_s3454[2] == 117 && (unsigned char)tb_s3454[3] == 110 && (unsigned char)tb_s3454[4] == 116 && tb_s3454[5] == 0); })) && ((((tb_o_Node *)tb_nn(v_n, 1300))->q_is_par || ((tb_o_Node *)tb_nn(v_n, 1300))->q_by_piece) || ((tb_o_Node *)tb_nn(v_n, 1300))->q_by_vec))) {
+    if (((({ const char *tb_s3566 = v_k; ((unsigned char)tb_s3566[0] == 101 && (unsigned char)tb_s3566[1] == 97 && (unsigned char)tb_s3566[2] == 99 && (unsigned char)tb_s3566[3] == 104 && tb_s3566[4] == 0); }) || ({ const char *tb_s3567 = v_k; ((unsigned char)tb_s3567[0] == 99 && (unsigned char)tb_s3567[1] == 111 && (unsigned char)tb_s3567[2] == 117 && (unsigned char)tb_s3567[3] == 110 && (unsigned char)tb_s3567[4] == 116 && tb_s3567[5] == 0); })) && ((((tb_o_Node *)tb_nn(v_n, 1652))->q_is_par || ((tb_o_Node *)tb_nn(v_n, 1652))->q_by_piece) || ((tb_o_Node *)tb_nn(v_n, 1652))->q_by_vec))) {
         return 0;
     }
-    if ((({ const char *tb_s3455 = v_k; ((unsigned char)tb_s3455[0] == 99 && (unsigned char)tb_s3455[1] == 97 && (unsigned char)tb_s3455[2] == 108 && (unsigned char)tb_s3455[3] == 108 && tb_s3455[4] == 0); }) && ({ const char *tb_s3456 = ((tb_o_Node *)tb_nn(v_n, 1302))->q_name; ((unsigned char)tb_s3456[0] == 115 && (unsigned char)tb_s3456[1] == 111 && (unsigned char)tb_s3456[2] == 114 && (unsigned char)tb_s3456[3] == 116 && tb_s3456[4] == 0); }))) {
+    if ((({ const char *tb_s3568 = v_k; ((unsigned char)tb_s3568[0] == 99 && (unsigned char)tb_s3568[1] == 97 && (unsigned char)tb_s3568[2] == 108 && (unsigned char)tb_s3568[3] == 108 && tb_s3568[4] == 0); }) && ({ const char *tb_s3569 = ((tb_o_Node *)tb_nn(v_n, 1654))->q_name; ((unsigned char)tb_s3569[0] == 115 && (unsigned char)tb_s3569[1] == 111 && (unsigned char)tb_s3569[2] == 114 && (unsigned char)tb_s3569[3] == 116 && tb_s3569[4] == 0); }))) {
         return 0;
     }
-    if ((({ const char *tb_s3457 = v_k; ((unsigned char)tb_s3457[0] == 99 && (unsigned char)tb_s3457[1] == 97 && (unsigned char)tb_s3457[2] == 108 && (unsigned char)tb_s3457[3] == 108 && tb_s3457[4] == 0); }) && ((tb_o_Node *)tb_nn(v_n, 1305))->q_has_ref)) {
-        if ((({ const char *tb_s3458 = ((tb_o_Node *)tb_nn(((tb_o_Node *)tb_nn(v_n, 1306))->q_ref, 1306))->q_kind; !((unsigned char)tb_s3458[0] == 102 && (unsigned char)tb_s3458[1] == 117 && (unsigned char)tb_s3458[2] == 110 && (unsigned char)tb_s3458[3] == 99 && tb_s3458[4] == 0); }) && ({ const char *tb_s3459 = ((tb_o_Node *)tb_nn(((tb_o_Node *)tb_nn(v_n, 1306))->q_ref, 1306))->q_kind; !((unsigned char)tb_s3459[0] == 111 && (unsigned char)tb_s3459[1] == 98 && (unsigned char)tb_s3459[2] == 106 && tb_s3459[3] == 0); }))) {
+    if ((({ const char *tb_s3570 = v_k; ((unsigned char)tb_s3570[0] == 99 && (unsigned char)tb_s3570[1] == 97 && (unsigned char)tb_s3570[2] == 108 && (unsigned char)tb_s3570[3] == 108 && tb_s3570[4] == 0); }) && ((tb_o_Node *)tb_nn(v_n, 1657))->q_has_ref)) {
+        if ((({ const char *tb_s3571 = ((tb_o_Node *)tb_nn(((tb_o_Node *)tb_nn(v_n, 1658))->q_ref, 1658))->q_kind; !((unsigned char)tb_s3571[0] == 102 && (unsigned char)tb_s3571[1] == 117 && (unsigned char)tb_s3571[2] == 110 && (unsigned char)tb_s3571[3] == 99 && tb_s3571[4] == 0); }) && ({ const char *tb_s3572 = ((tb_o_Node *)tb_nn(((tb_o_Node *)tb_nn(v_n, 1658))->q_ref, 1658))->q_kind; !((unsigned char)tb_s3572[0] == 111 && (unsigned char)tb_s3572[1] == 98 && (unsigned char)tb_s3572[2] == 106 && tb_s3572[3] == 0); }))) {
             return 0;
         }
         {
-            tb_list * tb_l3460 = ((tb_o_Node *)tb_nn(v_n, 1308))->q_kids;
-            for (long long tb_i3460 = 0; tb_i3460 < tb_l3460->len; tb_i3460++) {
-                tb_o_Node * const v_arg = ((tb_o_Node * *)tb_l3460->data)[tb_i3460];
-                if ((!f_emit__is_plain_ty(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_arg, 1309))->q_kids, 0LL, sizeof(tb_o_Node *), 1309)), 1309))->q_ty))) {
+            tb_list * tb_l3573 = ((tb_o_Node *)tb_nn(v_n, 1660))->q_kids;
+            for (long long tb_i3573 = 0; tb_i3573 < tb_l3573->len; tb_i3573++) {
+                tb_o_Node * const v_arg = ((tb_o_Node * *)tb_l3573->data)[tb_i3573];
+                if ((!f_emit__is_plain_ty(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_arg, 1661))->q_kids, 0LL, sizeof(tb_o_Node *), 1661)), 1661))->q_ty))) {
                     return 0;
                 }
             }
         }
     }
-    if ((({ const char *tb_s3461 = v_k; ((unsigned char)tb_s3461[0] == 97 && (unsigned char)tb_s3461[1] == 115 && (unsigned char)tb_s3461[2] == 115 && (unsigned char)tb_s3461[3] == 105 && (unsigned char)tb_s3461[4] == 103 && (unsigned char)tb_s3461[5] == 110 && tb_s3461[6] == 0); }) && ((strcmp(((tb_o_Node *)tb_nn(v_n, 1311))->q_name, v_var_name) == 0) || f_emit__has_text(v_names, ((tb_o_Node *)tb_nn(v_n, 1311))->q_name)))) {
+    if ((({ const char *tb_s3574 = v_k; ((unsigned char)tb_s3574[0] == 97 && (unsigned char)tb_s3574[1] == 115 && (unsigned char)tb_s3574[2] == 115 && (unsigned char)tb_s3574[3] == 105 && (unsigned char)tb_s3574[4] == 103 && (unsigned char)tb_s3574[5] == 110 && tb_s3574[6] == 0); }) && ((strcmp(((tb_o_Node *)tb_nn(v_n, 1663))->q_name, v_var_name) == 0) || f_emit__has_text(v_names, ((tb_o_Node *)tb_nn(v_n, 1663))->q_name)))) {
         return 0;
     }
-    if (((({ const char *tb_s3462 = v_k; ((unsigned char)tb_s3462[0] == 115 && (unsigned char)tb_s3462[1] == 101 && (unsigned char)tb_s3462[2] == 116 && tb_s3462[3] == 0); }) && ({ const char *tb_s3463 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1313))->q_kids, 0LL, sizeof(tb_o_Node *), 1313)), 1313))->q_kind; ((unsigned char)tb_s3463[0] == 110 && (unsigned char)tb_s3463[1] == 97 && (unsigned char)tb_s3463[2] == 109 && (unsigned char)tb_s3463[3] == 101 && tb_s3463[4] == 0); })) && ((strcmp(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1313))->q_kids, 0LL, sizeof(tb_o_Node *), 1313)), 1313))->q_name, v_var_name) == 0) || f_emit__has_text(v_names, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1313))->q_kids, 0LL, sizeof(tb_o_Node *), 1313)), 1313))->q_name)))) {
+    if (((({ const char *tb_s3575 = v_k; ((unsigned char)tb_s3575[0] == 115 && (unsigned char)tb_s3575[1] == 101 && (unsigned char)tb_s3575[2] == 116 && tb_s3575[3] == 0); }) && ({ const char *tb_s3576 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1665))->q_kids, 0LL, sizeof(tb_o_Node *), 1665)), 1665))->q_kind; ((unsigned char)tb_s3576[0] == 110 && (unsigned char)tb_s3576[1] == 97 && (unsigned char)tb_s3576[2] == 109 && (unsigned char)tb_s3576[3] == 101 && tb_s3576[4] == 0); })) && ((strcmp(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1665))->q_kids, 0LL, sizeof(tb_o_Node *), 1665)), 1665))->q_name, v_var_name) == 0) || f_emit__has_text(v_names, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1665))->q_kids, 0LL, sizeof(tb_o_Node *), 1665)), 1665))->q_name)))) {
         return 0;
     }
     {
-        tb_list * tb_l3464 = ((tb_o_Node *)tb_nn(v_n, 1315))->q_kids;
-        for (long long tb_i3464 = 0; tb_i3464 < tb_l3464->len; tb_i3464++) {
-            tb_o_Node * const v_kid = ((tb_o_Node * *)tb_l3464->data)[tb_i3464];
+        tb_list * tb_l3577 = ((tb_o_Node *)tb_nn(v_n, 1667))->q_kids;
+        for (long long tb_i3577 = 0; tb_i3577 < tb_l3577->len; tb_i3577++) {
+            tb_o_Node * const v_kid = ((tb_o_Node * *)tb_l3577->data)[tb_i3577];
             if ((!f_emit__fast_body_ok(v_c, v_kid, v_var_name, v_names))) {
                 return 0;
             }
         }
     }
     return 1;
-    tb_crash(1296, "функция fast_body_ok дошла до конца без return");
+    tb_crash(1648, "функция fast_body_ok дошла до конца без return");
     return 0;
 }
 
@@ -11160,81 +12006,134 @@ static void f_emit__fast_collect(tb_o_Comp * v_c, tb_o_Node * v_n, const char * 
         _Bool v_ok;
         long long v_shift;
         {
-            tb_r_f_emit__index_shift tb_m3465 = f_emit__index_shift((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1323))->q_kids, 1LL, sizeof(tb_o_Node *), 1323)), v_var_name);
-            v_ok = tb_m3465.o0;
-            v_shift = tb_m3465.o1;
+            tb_r_f_emit__index_shift tb_m3578 = f_emit__index_shift((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1675))->q_kids, 1LL, sizeof(tb_o_Node *), 1675)), v_var_name);
+            v_ok = tb_m3578.o0;
+            v_shift = tb_m3578.o1;
         }
         if (v_ok) {
-            const char * v_name = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1325))->q_kids, 0LL, sizeof(tb_o_Node *), 1325)), 1325))->q_name;
+            const char * v_name = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1677))->q_kids, 0LL, sizeof(tb_o_Node *), 1677)), 1677))->q_name;
             _Bool v_found = 0;
             {
-                long long tb_end3466 = ((v_names)->len - 1LL);
-                long long tb_lo3466 = 0LL;
-                if (tb_end3466 < tb_lo3466 || (1 && tb_lo3466 >= 0LL && tb_end3466 < (v_names)->len - 0LL && tb_lo3466 >= 0LL && tb_end3466 < (v_lo)->len - 0LL && tb_lo3466 >= 0LL && tb_end3466 < (v_hi)->len - 0LL)) {
-                    for (long long v_j = tb_lo3466; v_j <= tb_end3466; v_j++) {
+                long long tb_end3579 = ((v_names)->len - 1LL);
+                long long tb_lo3579 = 0LL;
+                if (tb_end3579 < tb_lo3579 || (1 && tb_lo3579 >= 0LL && tb_end3579 < (v_names)->len - 0LL && tb_lo3579 >= 0LL && tb_end3579 < (v_lo)->len - 0LL && tb_lo3579 >= 0LL && tb_end3579 < (v_hi)->len - 0LL)) {
+                    for (long long v_j = tb_lo3579; v_j <= tb_end3579; v_j++) {
                         if ((strcmp((((const char * *)(v_names)->data)[v_j]), v_name) == 0)) {
                             v_found = 1;
-                            { long long tb_v3467 = tb_mini((((long long *)(v_lo)->data)[v_j]), v_shift); long long *tb_p3467 = &((((long long *)(v_lo)->data)[v_j])); *tb_p3467 = tb_v3467; }
-                            { long long tb_v3468 = tb_maxi((((long long *)(v_hi)->data)[v_j]), v_shift); long long *tb_p3468 = &((((long long *)(v_hi)->data)[v_j])); *tb_p3468 = tb_v3468; }
+                            { long long tb_v3580 = tb_mini((((long long *)(v_lo)->data)[v_j]), v_shift); long long *tb_p3580 = &((((long long *)(v_lo)->data)[v_j])); *tb_p3580 = tb_v3580; }
+                            { long long tb_v3581 = tb_maxi((((long long *)(v_hi)->data)[v_j]), v_shift); long long *tb_p3581 = &((((long long *)(v_hi)->data)[v_j])); *tb_p3581 = tb_v3581; }
                         }
                     }
                 } else {
-                    for (long long v_j = tb_lo3466; v_j <= tb_end3466; v_j++) {
-                        if ((strcmp((*(const char * *)tb_at(v_names, v_j, sizeof(const char *), 1328)), v_name) == 0)) {
+                    for (long long v_j = tb_lo3579; v_j <= tb_end3579; v_j++) {
+                        if ((strcmp((*(const char * *)tb_at(v_names, v_j, sizeof(const char *), 1680)), v_name) == 0)) {
                             v_found = 1;
-                            { long long tb_v3469 = tb_mini((*(long long *)tb_at(v_lo, v_j, sizeof(long long), 1330)), v_shift); long long *tb_p3469 = &((*(long long *)tb_at(v_lo, v_j, sizeof(long long), 1330))); *tb_p3469 = tb_v3469; }
-                            { long long tb_v3470 = tb_maxi((*(long long *)tb_at(v_hi, v_j, sizeof(long long), 1331)), v_shift); long long *tb_p3470 = &((*(long long *)tb_at(v_hi, v_j, sizeof(long long), 1331))); *tb_p3470 = tb_v3470; }
+                            { long long tb_v3582 = tb_mini((*(long long *)tb_at(v_lo, v_j, sizeof(long long), 1682)), v_shift); long long *tb_p3582 = &((*(long long *)tb_at(v_lo, v_j, sizeof(long long), 1682))); *tb_p3582 = tb_v3582; }
+                            { long long tb_v3583 = tb_maxi((*(long long *)tb_at(v_hi, v_j, sizeof(long long), 1683)), v_shift); long long *tb_p3583 = &((*(long long *)tb_at(v_hi, v_j, sizeof(long long), 1683))); *tb_p3583 = tb_v3583; }
                         }
                     }
                 }
             }
             if ((!v_found)) {
-                { const char * tb_v3471 = v_name; *(const char * *)tb_grow(v_names) = tb_v3471; }
-                { tb_o_Node * tb_v3472 = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1334))->q_kids, 0LL, sizeof(tb_o_Node *), 1334)); *(tb_o_Node * *)tb_grow(v_nodes) = tb_v3472; }
-                { long long tb_v3473 = v_shift; *(long long *)tb_grow(v_lo) = tb_v3473; }
-                { long long tb_v3474 = v_shift; *(long long *)tb_grow(v_hi) = tb_v3474; }
+                { const char * tb_v3584 = v_name; *(const char * *)tb_grow(v_names) = tb_v3584; }
+                { tb_o_Node * tb_v3585 = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1686))->q_kids, 0LL, sizeof(tb_o_Node *), 1686)); *(tb_o_Node * *)tb_grow(v_nodes) = tb_v3585; }
+                { long long tb_v3586 = v_shift; *(long long *)tb_grow(v_lo) = tb_v3586; }
+                { long long tb_v3587 = v_shift; *(long long *)tb_grow(v_hi) = tb_v3587; }
+            }
+        } else if ((((((tb_o_Node *)tb_nn(v_n, 1689))->q_ty == 1LL) || (((tb_o_Node *)tb_nn(v_n, 1689))->q_ty == 2LL)) || (((tb_o_Node *)tb_nn(v_n, 1689))->q_ty == 3LL))) {
+            _Bool v_hl;
+            long long v_rlo;
+            _Bool v_hh;
+            long long v_rhi;
+            {
+                tb_r_f_emit__expr_range tb_m3588 = f_emit__expr_range(v_c, ((tb_o_Comp *)tb_nn(v_c, 1691))->q_cur_func, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1691))->q_kids, 1LL, sizeof(tb_o_Node *), 1691)));
+                v_hl = tb_m3588.o0;
+                v_rlo = tb_m3588.o1;
+                v_hh = tb_m3588.o2;
+                v_rhi = tb_m3588.o3;
+            }
+            if (((v_hl && (v_rlo >= 0LL)) && v_hh)) {
+                const char * v_key = ({ const char *tb_c3589_0 = "#"; long long tb_c3589_0n = sizeof("#") - 1; const char *tb_c3589_1 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1693))->q_kids, 0LL, sizeof(tb_o_Node *), 1693)), 1693))->q_name; long long tb_c3589_1n = (long long)strlen(tb_c3589_1); char *tb_c3589r = tb_mem(tb_c3589_0n + tb_c3589_1n + 1), *tb_c3589rw = tb_c3589r; memcpy(tb_c3589rw, tb_c3589_0, tb_c3589_0n); tb_c3589rw += tb_c3589_0n; memcpy(tb_c3589rw, tb_c3589_1, tb_c3589_1n); tb_c3589rw += tb_c3589_1n; *tb_c3589rw = 0; (const char *)tb_c3589r; });
+                _Bool v_found = 0;
+                {
+                    long long tb_end3590 = ((v_names)->len - 1LL);
+                    long long tb_lo3590 = 0LL;
+                    if (tb_end3590 < tb_lo3590 || (1 && tb_lo3590 >= 0LL && tb_end3590 < (v_names)->len - 0LL && tb_lo3590 >= 0LL && tb_end3590 < (v_hi)->len - 0LL)) {
+                        for (long long v_j = tb_lo3590; v_j <= tb_end3590; v_j++) {
+                            if ((strcmp((((const char * *)(v_names)->data)[v_j]), v_key) == 0)) {
+                                v_found = 1;
+                                { long long tb_v3591 = tb_maxi((((long long *)(v_hi)->data)[v_j]), v_rhi); long long *tb_p3591 = &((((long long *)(v_hi)->data)[v_j])); *tb_p3591 = tb_v3591; }
+                            }
+                        }
+                    } else {
+                        for (long long v_j = tb_lo3590; v_j <= tb_end3590; v_j++) {
+                            if ((strcmp((*(const char * *)tb_at(v_names, v_j, sizeof(const char *), 1696)), v_key) == 0)) {
+                                v_found = 1;
+                                { long long tb_v3592 = tb_maxi((*(long long *)tb_at(v_hi, v_j, sizeof(long long), 1698)), v_rhi); long long *tb_p3592 = &((*(long long *)tb_at(v_hi, v_j, sizeof(long long), 1698))); *tb_p3592 = tb_v3592; }
+                            }
+                        }
+                    }
+                }
+                if ((!v_found)) {
+                    { const char * tb_v3593 = v_key; *(const char * *)tb_grow(v_names) = tb_v3593; }
+                    { tb_o_Node * tb_v3594 = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1701))->q_kids, 0LL, sizeof(tb_o_Node *), 1701)); *(tb_o_Node * *)tb_grow(v_nodes) = tb_v3594; }
+                    { long long tb_v3595 = 0LL; *(long long *)tb_grow(v_lo) = tb_v3595; }
+                    { long long tb_v3596 = v_rhi; *(long long *)tb_grow(v_hi) = tb_v3596; }
+                }
             }
         }
     }
     {
-        tb_list * tb_l3475 = ((tb_o_Node *)tb_nn(v_n, 1337))->q_kids;
-        for (long long tb_i3475 = 0; tb_i3475 < tb_l3475->len; tb_i3475++) {
-            tb_o_Node * const v_kid = ((tb_o_Node * *)tb_l3475->data)[tb_i3475];
+        tb_list * tb_l3597 = ((tb_o_Node *)tb_nn(v_n, 1704))->q_kids;
+        for (long long tb_i3597 = 0; tb_i3597 < tb_l3597->len; tb_i3597++) {
+            tb_o_Node * const v_kid = ((tb_o_Node * *)tb_l3597->data)[tb_i3597];
             f_emit__fast_collect(v_c, v_kid, v_var_name, v_names, v_nodes, v_lo, v_hi);
         }
     }
 }
 
 static void f_emit__emit_count(tb_o_Comp * v_c, tb_o_Node * v_n, long long v_depth) {
-    if (((tb_o_Node *)tb_nn(v_n, 1341))->q_is_par) {
+    if (((tb_o_Node *)tb_nn(v_n, 1708))->q_is_par) {
         f_emit__emit_par(v_c, v_n, v_depth);
         return;
     }
-    if (((((tb_o_Comp *)tb_nn(v_c, 1344))->q_fast_depth < 2LL) && (!((tb_o_Comp *)tb_nn(v_c, 1344))->q_bare))) {
+    if (((((tb_o_Comp *)tb_nn(v_c, 1711))->q_fast_depth < 2LL) && (!((tb_o_Comp *)tb_nn(v_c, 1711))->q_bare))) {
         tb_list * v_names = tb_list_new(sizeof(const char *));
         tb_list * v_nodes = tb_list_new(sizeof(tb_o_Node *));
         tb_list * v_lo = tb_list_new(sizeof(long long));
         tb_list * v_hi = tb_list_new(sizeof(long long));
-        f_emit__fast_collect(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1349))->q_kids, 2LL, sizeof(tb_o_Node *), 1349)), ((tb_o_Node *)tb_nn(v_n, 1349))->q_name, v_names, v_nodes, v_lo, v_hi);
-        if ((((((v_names)->len > 0LL) && (!f_emit__has_index((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1351))->q_kids, 0LL, sizeof(tb_o_Node *), 1351))))) && (!f_emit__has_index((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1351))->q_kids, 1LL, sizeof(tb_o_Node *), 1351))))) && f_emit__fast_body_ok(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1351))->q_kids, 2LL, sizeof(tb_o_Node *), 1351)), ((tb_o_Node *)tb_nn(v_n, 1351))->q_name, v_names))) {
+        f_emit__fast_collect(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1716))->q_kids, 2LL, sizeof(tb_o_Node *), 1716)), ((tb_o_Node *)tb_nn(v_n, 1716))->q_name, v_names, v_nodes, v_lo, v_hi);
+        tb_list * v_plain = tb_list_new(sizeof(const char *));
+        {
+            tb_list * tb_l3598 = v_names;
+            for (long long tb_i3598 = 0; tb_i3598 < tb_l3598->len; tb_i3598++) {
+                const char * const v_x = ((const char * *)tb_l3598->data)[tb_i3598];
+                if (tb_starts(v_x, "#")) {
+                    { const char * tb_v3599 = tb_cut(v_x, 1LL, (tb_tlen(v_x) - 1LL), 1721); *(const char * *)tb_grow(v_plain) = tb_v3599; }
+                } else {
+                    { const char * tb_v3600 = v_x; *(const char * *)tb_grow(v_plain) = tb_v3600; }
+                }
+            }
+        }
+        if ((((((v_names)->len > 0LL) && (!f_emit__has_index((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1724))->q_kids, 0LL, sizeof(tb_o_Node *), 1724))))) && (!f_emit__has_index((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1724))->q_kids, 1LL, sizeof(tb_o_Node *), 1724))))) && f_emit__fast_body_ok(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1724))->q_kids, 2LL, sizeof(tb_o_Node *), 1724)), ((tb_o_Node *)tb_nn(v_n, 1724))->q_name, v_plain))) {
             f_emit__emit_count_fast(v_c, v_n, v_depth, v_names, v_nodes, v_lo, v_hi);
             return;
         }
     }
-    { long long tb_v3476 = 1LL; long long *tb_p3476 = &(((tb_o_Comp *)tb_nn(v_c, 1354))->q_label); *tb_p3476 += tb_v3476; }
-    const char * v_id = ({ const char *tb_c3477_0 = ""; long long tb_c3477_0n = sizeof("") - 1; char tb_c3477_1d[24]; long long tb_c3477_1n; const char *tb_c3477_1 = tb_digits(((tb_o_Comp *)tb_nn(v_c, 1355))->q_label, tb_c3477_1d, &tb_c3477_1n); char *tb_c3477r = tb_mem(tb_c3477_0n + tb_c3477_1n + 1), *tb_c3477rw = tb_c3477r; memcpy(tb_c3477rw, tb_c3477_0, tb_c3477_0n); tb_c3477rw += tb_c3477_0n; memcpy(tb_c3477rw, tb_c3477_1, tb_c3477_1n); tb_c3477rw += tb_c3477_1n; *tb_c3477rw = 0; (const char *)tb_c3477r; });
+    { long long tb_v3601 = 1LL; long long *tb_p3601 = &(((tb_o_Comp *)tb_nn(v_c, 1727))->q_label); *tb_p3601 += tb_v3601; }
+    const char * v_id = ({ const char *tb_c3602_0 = ""; long long tb_c3602_0n = sizeof("") - 1; char tb_c3602_1d[24]; long long tb_c3602_1n; const char *tb_c3602_1 = tb_digits(((tb_o_Comp *)tb_nn(v_c, 1728))->q_label, tb_c3602_1d, &tb_c3602_1n); char *tb_c3602r = tb_mem(tb_c3602_0n + tb_c3602_1n + 1), *tb_c3602rw = tb_c3602r; memcpy(tb_c3602rw, tb_c3602_0, tb_c3602_0n); tb_c3602rw += tb_c3602_0n; memcpy(tb_c3602rw, tb_c3602_1, tb_c3602_1n); tb_c3602rw += tb_c3602_1n; *tb_c3602rw = 0; (const char *)tb_c3602r; });
     f_emit__indent(v_c, v_depth);
     f_emit__put(v_c, "{\n");
     f_emit__indent(v_c, (v_depth + 1LL));
-    f_emit__put(v_c, ({ const char *tb_c3478_0 = "long long tb_end"; long long tb_c3478_0n = sizeof("long long tb_end") - 1; const char *tb_c3478_1 = v_id; long long tb_c3478_1n = (long long)strlen(tb_c3478_1); const char *tb_c3478_2 = " = "; long long tb_c3478_2n = sizeof(" = ") - 1; char *tb_c3478r = tb_mem(tb_c3478_0n + tb_c3478_1n + tb_c3478_2n + 1), *tb_c3478rw = tb_c3478r; memcpy(tb_c3478rw, tb_c3478_0, tb_c3478_0n); tb_c3478rw += tb_c3478_0n; memcpy(tb_c3478rw, tb_c3478_1, tb_c3478_1n); tb_c3478rw += tb_c3478_1n; memcpy(tb_c3478rw, tb_c3478_2, tb_c3478_2n); tb_c3478rw += tb_c3478_2n; *tb_c3478rw = 0; (const char *)tb_c3478r; }));
-    f_emit__emit_expr(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1360))->q_kids, 1LL, sizeof(tb_o_Node *), 1360)));
+    f_emit__put(v_c, ({ const char *tb_c3603_0 = "long long tb_end"; long long tb_c3603_0n = sizeof("long long tb_end") - 1; const char *tb_c3603_1 = v_id; long long tb_c3603_1n = (long long)strlen(tb_c3603_1); const char *tb_c3603_2 = " = "; long long tb_c3603_2n = sizeof(" = ") - 1; char *tb_c3603r = tb_mem(tb_c3603_0n + tb_c3603_1n + tb_c3603_2n + 1), *tb_c3603rw = tb_c3603r; memcpy(tb_c3603rw, tb_c3603_0, tb_c3603_0n); tb_c3603rw += tb_c3603_0n; memcpy(tb_c3603rw, tb_c3603_1, tb_c3603_1n); tb_c3603rw += tb_c3603_1n; memcpy(tb_c3603rw, tb_c3603_2, tb_c3603_2n); tb_c3603rw += tb_c3603_2n; *tb_c3603rw = 0; (const char *)tb_c3603r; }));
+    f_emit__emit_expr(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1733))->q_kids, 1LL, sizeof(tb_o_Node *), 1733)));
     f_emit__put(v_c, ";\n");
     f_emit__indent(v_c, (v_depth + 1LL));
-    f_emit__put(v_c, ({ const char *tb_c3479_0 = "for (long long v_"; long long tb_c3479_0n = sizeof("for (long long v_") - 1; const char *tb_c3479_1 = ((tb_o_Node *)tb_nn(v_n, 1363))->q_name; long long tb_c3479_1n = (long long)strlen(tb_c3479_1); const char *tb_c3479_2 = " = "; long long tb_c3479_2n = sizeof(" = ") - 1; char *tb_c3479r = tb_mem(tb_c3479_0n + tb_c3479_1n + tb_c3479_2n + 1), *tb_c3479rw = tb_c3479r; memcpy(tb_c3479rw, tb_c3479_0, tb_c3479_0n); tb_c3479rw += tb_c3479_0n; memcpy(tb_c3479rw, tb_c3479_1, tb_c3479_1n); tb_c3479rw += tb_c3479_1n; memcpy(tb_c3479rw, tb_c3479_2, tb_c3479_2n); tb_c3479rw += tb_c3479_2n; *tb_c3479rw = 0; (const char *)tb_c3479r; }));
-    f_emit__emit_expr(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1364))->q_kids, 0LL, sizeof(tb_o_Node *), 1364)));
-    f_emit__put(v_c, ({ const char *tb_c3480_0 = "; v_"; long long tb_c3480_0n = sizeof("; v_") - 1; const char *tb_c3480_1 = ((tb_o_Node *)tb_nn(v_n, 1365))->q_name; long long tb_c3480_1n = (long long)strlen(tb_c3480_1); const char *tb_c3480_2 = " <= tb_end"; long long tb_c3480_2n = sizeof(" <= tb_end") - 1; const char *tb_c3480_3 = v_id; long long tb_c3480_3n = (long long)strlen(tb_c3480_3); const char *tb_c3480_4 = "; v_"; long long tb_c3480_4n = sizeof("; v_") - 1; const char *tb_c3480_5 = ((tb_o_Node *)tb_nn(v_n, 1365))->q_name; long long tb_c3480_5n = (long long)strlen(tb_c3480_5); const char *tb_c3480_6 = "++) {\n"; long long tb_c3480_6n = sizeof("++) {\n") - 1; char *tb_c3480r = tb_mem(tb_c3480_0n + tb_c3480_1n + tb_c3480_2n + tb_c3480_3n + tb_c3480_4n + tb_c3480_5n + tb_c3480_6n + 1), *tb_c3480rw = tb_c3480r; memcpy(tb_c3480rw, tb_c3480_0, tb_c3480_0n); tb_c3480rw += tb_c3480_0n; memcpy(tb_c3480rw, tb_c3480_1, tb_c3480_1n); tb_c3480rw += tb_c3480_1n; memcpy(tb_c3480rw, tb_c3480_2, tb_c3480_2n); tb_c3480rw += tb_c3480_2n; memcpy(tb_c3480rw, tb_c3480_3, tb_c3480_3n); tb_c3480rw += tb_c3480_3n; memcpy(tb_c3480rw, tb_c3480_4, tb_c3480_4n); tb_c3480rw += tb_c3480_4n; memcpy(tb_c3480rw, tb_c3480_5, tb_c3480_5n); tb_c3480rw += tb_c3480_5n; memcpy(tb_c3480rw, tb_c3480_6, tb_c3480_6n); tb_c3480rw += tb_c3480_6n; *tb_c3480rw = 0; (const char *)tb_c3480r; }));
-    f_emit__emit_prefetch(v_c, v_n, (v_depth + 2LL), "", ({ const char *tb_c3481_0 = "v_"; long long tb_c3481_0n = sizeof("v_") - 1; const char *tb_c3481_1 = ((tb_o_Node *)tb_nn(v_n, 1366))->q_name; long long tb_c3481_1n = (long long)strlen(tb_c3481_1); char *tb_c3481r = tb_mem(tb_c3481_0n + tb_c3481_1n + 1), *tb_c3481rw = tb_c3481r; memcpy(tb_c3481rw, tb_c3481_0, tb_c3481_0n); tb_c3481rw += tb_c3481_0n; memcpy(tb_c3481rw, tb_c3481_1, tb_c3481_1n); tb_c3481rw += tb_c3481_1n; *tb_c3481rw = 0; (const char *)tb_c3481r; }), "long long");
-    f_emit__emit_loop_body(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1367))->q_kids, 2LL, sizeof(tb_o_Node *), 1367)), (v_depth + 2LL));
+    f_emit__put(v_c, ({ const char *tb_c3604_0 = "for (long long v_"; long long tb_c3604_0n = sizeof("for (long long v_") - 1; const char *tb_c3604_1 = ((tb_o_Node *)tb_nn(v_n, 1736))->q_name; long long tb_c3604_1n = (long long)strlen(tb_c3604_1); const char *tb_c3604_2 = " = "; long long tb_c3604_2n = sizeof(" = ") - 1; char *tb_c3604r = tb_mem(tb_c3604_0n + tb_c3604_1n + tb_c3604_2n + 1), *tb_c3604rw = tb_c3604r; memcpy(tb_c3604rw, tb_c3604_0, tb_c3604_0n); tb_c3604rw += tb_c3604_0n; memcpy(tb_c3604rw, tb_c3604_1, tb_c3604_1n); tb_c3604rw += tb_c3604_1n; memcpy(tb_c3604rw, tb_c3604_2, tb_c3604_2n); tb_c3604rw += tb_c3604_2n; *tb_c3604rw = 0; (const char *)tb_c3604r; }));
+    f_emit__emit_expr(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1737))->q_kids, 0LL, sizeof(tb_o_Node *), 1737)));
+    f_emit__put(v_c, ({ const char *tb_c3605_0 = "; v_"; long long tb_c3605_0n = sizeof("; v_") - 1; const char *tb_c3605_1 = ((tb_o_Node *)tb_nn(v_n, 1738))->q_name; long long tb_c3605_1n = (long long)strlen(tb_c3605_1); const char *tb_c3605_2 = " <= tb_end"; long long tb_c3605_2n = sizeof(" <= tb_end") - 1; const char *tb_c3605_3 = v_id; long long tb_c3605_3n = (long long)strlen(tb_c3605_3); const char *tb_c3605_4 = "; v_"; long long tb_c3605_4n = sizeof("; v_") - 1; const char *tb_c3605_5 = ((tb_o_Node *)tb_nn(v_n, 1738))->q_name; long long tb_c3605_5n = (long long)strlen(tb_c3605_5); const char *tb_c3605_6 = "++) {\n"; long long tb_c3605_6n = sizeof("++) {\n") - 1; char *tb_c3605r = tb_mem(tb_c3605_0n + tb_c3605_1n + tb_c3605_2n + tb_c3605_3n + tb_c3605_4n + tb_c3605_5n + tb_c3605_6n + 1), *tb_c3605rw = tb_c3605r; memcpy(tb_c3605rw, tb_c3605_0, tb_c3605_0n); tb_c3605rw += tb_c3605_0n; memcpy(tb_c3605rw, tb_c3605_1, tb_c3605_1n); tb_c3605rw += tb_c3605_1n; memcpy(tb_c3605rw, tb_c3605_2, tb_c3605_2n); tb_c3605rw += tb_c3605_2n; memcpy(tb_c3605rw, tb_c3605_3, tb_c3605_3n); tb_c3605rw += tb_c3605_3n; memcpy(tb_c3605rw, tb_c3605_4, tb_c3605_4n); tb_c3605rw += tb_c3605_4n; memcpy(tb_c3605rw, tb_c3605_5, tb_c3605_5n); tb_c3605rw += tb_c3605_5n; memcpy(tb_c3605rw, tb_c3605_6, tb_c3605_6n); tb_c3605rw += tb_c3605_6n; *tb_c3605rw = 0; (const char *)tb_c3605r; }));
+    f_emit__emit_prefetch(v_c, v_n, (v_depth + 2LL), "", ({ const char *tb_c3606_0 = "v_"; long long tb_c3606_0n = sizeof("v_") - 1; const char *tb_c3606_1 = ((tb_o_Node *)tb_nn(v_n, 1739))->q_name; long long tb_c3606_1n = (long long)strlen(tb_c3606_1); char *tb_c3606r = tb_mem(tb_c3606_0n + tb_c3606_1n + 1), *tb_c3606rw = tb_c3606r; memcpy(tb_c3606rw, tb_c3606_0, tb_c3606_0n); tb_c3606rw += tb_c3606_0n; memcpy(tb_c3606rw, tb_c3606_1, tb_c3606_1n); tb_c3606rw += tb_c3606_1n; *tb_c3606rw = 0; (const char *)tb_c3606r; }), "long long");
+    f_emit__emit_loop_body(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1740))->q_kids, 2LL, sizeof(tb_o_Node *), 1740)), (v_depth + 2LL));
     f_emit__indent(v_c, (v_depth + 1LL));
     f_emit__put(v_c, "}\n");
     f_emit__indent(v_c, v_depth);
@@ -11242,70 +12141,79 @@ static void f_emit__emit_count(tb_o_Comp * v_c, tb_o_Node * v_n, long long v_dep
 }
 
 static void f_emit__emit_count_fast(tb_o_Comp * v_c, tb_o_Node * v_n, long long v_depth, tb_list * v_names, tb_list * v_nodes, tb_list * v_lo, tb_list * v_hi) {
-    { long long tb_v3482 = 1LL; long long *tb_p3482 = &(((tb_o_Comp *)tb_nn(v_c, 1375))->q_label); *tb_p3482 += tb_v3482; }
-    const char * v_id = ({ const char *tb_c3483_0 = ""; long long tb_c3483_0n = sizeof("") - 1; char tb_c3483_1d[24]; long long tb_c3483_1n; const char *tb_c3483_1 = tb_digits(((tb_o_Comp *)tb_nn(v_c, 1376))->q_label, tb_c3483_1d, &tb_c3483_1n); char *tb_c3483r = tb_mem(tb_c3483_0n + tb_c3483_1n + 1), *tb_c3483rw = tb_c3483r; memcpy(tb_c3483rw, tb_c3483_0, tb_c3483_0n); tb_c3483rw += tb_c3483_0n; memcpy(tb_c3483rw, tb_c3483_1, tb_c3483_1n); tb_c3483rw += tb_c3483_1n; *tb_c3483rw = 0; (const char *)tb_c3483r; });
-    const char * v_v = ({ const char *tb_c3484_0 = "v_"; long long tb_c3484_0n = sizeof("v_") - 1; const char *tb_c3484_1 = ((tb_o_Node *)tb_nn(v_n, 1377))->q_name; long long tb_c3484_1n = (long long)strlen(tb_c3484_1); char *tb_c3484r = tb_mem(tb_c3484_0n + tb_c3484_1n + 1), *tb_c3484rw = tb_c3484r; memcpy(tb_c3484rw, tb_c3484_0, tb_c3484_0n); tb_c3484rw += tb_c3484_0n; memcpy(tb_c3484rw, tb_c3484_1, tb_c3484_1n); tb_c3484rw += tb_c3484_1n; *tb_c3484rw = 0; (const char *)tb_c3484r; });
+    { long long tb_v3607 = 1LL; long long *tb_p3607 = &(((tb_o_Comp *)tb_nn(v_c, 1748))->q_label); *tb_p3607 += tb_v3607; }
+    const char * v_id = ({ const char *tb_c3608_0 = ""; long long tb_c3608_0n = sizeof("") - 1; char tb_c3608_1d[24]; long long tb_c3608_1n; const char *tb_c3608_1 = tb_digits(((tb_o_Comp *)tb_nn(v_c, 1749))->q_label, tb_c3608_1d, &tb_c3608_1n); char *tb_c3608r = tb_mem(tb_c3608_0n + tb_c3608_1n + 1), *tb_c3608rw = tb_c3608r; memcpy(tb_c3608rw, tb_c3608_0, tb_c3608_0n); tb_c3608rw += tb_c3608_0n; memcpy(tb_c3608rw, tb_c3608_1, tb_c3608_1n); tb_c3608rw += tb_c3608_1n; *tb_c3608rw = 0; (const char *)tb_c3608r; });
+    const char * v_v = ({ const char *tb_c3609_0 = "v_"; long long tb_c3609_0n = sizeof("v_") - 1; const char *tb_c3609_1 = ((tb_o_Node *)tb_nn(v_n, 1750))->q_name; long long tb_c3609_1n = (long long)strlen(tb_c3609_1); char *tb_c3609r = tb_mem(tb_c3609_0n + tb_c3609_1n + 1), *tb_c3609rw = tb_c3609r; memcpy(tb_c3609rw, tb_c3609_0, tb_c3609_0n); tb_c3609rw += tb_c3609_0n; memcpy(tb_c3609rw, tb_c3609_1, tb_c3609_1n); tb_c3609rw += tb_c3609_1n; *tb_c3609rw = 0; (const char *)tb_c3609r; });
     f_emit__indent(v_c, v_depth);
     f_emit__put(v_c, "{\n");
     f_emit__indent(v_c, (v_depth + 1LL));
-    f_emit__put(v_c, ({ const char *tb_c3485_0 = "long long tb_end"; long long tb_c3485_0n = sizeof("long long tb_end") - 1; const char *tb_c3485_1 = v_id; long long tb_c3485_1n = (long long)strlen(tb_c3485_1); const char *tb_c3485_2 = " = "; long long tb_c3485_2n = sizeof(" = ") - 1; char *tb_c3485r = tb_mem(tb_c3485_0n + tb_c3485_1n + tb_c3485_2n + 1), *tb_c3485rw = tb_c3485r; memcpy(tb_c3485rw, tb_c3485_0, tb_c3485_0n); tb_c3485rw += tb_c3485_0n; memcpy(tb_c3485rw, tb_c3485_1, tb_c3485_1n); tb_c3485rw += tb_c3485_1n; memcpy(tb_c3485rw, tb_c3485_2, tb_c3485_2n); tb_c3485rw += tb_c3485_2n; *tb_c3485rw = 0; (const char *)tb_c3485r; }));
-    f_emit__emit_expr(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1382))->q_kids, 1LL, sizeof(tb_o_Node *), 1382)));
+    f_emit__put(v_c, ({ const char *tb_c3610_0 = "long long tb_end"; long long tb_c3610_0n = sizeof("long long tb_end") - 1; const char *tb_c3610_1 = v_id; long long tb_c3610_1n = (long long)strlen(tb_c3610_1); const char *tb_c3610_2 = " = "; long long tb_c3610_2n = sizeof(" = ") - 1; char *tb_c3610r = tb_mem(tb_c3610_0n + tb_c3610_1n + tb_c3610_2n + 1), *tb_c3610rw = tb_c3610r; memcpy(tb_c3610rw, tb_c3610_0, tb_c3610_0n); tb_c3610rw += tb_c3610_0n; memcpy(tb_c3610rw, tb_c3610_1, tb_c3610_1n); tb_c3610rw += tb_c3610_1n; memcpy(tb_c3610rw, tb_c3610_2, tb_c3610_2n); tb_c3610rw += tb_c3610_2n; *tb_c3610rw = 0; (const char *)tb_c3610r; }));
+    f_emit__emit_expr(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1755))->q_kids, 1LL, sizeof(tb_o_Node *), 1755)));
     f_emit__put(v_c, ";\n");
     f_emit__indent(v_c, (v_depth + 1LL));
-    f_emit__put(v_c, ({ const char *tb_c3486_0 = "long long tb_lo"; long long tb_c3486_0n = sizeof("long long tb_lo") - 1; const char *tb_c3486_1 = v_id; long long tb_c3486_1n = (long long)strlen(tb_c3486_1); const char *tb_c3486_2 = " = "; long long tb_c3486_2n = sizeof(" = ") - 1; char *tb_c3486r = tb_mem(tb_c3486_0n + tb_c3486_1n + tb_c3486_2n + 1), *tb_c3486rw = tb_c3486r; memcpy(tb_c3486rw, tb_c3486_0, tb_c3486_0n); tb_c3486rw += tb_c3486_0n; memcpy(tb_c3486rw, tb_c3486_1, tb_c3486_1n); tb_c3486rw += tb_c3486_1n; memcpy(tb_c3486rw, tb_c3486_2, tb_c3486_2n); tb_c3486rw += tb_c3486_2n; *tb_c3486rw = 0; (const char *)tb_c3486r; }));
-    f_emit__emit_expr(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1386))->q_kids, 0LL, sizeof(tb_o_Node *), 1386)));
+    f_emit__put(v_c, ({ const char *tb_c3611_0 = "long long tb_lo"; long long tb_c3611_0n = sizeof("long long tb_lo") - 1; const char *tb_c3611_1 = v_id; long long tb_c3611_1n = (long long)strlen(tb_c3611_1); const char *tb_c3611_2 = " = "; long long tb_c3611_2n = sizeof(" = ") - 1; char *tb_c3611r = tb_mem(tb_c3611_0n + tb_c3611_1n + tb_c3611_2n + 1), *tb_c3611rw = tb_c3611r; memcpy(tb_c3611rw, tb_c3611_0, tb_c3611_0n); tb_c3611rw += tb_c3611_0n; memcpy(tb_c3611rw, tb_c3611_1, tb_c3611_1n); tb_c3611rw += tb_c3611_1n; memcpy(tb_c3611rw, tb_c3611_2, tb_c3611_2n); tb_c3611rw += tb_c3611_2n; *tb_c3611rw = 0; (const char *)tb_c3611r; }));
+    f_emit__emit_expr(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1759))->q_kids, 0LL, sizeof(tb_o_Node *), 1759)));
     f_emit__put(v_c, ";\n");
     f_emit__indent(v_c, (v_depth + 1LL));
-    f_emit__put(v_c, ({ const char *tb_c3487_0 = "if (tb_end"; long long tb_c3487_0n = sizeof("if (tb_end") - 1; const char *tb_c3487_1 = v_id; long long tb_c3487_1n = (long long)strlen(tb_c3487_1); const char *tb_c3487_2 = " < tb_lo"; long long tb_c3487_2n = sizeof(" < tb_lo") - 1; const char *tb_c3487_3 = v_id; long long tb_c3487_3n = (long long)strlen(tb_c3487_3); char *tb_c3487r = tb_mem(tb_c3487_0n + tb_c3487_1n + tb_c3487_2n + tb_c3487_3n + 1), *tb_c3487rw = tb_c3487r; memcpy(tb_c3487rw, tb_c3487_0, tb_c3487_0n); tb_c3487rw += tb_c3487_0n; memcpy(tb_c3487rw, tb_c3487_1, tb_c3487_1n); tb_c3487rw += tb_c3487_1n; memcpy(tb_c3487rw, tb_c3487_2, tb_c3487_2n); tb_c3487rw += tb_c3487_2n; memcpy(tb_c3487rw, tb_c3487_3, tb_c3487_3n); tb_c3487rw += tb_c3487_3n; *tb_c3487rw = 0; (const char *)tb_c3487r; }));
+    f_emit__put(v_c, ({ const char *tb_c3612_0 = "if (tb_end"; long long tb_c3612_0n = sizeof("if (tb_end") - 1; const char *tb_c3612_1 = v_id; long long tb_c3612_1n = (long long)strlen(tb_c3612_1); const char *tb_c3612_2 = " < tb_lo"; long long tb_c3612_2n = sizeof(" < tb_lo") - 1; const char *tb_c3612_3 = v_id; long long tb_c3612_3n = (long long)strlen(tb_c3612_3); char *tb_c3612r = tb_mem(tb_c3612_0n + tb_c3612_1n + tb_c3612_2n + tb_c3612_3n + 1), *tb_c3612rw = tb_c3612r; memcpy(tb_c3612rw, tb_c3612_0, tb_c3612_0n); tb_c3612rw += tb_c3612_0n; memcpy(tb_c3612rw, tb_c3612_1, tb_c3612_1n); tb_c3612rw += tb_c3612_1n; memcpy(tb_c3612rw, tb_c3612_2, tb_c3612_2n); tb_c3612rw += tb_c3612_2n; memcpy(tb_c3612rw, tb_c3612_3, tb_c3612_3n); tb_c3612rw += tb_c3612_3n; *tb_c3612rw = 0; (const char *)tb_c3612r; }));
     f_emit__put(v_c, " || (1");
     {
-        long long tb_end3488 = ((v_names)->len - 1LL);
-        for (long long v_j = 0LL; v_j <= tb_end3488; v_j++) {
-            f_emit__put(v_c, ({ const char *tb_c3489_0 = " && tb_lo"; long long tb_c3489_0n = sizeof(" && tb_lo") - 1; const char *tb_c3489_1 = v_id; long long tb_c3489_1n = (long long)strlen(tb_c3489_1); const char *tb_c3489_2 = " >= "; long long tb_c3489_2n = sizeof(" >= ") - 1; char tb_c3489_3d[24]; long long tb_c3489_3n; const char *tb_c3489_3 = tb_digits((0LL - (*(long long *)tb_at(v_lo, v_j, sizeof(long long), 1392))), tb_c3489_3d, &tb_c3489_3n); const char *tb_c3489_4 = "LL && tb_end"; long long tb_c3489_4n = sizeof("LL && tb_end") - 1; const char *tb_c3489_5 = v_id; long long tb_c3489_5n = (long long)strlen(tb_c3489_5); const char *tb_c3489_6 = " < ("; long long tb_c3489_6n = sizeof(" < (") - 1; char *tb_c3489r = tb_mem(tb_c3489_0n + tb_c3489_1n + tb_c3489_2n + tb_c3489_3n + tb_c3489_4n + tb_c3489_5n + tb_c3489_6n + 1), *tb_c3489rw = tb_c3489r; memcpy(tb_c3489rw, tb_c3489_0, tb_c3489_0n); tb_c3489rw += tb_c3489_0n; memcpy(tb_c3489rw, tb_c3489_1, tb_c3489_1n); tb_c3489rw += tb_c3489_1n; memcpy(tb_c3489rw, tb_c3489_2, tb_c3489_2n); tb_c3489rw += tb_c3489_2n; memcpy(tb_c3489rw, tb_c3489_3, tb_c3489_3n); tb_c3489rw += tb_c3489_3n; memcpy(tb_c3489rw, tb_c3489_4, tb_c3489_4n); tb_c3489rw += tb_c3489_4n; memcpy(tb_c3489rw, tb_c3489_5, tb_c3489_5n); tb_c3489rw += tb_c3489_5n; memcpy(tb_c3489rw, tb_c3489_6, tb_c3489_6n); tb_c3489rw += tb_c3489_6n; *tb_c3489rw = 0; (const char *)tb_c3489r; }));
-            f_emit__emit_expr(v_c, (*(tb_o_Node * *)tb_at(v_nodes, v_j, sizeof(tb_o_Node *), 1393)));
-            f_emit__put(v_c, ({ const char *tb_c3490_0 = ")->len - "; long long tb_c3490_0n = sizeof(")->len - ") - 1; char tb_c3490_1d[24]; long long tb_c3490_1n; const char *tb_c3490_1 = tb_digits((*(long long *)tb_at(v_hi, v_j, sizeof(long long), 1394)), tb_c3490_1d, &tb_c3490_1n); const char *tb_c3490_2 = "LL"; long long tb_c3490_2n = sizeof("LL") - 1; char *tb_c3490r = tb_mem(tb_c3490_0n + tb_c3490_1n + tb_c3490_2n + 1), *tb_c3490rw = tb_c3490r; memcpy(tb_c3490rw, tb_c3490_0, tb_c3490_0n); tb_c3490rw += tb_c3490_0n; memcpy(tb_c3490rw, tb_c3490_1, tb_c3490_1n); tb_c3490rw += tb_c3490_1n; memcpy(tb_c3490rw, tb_c3490_2, tb_c3490_2n); tb_c3490rw += tb_c3490_2n; *tb_c3490rw = 0; (const char *)tb_c3490r; }));
+        long long tb_end3613 = ((v_names)->len - 1LL);
+        for (long long v_j = 0LL; v_j <= tb_end3613; v_j++) {
+            if (tb_starts((*(const char * *)tb_at(v_names, v_j, sizeof(const char *), 1765)), "#")) {
+                f_emit__put(v_c, " && (");
+                f_emit__emit_expr(v_c, (*(tb_o_Node * *)tb_at(v_nodes, v_j, sizeof(tb_o_Node *), 1767)));
+                f_emit__put(v_c, ({ const char *tb_c3614_0 = ")->len > "; long long tb_c3614_0n = sizeof(")->len > ") - 1; char tb_c3614_1d[24]; long long tb_c3614_1n; const char *tb_c3614_1 = tb_digits((*(long long *)tb_at(v_hi, v_j, sizeof(long long), 1768)), tb_c3614_1d, &tb_c3614_1n); const char *tb_c3614_2 = "LL"; long long tb_c3614_2n = sizeof("LL") - 1; char *tb_c3614r = tb_mem(tb_c3614_0n + tb_c3614_1n + tb_c3614_2n + 1), *tb_c3614rw = tb_c3614r; memcpy(tb_c3614rw, tb_c3614_0, tb_c3614_0n); tb_c3614rw += tb_c3614_0n; memcpy(tb_c3614rw, tb_c3614_1, tb_c3614_1n); tb_c3614rw += tb_c3614_1n; memcpy(tb_c3614rw, tb_c3614_2, tb_c3614_2n); tb_c3614rw += tb_c3614_2n; *tb_c3614rw = 0; (const char *)tb_c3614r; }));
+            } else {
+                f_emit__put(v_c, ({ const char *tb_c3615_0 = " && tb_lo"; long long tb_c3615_0n = sizeof(" && tb_lo") - 1; const char *tb_c3615_1 = v_id; long long tb_c3615_1n = (long long)strlen(tb_c3615_1); const char *tb_c3615_2 = " >= "; long long tb_c3615_2n = sizeof(" >= ") - 1; char tb_c3615_3d[24]; long long tb_c3615_3n; const char *tb_c3615_3 = tb_digits((0LL - (*(long long *)tb_at(v_lo, v_j, sizeof(long long), 1770))), tb_c3615_3d, &tb_c3615_3n); const char *tb_c3615_4 = "LL && tb_end"; long long tb_c3615_4n = sizeof("LL && tb_end") - 1; const char *tb_c3615_5 = v_id; long long tb_c3615_5n = (long long)strlen(tb_c3615_5); const char *tb_c3615_6 = " < ("; long long tb_c3615_6n = sizeof(" < (") - 1; char *tb_c3615r = tb_mem(tb_c3615_0n + tb_c3615_1n + tb_c3615_2n + tb_c3615_3n + tb_c3615_4n + tb_c3615_5n + tb_c3615_6n + 1), *tb_c3615rw = tb_c3615r; memcpy(tb_c3615rw, tb_c3615_0, tb_c3615_0n); tb_c3615rw += tb_c3615_0n; memcpy(tb_c3615rw, tb_c3615_1, tb_c3615_1n); tb_c3615rw += tb_c3615_1n; memcpy(tb_c3615rw, tb_c3615_2, tb_c3615_2n); tb_c3615rw += tb_c3615_2n; memcpy(tb_c3615rw, tb_c3615_3, tb_c3615_3n); tb_c3615rw += tb_c3615_3n; memcpy(tb_c3615rw, tb_c3615_4, tb_c3615_4n); tb_c3615rw += tb_c3615_4n; memcpy(tb_c3615rw, tb_c3615_5, tb_c3615_5n); tb_c3615rw += tb_c3615_5n; memcpy(tb_c3615rw, tb_c3615_6, tb_c3615_6n); tb_c3615rw += tb_c3615_6n; *tb_c3615rw = 0; (const char *)tb_c3615r; }));
+                f_emit__emit_expr(v_c, (*(tb_o_Node * *)tb_at(v_nodes, v_j, sizeof(tb_o_Node *), 1771)));
+                f_emit__put(v_c, ({ const char *tb_c3616_0 = ")->len - "; long long tb_c3616_0n = sizeof(")->len - ") - 1; char tb_c3616_1d[24]; long long tb_c3616_1n; const char *tb_c3616_1 = tb_digits((*(long long *)tb_at(v_hi, v_j, sizeof(long long), 1772)), tb_c3616_1d, &tb_c3616_1n); const char *tb_c3616_2 = "LL"; long long tb_c3616_2n = sizeof("LL") - 1; char *tb_c3616r = tb_mem(tb_c3616_0n + tb_c3616_1n + tb_c3616_2n + 1), *tb_c3616rw = tb_c3616r; memcpy(tb_c3616rw, tb_c3616_0, tb_c3616_0n); tb_c3616rw += tb_c3616_0n; memcpy(tb_c3616rw, tb_c3616_1, tb_c3616_1n); tb_c3616rw += tb_c3616_1n; memcpy(tb_c3616rw, tb_c3616_2, tb_c3616_2n); tb_c3616rw += tb_c3616_2n; *tb_c3616rw = 0; (const char *)tb_c3616r; }));
+            }
         }
     }
     f_emit__put(v_c, ")) {\n");
     tb_list * v_keep = tb_list_new(sizeof(const char *));
     {
-        tb_list * tb_l3491 = ((tb_o_Comp *)tb_nn(v_c, 1397))->q_fast_lists;
-        for (long long tb_i3491 = 0; tb_i3491 < tb_l3491->len; tb_i3491++) {
-            const char * const v_key = ((const char * *)tb_l3491->data)[tb_i3491];
-            { const char * tb_v3492 = v_key; *(const char * *)tb_grow(v_keep) = tb_v3492; }
+        tb_list * tb_l3617 = ((tb_o_Comp *)tb_nn(v_c, 1775))->q_fast_lists;
+        for (long long tb_i3617 = 0; tb_i3617 < tb_l3617->len; tb_i3617++) {
+            const char * const v_key = ((const char * *)tb_l3617->data)[tb_i3617];
+            { const char * tb_v3618 = v_key; *(const char * *)tb_grow(v_keep) = tb_v3618; }
         }
     }
     tb_list * v_with_mine = tb_list_new(sizeof(const char *));
     {
-        tb_list * tb_l3493 = ((tb_o_Comp *)tb_nn(v_c, 1400))->q_fast_lists;
-        for (long long tb_i3493 = 0; tb_i3493 < tb_l3493->len; tb_i3493++) {
-            const char * const v_key = ((const char * *)tb_l3493->data)[tb_i3493];
-            { const char * tb_v3494 = v_key; *(const char * *)tb_grow(v_with_mine) = tb_v3494; }
+        tb_list * tb_l3619 = ((tb_o_Comp *)tb_nn(v_c, 1778))->q_fast_lists;
+        for (long long tb_i3619 = 0; tb_i3619 < tb_l3619->len; tb_i3619++) {
+            const char * const v_key = ((const char * *)tb_l3619->data)[tb_i3619];
+            { const char * tb_v3620 = v_key; *(const char * *)tb_grow(v_with_mine) = tb_v3620; }
         }
     }
     {
-        tb_list * tb_l3495 = v_names;
-        for (long long tb_i3495 = 0; tb_i3495 < tb_l3495->len; tb_i3495++) {
-            const char * const v_name = ((const char * *)tb_l3495->data)[tb_i3495];
-            { const char * tb_v3496 = ({ const char *tb_c3497_0 = ((tb_o_Node *)tb_nn(v_n, 1403))->q_name; long long tb_c3497_0n = (long long)strlen(tb_c3497_0); const char *tb_c3497_1 = "\t"; long long tb_c3497_1n = sizeof("\t") - 1; const char *tb_c3497_2 = v_name; long long tb_c3497_2n = (long long)strlen(tb_c3497_2); char *tb_c3497r = tb_mem(tb_c3497_0n + tb_c3497_1n + tb_c3497_2n + 1), *tb_c3497rw = tb_c3497r; memcpy(tb_c3497rw, tb_c3497_0, tb_c3497_0n); tb_c3497rw += tb_c3497_0n; memcpy(tb_c3497rw, tb_c3497_1, tb_c3497_1n); tb_c3497rw += tb_c3497_1n; memcpy(tb_c3497rw, tb_c3497_2, tb_c3497_2n); tb_c3497rw += tb_c3497_2n; *tb_c3497rw = 0; (const char *)tb_c3497r; }); *(const char * *)tb_grow(v_with_mine) = tb_v3496; }
+        long long tb_end3621 = ((v_names)->len - 1LL);
+        for (long long v_j = 0LL; v_j <= tb_end3621; v_j++) {
+            if (tb_starts((*(const char * *)tb_at(v_names, v_j, sizeof(const char *), 1781)), "#")) {
+                { const char * tb_v3622 = ({ const char *tb_c3623_0 = "#\t"; long long tb_c3623_0n = sizeof("#\t") - 1; const char *tb_c3623_1 = tb_cut((*(const char * *)tb_at(v_names, v_j, sizeof(const char *), 1782)), 1LL, (tb_tlen((*(const char * *)tb_at(v_names, v_j, sizeof(const char *), 1782))) - 1LL), 1782); long long tb_c3623_1n = (long long)strlen(tb_c3623_1); const char *tb_c3623_2 = "\t"; long long tb_c3623_2n = sizeof("\t") - 1; char tb_c3623_3d[24]; long long tb_c3623_3n; const char *tb_c3623_3 = tb_digits((*(long long *)tb_at(v_hi, v_j, sizeof(long long), 1782)), tb_c3623_3d, &tb_c3623_3n); char *tb_c3623r = tb_mem(tb_c3623_0n + tb_c3623_1n + tb_c3623_2n + tb_c3623_3n + 1), *tb_c3623rw = tb_c3623r; memcpy(tb_c3623rw, tb_c3623_0, tb_c3623_0n); tb_c3623rw += tb_c3623_0n; memcpy(tb_c3623rw, tb_c3623_1, tb_c3623_1n); tb_c3623rw += tb_c3623_1n; memcpy(tb_c3623rw, tb_c3623_2, tb_c3623_2n); tb_c3623rw += tb_c3623_2n; memcpy(tb_c3623rw, tb_c3623_3, tb_c3623_3n); tb_c3623rw += tb_c3623_3n; *tb_c3623rw = 0; (const char *)tb_c3623r; }); *(const char * *)tb_grow(v_with_mine) = tb_v3622; }
+            } else {
+                { const char * tb_v3624 = ({ const char *tb_c3625_0 = ((tb_o_Node *)tb_nn(v_n, 1784))->q_name; long long tb_c3625_0n = (long long)strlen(tb_c3625_0); const char *tb_c3625_1 = "\t"; long long tb_c3625_1n = sizeof("\t") - 1; const char *tb_c3625_2 = (*(const char * *)tb_at(v_names, v_j, sizeof(const char *), 1784)); long long tb_c3625_2n = (long long)strlen(tb_c3625_2); char *tb_c3625r = tb_mem(tb_c3625_0n + tb_c3625_1n + tb_c3625_2n + 1), *tb_c3625rw = tb_c3625r; memcpy(tb_c3625rw, tb_c3625_0, tb_c3625_0n); tb_c3625rw += tb_c3625_0n; memcpy(tb_c3625rw, tb_c3625_1, tb_c3625_1n); tb_c3625rw += tb_c3625_1n; memcpy(tb_c3625rw, tb_c3625_2, tb_c3625_2n); tb_c3625rw += tb_c3625_2n; *tb_c3625rw = 0; (const char *)tb_c3625r; }); *(const char * *)tb_grow(v_with_mine) = tb_v3624; }
+            }
         }
     }
-    { tb_list * tb_v3498 = v_with_mine; tb_list * *tb_p3498 = &(((tb_o_Comp *)tb_nn(v_c, 1404))->q_fast_lists); *tb_p3498 = tb_v3498; }
-    { long long tb_v3499 = 1LL; long long *tb_p3499 = &(((tb_o_Comp *)tb_nn(v_c, 1405))->q_fast_depth); *tb_p3499 += tb_v3499; }
+    { tb_list * tb_v3626 = v_with_mine; tb_list * *tb_p3626 = &(((tb_o_Comp *)tb_nn(v_c, 1785))->q_fast_lists); *tb_p3626 = tb_v3626; }
+    { long long tb_v3627 = 1LL; long long *tb_p3627 = &(((tb_o_Comp *)tb_nn(v_c, 1786))->q_fast_depth); *tb_p3627 += tb_v3627; }
     f_emit__indent(v_c, (v_depth + 2LL));
-    f_emit__put(v_c, ({ const char *tb_c3500_0 = "for (long long "; long long tb_c3500_0n = sizeof("for (long long ") - 1; const char *tb_c3500_1 = v_v; long long tb_c3500_1n = (long long)strlen(tb_c3500_1); const char *tb_c3500_2 = " = tb_lo"; long long tb_c3500_2n = sizeof(" = tb_lo") - 1; const char *tb_c3500_3 = v_id; long long tb_c3500_3n = (long long)strlen(tb_c3500_3); const char *tb_c3500_4 = "; "; long long tb_c3500_4n = sizeof("; ") - 1; const char *tb_c3500_5 = v_v; long long tb_c3500_5n = (long long)strlen(tb_c3500_5); const char *tb_c3500_6 = " <= tb_end"; long long tb_c3500_6n = sizeof(" <= tb_end") - 1; const char *tb_c3500_7 = v_id; long long tb_c3500_7n = (long long)strlen(tb_c3500_7); const char *tb_c3500_8 = "; "; long long tb_c3500_8n = sizeof("; ") - 1; const char *tb_c3500_9 = v_v; long long tb_c3500_9n = (long long)strlen(tb_c3500_9); const char *tb_c3500_10 = "++) {\n"; long long tb_c3500_10n = sizeof("++) {\n") - 1; char *tb_c3500r = tb_mem(tb_c3500_0n + tb_c3500_1n + tb_c3500_2n + tb_c3500_3n + tb_c3500_4n + tb_c3500_5n + tb_c3500_6n + tb_c3500_7n + tb_c3500_8n + tb_c3500_9n + tb_c3500_10n + 1), *tb_c3500rw = tb_c3500r; memcpy(tb_c3500rw, tb_c3500_0, tb_c3500_0n); tb_c3500rw += tb_c3500_0n; memcpy(tb_c3500rw, tb_c3500_1, tb_c3500_1n); tb_c3500rw += tb_c3500_1n; memcpy(tb_c3500rw, tb_c3500_2, tb_c3500_2n); tb_c3500rw += tb_c3500_2n; memcpy(tb_c3500rw, tb_c3500_3, tb_c3500_3n); tb_c3500rw += tb_c3500_3n; memcpy(tb_c3500rw, tb_c3500_4, tb_c3500_4n); tb_c3500rw += tb_c3500_4n; memcpy(tb_c3500rw, tb_c3500_5, tb_c3500_5n); tb_c3500rw += tb_c3500_5n; memcpy(tb_c3500rw, tb_c3500_6, tb_c3500_6n); tb_c3500rw += tb_c3500_6n; memcpy(tb_c3500rw, tb_c3500_7, tb_c3500_7n); tb_c3500rw += tb_c3500_7n; memcpy(tb_c3500rw, tb_c3500_8, tb_c3500_8n); tb_c3500rw += tb_c3500_8n; memcpy(tb_c3500rw, tb_c3500_9, tb_c3500_9n); tb_c3500rw += tb_c3500_9n; memcpy(tb_c3500rw, tb_c3500_10, tb_c3500_10n); tb_c3500rw += tb_c3500_10n; *tb_c3500rw = 0; (const char *)tb_c3500r; }));
+    f_emit__put(v_c, ({ const char *tb_c3628_0 = "for (long long "; long long tb_c3628_0n = sizeof("for (long long ") - 1; const char *tb_c3628_1 = v_v; long long tb_c3628_1n = (long long)strlen(tb_c3628_1); const char *tb_c3628_2 = " = tb_lo"; long long tb_c3628_2n = sizeof(" = tb_lo") - 1; const char *tb_c3628_3 = v_id; long long tb_c3628_3n = (long long)strlen(tb_c3628_3); const char *tb_c3628_4 = "; "; long long tb_c3628_4n = sizeof("; ") - 1; const char *tb_c3628_5 = v_v; long long tb_c3628_5n = (long long)strlen(tb_c3628_5); const char *tb_c3628_6 = " <= tb_end"; long long tb_c3628_6n = sizeof(" <= tb_end") - 1; const char *tb_c3628_7 = v_id; long long tb_c3628_7n = (long long)strlen(tb_c3628_7); const char *tb_c3628_8 = "; "; long long tb_c3628_8n = sizeof("; ") - 1; const char *tb_c3628_9 = v_v; long long tb_c3628_9n = (long long)strlen(tb_c3628_9); const char *tb_c3628_10 = "++) {\n"; long long tb_c3628_10n = sizeof("++) {\n") - 1; char *tb_c3628r = tb_mem(tb_c3628_0n + tb_c3628_1n + tb_c3628_2n + tb_c3628_3n + tb_c3628_4n + tb_c3628_5n + tb_c3628_6n + tb_c3628_7n + tb_c3628_8n + tb_c3628_9n + tb_c3628_10n + 1), *tb_c3628rw = tb_c3628r; memcpy(tb_c3628rw, tb_c3628_0, tb_c3628_0n); tb_c3628rw += tb_c3628_0n; memcpy(tb_c3628rw, tb_c3628_1, tb_c3628_1n); tb_c3628rw += tb_c3628_1n; memcpy(tb_c3628rw, tb_c3628_2, tb_c3628_2n); tb_c3628rw += tb_c3628_2n; memcpy(tb_c3628rw, tb_c3628_3, tb_c3628_3n); tb_c3628rw += tb_c3628_3n; memcpy(tb_c3628rw, tb_c3628_4, tb_c3628_4n); tb_c3628rw += tb_c3628_4n; memcpy(tb_c3628rw, tb_c3628_5, tb_c3628_5n); tb_c3628rw += tb_c3628_5n; memcpy(tb_c3628rw, tb_c3628_6, tb_c3628_6n); tb_c3628rw += tb_c3628_6n; memcpy(tb_c3628rw, tb_c3628_7, tb_c3628_7n); tb_c3628rw += tb_c3628_7n; memcpy(tb_c3628rw, tb_c3628_8, tb_c3628_8n); tb_c3628rw += tb_c3628_8n; memcpy(tb_c3628rw, tb_c3628_9, tb_c3628_9n); tb_c3628rw += tb_c3628_9n; memcpy(tb_c3628rw, tb_c3628_10, tb_c3628_10n); tb_c3628rw += tb_c3628_10n; *tb_c3628rw = 0; (const char *)tb_c3628r; }));
     f_emit__emit_prefetch(v_c, v_n, (v_depth + 3LL), "", v_v, "long long");
-    f_emit__emit_loop_body(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1409))->q_kids, 2LL, sizeof(tb_o_Node *), 1409)), (v_depth + 3LL));
+    f_emit__emit_loop_body(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1790))->q_kids, 2LL, sizeof(tb_o_Node *), 1790)), (v_depth + 3LL));
     f_emit__indent(v_c, (v_depth + 2LL));
     f_emit__put(v_c, "}\n");
-    { long long tb_v3501 = 1LL; long long *tb_p3501 = &(((tb_o_Comp *)tb_nn(v_c, 1412))->q_fast_depth); *tb_p3501 -= tb_v3501; }
-    { tb_list * tb_v3502 = v_keep; tb_list * *tb_p3502 = &(((tb_o_Comp *)tb_nn(v_c, 1413))->q_fast_lists); *tb_p3502 = tb_v3502; }
+    { long long tb_v3629 = 1LL; long long *tb_p3629 = &(((tb_o_Comp *)tb_nn(v_c, 1793))->q_fast_depth); *tb_p3629 -= tb_v3629; }
+    { tb_list * tb_v3630 = v_keep; tb_list * *tb_p3630 = &(((tb_o_Comp *)tb_nn(v_c, 1794))->q_fast_lists); *tb_p3630 = tb_v3630; }
     f_emit__indent(v_c, (v_depth + 1LL));
     f_emit__put(v_c, "} else {\n");
     f_emit__indent(v_c, (v_depth + 2LL));
-    f_emit__put(v_c, ({ const char *tb_c3503_0 = "for (long long "; long long tb_c3503_0n = sizeof("for (long long ") - 1; const char *tb_c3503_1 = v_v; long long tb_c3503_1n = (long long)strlen(tb_c3503_1); const char *tb_c3503_2 = " = tb_lo"; long long tb_c3503_2n = sizeof(" = tb_lo") - 1; const char *tb_c3503_3 = v_id; long long tb_c3503_3n = (long long)strlen(tb_c3503_3); const char *tb_c3503_4 = "; "; long long tb_c3503_4n = sizeof("; ") - 1; const char *tb_c3503_5 = v_v; long long tb_c3503_5n = (long long)strlen(tb_c3503_5); const char *tb_c3503_6 = " <= tb_end"; long long tb_c3503_6n = sizeof(" <= tb_end") - 1; const char *tb_c3503_7 = v_id; long long tb_c3503_7n = (long long)strlen(tb_c3503_7); const char *tb_c3503_8 = "; "; long long tb_c3503_8n = sizeof("; ") - 1; const char *tb_c3503_9 = v_v; long long tb_c3503_9n = (long long)strlen(tb_c3503_9); const char *tb_c3503_10 = "++) {\n"; long long tb_c3503_10n = sizeof("++) {\n") - 1; char *tb_c3503r = tb_mem(tb_c3503_0n + tb_c3503_1n + tb_c3503_2n + tb_c3503_3n + tb_c3503_4n + tb_c3503_5n + tb_c3503_6n + tb_c3503_7n + tb_c3503_8n + tb_c3503_9n + tb_c3503_10n + 1), *tb_c3503rw = tb_c3503r; memcpy(tb_c3503rw, tb_c3503_0, tb_c3503_0n); tb_c3503rw += tb_c3503_0n; memcpy(tb_c3503rw, tb_c3503_1, tb_c3503_1n); tb_c3503rw += tb_c3503_1n; memcpy(tb_c3503rw, tb_c3503_2, tb_c3503_2n); tb_c3503rw += tb_c3503_2n; memcpy(tb_c3503rw, tb_c3503_3, tb_c3503_3n); tb_c3503rw += tb_c3503_3n; memcpy(tb_c3503rw, tb_c3503_4, tb_c3503_4n); tb_c3503rw += tb_c3503_4n; memcpy(tb_c3503rw, tb_c3503_5, tb_c3503_5n); tb_c3503rw += tb_c3503_5n; memcpy(tb_c3503rw, tb_c3503_6, tb_c3503_6n); tb_c3503rw += tb_c3503_6n; memcpy(tb_c3503rw, tb_c3503_7, tb_c3503_7n); tb_c3503rw += tb_c3503_7n; memcpy(tb_c3503rw, tb_c3503_8, tb_c3503_8n); tb_c3503rw += tb_c3503_8n; memcpy(tb_c3503rw, tb_c3503_9, tb_c3503_9n); tb_c3503rw += tb_c3503_9n; memcpy(tb_c3503rw, tb_c3503_10, tb_c3503_10n); tb_c3503rw += tb_c3503_10n; *tb_c3503rw = 0; (const char *)tb_c3503r; }));
+    f_emit__put(v_c, ({ const char *tb_c3631_0 = "for (long long "; long long tb_c3631_0n = sizeof("for (long long ") - 1; const char *tb_c3631_1 = v_v; long long tb_c3631_1n = (long long)strlen(tb_c3631_1); const char *tb_c3631_2 = " = tb_lo"; long long tb_c3631_2n = sizeof(" = tb_lo") - 1; const char *tb_c3631_3 = v_id; long long tb_c3631_3n = (long long)strlen(tb_c3631_3); const char *tb_c3631_4 = "; "; long long tb_c3631_4n = sizeof("; ") - 1; const char *tb_c3631_5 = v_v; long long tb_c3631_5n = (long long)strlen(tb_c3631_5); const char *tb_c3631_6 = " <= tb_end"; long long tb_c3631_6n = sizeof(" <= tb_end") - 1; const char *tb_c3631_7 = v_id; long long tb_c3631_7n = (long long)strlen(tb_c3631_7); const char *tb_c3631_8 = "; "; long long tb_c3631_8n = sizeof("; ") - 1; const char *tb_c3631_9 = v_v; long long tb_c3631_9n = (long long)strlen(tb_c3631_9); const char *tb_c3631_10 = "++) {\n"; long long tb_c3631_10n = sizeof("++) {\n") - 1; char *tb_c3631r = tb_mem(tb_c3631_0n + tb_c3631_1n + tb_c3631_2n + tb_c3631_3n + tb_c3631_4n + tb_c3631_5n + tb_c3631_6n + tb_c3631_7n + tb_c3631_8n + tb_c3631_9n + tb_c3631_10n + 1), *tb_c3631rw = tb_c3631r; memcpy(tb_c3631rw, tb_c3631_0, tb_c3631_0n); tb_c3631rw += tb_c3631_0n; memcpy(tb_c3631rw, tb_c3631_1, tb_c3631_1n); tb_c3631rw += tb_c3631_1n; memcpy(tb_c3631rw, tb_c3631_2, tb_c3631_2n); tb_c3631rw += tb_c3631_2n; memcpy(tb_c3631rw, tb_c3631_3, tb_c3631_3n); tb_c3631rw += tb_c3631_3n; memcpy(tb_c3631rw, tb_c3631_4, tb_c3631_4n); tb_c3631rw += tb_c3631_4n; memcpy(tb_c3631rw, tb_c3631_5, tb_c3631_5n); tb_c3631rw += tb_c3631_5n; memcpy(tb_c3631rw, tb_c3631_6, tb_c3631_6n); tb_c3631rw += tb_c3631_6n; memcpy(tb_c3631rw, tb_c3631_7, tb_c3631_7n); tb_c3631rw += tb_c3631_7n; memcpy(tb_c3631rw, tb_c3631_8, tb_c3631_8n); tb_c3631rw += tb_c3631_8n; memcpy(tb_c3631rw, tb_c3631_9, tb_c3631_9n); tb_c3631rw += tb_c3631_9n; memcpy(tb_c3631rw, tb_c3631_10, tb_c3631_10n); tb_c3631rw += tb_c3631_10n; *tb_c3631rw = 0; (const char *)tb_c3631r; }));
     f_emit__emit_prefetch(v_c, v_n, (v_depth + 3LL), "", v_v, "long long");
-    f_emit__emit_loop_body(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1419))->q_kids, 2LL, sizeof(tb_o_Node *), 1419)), (v_depth + 3LL));
+    f_emit__emit_loop_body(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1800))->q_kids, 2LL, sizeof(tb_o_Node *), 1800)), (v_depth + 3LL));
     f_emit__indent(v_c, (v_depth + 2LL));
     f_emit__put(v_c, "}\n");
     f_emit__indent(v_c, (v_depth + 1LL));
@@ -11315,232 +12223,232 @@ static void f_emit__emit_count_fast(tb_o_Comp * v_c, tb_o_Node * v_n, long long 
 }
 
 static void f_emit__emit_gives_return(tb_o_Comp * v_c, long long v_depth) {
-    tb_o_Node * v_outputs = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(((tb_o_Comp *)tb_nn(v_c, 1429))->q_cur_func, 1429))->q_kids, 2LL, sizeof(tb_o_Node *), 1429));
+    tb_o_Node * v_outputs = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(((tb_o_Comp *)tb_nn(v_c, 1810))->q_cur_func, 1810))->q_kids, 2LL, sizeof(tb_o_Node *), 1810));
     f_emit__indent(v_c, v_depth);
-    if (((((tb_o_Node *)tb_nn(v_outputs, 1431))->q_kids)->len == 1LL)) {
-        f_emit__put(v_c, ({ const char *tb_c3504_0 = "return v_"; long long tb_c3504_0n = sizeof("return v_") - 1; const char *tb_c3504_1 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_outputs, 1432))->q_kids, 0LL, sizeof(tb_o_Node *), 1432)), 1432))->q_name; long long tb_c3504_1n = (long long)strlen(tb_c3504_1); const char *tb_c3504_2 = ";\n"; long long tb_c3504_2n = sizeof(";\n") - 1; char *tb_c3504r = tb_mem(tb_c3504_0n + tb_c3504_1n + tb_c3504_2n + 1), *tb_c3504rw = tb_c3504r; memcpy(tb_c3504rw, tb_c3504_0, tb_c3504_0n); tb_c3504rw += tb_c3504_0n; memcpy(tb_c3504rw, tb_c3504_1, tb_c3504_1n); tb_c3504rw += tb_c3504_1n; memcpy(tb_c3504rw, tb_c3504_2, tb_c3504_2n); tb_c3504rw += tb_c3504_2n; *tb_c3504rw = 0; (const char *)tb_c3504r; }));
+    if (((((tb_o_Node *)tb_nn(v_outputs, 1812))->q_kids)->len == 1LL)) {
+        f_emit__put(v_c, ({ const char *tb_c3632_0 = "return v_"; long long tb_c3632_0n = sizeof("return v_") - 1; const char *tb_c3632_1 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_outputs, 1813))->q_kids, 0LL, sizeof(tb_o_Node *), 1813)), 1813))->q_name; long long tb_c3632_1n = (long long)strlen(tb_c3632_1); const char *tb_c3632_2 = ";\n"; long long tb_c3632_2n = sizeof(";\n") - 1; char *tb_c3632r = tb_mem(tb_c3632_0n + tb_c3632_1n + tb_c3632_2n + 1), *tb_c3632rw = tb_c3632r; memcpy(tb_c3632rw, tb_c3632_0, tb_c3632_0n); tb_c3632rw += tb_c3632_0n; memcpy(tb_c3632rw, tb_c3632_1, tb_c3632_1n); tb_c3632rw += tb_c3632_1n; memcpy(tb_c3632rw, tb_c3632_2, tb_c3632_2n); tb_c3632rw += tb_c3632_2n; *tb_c3632rw = 0; (const char *)tb_c3632r; }));
         return;
     }
-    f_emit__put(v_c, ({ const char *tb_c3505_0 = "return ("; long long tb_c3505_0n = sizeof("return (") - 1; const char *tb_c3505_1 = f_emit__c_type(v_c, ((tb_o_Node *)tb_nn(((tb_o_Comp *)tb_nn(v_c, 1434))->q_cur_func, 1434))->q_ty); long long tb_c3505_1n = (long long)strlen(tb_c3505_1); const char *tb_c3505_2 = "){"; long long tb_c3505_2n = sizeof("){") - 1; char *tb_c3505r = tb_mem(tb_c3505_0n + tb_c3505_1n + tb_c3505_2n + 1), *tb_c3505rw = tb_c3505r; memcpy(tb_c3505rw, tb_c3505_0, tb_c3505_0n); tb_c3505rw += tb_c3505_0n; memcpy(tb_c3505rw, tb_c3505_1, tb_c3505_1n); tb_c3505rw += tb_c3505_1n; memcpy(tb_c3505rw, tb_c3505_2, tb_c3505_2n); tb_c3505rw += tb_c3505_2n; *tb_c3505rw = 0; (const char *)tb_c3505r; }));
+    f_emit__put(v_c, ({ const char *tb_c3633_0 = "return ("; long long tb_c3633_0n = sizeof("return (") - 1; const char *tb_c3633_1 = f_emit__c_type(v_c, ((tb_o_Node *)tb_nn(((tb_o_Comp *)tb_nn(v_c, 1815))->q_cur_func, 1815))->q_ty); long long tb_c3633_1n = (long long)strlen(tb_c3633_1); const char *tb_c3633_2 = "){"; long long tb_c3633_2n = sizeof("){") - 1; char *tb_c3633r = tb_mem(tb_c3633_0n + tb_c3633_1n + tb_c3633_2n + 1), *tb_c3633rw = tb_c3633r; memcpy(tb_c3633rw, tb_c3633_0, tb_c3633_0n); tb_c3633rw += tb_c3633_0n; memcpy(tb_c3633rw, tb_c3633_1, tb_c3633_1n); tb_c3633rw += tb_c3633_1n; memcpy(tb_c3633rw, tb_c3633_2, tb_c3633_2n); tb_c3633rw += tb_c3633_2n; *tb_c3633rw = 0; (const char *)tb_c3633r; }));
     {
-        long long tb_end3506 = ((((tb_o_Node *)tb_nn(v_outputs, 1435))->q_kids)->len - 1LL);
-        for (long long v_i = 0LL; v_i <= tb_end3506; v_i++) {
+        long long tb_end3634 = ((((tb_o_Node *)tb_nn(v_outputs, 1816))->q_kids)->len - 1LL);
+        for (long long v_i = 0LL; v_i <= tb_end3634; v_i++) {
             if ((v_i > 0LL)) {
                 f_emit__put(v_c, ", ");
             }
-            f_emit__put(v_c, ({ const char *tb_c3507_0 = "v_"; long long tb_c3507_0n = sizeof("v_") - 1; const char *tb_c3507_1 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_outputs, 1438))->q_kids, v_i, sizeof(tb_o_Node *), 1438)), 1438))->q_name; long long tb_c3507_1n = (long long)strlen(tb_c3507_1); char *tb_c3507r = tb_mem(tb_c3507_0n + tb_c3507_1n + 1), *tb_c3507rw = tb_c3507r; memcpy(tb_c3507rw, tb_c3507_0, tb_c3507_0n); tb_c3507rw += tb_c3507_0n; memcpy(tb_c3507rw, tb_c3507_1, tb_c3507_1n); tb_c3507rw += tb_c3507_1n; *tb_c3507rw = 0; (const char *)tb_c3507r; }));
+            f_emit__put(v_c, ({ const char *tb_c3635_0 = "v_"; long long tb_c3635_0n = sizeof("v_") - 1; const char *tb_c3635_1 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_outputs, 1819))->q_kids, v_i, sizeof(tb_o_Node *), 1819)), 1819))->q_name; long long tb_c3635_1n = (long long)strlen(tb_c3635_1); char *tb_c3635r = tb_mem(tb_c3635_0n + tb_c3635_1n + 1), *tb_c3635rw = tb_c3635r; memcpy(tb_c3635rw, tb_c3635_0, tb_c3635_0n); tb_c3635rw += tb_c3635_0n; memcpy(tb_c3635rw, tb_c3635_1, tb_c3635_1n); tb_c3635rw += tb_c3635_1n; *tb_c3635rw = 0; (const char *)tb_c3635r; }));
         }
     }
     f_emit__put(v_c, "};\n");
 }
 
 static _Bool f_emit__fill_form(tb_o_Comp * v_c, tb_o_Node * v_n) {
-    tb_o_Node * v_body = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1443))->q_kids, 1LL, sizeof(tb_o_Node *), 1443));
-    if ((((((tb_o_Node *)tb_nn(v_body, 1444))->q_kids)->len != 1LL) || (strcmp(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_body, 1444))->q_kids, 0LL, sizeof(tb_o_Node *), 1444)), 1444))->q_kind, "expr_stmt") != 0))) {
+    tb_o_Node * v_body = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1824))->q_kids, 1LL, sizeof(tb_o_Node *), 1824));
+    if ((((((tb_o_Node *)tb_nn(v_body, 1825))->q_kids)->len != 1LL) || (strcmp(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_body, 1825))->q_kids, 0LL, sizeof(tb_o_Node *), 1825)), 1825))->q_kind, "expr_stmt") != 0))) {
         return 0;
     }
-    tb_o_Node * v_e = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_body, 1446))->q_kids, 0LL, sizeof(tb_o_Node *), 1446)), 1446))->q_kids, 0LL, sizeof(tb_o_Node *), 1446));
-    if ((((({ const char *tb_s3508 = ((tb_o_Node *)tb_nn(v_e, 1447))->q_kind; !((unsigned char)tb_s3508[0] == 109 && (unsigned char)tb_s3508[1] == 101 && (unsigned char)tb_s3508[2] == 116 && (unsigned char)tb_s3508[3] == 104 && (unsigned char)tb_s3508[4] == 111 && (unsigned char)tb_s3508[5] == 100 && tb_s3508[6] == 0); }) || ({ const char *tb_s3509 = ((tb_o_Node *)tb_nn(v_e, 1447))->q_name; !((unsigned char)tb_s3509[0] == 97 && (unsigned char)tb_s3509[1] == 100 && (unsigned char)tb_s3509[2] == 100 && tb_s3509[3] == 0); })) || ({ const char *tb_s3510 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_e, 1447))->q_kids, 0LL, sizeof(tb_o_Node *), 1447)), 1447))->q_kind; !((unsigned char)tb_s3510[0] == 110 && (unsigned char)tb_s3510[1] == 97 && (unsigned char)tb_s3510[2] == 109 && (unsigned char)tb_s3510[3] == 101 && tb_s3510[4] == 0); })) || f_check__is_cols_list(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_e, 1447))->q_kids, 0LL, sizeof(tb_o_Node *), 1447)), 1447))->q_ty))) {
+    tb_o_Node * v_e = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_body, 1827))->q_kids, 0LL, sizeof(tb_o_Node *), 1827)), 1827))->q_kids, 0LL, sizeof(tb_o_Node *), 1827));
+    if ((((({ const char *tb_s3636 = ((tb_o_Node *)tb_nn(v_e, 1828))->q_kind; !((unsigned char)tb_s3636[0] == 109 && (unsigned char)tb_s3636[1] == 101 && (unsigned char)tb_s3636[2] == 116 && (unsigned char)tb_s3636[3] == 104 && (unsigned char)tb_s3636[4] == 111 && (unsigned char)tb_s3636[5] == 100 && tb_s3636[6] == 0); }) || ({ const char *tb_s3637 = ((tb_o_Node *)tb_nn(v_e, 1828))->q_name; !((unsigned char)tb_s3637[0] == 97 && (unsigned char)tb_s3637[1] == 100 && (unsigned char)tb_s3637[2] == 100 && tb_s3637[3] == 0); })) || ({ const char *tb_s3638 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_e, 1828))->q_kids, 0LL, sizeof(tb_o_Node *), 1828)), 1828))->q_kind; !((unsigned char)tb_s3638[0] == 110 && (unsigned char)tb_s3638[1] == 97 && (unsigned char)tb_s3638[2] == 109 && (unsigned char)tb_s3638[3] == 101 && tb_s3638[4] == 0); })) || f_check__is_cols_list(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_e, 1828))->q_kids, 0LL, sizeof(tb_o_Node *), 1828)), 1828))->q_ty))) {
         return 0;
     }
-    tb_o_Node * v_v = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_e, 1449))->q_kids, 1LL, sizeof(tb_o_Node *), 1449)), 1449))->q_kids, 0LL, sizeof(tb_o_Node *), 1449));
-    const char * v_k = ((tb_o_Node *)tb_nn(v_v, 1450))->q_kind;
-    return (((({ const char *tb_s3511 = v_k; ((unsigned char)tb_s3511[0] == 110 && (unsigned char)tb_s3511[1] == 117 && (unsigned char)tb_s3511[2] == 109 && (unsigned char)tb_s3511[3] == 98 && (unsigned char)tb_s3511[4] == 101 && (unsigned char)tb_s3511[5] == 114 && tb_s3511[6] == 0); }) || ({ const char *tb_s3512 = v_k; ((unsigned char)tb_s3512[0] == 100 && (unsigned char)tb_s3512[1] == 101 && (unsigned char)tb_s3512[2] == 99 && (unsigned char)tb_s3512[3] == 105 && (unsigned char)tb_s3512[4] == 109 && (unsigned char)tb_s3512[5] == 97 && (unsigned char)tb_s3512[6] == 108 && tb_s3512[7] == 0); })) || ({ const char *tb_s3513 = v_k; ((unsigned char)tb_s3513[0] == 115 && (unsigned char)tb_s3513[1] == 116 && (unsigned char)tb_s3513[2] == 114 && (unsigned char)tb_s3513[3] == 105 && (unsigned char)tb_s3513[4] == 110 && (unsigned char)tb_s3513[5] == 103 && tb_s3513[6] == 0); })) || ({ const char *tb_s3514 = v_k; ((unsigned char)tb_s3514[0] == 98 && (unsigned char)tb_s3514[1] == 111 && (unsigned char)tb_s3514[2] == 111 && (unsigned char)tb_s3514[3] == 108 && tb_s3514[4] == 0); }));
-    tb_crash(1442, "функция fill_form дошла до конца без return");
+    tb_o_Node * v_v = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_e, 1830))->q_kids, 1LL, sizeof(tb_o_Node *), 1830)), 1830))->q_kids, 0LL, sizeof(tb_o_Node *), 1830));
+    const char * v_k = ((tb_o_Node *)tb_nn(v_v, 1831))->q_kind;
+    return (((({ const char *tb_s3639 = v_k; ((unsigned char)tb_s3639[0] == 110 && (unsigned char)tb_s3639[1] == 117 && (unsigned char)tb_s3639[2] == 109 && (unsigned char)tb_s3639[3] == 98 && (unsigned char)tb_s3639[4] == 101 && (unsigned char)tb_s3639[5] == 114 && tb_s3639[6] == 0); }) || ({ const char *tb_s3640 = v_k; ((unsigned char)tb_s3640[0] == 100 && (unsigned char)tb_s3640[1] == 101 && (unsigned char)tb_s3640[2] == 99 && (unsigned char)tb_s3640[3] == 105 && (unsigned char)tb_s3640[4] == 109 && (unsigned char)tb_s3640[5] == 97 && (unsigned char)tb_s3640[6] == 108 && tb_s3640[7] == 0); })) || ({ const char *tb_s3641 = v_k; ((unsigned char)tb_s3641[0] == 115 && (unsigned char)tb_s3641[1] == 116 && (unsigned char)tb_s3641[2] == 114 && (unsigned char)tb_s3641[3] == 105 && (unsigned char)tb_s3641[4] == 110 && (unsigned char)tb_s3641[5] == 103 && tb_s3641[6] == 0); })) || ({ const char *tb_s3642 = v_k; ((unsigned char)tb_s3642[0] == 98 && (unsigned char)tb_s3642[1] == 111 && (unsigned char)tb_s3642[2] == 111 && (unsigned char)tb_s3642[3] == 108 && tb_s3642[4] == 0); }));
+    tb_crash(1823, "функция fill_form дошла до конца без return");
     return 0;
 }
 
 static void f_emit__emit_statement(tb_o_Comp * v_c, tb_o_Node * v_n, long long v_depth) {
-    const char * v_k = ((tb_o_Node *)tb_nn(v_n, 1454))->q_kind;
-    if (({ const char *tb_s3515 = v_k; ((unsigned char)tb_s3515[0] == 97 && (unsigned char)tb_s3515[1] == 115 && (unsigned char)tb_s3515[2] == 115 && (unsigned char)tb_s3515[3] == 105 && (unsigned char)tb_s3515[4] == 103 && (unsigned char)tb_s3515[5] == 110 && tb_s3515[6] == 0); })) {
+    const char * v_k = ((tb_o_Node *)tb_nn(v_n, 1835))->q_kind;
+    if (({ const char *tb_s3643 = v_k; ((unsigned char)tb_s3643[0] == 97 && (unsigned char)tb_s3643[1] == 115 && (unsigned char)tb_s3643[2] == 115 && (unsigned char)tb_s3643[3] == 105 && (unsigned char)tb_s3643[4] == 103 && (unsigned char)tb_s3643[5] == 110 && tb_s3643[6] == 0); })) {
         f_emit__emit_assign(v_c, v_n, v_depth);
-    } else if (({ const char *tb_s3516 = v_k; ((unsigned char)tb_s3516[0] == 115 && (unsigned char)tb_s3516[1] == 101 && (unsigned char)tb_s3516[2] == 116 && tb_s3516[3] == 0); })) {
+    } else if (({ const char *tb_s3644 = v_k; ((unsigned char)tb_s3644[0] == 115 && (unsigned char)tb_s3644[1] == 101 && (unsigned char)tb_s3644[2] == 116 && tb_s3644[3] == 0); })) {
         f_emit__emit_set(v_c, v_n, v_depth);
-    } else if (({ const char *tb_s3517 = v_k; ((unsigned char)tb_s3517[0] == 108 && (unsigned char)tb_s3517[1] == 105 && (unsigned char)tb_s3517[2] == 110 && (unsigned char)tb_s3517[3] == 107 && (unsigned char)tb_s3517[4] == 100 && (unsigned char)tb_s3517[5] == 101 && (unsigned char)tb_s3517[6] == 99 && (unsigned char)tb_s3517[7] == 108 && tb_s3517[8] == 0); })) {
+    } else if (({ const char *tb_s3645 = v_k; ((unsigned char)tb_s3645[0] == 108 && (unsigned char)tb_s3645[1] == 105 && (unsigned char)tb_s3645[2] == 110 && (unsigned char)tb_s3645[3] == 107 && (unsigned char)tb_s3645[4] == 100 && (unsigned char)tb_s3645[5] == 101 && (unsigned char)tb_s3645[6] == 99 && (unsigned char)tb_s3645[7] == 108 && tb_s3645[8] == 0); })) {
         f_emit__indent(v_c, v_depth);
-        f_emit__put(v_c, ({ const char *tb_c3518_0 = f_emit__c_type(v_c, ((tb_o_Node *)tb_nn(v_n, 1461))->q_ty); long long tb_c3518_0n = (long long)strlen(tb_c3518_0); const char *tb_c3518_1 = " *v_"; long long tb_c3518_1n = sizeof(" *v_") - 1; const char *tb_c3518_2 = ((tb_o_Node *)tb_nn(v_n, 1461))->q_name; long long tb_c3518_2n = (long long)strlen(tb_c3518_2); const char *tb_c3518_3 = " = &("; long long tb_c3518_3n = sizeof(" = &(") - 1; char *tb_c3518r = tb_mem(tb_c3518_0n + tb_c3518_1n + tb_c3518_2n + tb_c3518_3n + 1), *tb_c3518rw = tb_c3518r; memcpy(tb_c3518rw, tb_c3518_0, tb_c3518_0n); tb_c3518rw += tb_c3518_0n; memcpy(tb_c3518rw, tb_c3518_1, tb_c3518_1n); tb_c3518rw += tb_c3518_1n; memcpy(tb_c3518rw, tb_c3518_2, tb_c3518_2n); tb_c3518rw += tb_c3518_2n; memcpy(tb_c3518rw, tb_c3518_3, tb_c3518_3n); tb_c3518rw += tb_c3518_3n; *tb_c3518rw = 0; (const char *)tb_c3518r; }));
-        f_emit__emit_expr(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1462))->q_kids, 0LL, sizeof(tb_o_Node *), 1462)));
+        f_emit__put(v_c, ({ const char *tb_c3646_0 = f_emit__c_type(v_c, ((tb_o_Node *)tb_nn(v_n, 1842))->q_ty); long long tb_c3646_0n = (long long)strlen(tb_c3646_0); const char *tb_c3646_1 = " *v_"; long long tb_c3646_1n = sizeof(" *v_") - 1; const char *tb_c3646_2 = ((tb_o_Node *)tb_nn(v_n, 1842))->q_name; long long tb_c3646_2n = (long long)strlen(tb_c3646_2); const char *tb_c3646_3 = " = &("; long long tb_c3646_3n = sizeof(" = &(") - 1; char *tb_c3646r = tb_mem(tb_c3646_0n + tb_c3646_1n + tb_c3646_2n + tb_c3646_3n + 1), *tb_c3646rw = tb_c3646r; memcpy(tb_c3646rw, tb_c3646_0, tb_c3646_0n); tb_c3646rw += tb_c3646_0n; memcpy(tb_c3646rw, tb_c3646_1, tb_c3646_1n); tb_c3646rw += tb_c3646_1n; memcpy(tb_c3646rw, tb_c3646_2, tb_c3646_2n); tb_c3646rw += tb_c3646_2n; memcpy(tb_c3646rw, tb_c3646_3, tb_c3646_3n); tb_c3646rw += tb_c3646_3n; *tb_c3646rw = 0; (const char *)tb_c3646r; }));
+        f_emit__emit_expr(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1843))->q_kids, 0LL, sizeof(tb_o_Node *), 1843)));
         f_emit__put(v_c, ");\n");
-    } else if (({ const char *tb_s3519 = v_k; ((unsigned char)tb_s3519[0] == 109 && (unsigned char)tb_s3519[1] == 117 && (unsigned char)tb_s3519[2] == 108 && (unsigned char)tb_s3519[3] == 116 && (unsigned char)tb_s3519[4] == 105 && tb_s3519[5] == 0); })) {
+    } else if (({ const char *tb_s3647 = v_k; ((unsigned char)tb_s3647[0] == 109 && (unsigned char)tb_s3647[1] == 117 && (unsigned char)tb_s3647[2] == 108 && (unsigned char)tb_s3647[3] == 116 && (unsigned char)tb_s3647[4] == 105 && tb_s3647[5] == 0); })) {
         f_emit__emit_multi(v_c, v_n, v_depth);
-    } else if (({ const char *tb_s3520 = v_k; ((unsigned char)tb_s3520[0] == 105 && (unsigned char)tb_s3520[1] == 102 && tb_s3520[2] == 0); })) {
+    } else if (({ const char *tb_s3648 = v_k; ((unsigned char)tb_s3648[0] == 105 && (unsigned char)tb_s3648[1] == 102 && tb_s3648[2] == 0); })) {
         f_emit__emit_if(v_c, v_n, v_depth);
-    } else if (({ const char *tb_s3521 = v_k; ((unsigned char)tb_s3521[0] == 101 && (unsigned char)tb_s3521[1] == 97 && (unsigned char)tb_s3521[2] == 99 && (unsigned char)tb_s3521[3] == 104 && tb_s3521[4] == 0); })) {
+    } else if (({ const char *tb_s3649 = v_k; ((unsigned char)tb_s3649[0] == 101 && (unsigned char)tb_s3649[1] == 97 && (unsigned char)tb_s3649[2] == 99 && (unsigned char)tb_s3649[3] == 104 && tb_s3649[4] == 0); })) {
         f_emit__emit_each(v_c, v_n, v_depth);
-    } else if (({ const char *tb_s3522 = v_k; ((unsigned char)tb_s3522[0] == 99 && (unsigned char)tb_s3522[1] == 111 && (unsigned char)tb_s3522[2] == 117 && (unsigned char)tb_s3522[3] == 110 && (unsigned char)tb_s3522[4] == 116 && tb_s3522[5] == 0); })) {
+    } else if (({ const char *tb_s3650 = v_k; ((unsigned char)tb_s3650[0] == 99 && (unsigned char)tb_s3650[1] == 111 && (unsigned char)tb_s3650[2] == 117 && (unsigned char)tb_s3650[3] == 110 && (unsigned char)tb_s3650[4] == 116 && tb_s3650[5] == 0); })) {
         f_emit__emit_count(v_c, v_n, v_depth);
     } else if (((strcmp(v_k, "repeat_times") == 0) && f_emit__fill_form(v_c, v_n))) {
-        tb_o_Node * v_e = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1474))->q_kids, 1LL, sizeof(tb_o_Node *), 1474)), 1474))->q_kids, 0LL, sizeof(tb_o_Node *), 1474)), 1474))->q_kids, 0LL, sizeof(tb_o_Node *), 1474));
-        tb_o_Node * v_lst = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_e, 1475))->q_kids, 0LL, sizeof(tb_o_Node *), 1475));
-        tb_o_Node * v_value = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_e, 1476))->q_kids, 1LL, sizeof(tb_o_Node *), 1476)), 1476))->q_kids, 0LL, sizeof(tb_o_Node *), 1476));
+        tb_o_Node * v_e = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1855))->q_kids, 1LL, sizeof(tb_o_Node *), 1855)), 1855))->q_kids, 0LL, sizeof(tb_o_Node *), 1855)), 1855))->q_kids, 0LL, sizeof(tb_o_Node *), 1855));
+        tb_o_Node * v_lst = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_e, 1856))->q_kids, 0LL, sizeof(tb_o_Node *), 1856));
+        tb_o_Node * v_value = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_e, 1857))->q_kids, 1LL, sizeof(tb_o_Node *), 1857)), 1857))->q_kids, 0LL, sizeof(tb_o_Node *), 1857));
         f_emit__indent(v_c, v_depth);
-        if (f_emit__is_bits(v_c, ((tb_o_Node *)tb_nn(v_lst, 1478))->q_ty)) {
+        if (f_emit__is_bits(v_c, ((tb_o_Node *)tb_nn(v_lst, 1859))->q_ty)) {
             f_emit__put(v_c, "tb_bfill(");
             f_emit__emit_expr(v_c, v_lst);
             f_emit__put(v_c, ", ");
-            f_emit__emit_expr(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1482))->q_kids, 0LL, sizeof(tb_o_Node *), 1482)));
+            f_emit__emit_expr(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1863))->q_kids, 0LL, sizeof(tb_o_Node *), 1863)));
             f_emit__put(v_c, ", ");
             f_emit__emit_expr(v_c, v_value);
             f_emit__put(v_c, ");\n");
         } else {
-            long long v_elem = ((tb_o_Type *)tb_nn((*(tb_o_Type * *)tb_at(((tb_o_Comp *)tb_nn(v_c, 1487))->q_types, ((tb_o_Node *)tb_nn(v_lst, 1487))->q_ty, sizeof(tb_o_Type *), 1487)), 1487))->q_elem;
+            long long v_elem = ((tb_o_Type *)tb_nn((*(tb_o_Type * *)tb_at(((tb_o_Comp *)tb_nn(v_c, 1868))->q_types, ((tb_o_Node *)tb_nn(v_lst, 1868))->q_ty, sizeof(tb_o_Type *), 1868)), 1868))->q_elem;
             f_emit__put(v_c, "tb_fill(");
             f_emit__emit_expr(v_c, v_lst);
             f_emit__put(v_c, ", ");
-            f_emit__emit_expr(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1491))->q_kids, 0LL, sizeof(tb_o_Node *), 1491)));
-            f_emit__put(v_c, ({ const char *tb_c3523_0 = ", &("; long long tb_c3523_0n = sizeof(", &(") - 1; const char *tb_c3523_1 = f_emit__c_type(v_c, v_elem); long long tb_c3523_1n = (long long)strlen(tb_c3523_1); const char *tb_c3523_2 = "){"; long long tb_c3523_2n = sizeof("){") - 1; char *tb_c3523r = tb_mem(tb_c3523_0n + tb_c3523_1n + tb_c3523_2n + 1), *tb_c3523rw = tb_c3523r; memcpy(tb_c3523rw, tb_c3523_0, tb_c3523_0n); tb_c3523rw += tb_c3523_0n; memcpy(tb_c3523rw, tb_c3523_1, tb_c3523_1n); tb_c3523rw += tb_c3523_1n; memcpy(tb_c3523rw, tb_c3523_2, tb_c3523_2n); tb_c3523rw += tb_c3523_2n; *tb_c3523rw = 0; (const char *)tb_c3523r; }));
+            f_emit__emit_expr(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1872))->q_kids, 0LL, sizeof(tb_o_Node *), 1872)));
+            f_emit__put(v_c, ({ const char *tb_c3651_0 = ", &("; long long tb_c3651_0n = sizeof(", &(") - 1; const char *tb_c3651_1 = f_emit__c_type(v_c, v_elem); long long tb_c3651_1n = (long long)strlen(tb_c3651_1); const char *tb_c3651_2 = "){"; long long tb_c3651_2n = sizeof("){") - 1; char *tb_c3651r = tb_mem(tb_c3651_0n + tb_c3651_1n + tb_c3651_2n + 1), *tb_c3651rw = tb_c3651r; memcpy(tb_c3651rw, tb_c3651_0, tb_c3651_0n); tb_c3651rw += tb_c3651_0n; memcpy(tb_c3651rw, tb_c3651_1, tb_c3651_1n); tb_c3651rw += tb_c3651_1n; memcpy(tb_c3651rw, tb_c3651_2, tb_c3651_2n); tb_c3651rw += tb_c3651_2n; *tb_c3651rw = 0; (const char *)tb_c3651r; }));
             f_emit__emit_as(v_c, v_value, v_elem);
             f_emit__put(v_c, "});\n");
         }
     } else if ((strcmp(v_k, "repeat_times") == 0)) {
-        { long long tb_v3524 = 1LL; long long *tb_p3524 = &(((tb_o_Comp *)tb_nn(v_c, 1496))->q_label); *tb_p3524 += tb_v3524; }
-        const char * v_id = ({ const char *tb_c3525_0 = ""; long long tb_c3525_0n = sizeof("") - 1; char tb_c3525_1d[24]; long long tb_c3525_1n; const char *tb_c3525_1 = tb_digits(((tb_o_Comp *)tb_nn(v_c, 1497))->q_label, tb_c3525_1d, &tb_c3525_1n); char *tb_c3525r = tb_mem(tb_c3525_0n + tb_c3525_1n + 1), *tb_c3525rw = tb_c3525r; memcpy(tb_c3525rw, tb_c3525_0, tb_c3525_0n); tb_c3525rw += tb_c3525_0n; memcpy(tb_c3525rw, tb_c3525_1, tb_c3525_1n); tb_c3525rw += tb_c3525_1n; *tb_c3525rw = 0; (const char *)tb_c3525r; });
+        { long long tb_v3652 = 1LL; long long *tb_p3652 = &(((tb_o_Comp *)tb_nn(v_c, 1877))->q_label); *tb_p3652 += tb_v3652; }
+        const char * v_id = ({ const char *tb_c3653_0 = ""; long long tb_c3653_0n = sizeof("") - 1; char tb_c3653_1d[24]; long long tb_c3653_1n; const char *tb_c3653_1 = tb_digits(((tb_o_Comp *)tb_nn(v_c, 1878))->q_label, tb_c3653_1d, &tb_c3653_1n); char *tb_c3653r = tb_mem(tb_c3653_0n + tb_c3653_1n + 1), *tb_c3653rw = tb_c3653r; memcpy(tb_c3653rw, tb_c3653_0, tb_c3653_0n); tb_c3653rw += tb_c3653_0n; memcpy(tb_c3653rw, tb_c3653_1, tb_c3653_1n); tb_c3653rw += tb_c3653_1n; *tb_c3653rw = 0; (const char *)tb_c3653r; });
         f_emit__indent(v_c, v_depth);
-        f_emit__put(v_c, ({ const char *tb_c3526_0 = "for (long long tb_r"; long long tb_c3526_0n = sizeof("for (long long tb_r") - 1; const char *tb_c3526_1 = v_id; long long tb_c3526_1n = (long long)strlen(tb_c3526_1); const char *tb_c3526_2 = " = 0, tb_n"; long long tb_c3526_2n = sizeof(" = 0, tb_n") - 1; const char *tb_c3526_3 = v_id; long long tb_c3526_3n = (long long)strlen(tb_c3526_3); const char *tb_c3526_4 = " = "; long long tb_c3526_4n = sizeof(" = ") - 1; char *tb_c3526r = tb_mem(tb_c3526_0n + tb_c3526_1n + tb_c3526_2n + tb_c3526_3n + tb_c3526_4n + 1), *tb_c3526rw = tb_c3526r; memcpy(tb_c3526rw, tb_c3526_0, tb_c3526_0n); tb_c3526rw += tb_c3526_0n; memcpy(tb_c3526rw, tb_c3526_1, tb_c3526_1n); tb_c3526rw += tb_c3526_1n; memcpy(tb_c3526rw, tb_c3526_2, tb_c3526_2n); tb_c3526rw += tb_c3526_2n; memcpy(tb_c3526rw, tb_c3526_3, tb_c3526_3n); tb_c3526rw += tb_c3526_3n; memcpy(tb_c3526rw, tb_c3526_4, tb_c3526_4n); tb_c3526rw += tb_c3526_4n; *tb_c3526rw = 0; (const char *)tb_c3526r; }));
-        f_emit__emit_expr(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1500))->q_kids, 0LL, sizeof(tb_o_Node *), 1500)));
-        f_emit__put(v_c, ({ const char *tb_c3527_0 = "; tb_r"; long long tb_c3527_0n = sizeof("; tb_r") - 1; const char *tb_c3527_1 = v_id; long long tb_c3527_1n = (long long)strlen(tb_c3527_1); const char *tb_c3527_2 = " < tb_n"; long long tb_c3527_2n = sizeof(" < tb_n") - 1; const char *tb_c3527_3 = v_id; long long tb_c3527_3n = (long long)strlen(tb_c3527_3); const char *tb_c3527_4 = "; tb_r"; long long tb_c3527_4n = sizeof("; tb_r") - 1; const char *tb_c3527_5 = v_id; long long tb_c3527_5n = (long long)strlen(tb_c3527_5); const char *tb_c3527_6 = "++) {\n"; long long tb_c3527_6n = sizeof("++) {\n") - 1; char *tb_c3527r = tb_mem(tb_c3527_0n + tb_c3527_1n + tb_c3527_2n + tb_c3527_3n + tb_c3527_4n + tb_c3527_5n + tb_c3527_6n + 1), *tb_c3527rw = tb_c3527r; memcpy(tb_c3527rw, tb_c3527_0, tb_c3527_0n); tb_c3527rw += tb_c3527_0n; memcpy(tb_c3527rw, tb_c3527_1, tb_c3527_1n); tb_c3527rw += tb_c3527_1n; memcpy(tb_c3527rw, tb_c3527_2, tb_c3527_2n); tb_c3527rw += tb_c3527_2n; memcpy(tb_c3527rw, tb_c3527_3, tb_c3527_3n); tb_c3527rw += tb_c3527_3n; memcpy(tb_c3527rw, tb_c3527_4, tb_c3527_4n); tb_c3527rw += tb_c3527_4n; memcpy(tb_c3527rw, tb_c3527_5, tb_c3527_5n); tb_c3527rw += tb_c3527_5n; memcpy(tb_c3527rw, tb_c3527_6, tb_c3527_6n); tb_c3527rw += tb_c3527_6n; *tb_c3527rw = 0; (const char *)tb_c3527r; }));
-        f_emit__emit_loop_body(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1502))->q_kids, 1LL, sizeof(tb_o_Node *), 1502)), (v_depth + 1LL));
+        f_emit__put(v_c, ({ const char *tb_c3654_0 = "for (long long tb_r"; long long tb_c3654_0n = sizeof("for (long long tb_r") - 1; const char *tb_c3654_1 = v_id; long long tb_c3654_1n = (long long)strlen(tb_c3654_1); const char *tb_c3654_2 = " = 0, tb_n"; long long tb_c3654_2n = sizeof(" = 0, tb_n") - 1; const char *tb_c3654_3 = v_id; long long tb_c3654_3n = (long long)strlen(tb_c3654_3); const char *tb_c3654_4 = " = "; long long tb_c3654_4n = sizeof(" = ") - 1; char *tb_c3654r = tb_mem(tb_c3654_0n + tb_c3654_1n + tb_c3654_2n + tb_c3654_3n + tb_c3654_4n + 1), *tb_c3654rw = tb_c3654r; memcpy(tb_c3654rw, tb_c3654_0, tb_c3654_0n); tb_c3654rw += tb_c3654_0n; memcpy(tb_c3654rw, tb_c3654_1, tb_c3654_1n); tb_c3654rw += tb_c3654_1n; memcpy(tb_c3654rw, tb_c3654_2, tb_c3654_2n); tb_c3654rw += tb_c3654_2n; memcpy(tb_c3654rw, tb_c3654_3, tb_c3654_3n); tb_c3654rw += tb_c3654_3n; memcpy(tb_c3654rw, tb_c3654_4, tb_c3654_4n); tb_c3654rw += tb_c3654_4n; *tb_c3654rw = 0; (const char *)tb_c3654r; }));
+        f_emit__emit_expr(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1881))->q_kids, 0LL, sizeof(tb_o_Node *), 1881)));
+        f_emit__put(v_c, ({ const char *tb_c3655_0 = "; tb_r"; long long tb_c3655_0n = sizeof("; tb_r") - 1; const char *tb_c3655_1 = v_id; long long tb_c3655_1n = (long long)strlen(tb_c3655_1); const char *tb_c3655_2 = " < tb_n"; long long tb_c3655_2n = sizeof(" < tb_n") - 1; const char *tb_c3655_3 = v_id; long long tb_c3655_3n = (long long)strlen(tb_c3655_3); const char *tb_c3655_4 = "; tb_r"; long long tb_c3655_4n = sizeof("; tb_r") - 1; const char *tb_c3655_5 = v_id; long long tb_c3655_5n = (long long)strlen(tb_c3655_5); const char *tb_c3655_6 = "++) {\n"; long long tb_c3655_6n = sizeof("++) {\n") - 1; char *tb_c3655r = tb_mem(tb_c3655_0n + tb_c3655_1n + tb_c3655_2n + tb_c3655_3n + tb_c3655_4n + tb_c3655_5n + tb_c3655_6n + 1), *tb_c3655rw = tb_c3655r; memcpy(tb_c3655rw, tb_c3655_0, tb_c3655_0n); tb_c3655rw += tb_c3655_0n; memcpy(tb_c3655rw, tb_c3655_1, tb_c3655_1n); tb_c3655rw += tb_c3655_1n; memcpy(tb_c3655rw, tb_c3655_2, tb_c3655_2n); tb_c3655rw += tb_c3655_2n; memcpy(tb_c3655rw, tb_c3655_3, tb_c3655_3n); tb_c3655rw += tb_c3655_3n; memcpy(tb_c3655rw, tb_c3655_4, tb_c3655_4n); tb_c3655rw += tb_c3655_4n; memcpy(tb_c3655rw, tb_c3655_5, tb_c3655_5n); tb_c3655rw += tb_c3655_5n; memcpy(tb_c3655rw, tb_c3655_6, tb_c3655_6n); tb_c3655rw += tb_c3655_6n; *tb_c3655rw = 0; (const char *)tb_c3655r; }));
+        f_emit__emit_loop_body(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1883))->q_kids, 1LL, sizeof(tb_o_Node *), 1883)), (v_depth + 1LL));
         f_emit__indent(v_c, v_depth);
         f_emit__put(v_c, "}\n");
     } else if ((strcmp(v_k, "repeat_while") == 0)) {
         f_emit__indent(v_c, v_depth);
         f_emit__put(v_c, "while (");
-        f_emit__emit_expr(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1508))->q_kids, 0LL, sizeof(tb_o_Node *), 1508)));
+        f_emit__emit_expr(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1889))->q_kids, 0LL, sizeof(tb_o_Node *), 1889)));
         f_emit__put(v_c, ") {\n");
-        f_emit__emit_loop_body(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1510))->q_kids, 1LL, sizeof(tb_o_Node *), 1510)), (v_depth + 1LL));
+        f_emit__emit_loop_body(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1891))->q_kids, 1LL, sizeof(tb_o_Node *), 1891)), (v_depth + 1LL));
         f_emit__indent(v_c, v_depth);
         f_emit__put(v_c, "}\n");
-    } else if (({ const char *tb_s3528 = v_k; ((unsigned char)tb_s3528[0] == 116 && (unsigned char)tb_s3528[1] == 111 && (unsigned char)tb_s3528[2] == 103 && (unsigned char)tb_s3528[3] == 101 && (unsigned char)tb_s3528[4] == 116 && (unsigned char)tb_s3528[5] == 104 && (unsigned char)tb_s3528[6] == 101 && (unsigned char)tb_s3528[7] == 114 && tb_s3528[8] == 0); })) {
+    } else if (({ const char *tb_s3656 = v_k; ((unsigned char)tb_s3656[0] == 116 && (unsigned char)tb_s3656[1] == 111 && (unsigned char)tb_s3656[2] == 103 && (unsigned char)tb_s3656[3] == 101 && (unsigned char)tb_s3656[4] == 116 && (unsigned char)tb_s3656[5] == 104 && (unsigned char)tb_s3656[6] == 101 && (unsigned char)tb_s3656[7] == 114 && tb_s3656[8] == 0); })) {
         f_emit__emit_together(v_c, v_n, v_depth);
-    } else if (({ const char *tb_s3529 = v_k; ((unsigned char)tb_s3529[0] == 100 && (unsigned char)tb_s3529[1] == 97 && (unsigned char)tb_s3529[2] == 110 && (unsigned char)tb_s3529[3] == 103 && (unsigned char)tb_s3529[4] == 101 && (unsigned char)tb_s3529[5] == 114 && tb_s3529[6] == 0); })) {
+    } else if (({ const char *tb_s3657 = v_k; ((unsigned char)tb_s3657[0] == 100 && (unsigned char)tb_s3657[1] == 97 && (unsigned char)tb_s3657[2] == 110 && (unsigned char)tb_s3657[3] == 103 && (unsigned char)tb_s3657[4] == 101 && (unsigned char)tb_s3657[5] == 114 && tb_s3657[6] == 0); })) {
         f_emit__indent(v_c, v_depth);
         f_emit__put(v_c, "{\n");
-        f_emit__emit_block(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1518))->q_kids, 0LL, sizeof(tb_o_Node *), 1518)), (v_depth + 1LL));
+        f_emit__emit_block(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1899))->q_kids, 0LL, sizeof(tb_o_Node *), 1899)), (v_depth + 1LL));
         f_emit__indent(v_c, v_depth);
         f_emit__put(v_c, "}\n");
-    } else if (({ const char *tb_s3530 = v_k; ((unsigned char)tb_s3530[0] == 108 && (unsigned char)tb_s3530[1] == 111 && (unsigned char)tb_s3530[2] == 99 && (unsigned char)tb_s3530[3] == 107 && tb_s3530[4] == 0); })) {
-        { long long tb_v3531 = 1LL; long long *tb_p3531 = &(((tb_o_Comp *)tb_nn(v_c, 1523))->q_label); *tb_p3531 += tb_v3531; }
-        const char * v_id = ({ const char *tb_c3532_0 = ""; long long tb_c3532_0n = sizeof("") - 1; char tb_c3532_1d[24]; long long tb_c3532_1n; const char *tb_c3532_1 = tb_digits(((tb_o_Comp *)tb_nn(v_c, 1524))->q_label, tb_c3532_1d, &tb_c3532_1n); char *tb_c3532r = tb_mem(tb_c3532_0n + tb_c3532_1n + 1), *tb_c3532rw = tb_c3532r; memcpy(tb_c3532rw, tb_c3532_0, tb_c3532_0n); tb_c3532rw += tb_c3532_0n; memcpy(tb_c3532rw, tb_c3532_1, tb_c3532_1n); tb_c3532rw += tb_c3532_1n; *tb_c3532rw = 0; (const char *)tb_c3532r; });
-        if ((!f_emit__bld_has(((tb_o_Comp *)tb_nn(v_c, 1525))->q_locks, ((tb_o_Node *)tb_nn(v_n, 1525))->q_name))) {
-            { const char * tb_v3533 = ((tb_o_Node *)tb_nn(v_n, 1526))->q_name; *(const char * *)tb_grow(((tb_o_Comp *)tb_nn(v_c, 1526))->q_locks) = tb_v3533; }
+    } else if (({ const char *tb_s3658 = v_k; ((unsigned char)tb_s3658[0] == 108 && (unsigned char)tb_s3658[1] == 111 && (unsigned char)tb_s3658[2] == 99 && (unsigned char)tb_s3658[3] == 107 && tb_s3658[4] == 0); })) {
+        { long long tb_v3659 = 1LL; long long *tb_p3659 = &(((tb_o_Comp *)tb_nn(v_c, 1904))->q_label); *tb_p3659 += tb_v3659; }
+        const char * v_id = ({ const char *tb_c3660_0 = ""; long long tb_c3660_0n = sizeof("") - 1; char tb_c3660_1d[24]; long long tb_c3660_1n; const char *tb_c3660_1 = tb_digits(((tb_o_Comp *)tb_nn(v_c, 1905))->q_label, tb_c3660_1d, &tb_c3660_1n); char *tb_c3660r = tb_mem(tb_c3660_0n + tb_c3660_1n + 1), *tb_c3660rw = tb_c3660r; memcpy(tb_c3660rw, tb_c3660_0, tb_c3660_0n); tb_c3660rw += tb_c3660_0n; memcpy(tb_c3660rw, tb_c3660_1, tb_c3660_1n); tb_c3660rw += tb_c3660_1n; *tb_c3660rw = 0; (const char *)tb_c3660r; });
+        if ((!f_emit__bld_has(((tb_o_Comp *)tb_nn(v_c, 1906))->q_locks, ((tb_o_Node *)tb_nn(v_n, 1906))->q_name))) {
+            { const char * tb_v3661 = ((tb_o_Node *)tb_nn(v_n, 1907))->q_name; *(const char * *)tb_grow(((tb_o_Comp *)tb_nn(v_c, 1907))->q_locks) = tb_v3661; }
         }
         f_emit__indent(v_c, v_depth);
         f_emit__put(v_c, "{\n");
         f_emit__indent(v_c, (v_depth + 1LL));
-        f_emit__put(v_c, ({ const char *tb_c3534_0 = "extern int tb_lk_"; long long tb_c3534_0n = sizeof("extern int tb_lk_") - 1; const char *tb_c3534_1 = ((tb_o_Node *)tb_nn(v_n, 1530))->q_name; long long tb_c3534_1n = (long long)strlen(tb_c3534_1); const char *tb_c3534_2 = "; unsigned long tb_lf"; long long tb_c3534_2n = sizeof("; unsigned long tb_lf") - 1; const char *tb_c3534_3 = v_id; long long tb_c3534_3n = (long long)strlen(tb_c3534_3); const char *tb_c3534_4 = " = tb_lock_take(&tb_lk_"; long long tb_c3534_4n = sizeof(" = tb_lock_take(&tb_lk_") - 1; const char *tb_c3534_5 = ((tb_o_Node *)tb_nn(v_n, 1530))->q_name; long long tb_c3534_5n = (long long)strlen(tb_c3534_5); const char *tb_c3534_6 = ");\n"; long long tb_c3534_6n = sizeof(");\n") - 1; char *tb_c3534r = tb_mem(tb_c3534_0n + tb_c3534_1n + tb_c3534_2n + tb_c3534_3n + tb_c3534_4n + tb_c3534_5n + tb_c3534_6n + 1), *tb_c3534rw = tb_c3534r; memcpy(tb_c3534rw, tb_c3534_0, tb_c3534_0n); tb_c3534rw += tb_c3534_0n; memcpy(tb_c3534rw, tb_c3534_1, tb_c3534_1n); tb_c3534rw += tb_c3534_1n; memcpy(tb_c3534rw, tb_c3534_2, tb_c3534_2n); tb_c3534rw += tb_c3534_2n; memcpy(tb_c3534rw, tb_c3534_3, tb_c3534_3n); tb_c3534rw += tb_c3534_3n; memcpy(tb_c3534rw, tb_c3534_4, tb_c3534_4n); tb_c3534rw += tb_c3534_4n; memcpy(tb_c3534rw, tb_c3534_5, tb_c3534_5n); tb_c3534rw += tb_c3534_5n; memcpy(tb_c3534rw, tb_c3534_6, tb_c3534_6n); tb_c3534rw += tb_c3534_6n; *tb_c3534rw = 0; (const char *)tb_c3534r; }));
-        f_emit__emit_block(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1531))->q_kids, 0LL, sizeof(tb_o_Node *), 1531)), (v_depth + 1LL));
+        f_emit__put(v_c, ({ const char *tb_c3662_0 = "extern int tb_lk_"; long long tb_c3662_0n = sizeof("extern int tb_lk_") - 1; const char *tb_c3662_1 = ((tb_o_Node *)tb_nn(v_n, 1911))->q_name; long long tb_c3662_1n = (long long)strlen(tb_c3662_1); const char *tb_c3662_2 = "; unsigned long tb_lf"; long long tb_c3662_2n = sizeof("; unsigned long tb_lf") - 1; const char *tb_c3662_3 = v_id; long long tb_c3662_3n = (long long)strlen(tb_c3662_3); const char *tb_c3662_4 = " = tb_lock_take(&tb_lk_"; long long tb_c3662_4n = sizeof(" = tb_lock_take(&tb_lk_") - 1; const char *tb_c3662_5 = ((tb_o_Node *)tb_nn(v_n, 1911))->q_name; long long tb_c3662_5n = (long long)strlen(tb_c3662_5); const char *tb_c3662_6 = ");\n"; long long tb_c3662_6n = sizeof(");\n") - 1; char *tb_c3662r = tb_mem(tb_c3662_0n + tb_c3662_1n + tb_c3662_2n + tb_c3662_3n + tb_c3662_4n + tb_c3662_5n + tb_c3662_6n + 1), *tb_c3662rw = tb_c3662r; memcpy(tb_c3662rw, tb_c3662_0, tb_c3662_0n); tb_c3662rw += tb_c3662_0n; memcpy(tb_c3662rw, tb_c3662_1, tb_c3662_1n); tb_c3662rw += tb_c3662_1n; memcpy(tb_c3662rw, tb_c3662_2, tb_c3662_2n); tb_c3662rw += tb_c3662_2n; memcpy(tb_c3662rw, tb_c3662_3, tb_c3662_3n); tb_c3662rw += tb_c3662_3n; memcpy(tb_c3662rw, tb_c3662_4, tb_c3662_4n); tb_c3662rw += tb_c3662_4n; memcpy(tb_c3662rw, tb_c3662_5, tb_c3662_5n); tb_c3662rw += tb_c3662_5n; memcpy(tb_c3662rw, tb_c3662_6, tb_c3662_6n); tb_c3662rw += tb_c3662_6n; *tb_c3662rw = 0; (const char *)tb_c3662r; }));
+        f_emit__emit_block(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1912))->q_kids, 0LL, sizeof(tb_o_Node *), 1912)), (v_depth + 1LL));
         f_emit__indent(v_c, (v_depth + 1LL));
-        f_emit__put(v_c, ({ const char *tb_c3535_0 = "tb_lock_give(&tb_lk_"; long long tb_c3535_0n = sizeof("tb_lock_give(&tb_lk_") - 1; const char *tb_c3535_1 = ((tb_o_Node *)tb_nn(v_n, 1533))->q_name; long long tb_c3535_1n = (long long)strlen(tb_c3535_1); const char *tb_c3535_2 = ", tb_lf"; long long tb_c3535_2n = sizeof(", tb_lf") - 1; const char *tb_c3535_3 = v_id; long long tb_c3535_3n = (long long)strlen(tb_c3535_3); const char *tb_c3535_4 = ");\n"; long long tb_c3535_4n = sizeof(");\n") - 1; char *tb_c3535r = tb_mem(tb_c3535_0n + tb_c3535_1n + tb_c3535_2n + tb_c3535_3n + tb_c3535_4n + 1), *tb_c3535rw = tb_c3535r; memcpy(tb_c3535rw, tb_c3535_0, tb_c3535_0n); tb_c3535rw += tb_c3535_0n; memcpy(tb_c3535rw, tb_c3535_1, tb_c3535_1n); tb_c3535rw += tb_c3535_1n; memcpy(tb_c3535rw, tb_c3535_2, tb_c3535_2n); tb_c3535rw += tb_c3535_2n; memcpy(tb_c3535rw, tb_c3535_3, tb_c3535_3n); tb_c3535rw += tb_c3535_3n; memcpy(tb_c3535rw, tb_c3535_4, tb_c3535_4n); tb_c3535rw += tb_c3535_4n; *tb_c3535rw = 0; (const char *)tb_c3535r; }));
+        f_emit__put(v_c, ({ const char *tb_c3663_0 = "tb_lock_give(&tb_lk_"; long long tb_c3663_0n = sizeof("tb_lock_give(&tb_lk_") - 1; const char *tb_c3663_1 = ((tb_o_Node *)tb_nn(v_n, 1914))->q_name; long long tb_c3663_1n = (long long)strlen(tb_c3663_1); const char *tb_c3663_2 = ", tb_lf"; long long tb_c3663_2n = sizeof(", tb_lf") - 1; const char *tb_c3663_3 = v_id; long long tb_c3663_3n = (long long)strlen(tb_c3663_3); const char *tb_c3663_4 = ");\n"; long long tb_c3663_4n = sizeof(");\n") - 1; char *tb_c3663r = tb_mem(tb_c3663_0n + tb_c3663_1n + tb_c3663_2n + tb_c3663_3n + tb_c3663_4n + 1), *tb_c3663rw = tb_c3663r; memcpy(tb_c3663rw, tb_c3663_0, tb_c3663_0n); tb_c3663rw += tb_c3663_0n; memcpy(tb_c3663rw, tb_c3663_1, tb_c3663_1n); tb_c3663rw += tb_c3663_1n; memcpy(tb_c3663rw, tb_c3663_2, tb_c3663_2n); tb_c3663rw += tb_c3663_2n; memcpy(tb_c3663rw, tb_c3663_3, tb_c3663_3n); tb_c3663rw += tb_c3663_3n; memcpy(tb_c3663rw, tb_c3663_4, tb_c3663_4n); tb_c3663rw += tb_c3663_4n; *tb_c3663rw = 0; (const char *)tb_c3663r; }));
         f_emit__indent(v_c, v_depth);
         f_emit__put(v_c, "}\n");
-    } else if (({ const char *tb_s3536 = v_k; ((unsigned char)tb_s3536[0] == 116 && (unsigned char)tb_s3536[1] == 101 && (unsigned char)tb_s3536[2] == 109 && (unsigned char)tb_s3536[3] == 112 && tb_s3536[4] == 0); })) {
-        { long long tb_v3537 = 1LL; long long *tb_p3537 = &(((tb_o_Comp *)tb_nn(v_c, 1537))->q_label); *tb_p3537 += tb_v3537; }
-        const char * v_id = ({ const char *tb_c3538_0 = ""; long long tb_c3538_0n = sizeof("") - 1; char tb_c3538_1d[24]; long long tb_c3538_1n; const char *tb_c3538_1 = tb_digits(((tb_o_Comp *)tb_nn(v_c, 1538))->q_label, tb_c3538_1d, &tb_c3538_1n); char *tb_c3538r = tb_mem(tb_c3538_0n + tb_c3538_1n + 1), *tb_c3538rw = tb_c3538r; memcpy(tb_c3538rw, tb_c3538_0, tb_c3538_0n); tb_c3538rw += tb_c3538_0n; memcpy(tb_c3538rw, tb_c3538_1, tb_c3538_1n); tb_c3538rw += tb_c3538_1n; *tb_c3538rw = 0; (const char *)tb_c3538r; });
+    } else if (({ const char *tb_s3664 = v_k; ((unsigned char)tb_s3664[0] == 116 && (unsigned char)tb_s3664[1] == 101 && (unsigned char)tb_s3664[2] == 109 && (unsigned char)tb_s3664[3] == 112 && tb_s3664[4] == 0); })) {
+        { long long tb_v3665 = 1LL; long long *tb_p3665 = &(((tb_o_Comp *)tb_nn(v_c, 1918))->q_label); *tb_p3665 += tb_v3665; }
+        const char * v_id = ({ const char *tb_c3666_0 = ""; long long tb_c3666_0n = sizeof("") - 1; char tb_c3666_1d[24]; long long tb_c3666_1n; const char *tb_c3666_1 = tb_digits(((tb_o_Comp *)tb_nn(v_c, 1919))->q_label, tb_c3666_1d, &tb_c3666_1n); char *tb_c3666r = tb_mem(tb_c3666_0n + tb_c3666_1n + 1), *tb_c3666rw = tb_c3666r; memcpy(tb_c3666rw, tb_c3666_0, tb_c3666_0n); tb_c3666rw += tb_c3666_0n; memcpy(tb_c3666rw, tb_c3666_1, tb_c3666_1n); tb_c3666rw += tb_c3666_1n; *tb_c3666rw = 0; (const char *)tb_c3666r; });
         f_emit__indent(v_c, v_depth);
         f_emit__put(v_c, "{\n");
         f_emit__indent(v_c, (v_depth + 1LL));
-        f_emit__put(v_c, ({ const char *tb_c3539_0 = "tb_mark tb_k"; long long tb_c3539_0n = sizeof("tb_mark tb_k") - 1; const char *tb_c3539_1 = v_id; long long tb_c3539_1n = (long long)strlen(tb_c3539_1); const char *tb_c3539_2 = " = tb_temp_begin();\n"; long long tb_c3539_2n = sizeof(" = tb_temp_begin();\n") - 1; char *tb_c3539r = tb_mem(tb_c3539_0n + tb_c3539_1n + tb_c3539_2n + 1), *tb_c3539rw = tb_c3539r; memcpy(tb_c3539rw, tb_c3539_0, tb_c3539_0n); tb_c3539rw += tb_c3539_0n; memcpy(tb_c3539rw, tb_c3539_1, tb_c3539_1n); tb_c3539rw += tb_c3539_1n; memcpy(tb_c3539rw, tb_c3539_2, tb_c3539_2n); tb_c3539rw += tb_c3539_2n; *tb_c3539rw = 0; (const char *)tb_c3539r; }));
-        f_emit__emit_block(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1543))->q_kids, 0LL, sizeof(tb_o_Node *), 1543)), (v_depth + 1LL));
+        f_emit__put(v_c, ({ const char *tb_c3667_0 = "tb_mark tb_k"; long long tb_c3667_0n = sizeof("tb_mark tb_k") - 1; const char *tb_c3667_1 = v_id; long long tb_c3667_1n = (long long)strlen(tb_c3667_1); const char *tb_c3667_2 = " = tb_temp_begin();\n"; long long tb_c3667_2n = sizeof(" = tb_temp_begin();\n") - 1; char *tb_c3667r = tb_mem(tb_c3667_0n + tb_c3667_1n + tb_c3667_2n + 1), *tb_c3667rw = tb_c3667r; memcpy(tb_c3667rw, tb_c3667_0, tb_c3667_0n); tb_c3667rw += tb_c3667_0n; memcpy(tb_c3667rw, tb_c3667_1, tb_c3667_1n); tb_c3667rw += tb_c3667_1n; memcpy(tb_c3667rw, tb_c3667_2, tb_c3667_2n); tb_c3667rw += tb_c3667_2n; *tb_c3667rw = 0; (const char *)tb_c3667r; }));
+        f_emit__emit_block(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1924))->q_kids, 0LL, sizeof(tb_o_Node *), 1924)), (v_depth + 1LL));
         f_emit__indent(v_c, (v_depth + 1LL));
-        f_emit__put(v_c, ({ const char *tb_c3540_0 = "tb_temp_end(tb_k"; long long tb_c3540_0n = sizeof("tb_temp_end(tb_k") - 1; const char *tb_c3540_1 = v_id; long long tb_c3540_1n = (long long)strlen(tb_c3540_1); const char *tb_c3540_2 = ");\n"; long long tb_c3540_2n = sizeof(");\n") - 1; char *tb_c3540r = tb_mem(tb_c3540_0n + tb_c3540_1n + tb_c3540_2n + 1), *tb_c3540rw = tb_c3540r; memcpy(tb_c3540rw, tb_c3540_0, tb_c3540_0n); tb_c3540rw += tb_c3540_0n; memcpy(tb_c3540rw, tb_c3540_1, tb_c3540_1n); tb_c3540rw += tb_c3540_1n; memcpy(tb_c3540rw, tb_c3540_2, tb_c3540_2n); tb_c3540rw += tb_c3540_2n; *tb_c3540rw = 0; (const char *)tb_c3540r; }));
+        f_emit__put(v_c, ({ const char *tb_c3668_0 = "tb_temp_end(tb_k"; long long tb_c3668_0n = sizeof("tb_temp_end(tb_k") - 1; const char *tb_c3668_1 = v_id; long long tb_c3668_1n = (long long)strlen(tb_c3668_1); const char *tb_c3668_2 = ");\n"; long long tb_c3668_2n = sizeof(");\n") - 1; char *tb_c3668r = tb_mem(tb_c3668_0n + tb_c3668_1n + tb_c3668_2n + 1), *tb_c3668rw = tb_c3668r; memcpy(tb_c3668rw, tb_c3668_0, tb_c3668_0n); tb_c3668rw += tb_c3668_0n; memcpy(tb_c3668rw, tb_c3668_1, tb_c3668_1n); tb_c3668rw += tb_c3668_1n; memcpy(tb_c3668rw, tb_c3668_2, tb_c3668_2n); tb_c3668rw += tb_c3668_2n; *tb_c3668rw = 0; (const char *)tb_c3668r; }));
         f_emit__indent(v_c, v_depth);
         f_emit__put(v_c, "}\n");
-    } else if (({ const char *tb_s3541 = v_k; ((unsigned char)tb_s3541[0] == 115 && (unsigned char)tb_s3541[1] == 107 && (unsigned char)tb_s3541[2] == 105 && (unsigned char)tb_s3541[3] == 112 && tb_s3541[4] == 0); })) {
+    } else if (({ const char *tb_s3669 = v_k; ((unsigned char)tb_s3669[0] == 115 && (unsigned char)tb_s3669[1] == 107 && (unsigned char)tb_s3669[2] == 105 && (unsigned char)tb_s3669[3] == 112 && tb_s3669[4] == 0); })) {
         f_emit__indent(v_c, v_depth);
         f_emit__put(v_c, "continue;\n");
-    } else if (({ const char *tb_s3542 = v_k; ((unsigned char)tb_s3542[0] == 115 && (unsigned char)tb_s3542[1] == 116 && (unsigned char)tb_s3542[2] == 111 && (unsigned char)tb_s3542[3] == 112 && tb_s3542[4] == 0); })) {
+    } else if (({ const char *tb_s3670 = v_k; ((unsigned char)tb_s3670[0] == 115 && (unsigned char)tb_s3670[1] == 116 && (unsigned char)tb_s3670[2] == 111 && (unsigned char)tb_s3670[3] == 112 && tb_s3670[4] == 0); })) {
         f_emit__indent(v_c, v_depth);
         f_emit__put(v_c, "break;\n");
-    } else if (({ const char *tb_s3543 = v_k; ((unsigned char)tb_s3543[0] == 102 && (unsigned char)tb_s3543[1] == 97 && (unsigned char)tb_s3543[2] == 105 && (unsigned char)tb_s3543[3] == 108 && tb_s3543[4] == 0); })) {
+    } else if (({ const char *tb_s3671 = v_k; ((unsigned char)tb_s3671[0] == 102 && (unsigned char)tb_s3671[1] == 97 && (unsigned char)tb_s3671[2] == 105 && (unsigned char)tb_s3671[3] == 108 && tb_s3671[4] == 0); })) {
         f_emit__indent(v_c, v_depth);
         f_emit__put(v_c, "{ tb_err = ");
-        f_emit__emit_expr(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1557))->q_kids, 0LL, sizeof(tb_o_Node *), 1557)));
+        f_emit__emit_expr(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1938))->q_kids, 0LL, sizeof(tb_o_Node *), 1938)));
         f_emit__put(v_c, "; ");
         f_emit__emit_bail(v_c);
         f_emit__put(v_c, " }\n");
-    } else if ((({ const char *tb_s3544 = v_k; ((unsigned char)tb_s3544[0] == 114 && (unsigned char)tb_s3544[1] == 101 && (unsigned char)tb_s3544[2] == 116 && (unsigned char)tb_s3544[3] == 117 && (unsigned char)tb_s3544[4] == 114 && (unsigned char)tb_s3544[5] == 110 && tb_s3544[6] == 0); }) && ({ const char *tb_s3545 = ((tb_o_Comp *)tb_nn(v_c, 1561))->q_fmark; !(tb_s3545[0] == 0); }))) {
-        if (((((tb_o_Node *)tb_nn(v_n, 1563))->q_kids)->len == 1LL)) {
-            f_emit__emit_pre(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1564))->q_kids, 0LL, sizeof(tb_o_Node *), 1564)), v_depth);
+    } else if ((({ const char *tb_s3672 = v_k; ((unsigned char)tb_s3672[0] == 114 && (unsigned char)tb_s3672[1] == 101 && (unsigned char)tb_s3672[2] == 116 && (unsigned char)tb_s3672[3] == 117 && (unsigned char)tb_s3672[4] == 114 && (unsigned char)tb_s3672[5] == 110 && tb_s3672[6] == 0); }) && ({ const char *tb_s3673 = ((tb_o_Comp *)tb_nn(v_c, 1942))->q_fmark; !(tb_s3673[0] == 0); }))) {
+        if (((((tb_o_Node *)tb_nn(v_n, 1944))->q_kids)->len == 1LL)) {
+            f_emit__emit_pre(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1945))->q_kids, 0LL, sizeof(tb_o_Node *), 1945)), v_depth);
             f_emit__indent(v_c, v_depth);
-            f_emit__put(v_c, ({ const char *tb_c3546_0 = "{ "; long long tb_c3546_0n = sizeof("{ ") - 1; const char *tb_c3546_1 = f_emit__c_type(v_c, ((tb_o_Node *)tb_nn(((tb_o_Comp *)tb_nn(v_c, 1566))->q_cur_func, 1566))->q_ty); long long tb_c3546_1n = (long long)strlen(tb_c3546_1); const char *tb_c3546_2 = " tb_rv = "; long long tb_c3546_2n = sizeof(" tb_rv = ") - 1; char *tb_c3546r = tb_mem(tb_c3546_0n + tb_c3546_1n + tb_c3546_2n + 1), *tb_c3546rw = tb_c3546r; memcpy(tb_c3546rw, tb_c3546_0, tb_c3546_0n); tb_c3546rw += tb_c3546_0n; memcpy(tb_c3546rw, tb_c3546_1, tb_c3546_1n); tb_c3546rw += tb_c3546_1n; memcpy(tb_c3546rw, tb_c3546_2, tb_c3546_2n); tb_c3546rw += tb_c3546_2n; *tb_c3546rw = 0; (const char *)tb_c3546r; }));
-            f_emit__emit_as(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1567))->q_kids, 0LL, sizeof(tb_o_Node *), 1567)), ((tb_o_Node *)tb_nn(((tb_o_Comp *)tb_nn(v_c, 1567))->q_cur_func, 1567))->q_ty);
-            f_emit__put(v_c, ({ const char *tb_c3547_0 = "; if (tb_fa) tb_temp_end("; long long tb_c3547_0n = sizeof("; if (tb_fa) tb_temp_end(") - 1; const char *tb_c3547_1 = ((tb_o_Comp *)tb_nn(v_c, 1568))->q_fmark; long long tb_c3547_1n = (long long)strlen(tb_c3547_1); const char *tb_c3547_2 = "); return tb_rv; }\n"; long long tb_c3547_2n = sizeof("); return tb_rv; }\n") - 1; char *tb_c3547r = tb_mem(tb_c3547_0n + tb_c3547_1n + tb_c3547_2n + 1), *tb_c3547rw = tb_c3547r; memcpy(tb_c3547rw, tb_c3547_0, tb_c3547_0n); tb_c3547rw += tb_c3547_0n; memcpy(tb_c3547rw, tb_c3547_1, tb_c3547_1n); tb_c3547rw += tb_c3547_1n; memcpy(tb_c3547rw, tb_c3547_2, tb_c3547_2n); tb_c3547rw += tb_c3547_2n; *tb_c3547rw = 0; (const char *)tb_c3547r; }));
+            f_emit__put(v_c, ({ const char *tb_c3674_0 = "{ "; long long tb_c3674_0n = sizeof("{ ") - 1; const char *tb_c3674_1 = f_emit__c_type(v_c, ((tb_o_Node *)tb_nn(((tb_o_Comp *)tb_nn(v_c, 1947))->q_cur_func, 1947))->q_ty); long long tb_c3674_1n = (long long)strlen(tb_c3674_1); const char *tb_c3674_2 = " tb_rv = "; long long tb_c3674_2n = sizeof(" tb_rv = ") - 1; char *tb_c3674r = tb_mem(tb_c3674_0n + tb_c3674_1n + tb_c3674_2n + 1), *tb_c3674rw = tb_c3674r; memcpy(tb_c3674rw, tb_c3674_0, tb_c3674_0n); tb_c3674rw += tb_c3674_0n; memcpy(tb_c3674rw, tb_c3674_1, tb_c3674_1n); tb_c3674rw += tb_c3674_1n; memcpy(tb_c3674rw, tb_c3674_2, tb_c3674_2n); tb_c3674rw += tb_c3674_2n; *tb_c3674rw = 0; (const char *)tb_c3674r; }));
+            f_emit__emit_as(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1948))->q_kids, 0LL, sizeof(tb_o_Node *), 1948)), ((tb_o_Node *)tb_nn(((tb_o_Comp *)tb_nn(v_c, 1948))->q_cur_func, 1948))->q_ty);
+            f_emit__put(v_c, ({ const char *tb_c3675_0 = "; if (tb_fa) tb_temp_end("; long long tb_c3675_0n = sizeof("; if (tb_fa) tb_temp_end(") - 1; const char *tb_c3675_1 = ((tb_o_Comp *)tb_nn(v_c, 1949))->q_fmark; long long tb_c3675_1n = (long long)strlen(tb_c3675_1); const char *tb_c3675_2 = "); return tb_rv; }\n"; long long tb_c3675_2n = sizeof("); return tb_rv; }\n") - 1; char *tb_c3675r = tb_mem(tb_c3675_0n + tb_c3675_1n + tb_c3675_2n + 1), *tb_c3675rw = tb_c3675r; memcpy(tb_c3675rw, tb_c3675_0, tb_c3675_0n); tb_c3675rw += tb_c3675_0n; memcpy(tb_c3675rw, tb_c3675_1, tb_c3675_1n); tb_c3675rw += tb_c3675_1n; memcpy(tb_c3675rw, tb_c3675_2, tb_c3675_2n); tb_c3675rw += tb_c3675_2n; *tb_c3675rw = 0; (const char *)tb_c3675r; }));
         } else {
             f_emit__indent(v_c, v_depth);
-            f_emit__put(v_c, ({ const char *tb_c3548_0 = "if (tb_fa) tb_temp_end("; long long tb_c3548_0n = sizeof("if (tb_fa) tb_temp_end(") - 1; const char *tb_c3548_1 = ((tb_o_Comp *)tb_nn(v_c, 1571))->q_fmark; long long tb_c3548_1n = (long long)strlen(tb_c3548_1); const char *tb_c3548_2 = ");\n"; long long tb_c3548_2n = sizeof(");\n") - 1; char *tb_c3548r = tb_mem(tb_c3548_0n + tb_c3548_1n + tb_c3548_2n + 1), *tb_c3548rw = tb_c3548r; memcpy(tb_c3548rw, tb_c3548_0, tb_c3548_0n); tb_c3548rw += tb_c3548_0n; memcpy(tb_c3548rw, tb_c3548_1, tb_c3548_1n); tb_c3548rw += tb_c3548_1n; memcpy(tb_c3548rw, tb_c3548_2, tb_c3548_2n); tb_c3548rw += tb_c3548_2n; *tb_c3548rw = 0; (const char *)tb_c3548r; }));
-            if (((((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(((tb_o_Comp *)tb_nn(v_c, 1572))->q_cur_func, 1572))->q_kids, 2LL, sizeof(tb_o_Node *), 1572)), 1572))->q_kids)->len > 0LL)) {
+            f_emit__put(v_c, ({ const char *tb_c3676_0 = "if (tb_fa) tb_temp_end("; long long tb_c3676_0n = sizeof("if (tb_fa) tb_temp_end(") - 1; const char *tb_c3676_1 = ((tb_o_Comp *)tb_nn(v_c, 1952))->q_fmark; long long tb_c3676_1n = (long long)strlen(tb_c3676_1); const char *tb_c3676_2 = ");\n"; long long tb_c3676_2n = sizeof(");\n") - 1; char *tb_c3676r = tb_mem(tb_c3676_0n + tb_c3676_1n + tb_c3676_2n + 1), *tb_c3676rw = tb_c3676r; memcpy(tb_c3676rw, tb_c3676_0, tb_c3676_0n); tb_c3676rw += tb_c3676_0n; memcpy(tb_c3676rw, tb_c3676_1, tb_c3676_1n); tb_c3676rw += tb_c3676_1n; memcpy(tb_c3676rw, tb_c3676_2, tb_c3676_2n); tb_c3676rw += tb_c3676_2n; *tb_c3676rw = 0; (const char *)tb_c3676r; }));
+            if (((((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(((tb_o_Comp *)tb_nn(v_c, 1953))->q_cur_func, 1953))->q_kids, 2LL, sizeof(tb_o_Node *), 1953)), 1953))->q_kids)->len > 0LL)) {
                 f_emit__emit_gives_return(v_c, v_depth);
             } else {
                 f_emit__indent(v_c, v_depth);
                 f_emit__put(v_c, "return;\n");
             }
         }
-    } else if (({ const char *tb_s3549 = v_k; ((unsigned char)tb_s3549[0] == 114 && (unsigned char)tb_s3549[1] == 101 && (unsigned char)tb_s3549[2] == 116 && (unsigned char)tb_s3549[3] == 117 && (unsigned char)tb_s3549[4] == 114 && (unsigned char)tb_s3549[5] == 110 && tb_s3549[6] == 0); })) {
-        if (((((tb_o_Node *)tb_nn(v_n, 1578))->q_kids)->len == 1LL)) {
-            f_emit__emit_pre(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1579))->q_kids, 0LL, sizeof(tb_o_Node *), 1579)), v_depth);
+    } else if (({ const char *tb_s3677 = v_k; ((unsigned char)tb_s3677[0] == 114 && (unsigned char)tb_s3677[1] == 101 && (unsigned char)tb_s3677[2] == 116 && (unsigned char)tb_s3677[3] == 117 && (unsigned char)tb_s3677[4] == 114 && (unsigned char)tb_s3677[5] == 110 && tb_s3677[6] == 0); })) {
+        if (((((tb_o_Node *)tb_nn(v_n, 1959))->q_kids)->len == 1LL)) {
+            f_emit__emit_pre(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1960))->q_kids, 0LL, sizeof(tb_o_Node *), 1960)), v_depth);
         }
-        if ((((((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(((tb_o_Comp *)tb_nn(v_c, 1580))->q_cur_func, 1580))->q_kids, 2LL, sizeof(tb_o_Node *), 1580)), 1580))->q_kids)->len > 0LL) && ((((tb_o_Node *)tb_nn(v_n, 1580))->q_kids)->len == 0LL))) {
+        if ((((((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(((tb_o_Comp *)tb_nn(v_c, 1961))->q_cur_func, 1961))->q_kids, 2LL, sizeof(tb_o_Node *), 1961)), 1961))->q_kids)->len > 0LL) && ((((tb_o_Node *)tb_nn(v_n, 1961))->q_kids)->len == 0LL))) {
             f_emit__emit_gives_return(v_c, v_depth);
-        } else if (((((tb_o_Node *)tb_nn(v_n, 1582))->q_kids)->len == 1LL)) {
+        } else if (((((tb_o_Node *)tb_nn(v_n, 1963))->q_kids)->len == 1LL)) {
             f_emit__indent(v_c, v_depth);
             f_emit__put(v_c, "return ");
-            f_emit__emit_as(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1585))->q_kids, 0LL, sizeof(tb_o_Node *), 1585)), ((tb_o_Node *)tb_nn(((tb_o_Comp *)tb_nn(v_c, 1585))->q_cur_func, 1585))->q_ty);
+            f_emit__emit_as(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1966))->q_kids, 0LL, sizeof(tb_o_Node *), 1966)), ((tb_o_Node *)tb_nn(((tb_o_Comp *)tb_nn(v_c, 1966))->q_cur_func, 1966))->q_ty);
             f_emit__put(v_c, ";\n");
         } else {
             f_emit__indent(v_c, v_depth);
             f_emit__put(v_c, "return;\n");
         }
     } else if ((strcmp(v_k, "expr_stmt") == 0)) {
-        tb_o_Node * v_e = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1591))->q_kids, 0LL, sizeof(tb_o_Node *), 1591));
-        if ((({ const char *tb_s3550 = ((tb_o_Node *)tb_nn(v_e, 1592))->q_kind; ((unsigned char)tb_s3550[0] == 116 && (unsigned char)tb_s3550[1] == 114 && (unsigned char)tb_s3550[2] == 121 && tb_s3550[3] == 0); }) || ({ const char *tb_s3551 = ((tb_o_Node *)tb_nn(v_e, 1592))->q_kind; ((unsigned char)tb_s3551[0] == 101 && (unsigned char)tb_s3551[1] == 108 && (unsigned char)tb_s3551[2] == 115 && (unsigned char)tb_s3551[3] == 101 && (unsigned char)tb_s3551[4] == 95 && (unsigned char)tb_s3551[5] == 101 && (unsigned char)tb_s3551[6] == 114 && (unsigned char)tb_s3551[7] == 114 && tb_s3551[8] == 0); }))) {
+        tb_o_Node * v_e = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1972))->q_kids, 0LL, sizeof(tb_o_Node *), 1972));
+        if ((({ const char *tb_s3678 = ((tb_o_Node *)tb_nn(v_e, 1973))->q_kind; ((unsigned char)tb_s3678[0] == 116 && (unsigned char)tb_s3678[1] == 114 && (unsigned char)tb_s3678[2] == 121 && tb_s3678[3] == 0); }) || ({ const char *tb_s3679 = ((tb_o_Node *)tb_nn(v_e, 1973))->q_kind; ((unsigned char)tb_s3679[0] == 101 && (unsigned char)tb_s3679[1] == 108 && (unsigned char)tb_s3679[2] == 115 && (unsigned char)tb_s3679[3] == 101 && (unsigned char)tb_s3679[4] == 95 && (unsigned char)tb_s3679[5] == 101 && (unsigned char)tb_s3679[6] == 114 && (unsigned char)tb_s3679[7] == 114 && tb_s3679[8] == 0); }))) {
             f_emit__emit_pre(v_c, v_e, v_depth);
             return;
         }
         f_emit__indent(v_c, v_depth);
-        if ((({ const char *tb_s3552 = ((tb_o_Node *)tb_nn(v_e, 1596))->q_kind; ((unsigned char)tb_s3552[0] == 109 && (unsigned char)tb_s3552[1] == 101 && (unsigned char)tb_s3552[2] == 116 && (unsigned char)tb_s3552[3] == 104 && (unsigned char)tb_s3552[4] == 111 && (unsigned char)tb_s3552[5] == 100 && tb_s3552[6] == 0); }) && ({ const char *tb_s3553 = ((tb_o_Node *)tb_nn(v_e, 1596))->q_name; ((unsigned char)tb_s3553[0] == 97 && (unsigned char)tb_s3553[1] == 100 && (unsigned char)tb_s3553[2] == 100 && tb_s3553[3] == 0); }))) {
-            long long v_elem = ((tb_o_Type *)tb_nn((*(tb_o_Type * *)tb_at(((tb_o_Comp *)tb_nn(v_c, 1598))->q_types, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_e, 1598))->q_kids, 0LL, sizeof(tb_o_Node *), 1598)), 1598))->q_ty, sizeof(tb_o_Type *), 1598)), 1598))->q_elem;
-            { long long tb_v3554 = 1LL; long long *tb_p3554 = &(((tb_o_Comp *)tb_nn(v_c, 1599))->q_label); *tb_p3554 += tb_v3554; }
-            const char * v_id = ({ const char *tb_c3555_0 = ""; long long tb_c3555_0n = sizeof("") - 1; char tb_c3555_1d[24]; long long tb_c3555_1n; const char *tb_c3555_1 = tb_digits(((tb_o_Comp *)tb_nn(v_c, 1600))->q_label, tb_c3555_1d, &tb_c3555_1n); char *tb_c3555r = tb_mem(tb_c3555_0n + tb_c3555_1n + 1), *tb_c3555rw = tb_c3555r; memcpy(tb_c3555rw, tb_c3555_0, tb_c3555_0n); tb_c3555rw += tb_c3555_0n; memcpy(tb_c3555rw, tb_c3555_1, tb_c3555_1n); tb_c3555rw += tb_c3555_1n; *tb_c3555rw = 0; (const char *)tb_c3555r; });
-            tb_o_Node * v_value = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_e, 1601))->q_kids, 1LL, sizeof(tb_o_Node *), 1601)), 1601))->q_kids, 0LL, sizeof(tb_o_Node *), 1601));
-            if ((((f_check__is_cols_list(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_e, 1602))->q_kids, 0LL, sizeof(tb_o_Node *), 1602)), 1602))->q_ty) && ({ const char *tb_s3556 = ((tb_o_Node *)tb_nn(v_value, 1602))->q_kind; ((unsigned char)tb_s3556[0] == 99 && (unsigned char)tb_s3556[1] == 97 && (unsigned char)tb_s3556[2] == 108 && (unsigned char)tb_s3556[3] == 108 && tb_s3556[4] == 0); })) && ((tb_o_Node *)tb_nn(v_value, 1602))->q_has_ref) && ({ const char *tb_s3557 = ((tb_o_Node *)tb_nn(((tb_o_Node *)tb_nn(v_value, 1602))->q_ref, 1602))->q_kind; ((unsigned char)tb_s3557[0] == 111 && (unsigned char)tb_s3557[1] == 98 && (unsigned char)tb_s3557[2] == 106 && tb_s3557[3] == 0); }))) {
-                tb_o_Node * v_o = ((tb_o_Node *)tb_nn(v_value, 1604))->q_ref;
-                f_emit__put(v_c, ({ const char *tb_c3558_0 = "tb_colpush_"; long long tb_c3558_0n = sizeof("tb_colpush_") - 1; const char *tb_c3558_1 = ((tb_o_Node *)tb_nn(v_o, 1605))->q_name; long long tb_c3558_1n = (long long)strlen(tb_c3558_1); const char *tb_c3558_2 = "("; long long tb_c3558_2n = sizeof("(") - 1; char *tb_c3558r = tb_mem(tb_c3558_0n + tb_c3558_1n + tb_c3558_2n + 1), *tb_c3558rw = tb_c3558r; memcpy(tb_c3558rw, tb_c3558_0, tb_c3558_0n); tb_c3558rw += tb_c3558_0n; memcpy(tb_c3558rw, tb_c3558_1, tb_c3558_1n); tb_c3558rw += tb_c3558_1n; memcpy(tb_c3558rw, tb_c3558_2, tb_c3558_2n); tb_c3558rw += tb_c3558_2n; *tb_c3558rw = 0; (const char *)tb_c3558r; }));
-                f_emit__emit_expr(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_e, 1606))->q_kids, 0LL, sizeof(tb_o_Node *), 1606)));
+        if ((({ const char *tb_s3680 = ((tb_o_Node *)tb_nn(v_e, 1977))->q_kind; ((unsigned char)tb_s3680[0] == 109 && (unsigned char)tb_s3680[1] == 101 && (unsigned char)tb_s3680[2] == 116 && (unsigned char)tb_s3680[3] == 104 && (unsigned char)tb_s3680[4] == 111 && (unsigned char)tb_s3680[5] == 100 && tb_s3680[6] == 0); }) && ({ const char *tb_s3681 = ((tb_o_Node *)tb_nn(v_e, 1977))->q_name; ((unsigned char)tb_s3681[0] == 97 && (unsigned char)tb_s3681[1] == 100 && (unsigned char)tb_s3681[2] == 100 && tb_s3681[3] == 0); }))) {
+            long long v_elem = ((tb_o_Type *)tb_nn((*(tb_o_Type * *)tb_at(((tb_o_Comp *)tb_nn(v_c, 1979))->q_types, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_e, 1979))->q_kids, 0LL, sizeof(tb_o_Node *), 1979)), 1979))->q_ty, sizeof(tb_o_Type *), 1979)), 1979))->q_elem;
+            { long long tb_v3682 = 1LL; long long *tb_p3682 = &(((tb_o_Comp *)tb_nn(v_c, 1980))->q_label); *tb_p3682 += tb_v3682; }
+            const char * v_id = ({ const char *tb_c3683_0 = ""; long long tb_c3683_0n = sizeof("") - 1; char tb_c3683_1d[24]; long long tb_c3683_1n; const char *tb_c3683_1 = tb_digits(((tb_o_Comp *)tb_nn(v_c, 1981))->q_label, tb_c3683_1d, &tb_c3683_1n); char *tb_c3683r = tb_mem(tb_c3683_0n + tb_c3683_1n + 1), *tb_c3683rw = tb_c3683r; memcpy(tb_c3683rw, tb_c3683_0, tb_c3683_0n); tb_c3683rw += tb_c3683_0n; memcpy(tb_c3683rw, tb_c3683_1, tb_c3683_1n); tb_c3683rw += tb_c3683_1n; *tb_c3683rw = 0; (const char *)tb_c3683r; });
+            tb_o_Node * v_value = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_e, 1982))->q_kids, 1LL, sizeof(tb_o_Node *), 1982)), 1982))->q_kids, 0LL, sizeof(tb_o_Node *), 1982));
+            if ((((f_check__is_cols_list(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_e, 1983))->q_kids, 0LL, sizeof(tb_o_Node *), 1983)), 1983))->q_ty) && ({ const char *tb_s3684 = ((tb_o_Node *)tb_nn(v_value, 1983))->q_kind; ((unsigned char)tb_s3684[0] == 99 && (unsigned char)tb_s3684[1] == 97 && (unsigned char)tb_s3684[2] == 108 && (unsigned char)tb_s3684[3] == 108 && tb_s3684[4] == 0); })) && ((tb_o_Node *)tb_nn(v_value, 1983))->q_has_ref) && ({ const char *tb_s3685 = ((tb_o_Node *)tb_nn(((tb_o_Node *)tb_nn(v_value, 1983))->q_ref, 1983))->q_kind; ((unsigned char)tb_s3685[0] == 111 && (unsigned char)tb_s3685[1] == 98 && (unsigned char)tb_s3685[2] == 106 && tb_s3685[3] == 0); }))) {
+                tb_o_Node * v_o = ((tb_o_Node *)tb_nn(v_value, 1985))->q_ref;
+                f_emit__put(v_c, ({ const char *tb_c3686_0 = "tb_colpush_"; long long tb_c3686_0n = sizeof("tb_colpush_") - 1; const char *tb_c3686_1 = ((tb_o_Node *)tb_nn(v_o, 1986))->q_name; long long tb_c3686_1n = (long long)strlen(tb_c3686_1); const char *tb_c3686_2 = "("; long long tb_c3686_2n = sizeof("(") - 1; char *tb_c3686r = tb_mem(tb_c3686_0n + tb_c3686_1n + tb_c3686_2n + 1), *tb_c3686rw = tb_c3686r; memcpy(tb_c3686rw, tb_c3686_0, tb_c3686_0n); tb_c3686rw += tb_c3686_0n; memcpy(tb_c3686rw, tb_c3686_1, tb_c3686_1n); tb_c3686rw += tb_c3686_1n; memcpy(tb_c3686rw, tb_c3686_2, tb_c3686_2n); tb_c3686rw += tb_c3686_2n; *tb_c3686rw = 0; (const char *)tb_c3686r; }));
+                f_emit__emit_expr(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_e, 1987))->q_kids, 0LL, sizeof(tb_o_Node *), 1987)));
                 {
-                    long long tb_end3559 = ((((tb_o_Node *)tb_nn(v_o, 1607))->q_kids)->len - 1LL);
-                    for (long long v_i = 0LL; v_i <= tb_end3559; v_i++) {
+                    long long tb_end3687 = ((((tb_o_Node *)tb_nn(v_o, 1988))->q_kids)->len - 1LL);
+                    for (long long v_i = 0LL; v_i <= tb_end3687; v_i++) {
                         f_emit__put(v_c, ", ");
-                        if (({ const char *tb_s3560 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_value, 1609))->q_kids, v_i, sizeof(tb_o_Node *), 1609)), 1609))->q_kind; ((unsigned char)tb_s3560[0] == 109 && (unsigned char)tb_s3560[1] == 105 && (unsigned char)tb_s3560[2] == 115 && (unsigned char)tb_s3560[3] == 115 && (unsigned char)tb_s3560[4] == 105 && (unsigned char)tb_s3560[5] == 110 && (unsigned char)tb_s3560[6] == 103 && tb_s3560[7] == 0); })) {
-                            f_emit__emit_default(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_o, 1610))->q_kids, v_i, sizeof(tb_o_Node *), 1610)), 1610))->q_ty);
+                        if (({ const char *tb_s3688 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_value, 1990))->q_kids, v_i, sizeof(tb_o_Node *), 1990)), 1990))->q_kind; ((unsigned char)tb_s3688[0] == 109 && (unsigned char)tb_s3688[1] == 105 && (unsigned char)tb_s3688[2] == 115 && (unsigned char)tb_s3688[3] == 115 && (unsigned char)tb_s3688[4] == 105 && (unsigned char)tb_s3688[5] == 110 && (unsigned char)tb_s3688[6] == 103 && tb_s3688[7] == 0); })) {
+                            f_emit__emit_default(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_o, 1991))->q_kids, v_i, sizeof(tb_o_Node *), 1991)), 1991))->q_ty);
                         } else {
-                            f_emit__emit_as(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_value, 1612))->q_kids, v_i, sizeof(tb_o_Node *), 1612)), 1612))->q_kids, 0LL, sizeof(tb_o_Node *), 1612)), ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_o, 1612))->q_kids, v_i, sizeof(tb_o_Node *), 1612)), 1612))->q_ty);
+                            f_emit__emit_as(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_value, 1993))->q_kids, v_i, sizeof(tb_o_Node *), 1993)), 1993))->q_kids, 0LL, sizeof(tb_o_Node *), 1993)), ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_o, 1993))->q_kids, v_i, sizeof(tb_o_Node *), 1993)), 1993))->q_ty);
                         }
                     }
                 }
-                f_emit__put(v_c, ({ const char *tb_c3561_0 = ", "; long long tb_c3561_0n = sizeof(", ") - 1; char tb_c3561_1d[24]; long long tb_c3561_1n; const char *tb_c3561_1 = tb_digits(((tb_o_Node *)tb_nn(v_e, 1613))->q_line, tb_c3561_1d, &tb_c3561_1n); const char *tb_c3561_2 = ");\n"; long long tb_c3561_2n = sizeof(");\n") - 1; char *tb_c3561r = tb_mem(tb_c3561_0n + tb_c3561_1n + tb_c3561_2n + 1), *tb_c3561rw = tb_c3561r; memcpy(tb_c3561rw, tb_c3561_0, tb_c3561_0n); tb_c3561rw += tb_c3561_0n; memcpy(tb_c3561rw, tb_c3561_1, tb_c3561_1n); tb_c3561rw += tb_c3561_1n; memcpy(tb_c3561rw, tb_c3561_2, tb_c3561_2n); tb_c3561rw += tb_c3561_2n; *tb_c3561rw = 0; (const char *)tb_c3561r; }));
+                f_emit__put(v_c, ({ const char *tb_c3689_0 = ", "; long long tb_c3689_0n = sizeof(", ") - 1; char tb_c3689_1d[24]; long long tb_c3689_1n; const char *tb_c3689_1 = tb_digits(((tb_o_Node *)tb_nn(v_e, 1994))->q_line, tb_c3689_1d, &tb_c3689_1n); const char *tb_c3689_2 = ");\n"; long long tb_c3689_2n = sizeof(");\n") - 1; char *tb_c3689r = tb_mem(tb_c3689_0n + tb_c3689_1n + tb_c3689_2n + 1), *tb_c3689rw = tb_c3689r; memcpy(tb_c3689rw, tb_c3689_0, tb_c3689_0n); tb_c3689rw += tb_c3689_0n; memcpy(tb_c3689rw, tb_c3689_1, tb_c3689_1n); tb_c3689rw += tb_c3689_1n; memcpy(tb_c3689rw, tb_c3689_2, tb_c3689_2n); tb_c3689rw += tb_c3689_2n; *tb_c3689rw = 0; (const char *)tb_c3689r; }));
                 return;
             }
-            if (f_check__is_cols_list(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_e, 1615))->q_kids, 0LL, sizeof(tb_o_Node *), 1615)), 1615))->q_ty)) {
-                f_emit__put(v_c, ({ const char *tb_c3562_0 = "{ "; long long tb_c3562_0n = sizeof("{ ") - 1; const char *tb_c3562_1 = f_emit__c_type(v_c, v_elem); long long tb_c3562_1n = (long long)strlen(tb_c3562_1); const char *tb_c3562_2 = " tb_v"; long long tb_c3562_2n = sizeof(" tb_v") - 1; const char *tb_c3562_3 = v_id; long long tb_c3562_3n = (long long)strlen(tb_c3562_3); const char *tb_c3562_4 = " = "; long long tb_c3562_4n = sizeof(" = ") - 1; char *tb_c3562r = tb_mem(tb_c3562_0n + tb_c3562_1n + tb_c3562_2n + tb_c3562_3n + tb_c3562_4n + 1), *tb_c3562rw = tb_c3562r; memcpy(tb_c3562rw, tb_c3562_0, tb_c3562_0n); tb_c3562rw += tb_c3562_0n; memcpy(tb_c3562rw, tb_c3562_1, tb_c3562_1n); tb_c3562rw += tb_c3562_1n; memcpy(tb_c3562rw, tb_c3562_2, tb_c3562_2n); tb_c3562rw += tb_c3562_2n; memcpy(tb_c3562rw, tb_c3562_3, tb_c3562_3n); tb_c3562rw += tb_c3562_3n; memcpy(tb_c3562rw, tb_c3562_4, tb_c3562_4n); tb_c3562rw += tb_c3562_4n; *tb_c3562rw = 0; (const char *)tb_c3562r; }));
-                f_emit__emit_expr(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_e, 1617))->q_kids, 1LL, sizeof(tb_o_Node *), 1617)), 1617))->q_kids, 0LL, sizeof(tb_o_Node *), 1617)));
-                f_emit__put(v_c, ({ const char *tb_c3563_0 = "; tb_coladd_"; long long tb_c3563_0n = sizeof("; tb_coladd_") - 1; const char *tb_c3563_1 = f_emit__cols_name(v_c, v_elem); long long tb_c3563_1n = (long long)strlen(tb_c3563_1); const char *tb_c3563_2 = "("; long long tb_c3563_2n = sizeof("(") - 1; char *tb_c3563r = tb_mem(tb_c3563_0n + tb_c3563_1n + tb_c3563_2n + 1), *tb_c3563rw = tb_c3563r; memcpy(tb_c3563rw, tb_c3563_0, tb_c3563_0n); tb_c3563rw += tb_c3563_0n; memcpy(tb_c3563rw, tb_c3563_1, tb_c3563_1n); tb_c3563rw += tb_c3563_1n; memcpy(tb_c3563rw, tb_c3563_2, tb_c3563_2n); tb_c3563rw += tb_c3563_2n; *tb_c3563rw = 0; (const char *)tb_c3563r; }));
-                f_emit__emit_expr(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_e, 1619))->q_kids, 0LL, sizeof(tb_o_Node *), 1619)));
-                f_emit__put(v_c, ({ const char *tb_c3564_0 = ", tb_v"; long long tb_c3564_0n = sizeof(", tb_v") - 1; const char *tb_c3564_1 = v_id; long long tb_c3564_1n = (long long)strlen(tb_c3564_1); const char *tb_c3564_2 = ", "; long long tb_c3564_2n = sizeof(", ") - 1; char tb_c3564_3d[24]; long long tb_c3564_3n; const char *tb_c3564_3 = tb_digits(((tb_o_Node *)tb_nn(v_e, 1620))->q_line, tb_c3564_3d, &tb_c3564_3n); const char *tb_c3564_4 = "); }\n"; long long tb_c3564_4n = sizeof("); }\n") - 1; char *tb_c3564r = tb_mem(tb_c3564_0n + tb_c3564_1n + tb_c3564_2n + tb_c3564_3n + tb_c3564_4n + 1), *tb_c3564rw = tb_c3564r; memcpy(tb_c3564rw, tb_c3564_0, tb_c3564_0n); tb_c3564rw += tb_c3564_0n; memcpy(tb_c3564rw, tb_c3564_1, tb_c3564_1n); tb_c3564rw += tb_c3564_1n; memcpy(tb_c3564rw, tb_c3564_2, tb_c3564_2n); tb_c3564rw += tb_c3564_2n; memcpy(tb_c3564rw, tb_c3564_3, tb_c3564_3n); tb_c3564rw += tb_c3564_3n; memcpy(tb_c3564rw, tb_c3564_4, tb_c3564_4n); tb_c3564rw += tb_c3564_4n; *tb_c3564rw = 0; (const char *)tb_c3564r; }));
+            if (f_check__is_cols_list(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_e, 1996))->q_kids, 0LL, sizeof(tb_o_Node *), 1996)), 1996))->q_ty)) {
+                f_emit__put(v_c, ({ const char *tb_c3690_0 = "{ "; long long tb_c3690_0n = sizeof("{ ") - 1; const char *tb_c3690_1 = f_emit__c_type(v_c, v_elem); long long tb_c3690_1n = (long long)strlen(tb_c3690_1); const char *tb_c3690_2 = " tb_v"; long long tb_c3690_2n = sizeof(" tb_v") - 1; const char *tb_c3690_3 = v_id; long long tb_c3690_3n = (long long)strlen(tb_c3690_3); const char *tb_c3690_4 = " = "; long long tb_c3690_4n = sizeof(" = ") - 1; char *tb_c3690r = tb_mem(tb_c3690_0n + tb_c3690_1n + tb_c3690_2n + tb_c3690_3n + tb_c3690_4n + 1), *tb_c3690rw = tb_c3690r; memcpy(tb_c3690rw, tb_c3690_0, tb_c3690_0n); tb_c3690rw += tb_c3690_0n; memcpy(tb_c3690rw, tb_c3690_1, tb_c3690_1n); tb_c3690rw += tb_c3690_1n; memcpy(tb_c3690rw, tb_c3690_2, tb_c3690_2n); tb_c3690rw += tb_c3690_2n; memcpy(tb_c3690rw, tb_c3690_3, tb_c3690_3n); tb_c3690rw += tb_c3690_3n; memcpy(tb_c3690rw, tb_c3690_4, tb_c3690_4n); tb_c3690rw += tb_c3690_4n; *tb_c3690rw = 0; (const char *)tb_c3690r; }));
+                f_emit__emit_expr(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_e, 1998))->q_kids, 1LL, sizeof(tb_o_Node *), 1998)), 1998))->q_kids, 0LL, sizeof(tb_o_Node *), 1998)));
+                f_emit__put(v_c, ({ const char *tb_c3691_0 = "; tb_coladd_"; long long tb_c3691_0n = sizeof("; tb_coladd_") - 1; const char *tb_c3691_1 = f_emit__cols_name(v_c, v_elem); long long tb_c3691_1n = (long long)strlen(tb_c3691_1); const char *tb_c3691_2 = "("; long long tb_c3691_2n = sizeof("(") - 1; char *tb_c3691r = tb_mem(tb_c3691_0n + tb_c3691_1n + tb_c3691_2n + 1), *tb_c3691rw = tb_c3691r; memcpy(tb_c3691rw, tb_c3691_0, tb_c3691_0n); tb_c3691rw += tb_c3691_0n; memcpy(tb_c3691rw, tb_c3691_1, tb_c3691_1n); tb_c3691rw += tb_c3691_1n; memcpy(tb_c3691rw, tb_c3691_2, tb_c3691_2n); tb_c3691rw += tb_c3691_2n; *tb_c3691rw = 0; (const char *)tb_c3691r; }));
+                f_emit__emit_expr(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_e, 2000))->q_kids, 0LL, sizeof(tb_o_Node *), 2000)));
+                f_emit__put(v_c, ({ const char *tb_c3692_0 = ", tb_v"; long long tb_c3692_0n = sizeof(", tb_v") - 1; const char *tb_c3692_1 = v_id; long long tb_c3692_1n = (long long)strlen(tb_c3692_1); const char *tb_c3692_2 = ", "; long long tb_c3692_2n = sizeof(", ") - 1; char tb_c3692_3d[24]; long long tb_c3692_3n; const char *tb_c3692_3 = tb_digits(((tb_o_Node *)tb_nn(v_e, 2001))->q_line, tb_c3692_3d, &tb_c3692_3n); const char *tb_c3692_4 = "); }\n"; long long tb_c3692_4n = sizeof("); }\n") - 1; char *tb_c3692r = tb_mem(tb_c3692_0n + tb_c3692_1n + tb_c3692_2n + tb_c3692_3n + tb_c3692_4n + 1), *tb_c3692rw = tb_c3692r; memcpy(tb_c3692rw, tb_c3692_0, tb_c3692_0n); tb_c3692rw += tb_c3692_0n; memcpy(tb_c3692rw, tb_c3692_1, tb_c3692_1n); tb_c3692rw += tb_c3692_1n; memcpy(tb_c3692rw, tb_c3692_2, tb_c3692_2n); tb_c3692rw += tb_c3692_2n; memcpy(tb_c3692rw, tb_c3692_3, tb_c3692_3n); tb_c3692rw += tb_c3692_3n; memcpy(tb_c3692rw, tb_c3692_4, tb_c3692_4n); tb_c3692rw += tb_c3692_4n; *tb_c3692rw = 0; (const char *)tb_c3692r; }));
                 return;
             }
-            if (f_emit__is_bits(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_e, 1622))->q_kids, 0LL, sizeof(tb_o_Node *), 1622)), 1622))->q_ty)) {
-                f_emit__put(v_c, ({ const char *tb_c3565_0 = "{ _Bool tb_v"; long long tb_c3565_0n = sizeof("{ _Bool tb_v") - 1; const char *tb_c3565_1 = v_id; long long tb_c3565_1n = (long long)strlen(tb_c3565_1); const char *tb_c3565_2 = " = "; long long tb_c3565_2n = sizeof(" = ") - 1; char *tb_c3565r = tb_mem(tb_c3565_0n + tb_c3565_1n + tb_c3565_2n + 1), *tb_c3565rw = tb_c3565r; memcpy(tb_c3565rw, tb_c3565_0, tb_c3565_0n); tb_c3565rw += tb_c3565_0n; memcpy(tb_c3565rw, tb_c3565_1, tb_c3565_1n); tb_c3565rw += tb_c3565_1n; memcpy(tb_c3565rw, tb_c3565_2, tb_c3565_2n); tb_c3565rw += tb_c3565_2n; *tb_c3565rw = 0; (const char *)tb_c3565r; }));
-                f_emit__emit_expr(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_e, 1624))->q_kids, 1LL, sizeof(tb_o_Node *), 1624)), 1624))->q_kids, 0LL, sizeof(tb_o_Node *), 1624)));
+            if (f_emit__is_bits(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_e, 2003))->q_kids, 0LL, sizeof(tb_o_Node *), 2003)), 2003))->q_ty)) {
+                f_emit__put(v_c, ({ const char *tb_c3693_0 = "{ _Bool tb_v"; long long tb_c3693_0n = sizeof("{ _Bool tb_v") - 1; const char *tb_c3693_1 = v_id; long long tb_c3693_1n = (long long)strlen(tb_c3693_1); const char *tb_c3693_2 = " = "; long long tb_c3693_2n = sizeof(" = ") - 1; char *tb_c3693r = tb_mem(tb_c3693_0n + tb_c3693_1n + tb_c3693_2n + 1), *tb_c3693rw = tb_c3693r; memcpy(tb_c3693rw, tb_c3693_0, tb_c3693_0n); tb_c3693rw += tb_c3693_0n; memcpy(tb_c3693rw, tb_c3693_1, tb_c3693_1n); tb_c3693rw += tb_c3693_1n; memcpy(tb_c3693rw, tb_c3693_2, tb_c3693_2n); tb_c3693rw += tb_c3693_2n; *tb_c3693rw = 0; (const char *)tb_c3693r; }));
+                f_emit__emit_expr(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_e, 2005))->q_kids, 1LL, sizeof(tb_o_Node *), 2005)), 2005))->q_kids, 0LL, sizeof(tb_o_Node *), 2005)));
                 f_emit__put(v_c, "; tb_badd(");
-                f_emit__emit_expr(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_e, 1626))->q_kids, 0LL, sizeof(tb_o_Node *), 1626)));
-                f_emit__put(v_c, ({ const char *tb_c3566_0 = ", tb_v"; long long tb_c3566_0n = sizeof(", tb_v") - 1; const char *tb_c3566_1 = v_id; long long tb_c3566_1n = (long long)strlen(tb_c3566_1); const char *tb_c3566_2 = "); }\n"; long long tb_c3566_2n = sizeof("); }\n") - 1; char *tb_c3566r = tb_mem(tb_c3566_0n + tb_c3566_1n + tb_c3566_2n + 1), *tb_c3566rw = tb_c3566r; memcpy(tb_c3566rw, tb_c3566_0, tb_c3566_0n); tb_c3566rw += tb_c3566_0n; memcpy(tb_c3566rw, tb_c3566_1, tb_c3566_1n); tb_c3566rw += tb_c3566_1n; memcpy(tb_c3566rw, tb_c3566_2, tb_c3566_2n); tb_c3566rw += tb_c3566_2n; *tb_c3566rw = 0; (const char *)tb_c3566r; }));
+                f_emit__emit_expr(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_e, 2007))->q_kids, 0LL, sizeof(tb_o_Node *), 2007)));
+                f_emit__put(v_c, ({ const char *tb_c3694_0 = ", tb_v"; long long tb_c3694_0n = sizeof(", tb_v") - 1; const char *tb_c3694_1 = v_id; long long tb_c3694_1n = (long long)strlen(tb_c3694_1); const char *tb_c3694_2 = "); }\n"; long long tb_c3694_2n = sizeof("); }\n") - 1; char *tb_c3694r = tb_mem(tb_c3694_0n + tb_c3694_1n + tb_c3694_2n + 1), *tb_c3694rw = tb_c3694r; memcpy(tb_c3694rw, tb_c3694_0, tb_c3694_0n); tb_c3694rw += tb_c3694_0n; memcpy(tb_c3694rw, tb_c3694_1, tb_c3694_1n); tb_c3694rw += tb_c3694_1n; memcpy(tb_c3694rw, tb_c3694_2, tb_c3694_2n); tb_c3694rw += tb_c3694_2n; *tb_c3694rw = 0; (const char *)tb_c3694r; }));
                 return;
             }
-            f_emit__put(v_c, ({ const char *tb_c3567_0 = "{ "; long long tb_c3567_0n = sizeof("{ ") - 1; const char *tb_c3567_1 = f_emit__c_type(v_c, v_elem); long long tb_c3567_1n = (long long)strlen(tb_c3567_1); const char *tb_c3567_2 = " tb_v"; long long tb_c3567_2n = sizeof(" tb_v") - 1; const char *tb_c3567_3 = v_id; long long tb_c3567_3n = (long long)strlen(tb_c3567_3); const char *tb_c3567_4 = " = "; long long tb_c3567_4n = sizeof(" = ") - 1; char *tb_c3567r = tb_mem(tb_c3567_0n + tb_c3567_1n + tb_c3567_2n + tb_c3567_3n + tb_c3567_4n + 1), *tb_c3567rw = tb_c3567r; memcpy(tb_c3567rw, tb_c3567_0, tb_c3567_0n); tb_c3567rw += tb_c3567_0n; memcpy(tb_c3567rw, tb_c3567_1, tb_c3567_1n); tb_c3567rw += tb_c3567_1n; memcpy(tb_c3567rw, tb_c3567_2, tb_c3567_2n); tb_c3567rw += tb_c3567_2n; memcpy(tb_c3567rw, tb_c3567_3, tb_c3567_3n); tb_c3567rw += tb_c3567_3n; memcpy(tb_c3567rw, tb_c3567_4, tb_c3567_4n); tb_c3567rw += tb_c3567_4n; *tb_c3567rw = 0; (const char *)tb_c3567r; }));
-            f_emit__emit_as(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_e, 1630))->q_kids, 1LL, sizeof(tb_o_Node *), 1630)), 1630))->q_kids, 0LL, sizeof(tb_o_Node *), 1630)), v_elem);
-            f_emit__put(v_c, ({ const char *tb_c3568_0 = "; *("; long long tb_c3568_0n = sizeof("; *(") - 1; const char *tb_c3568_1 = f_emit__c_type(v_c, v_elem); long long tb_c3568_1n = (long long)strlen(tb_c3568_1); const char *tb_c3568_2 = " *)tb_grow("; long long tb_c3568_2n = sizeof(" *)tb_grow(") - 1; char *tb_c3568r = tb_mem(tb_c3568_0n + tb_c3568_1n + tb_c3568_2n + 1), *tb_c3568rw = tb_c3568r; memcpy(tb_c3568rw, tb_c3568_0, tb_c3568_0n); tb_c3568rw += tb_c3568_0n; memcpy(tb_c3568rw, tb_c3568_1, tb_c3568_1n); tb_c3568rw += tb_c3568_1n; memcpy(tb_c3568rw, tb_c3568_2, tb_c3568_2n); tb_c3568rw += tb_c3568_2n; *tb_c3568rw = 0; (const char *)tb_c3568r; }));
-            f_emit__emit_expr(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_e, 1632))->q_kids, 0LL, sizeof(tb_o_Node *), 1632)));
-            f_emit__put(v_c, ({ const char *tb_c3569_0 = ") = tb_v"; long long tb_c3569_0n = sizeof(") = tb_v") - 1; const char *tb_c3569_1 = v_id; long long tb_c3569_1n = (long long)strlen(tb_c3569_1); const char *tb_c3569_2 = "; }\n"; long long tb_c3569_2n = sizeof("; }\n") - 1; char *tb_c3569r = tb_mem(tb_c3569_0n + tb_c3569_1n + tb_c3569_2n + 1), *tb_c3569rw = tb_c3569r; memcpy(tb_c3569rw, tb_c3569_0, tb_c3569_0n); tb_c3569rw += tb_c3569_0n; memcpy(tb_c3569rw, tb_c3569_1, tb_c3569_1n); tb_c3569rw += tb_c3569_1n; memcpy(tb_c3569rw, tb_c3569_2, tb_c3569_2n); tb_c3569rw += tb_c3569_2n; *tb_c3569rw = 0; (const char *)tb_c3569r; }));
+            f_emit__put(v_c, ({ const char *tb_c3695_0 = "{ "; long long tb_c3695_0n = sizeof("{ ") - 1; const char *tb_c3695_1 = f_emit__c_type(v_c, v_elem); long long tb_c3695_1n = (long long)strlen(tb_c3695_1); const char *tb_c3695_2 = " tb_v"; long long tb_c3695_2n = sizeof(" tb_v") - 1; const char *tb_c3695_3 = v_id; long long tb_c3695_3n = (long long)strlen(tb_c3695_3); const char *tb_c3695_4 = " = "; long long tb_c3695_4n = sizeof(" = ") - 1; char *tb_c3695r = tb_mem(tb_c3695_0n + tb_c3695_1n + tb_c3695_2n + tb_c3695_3n + tb_c3695_4n + 1), *tb_c3695rw = tb_c3695r; memcpy(tb_c3695rw, tb_c3695_0, tb_c3695_0n); tb_c3695rw += tb_c3695_0n; memcpy(tb_c3695rw, tb_c3695_1, tb_c3695_1n); tb_c3695rw += tb_c3695_1n; memcpy(tb_c3695rw, tb_c3695_2, tb_c3695_2n); tb_c3695rw += tb_c3695_2n; memcpy(tb_c3695rw, tb_c3695_3, tb_c3695_3n); tb_c3695rw += tb_c3695_3n; memcpy(tb_c3695rw, tb_c3695_4, tb_c3695_4n); tb_c3695rw += tb_c3695_4n; *tb_c3695rw = 0; (const char *)tb_c3695r; }));
+            f_emit__emit_as(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_e, 2011))->q_kids, 1LL, sizeof(tb_o_Node *), 2011)), 2011))->q_kids, 0LL, sizeof(tb_o_Node *), 2011)), v_elem);
+            f_emit__put(v_c, ({ const char *tb_c3696_0 = "; *("; long long tb_c3696_0n = sizeof("; *(") - 1; const char *tb_c3696_1 = f_emit__c_type(v_c, v_elem); long long tb_c3696_1n = (long long)strlen(tb_c3696_1); const char *tb_c3696_2 = " *)tb_grow("; long long tb_c3696_2n = sizeof(" *)tb_grow(") - 1; char *tb_c3696r = tb_mem(tb_c3696_0n + tb_c3696_1n + tb_c3696_2n + 1), *tb_c3696rw = tb_c3696r; memcpy(tb_c3696rw, tb_c3696_0, tb_c3696_0n); tb_c3696rw += tb_c3696_0n; memcpy(tb_c3696rw, tb_c3696_1, tb_c3696_1n); tb_c3696rw += tb_c3696_1n; memcpy(tb_c3696rw, tb_c3696_2, tb_c3696_2n); tb_c3696rw += tb_c3696_2n; *tb_c3696rw = 0; (const char *)tb_c3696r; }));
+            f_emit__emit_expr(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_e, 2013))->q_kids, 0LL, sizeof(tb_o_Node *), 2013)));
+            f_emit__put(v_c, ({ const char *tb_c3697_0 = ") = tb_v"; long long tb_c3697_0n = sizeof(") = tb_v") - 1; const char *tb_c3697_1 = v_id; long long tb_c3697_1n = (long long)strlen(tb_c3697_1); const char *tb_c3697_2 = "; }\n"; long long tb_c3697_2n = sizeof("; }\n") - 1; char *tb_c3697r = tb_mem(tb_c3697_0n + tb_c3697_1n + tb_c3697_2n + 1), *tb_c3697rw = tb_c3697r; memcpy(tb_c3697rw, tb_c3697_0, tb_c3697_0n); tb_c3697rw += tb_c3697_0n; memcpy(tb_c3697rw, tb_c3697_1, tb_c3697_1n); tb_c3697rw += tb_c3697_1n; memcpy(tb_c3697rw, tb_c3697_2, tb_c3697_2n); tb_c3697rw += tb_c3697_2n; *tb_c3697rw = 0; (const char *)tb_c3697r; }));
         } else {
             f_emit__emit_expr(v_c, v_e);
             f_emit__put(v_c, ";\n");
@@ -11550,31 +12458,31 @@ static void f_emit__emit_statement(tb_o_Comp * v_c, tb_o_Node * v_n, long long v
 
 static void f_emit__emit_block(tb_o_Comp * v_c, tb_o_Node * v_block, long long v_depth) {
     {
-        tb_list * tb_l3570 = ((tb_o_Node *)tb_nn(v_block, 1639))->q_kids;
-        for (long long tb_i3570 = 0; tb_i3570 < tb_l3570->len; tb_i3570++) {
-            tb_o_Node * const v_s = ((tb_o_Node * *)tb_l3570->data)[tb_i3570];
+        tb_list * tb_l3698 = ((tb_o_Node *)tb_nn(v_block, 2020))->q_kids;
+        for (long long tb_i3698 = 0; tb_i3698 < tb_l3698->len; tb_i3698++) {
+            tb_o_Node * const v_s = ((tb_o_Node * *)tb_l3698->data)[tb_i3698];
             f_emit__emit_statement(v_c, v_s, v_depth);
         }
     }
 }
 
 static void f_emit__emit_signature(tb_o_Comp * v_c, tb_o_Node * v_f) {
-    tb_o_Node * v_params = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_f, 1645))->q_kids, 0LL, sizeof(tb_o_Node *), 1645));
-    f_emit__put(v_c, ({ const char *tb_c3571_0 = "static "; long long tb_c3571_0n = sizeof("static ") - 1; const char *tb_c3571_1 = f_emit__c_type(v_c, ((tb_o_Node *)tb_nn(v_f, 1646))->q_ty); long long tb_c3571_1n = (long long)strlen(tb_c3571_1); const char *tb_c3571_2 = " "; long long tb_c3571_2n = sizeof(" ") - 1; const char *tb_c3571_3 = f_emit__fname(v_f); long long tb_c3571_3n = (long long)strlen(tb_c3571_3); const char *tb_c3571_4 = "("; long long tb_c3571_4n = sizeof("(") - 1; char *tb_c3571r = tb_mem(tb_c3571_0n + tb_c3571_1n + tb_c3571_2n + tb_c3571_3n + tb_c3571_4n + 1), *tb_c3571rw = tb_c3571r; memcpy(tb_c3571rw, tb_c3571_0, tb_c3571_0n); tb_c3571rw += tb_c3571_0n; memcpy(tb_c3571rw, tb_c3571_1, tb_c3571_1n); tb_c3571rw += tb_c3571_1n; memcpy(tb_c3571rw, tb_c3571_2, tb_c3571_2n); tb_c3571rw += tb_c3571_2n; memcpy(tb_c3571rw, tb_c3571_3, tb_c3571_3n); tb_c3571rw += tb_c3571_3n; memcpy(tb_c3571rw, tb_c3571_4, tb_c3571_4n); tb_c3571rw += tb_c3571_4n; *tb_c3571rw = 0; (const char *)tb_c3571r; }));
-    if (((((tb_o_Node *)tb_nn(v_params, 1647))->q_kids)->len == 0LL)) {
+    tb_o_Node * v_params = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_f, 2026))->q_kids, 0LL, sizeof(tb_o_Node *), 2026));
+    f_emit__put(v_c, ({ const char *tb_c3699_0 = "static "; long long tb_c3699_0n = sizeof("static ") - 1; const char *tb_c3699_1 = f_emit__c_type(v_c, ((tb_o_Node *)tb_nn(v_f, 2027))->q_ty); long long tb_c3699_1n = (long long)strlen(tb_c3699_1); const char *tb_c3699_2 = " "; long long tb_c3699_2n = sizeof(" ") - 1; const char *tb_c3699_3 = f_emit__fname(v_f); long long tb_c3699_3n = (long long)strlen(tb_c3699_3); const char *tb_c3699_4 = "("; long long tb_c3699_4n = sizeof("(") - 1; char *tb_c3699r = tb_mem(tb_c3699_0n + tb_c3699_1n + tb_c3699_2n + tb_c3699_3n + tb_c3699_4n + 1), *tb_c3699rw = tb_c3699r; memcpy(tb_c3699rw, tb_c3699_0, tb_c3699_0n); tb_c3699rw += tb_c3699_0n; memcpy(tb_c3699rw, tb_c3699_1, tb_c3699_1n); tb_c3699rw += tb_c3699_1n; memcpy(tb_c3699rw, tb_c3699_2, tb_c3699_2n); tb_c3699rw += tb_c3699_2n; memcpy(tb_c3699rw, tb_c3699_3, tb_c3699_3n); tb_c3699rw += tb_c3699_3n; memcpy(tb_c3699rw, tb_c3699_4, tb_c3699_4n); tb_c3699rw += tb_c3699_4n; *tb_c3699rw = 0; (const char *)tb_c3699r; }));
+    if (((((tb_o_Node *)tb_nn(v_params, 2028))->q_kids)->len == 0LL)) {
         f_emit__put(v_c, "void");
     }
     {
-        long long tb_end3572 = ((((tb_o_Node *)tb_nn(v_params, 1649))->q_kids)->len - 1LL);
-        for (long long v_i = 0LL; v_i <= tb_end3572; v_i++) {
-            tb_o_Node * v_p = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_params, 1650))->q_kids, v_i, sizeof(tb_o_Node *), 1650));
+        long long tb_end3700 = ((((tb_o_Node *)tb_nn(v_params, 2030))->q_kids)->len - 1LL);
+        for (long long v_i = 0LL; v_i <= tb_end3700; v_i++) {
+            tb_o_Node * v_p = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_params, 2031))->q_kids, v_i, sizeof(tb_o_Node *), 2031));
             if ((v_i > 0LL)) {
                 f_emit__put(v_c, ", ");
             }
-            if (((tb_o_Node *)tb_nn(v_p, 1653))->q_is_link) {
-                f_emit__put(v_c, ({ const char *tb_c3573_0 = f_emit__c_type(v_c, ((tb_o_Node *)tb_nn(v_p, 1654))->q_ty); long long tb_c3573_0n = (long long)strlen(tb_c3573_0); const char *tb_c3573_1 = " *v_"; long long tb_c3573_1n = sizeof(" *v_") - 1; const char *tb_c3573_2 = ((tb_o_Node *)tb_nn(v_p, 1654))->q_name; long long tb_c3573_2n = (long long)strlen(tb_c3573_2); char *tb_c3573r = tb_mem(tb_c3573_0n + tb_c3573_1n + tb_c3573_2n + 1), *tb_c3573rw = tb_c3573r; memcpy(tb_c3573rw, tb_c3573_0, tb_c3573_0n); tb_c3573rw += tb_c3573_0n; memcpy(tb_c3573rw, tb_c3573_1, tb_c3573_1n); tb_c3573rw += tb_c3573_1n; memcpy(tb_c3573rw, tb_c3573_2, tb_c3573_2n); tb_c3573rw += tb_c3573_2n; *tb_c3573rw = 0; (const char *)tb_c3573r; }));
+            if (((tb_o_Node *)tb_nn(v_p, 2034))->q_is_link) {
+                f_emit__put(v_c, ({ const char *tb_c3701_0 = f_emit__c_type(v_c, ((tb_o_Node *)tb_nn(v_p, 2035))->q_ty); long long tb_c3701_0n = (long long)strlen(tb_c3701_0); const char *tb_c3701_1 = " *v_"; long long tb_c3701_1n = sizeof(" *v_") - 1; const char *tb_c3701_2 = ((tb_o_Node *)tb_nn(v_p, 2035))->q_name; long long tb_c3701_2n = (long long)strlen(tb_c3701_2); char *tb_c3701r = tb_mem(tb_c3701_0n + tb_c3701_1n + tb_c3701_2n + 1), *tb_c3701rw = tb_c3701r; memcpy(tb_c3701rw, tb_c3701_0, tb_c3701_0n); tb_c3701rw += tb_c3701_0n; memcpy(tb_c3701rw, tb_c3701_1, tb_c3701_1n); tb_c3701rw += tb_c3701_1n; memcpy(tb_c3701rw, tb_c3701_2, tb_c3701_2n); tb_c3701rw += tb_c3701_2n; *tb_c3701rw = 0; (const char *)tb_c3701r; }));
             } else {
-                f_emit__put(v_c, ({ const char *tb_c3574_0 = f_emit__c_type(v_c, ((tb_o_Node *)tb_nn(v_p, 1656))->q_ty); long long tb_c3574_0n = (long long)strlen(tb_c3574_0); const char *tb_c3574_1 = " v_"; long long tb_c3574_1n = sizeof(" v_") - 1; const char *tb_c3574_2 = ((tb_o_Node *)tb_nn(v_p, 1656))->q_name; long long tb_c3574_2n = (long long)strlen(tb_c3574_2); char *tb_c3574r = tb_mem(tb_c3574_0n + tb_c3574_1n + tb_c3574_2n + 1), *tb_c3574rw = tb_c3574r; memcpy(tb_c3574rw, tb_c3574_0, tb_c3574_0n); tb_c3574rw += tb_c3574_0n; memcpy(tb_c3574rw, tb_c3574_1, tb_c3574_1n); tb_c3574rw += tb_c3574_1n; memcpy(tb_c3574rw, tb_c3574_2, tb_c3574_2n); tb_c3574rw += tb_c3574_2n; *tb_c3574rw = 0; (const char *)tb_c3574r; }));
+                f_emit__put(v_c, ({ const char *tb_c3702_0 = f_emit__c_type(v_c, ((tb_o_Node *)tb_nn(v_p, 2037))->q_ty); long long tb_c3702_0n = (long long)strlen(tb_c3702_0); const char *tb_c3702_1 = " v_"; long long tb_c3702_1n = sizeof(" v_") - 1; const char *tb_c3702_2 = ((tb_o_Node *)tb_nn(v_p, 2037))->q_name; long long tb_c3702_2n = (long long)strlen(tb_c3702_2); char *tb_c3702r = tb_mem(tb_c3702_0n + tb_c3702_1n + tb_c3702_2n + 1), *tb_c3702rw = tb_c3702r; memcpy(tb_c3702rw, tb_c3702_0, tb_c3702_0n); tb_c3702rw += tb_c3702_0n; memcpy(tb_c3702rw, tb_c3702_1, tb_c3702_1n); tb_c3702rw += tb_c3702_1n; memcpy(tb_c3702rw, tb_c3702_2, tb_c3702_2n); tb_c3702rw += tb_c3702_2n; *tb_c3702rw = 0; (const char *)tb_c3702r; }));
             }
         }
     }
@@ -11583,53 +12491,53 @@ static void f_emit__emit_signature(tb_o_Comp * v_c, tb_o_Node * v_f) {
 
 static _Bool f_emit__bld_has(tb_list * v_names, const char * v_name) {
     {
-        tb_list * tb_l3575 = v_names;
-        for (long long tb_i3575 = 0; tb_i3575 < tb_l3575->len; tb_i3575++) {
-            const char * const v_x = ((const char * *)tb_l3575->data)[tb_i3575];
+        tb_list * tb_l3703 = v_names;
+        for (long long tb_i3703 = 0; tb_i3703 < tb_l3703->len; tb_i3703++) {
+            const char * const v_x = ((const char * *)tb_l3703->data)[tb_i3703];
             if ((strcmp(v_x, v_name) == 0)) {
                 return 1;
             }
         }
     }
     return 0;
-    tb_crash(1666, "функция bld_has дошла до конца без return");
+    tb_crash(2047, "функция bld_has дошла до конца без return");
     return 0;
 }
 
 static _Bool f_emit__bld_uses(tb_o_Node * v_n, const char * v_name) {
-    if ((({ const char *tb_s3576 = ((tb_o_Node *)tb_nn(v_n, 1673))->q_kind; ((unsigned char)tb_s3576[0] == 110 && (unsigned char)tb_s3576[1] == 97 && (unsigned char)tb_s3576[2] == 109 && (unsigned char)tb_s3576[3] == 101 && tb_s3576[4] == 0); }) && (strcmp(((tb_o_Node *)tb_nn(v_n, 1673))->q_name, v_name) == 0))) {
+    if ((({ const char *tb_s3704 = ((tb_o_Node *)tb_nn(v_n, 2054))->q_kind; ((unsigned char)tb_s3704[0] == 110 && (unsigned char)tb_s3704[1] == 97 && (unsigned char)tb_s3704[2] == 109 && (unsigned char)tb_s3704[3] == 101 && tb_s3704[4] == 0); }) && (strcmp(((tb_o_Node *)tb_nn(v_n, 2054))->q_name, v_name) == 0))) {
         return 1;
     }
     {
-        tb_list * tb_l3577 = ((tb_o_Node *)tb_nn(v_n, 1675))->q_kids;
-        for (long long tb_i3577 = 0; tb_i3577 < tb_l3577->len; tb_i3577++) {
-            tb_o_Node * const v_k = ((tb_o_Node * *)tb_l3577->data)[tb_i3577];
+        tb_list * tb_l3705 = ((tb_o_Node *)tb_nn(v_n, 2056))->q_kids;
+        for (long long tb_i3705 = 0; tb_i3705 < tb_l3705->len; tb_i3705++) {
+            tb_o_Node * const v_k = ((tb_o_Node * *)tb_l3705->data)[tb_i3705];
             if (f_emit__bld_uses(v_k, v_name)) {
                 return 1;
             }
         }
     }
     return 0;
-    tb_crash(1672, "функция bld_uses дошла до конца без return");
+    tb_crash(2053, "функция bld_uses дошла до конца без return");
     return 0;
 }
 
 static void f_emit__bld_bad_all(tb_o_Node * v_n, tb_list * v_bad) {
-    if ((({ const char *tb_s3578 = ((tb_o_Node *)tb_nn(v_n, 1682))->q_kind; ((unsigned char)tb_s3578[0] == 110 && (unsigned char)tb_s3578[1] == 97 && (unsigned char)tb_s3578[2] == 109 && (unsigned char)tb_s3578[3] == 101 && tb_s3578[4] == 0); }) || ({ const char *tb_s3579 = ((tb_o_Node *)tb_nn(v_n, 1682))->q_kind; ((unsigned char)tb_s3579[0] == 97 && (unsigned char)tb_s3579[1] == 115 && (unsigned char)tb_s3579[2] == 115 && (unsigned char)tb_s3579[3] == 105 && (unsigned char)tb_s3579[4] == 103 && (unsigned char)tb_s3579[5] == 110 && tb_s3579[6] == 0); }))) {
-        { const char * tb_v3580 = ((tb_o_Node *)tb_nn(v_n, 1683))->q_name; *(const char * *)tb_grow(v_bad) = tb_v3580; }
+    if ((({ const char *tb_s3706 = ((tb_o_Node *)tb_nn(v_n, 2063))->q_kind; ((unsigned char)tb_s3706[0] == 110 && (unsigned char)tb_s3706[1] == 97 && (unsigned char)tb_s3706[2] == 109 && (unsigned char)tb_s3706[3] == 101 && tb_s3706[4] == 0); }) || ({ const char *tb_s3707 = ((tb_o_Node *)tb_nn(v_n, 2063))->q_kind; ((unsigned char)tb_s3707[0] == 97 && (unsigned char)tb_s3707[1] == 115 && (unsigned char)tb_s3707[2] == 115 && (unsigned char)tb_s3707[3] == 105 && (unsigned char)tb_s3707[4] == 103 && (unsigned char)tb_s3707[5] == 110 && tb_s3707[6] == 0); }))) {
+        { const char * tb_v3708 = ((tb_o_Node *)tb_nn(v_n, 2064))->q_name; *(const char * *)tb_grow(v_bad) = tb_v3708; }
     }
     {
-        tb_list * tb_l3581 = ((tb_o_Node *)tb_nn(v_n, 1684))->q_kids;
-        for (long long tb_i3581 = 0; tb_i3581 < tb_l3581->len; tb_i3581++) {
-            tb_o_Node * const v_k = ((tb_o_Node * *)tb_l3581->data)[tb_i3581];
+        tb_list * tb_l3709 = ((tb_o_Node *)tb_nn(v_n, 2065))->q_kids;
+        for (long long tb_i3709 = 0; tb_i3709 < tb_l3709->len; tb_i3709++) {
+            tb_o_Node * const v_k = ((tb_o_Node * *)tb_l3709->data)[tb_i3709];
             f_emit__bld_bad_all(v_k, v_bad);
         }
     }
 }
 
 static _Bool f_emit__is_text_plus(tb_o_Comp * v_c, tb_o_Node * v_n) {
-    return ((({ const char *tb_s3582 = ((tb_o_Node *)tb_nn(v_n, 1688))->q_kind; ((unsigned char)tb_s3582[0] == 98 && (unsigned char)tb_s3582[1] == 105 && (unsigned char)tb_s3582[2] == 110 && (unsigned char)tb_s3582[3] == 111 && (unsigned char)tb_s3582[4] == 112 && tb_s3582[5] == 0); }) && ({ const char *tb_s3583 = ((tb_o_Node *)tb_nn(v_n, 1688))->q_value; ((unsigned char)tb_s3583[0] == 43 && tb_s3583[1] == 0); })) && ({ const char *tb_s3584 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_n, 1688))->q_ty); ((unsigned char)tb_s3584[0] == 116 && (unsigned char)tb_s3584[1] == 101 && (unsigned char)tb_s3584[2] == 120 && (unsigned char)tb_s3584[3] == 116 && tb_s3584[4] == 0); }));
-    tb_crash(1687, "функция is_text_plus дошла до конца без return");
+    return ((({ const char *tb_s3710 = ((tb_o_Node *)tb_nn(v_n, 2069))->q_kind; ((unsigned char)tb_s3710[0] == 98 && (unsigned char)tb_s3710[1] == 105 && (unsigned char)tb_s3710[2] == 110 && (unsigned char)tb_s3710[3] == 111 && (unsigned char)tb_s3710[4] == 112 && tb_s3710[5] == 0); }) && ({ const char *tb_s3711 = ((tb_o_Node *)tb_nn(v_n, 2069))->q_value; ((unsigned char)tb_s3711[0] == 43 && tb_s3711[1] == 0); })) && ({ const char *tb_s3712 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_n, 2069))->q_ty); ((unsigned char)tb_s3712[0] == 116 && (unsigned char)tb_s3712[1] == 101 && (unsigned char)tb_s3712[2] == 120 && (unsigned char)tb_s3712[3] == 116 && tb_s3712[4] == 0); }));
+    tb_crash(2068, "функция is_text_plus дошла до конца без return");
     return 0;
 }
 
@@ -11639,13 +12547,13 @@ static _Bool f_emit__app_form(tb_o_Comp * v_c, const char * v_name, tb_o_Node * 
     }
     tb_o_Node * v_r = v_v;
     while (f_emit__is_text_plus(v_c, v_r)) {
-        if (f_emit__bld_uses((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_r, 1696))->q_kids, 1LL, sizeof(tb_o_Node *), 1696)), v_name)) {
+        if (f_emit__bld_uses((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_r, 2077))->q_kids, 1LL, sizeof(tb_o_Node *), 2077)), v_name)) {
             return 0;
         }
-        v_r = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_r, 1698))->q_kids, 0LL, sizeof(tb_o_Node *), 1698));
+        v_r = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_r, 2079))->q_kids, 0LL, sizeof(tb_o_Node *), 2079));
     }
-    return ((({ const char *tb_s3585 = ((tb_o_Node *)tb_nn(v_r, 1699))->q_kind; ((unsigned char)tb_s3585[0] == 110 && (unsigned char)tb_s3585[1] == 97 && (unsigned char)tb_s3585[2] == 109 && (unsigned char)tb_s3585[3] == 101 && tb_s3585[4] == 0); }) && (strcmp(((tb_o_Node *)tb_nn(v_r, 1699))->q_name, v_name) == 0)) && (!((tb_o_Node *)tb_nn(v_r, 1699))->q_is_link));
-    tb_crash(1691, "функция app_form дошла до конца без return");
+    return ((({ const char *tb_s3713 = ((tb_o_Node *)tb_nn(v_r, 2080))->q_kind; ((unsigned char)tb_s3713[0] == 110 && (unsigned char)tb_s3713[1] == 97 && (unsigned char)tb_s3713[2] == 109 && (unsigned char)tb_s3713[3] == 101 && tb_s3713[4] == 0); }) && (strcmp(((tb_o_Node *)tb_nn(v_r, 2080))->q_name, v_name) == 0)) && (!((tb_o_Node *)tb_nn(v_r, 2080))->q_is_link));
+    tb_crash(2072, "функция app_form дошла до конца без return");
     return 0;
 }
 
@@ -11654,59 +12562,59 @@ static tb_list * f_emit__app_parts(tb_o_Comp * v_c, tb_o_Node * v_v) {
     tb_list * v_back = tb_list_new(sizeof(tb_o_Node *));
     tb_o_Node * v_r = v_v;
     while (f_emit__is_text_plus(v_c, v_r)) {
-        { tb_o_Node * tb_v3586 = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_r, 1706))->q_kids, 1LL, sizeof(tb_o_Node *), 1706)); *(tb_o_Node * *)tb_grow(v_back) = tb_v3586; }
-        v_r = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_r, 1707))->q_kids, 0LL, sizeof(tb_o_Node *), 1707));
+        { tb_o_Node * tb_v3714 = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_r, 2087))->q_kids, 1LL, sizeof(tb_o_Node *), 2087)); *(tb_o_Node * *)tb_grow(v_back) = tb_v3714; }
+        v_r = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_r, 2088))->q_kids, 0LL, sizeof(tb_o_Node *), 2088));
     }
     long long v_i = ((v_back)->len - 1LL);
     while ((v_i >= 0LL)) {
-        { tb_o_Node * tb_v3587 = (*(tb_o_Node * *)tb_at(v_back, v_i, sizeof(tb_o_Node *), 1710)); *(tb_o_Node * *)tb_grow(v_parts) = tb_v3587; }
-        { long long tb_v3588 = 1LL; long long *tb_p3588 = &(v_i); *tb_p3588 -= tb_v3588; }
+        { tb_o_Node * tb_v3715 = (*(tb_o_Node * *)tb_at(v_back, v_i, sizeof(tb_o_Node *), 2091)); *(tb_o_Node * *)tb_grow(v_parts) = tb_v3715; }
+        { long long tb_v3716 = 1LL; long long *tb_p3716 = &(v_i); *tb_p3716 -= tb_v3716; }
     }
     return v_parts;
 }
 
 static void f_emit__bld_scan(tb_o_Comp * v_c, tb_o_Node * v_n, _Bool v_in_par, tb_list * v_cand, tb_list * v_bad) {
-    const char * v_k = ((tb_o_Node *)tb_nn(v_n, 1714))->q_kind;
-    _Bool v_par = (((v_in_par || (strcmp(v_k, "background") == 0)) || ({ const char *tb_s3589 = v_k; ((unsigned char)tb_s3589[0] == 116 && (unsigned char)tb_s3589[1] == 111 && (unsigned char)tb_s3589[2] == 103 && (unsigned char)tb_s3589[3] == 101 && (unsigned char)tb_s3589[4] == 116 && (unsigned char)tb_s3589[5] == 104 && (unsigned char)tb_s3589[6] == 101 && (unsigned char)tb_s3589[7] == 114 && tb_s3589[8] == 0); })) || ((({ const char *tb_s3590 = v_k; ((unsigned char)tb_s3590[0] == 101 && (unsigned char)tb_s3590[1] == 97 && (unsigned char)tb_s3590[2] == 99 && (unsigned char)tb_s3590[3] == 104 && tb_s3590[4] == 0); }) || ({ const char *tb_s3591 = v_k; ((unsigned char)tb_s3591[0] == 99 && (unsigned char)tb_s3591[1] == 111 && (unsigned char)tb_s3591[2] == 117 && (unsigned char)tb_s3591[3] == 110 && (unsigned char)tb_s3591[4] == 116 && tb_s3591[5] == 0); })) && (((tb_o_Node *)tb_nn(v_n, 1715))->q_is_par || ((tb_o_Node *)tb_nn(v_n, 1715))->q_by_vec)));
+    const char * v_k = ((tb_o_Node *)tb_nn(v_n, 2095))->q_kind;
+    _Bool v_par = (((v_in_par || (strcmp(v_k, "background") == 0)) || ({ const char *tb_s3717 = v_k; ((unsigned char)tb_s3717[0] == 116 && (unsigned char)tb_s3717[1] == 111 && (unsigned char)tb_s3717[2] == 103 && (unsigned char)tb_s3717[3] == 101 && (unsigned char)tb_s3717[4] == 116 && (unsigned char)tb_s3717[5] == 104 && (unsigned char)tb_s3717[6] == 101 && (unsigned char)tb_s3717[7] == 114 && tb_s3717[8] == 0); })) || ((({ const char *tb_s3718 = v_k; ((unsigned char)tb_s3718[0] == 101 && (unsigned char)tb_s3718[1] == 97 && (unsigned char)tb_s3718[2] == 99 && (unsigned char)tb_s3718[3] == 104 && tb_s3718[4] == 0); }) || ({ const char *tb_s3719 = v_k; ((unsigned char)tb_s3719[0] == 99 && (unsigned char)tb_s3719[1] == 111 && (unsigned char)tb_s3719[2] == 117 && (unsigned char)tb_s3719[3] == 110 && (unsigned char)tb_s3719[4] == 116 && tb_s3719[5] == 0); })) && (((tb_o_Node *)tb_nn(v_n, 2096))->q_is_par || ((tb_o_Node *)tb_nn(v_n, 2096))->q_by_vec)));
     if (v_par) {
         f_emit__bld_bad_all(v_n, v_bad);
         return;
     }
-    if ((({ const char *tb_s3592 = v_k; ((unsigned char)tb_s3592[0] == 108 && (unsigned char)tb_s3592[1] == 105 && (unsigned char)tb_s3592[2] == 110 && (unsigned char)tb_s3592[3] == 107 && (unsigned char)tb_s3592[4] == 100 && (unsigned char)tb_s3592[5] == 101 && (unsigned char)tb_s3592[6] == 99 && (unsigned char)tb_s3592[7] == 108 && tb_s3592[8] == 0); }) || ({ const char *tb_s3593 = v_k; ((unsigned char)tb_s3593[0] == 109 && (unsigned char)tb_s3593[1] == 117 && (unsigned char)tb_s3593[2] == 108 && (unsigned char)tb_s3593[3] == 116 && (unsigned char)tb_s3593[4] == 105 && tb_s3593[5] == 0); }))) {
+    if ((({ const char *tb_s3720 = v_k; ((unsigned char)tb_s3720[0] == 108 && (unsigned char)tb_s3720[1] == 105 && (unsigned char)tb_s3720[2] == 110 && (unsigned char)tb_s3720[3] == 107 && (unsigned char)tb_s3720[4] == 100 && (unsigned char)tb_s3720[5] == 101 && (unsigned char)tb_s3720[6] == 99 && (unsigned char)tb_s3720[7] == 108 && tb_s3720[8] == 0); }) || ({ const char *tb_s3721 = v_k; ((unsigned char)tb_s3721[0] == 109 && (unsigned char)tb_s3721[1] == 117 && (unsigned char)tb_s3721[2] == 108 && (unsigned char)tb_s3721[3] == 116 && (unsigned char)tb_s3721[4] == 105 && tb_s3721[5] == 0); }))) {
         f_emit__bld_bad_all(v_n, v_bad);
     }
-    if (((({ const char *tb_s3594 = v_k; ((unsigned char)tb_s3594[0] == 101 && (unsigned char)tb_s3594[1] == 97 && (unsigned char)tb_s3594[2] == 99 && (unsigned char)tb_s3594[3] == 104 && tb_s3594[4] == 0); }) || ({ const char *tb_s3595 = v_k; ((unsigned char)tb_s3595[0] == 99 && (unsigned char)tb_s3595[1] == 111 && (unsigned char)tb_s3595[2] == 117 && (unsigned char)tb_s3595[3] == 110 && (unsigned char)tb_s3595[4] == 116 && tb_s3595[5] == 0); })) || ({ const char *tb_s3596 = v_k; ((unsigned char)tb_s3596[0] == 101 && (unsigned char)tb_s3596[1] == 108 && (unsigned char)tb_s3596[2] == 115 && (unsigned char)tb_s3596[3] == 101 && (unsigned char)tb_s3596[4] == 95 && (unsigned char)tb_s3596[5] == 101 && (unsigned char)tb_s3596[6] == 114 && (unsigned char)tb_s3596[7] == 114 && tb_s3596[8] == 0); }))) {
-        { const char * tb_v3597 = ((tb_o_Node *)tb_nn(v_n, 1722))->q_name; *(const char * *)tb_grow(v_bad) = tb_v3597; }
+    if (((({ const char *tb_s3722 = v_k; ((unsigned char)tb_s3722[0] == 101 && (unsigned char)tb_s3722[1] == 97 && (unsigned char)tb_s3722[2] == 99 && (unsigned char)tb_s3722[3] == 104 && tb_s3722[4] == 0); }) || ({ const char *tb_s3723 = v_k; ((unsigned char)tb_s3723[0] == 99 && (unsigned char)tb_s3723[1] == 111 && (unsigned char)tb_s3723[2] == 117 && (unsigned char)tb_s3723[3] == 110 && (unsigned char)tb_s3723[4] == 116 && tb_s3723[5] == 0); })) || ({ const char *tb_s3724 = v_k; ((unsigned char)tb_s3724[0] == 101 && (unsigned char)tb_s3724[1] == 108 && (unsigned char)tb_s3724[2] == 115 && (unsigned char)tb_s3724[3] == 101 && (unsigned char)tb_s3724[4] == 95 && (unsigned char)tb_s3724[5] == 101 && (unsigned char)tb_s3724[6] == 114 && (unsigned char)tb_s3724[7] == 114 && tb_s3724[8] == 0); }))) {
+        { const char * tb_v3725 = ((tb_o_Node *)tb_nn(v_n, 2103))->q_name; *(const char * *)tb_grow(v_bad) = tb_v3725; }
     }
-    if (((({ const char *tb_s3598 = v_k; ((unsigned char)tb_s3598[0] == 99 && (unsigned char)tb_s3598[1] == 97 && (unsigned char)tb_s3598[2] == 108 && (unsigned char)tb_s3598[3] == 108 && tb_s3598[4] == 0); }) && ((tb_o_Node *)tb_nn(v_n, 1723))->q_has_ref) && ({ const char *tb_s3599 = ((tb_o_Node *)tb_nn(((tb_o_Node *)tb_nn(v_n, 1723))->q_ref, 1723))->q_kind; ((unsigned char)tb_s3599[0] == 102 && (unsigned char)tb_s3599[1] == 117 && (unsigned char)tb_s3599[2] == 110 && (unsigned char)tb_s3599[3] == 99 && tb_s3599[4] == 0); }))) {
-        tb_o_Node * v_params = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(((tb_o_Node *)tb_nn(v_n, 1724))->q_ref, 1724))->q_kids, 0LL, sizeof(tb_o_Node *), 1724));
+    if (((({ const char *tb_s3726 = v_k; ((unsigned char)tb_s3726[0] == 99 && (unsigned char)tb_s3726[1] == 97 && (unsigned char)tb_s3726[2] == 108 && (unsigned char)tb_s3726[3] == 108 && tb_s3726[4] == 0); }) && ((tb_o_Node *)tb_nn(v_n, 2104))->q_has_ref) && ({ const char *tb_s3727 = ((tb_o_Node *)tb_nn(((tb_o_Node *)tb_nn(v_n, 2104))->q_ref, 2104))->q_kind; ((unsigned char)tb_s3727[0] == 102 && (unsigned char)tb_s3727[1] == 117 && (unsigned char)tb_s3727[2] == 110 && (unsigned char)tb_s3727[3] == 99 && tb_s3727[4] == 0); }))) {
+        tb_o_Node * v_params = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(((tb_o_Node *)tb_nn(v_n, 2105))->q_ref, 2105))->q_kids, 0LL, sizeof(tb_o_Node *), 2105));
         {
-            long long tb_end3600 = ((((tb_o_Node *)tb_nn(v_n, 1725))->q_kids)->len - 1LL);
-            for (long long v_i = 0LL; v_i <= tb_end3600; v_i++) {
-                if (((v_i < (((tb_o_Node *)tb_nn(v_params, 1726))->q_kids)->len) && ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_params, 1726))->q_kids, v_i, sizeof(tb_o_Node *), 1726)), 1726))->q_is_link)) {
-                    f_emit__bld_bad_all((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1727))->q_kids, v_i, sizeof(tb_o_Node *), 1727)), v_bad);
+            long long tb_end3728 = ((((tb_o_Node *)tb_nn(v_n, 2106))->q_kids)->len - 1LL);
+            for (long long v_i = 0LL; v_i <= tb_end3728; v_i++) {
+                if (((v_i < (((tb_o_Node *)tb_nn(v_params, 2107))->q_kids)->len) && ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_params, 2107))->q_kids, v_i, sizeof(tb_o_Node *), 2107)), 2107))->q_is_link)) {
+                    f_emit__bld_bad_all((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 2108))->q_kids, v_i, sizeof(tb_o_Node *), 2108)), v_bad);
                 }
             }
         }
     }
-    if (({ const char *tb_s3601 = v_k; ((unsigned char)tb_s3601[0] == 97 && (unsigned char)tb_s3601[1] == 115 && (unsigned char)tb_s3601[2] == 115 && (unsigned char)tb_s3601[3] == 105 && (unsigned char)tb_s3601[4] == 103 && (unsigned char)tb_s3601[5] == 110 && tb_s3601[6] == 0); })) {
-        if (((tb_o_Node *)tb_nn(v_n, 1729))->q_is_link) {
-            { const char * tb_v3602 = ((tb_o_Node *)tb_nn(v_n, 1730))->q_name; *(const char * *)tb_grow(v_bad) = tb_v3602; }
-        } else if ((((({ const char *tb_s3603 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_n, 1731))->q_ty); ((unsigned char)tb_s3603[0] == 116 && (unsigned char)tb_s3603[1] == 101 && (unsigned char)tb_s3603[2] == 120 && (unsigned char)tb_s3603[3] == 116 && tb_s3603[4] == 0); }) && ((((tb_o_Node *)tb_nn(v_n, 1731))->q_kids)->len == 1LL)) && (!((tb_o_Node *)tb_nn(v_n, 1731))->q_creates)) && f_emit__app_form(v_c, ((tb_o_Node *)tb_nn(v_n, 1731))->q_name, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1731))->q_kids, 0LL, sizeof(tb_o_Node *), 1731))))) {
-            { const char * tb_v3604 = ((tb_o_Node *)tb_nn(v_n, 1732))->q_name; *(const char * *)tb_grow(v_cand) = tb_v3604; }
+    if (({ const char *tb_s3729 = v_k; ((unsigned char)tb_s3729[0] == 97 && (unsigned char)tb_s3729[1] == 115 && (unsigned char)tb_s3729[2] == 115 && (unsigned char)tb_s3729[3] == 105 && (unsigned char)tb_s3729[4] == 103 && (unsigned char)tb_s3729[5] == 110 && tb_s3729[6] == 0); })) {
+        if (((tb_o_Node *)tb_nn(v_n, 2110))->q_is_link) {
+            { const char * tb_v3730 = ((tb_o_Node *)tb_nn(v_n, 2111))->q_name; *(const char * *)tb_grow(v_bad) = tb_v3730; }
+        } else if ((((({ const char *tb_s3731 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_n, 2112))->q_ty); ((unsigned char)tb_s3731[0] == 116 && (unsigned char)tb_s3731[1] == 101 && (unsigned char)tb_s3731[2] == 120 && (unsigned char)tb_s3731[3] == 116 && tb_s3731[4] == 0); }) && ((((tb_o_Node *)tb_nn(v_n, 2112))->q_kids)->len == 1LL)) && (!((tb_o_Node *)tb_nn(v_n, 2112))->q_creates)) && f_emit__app_form(v_c, ((tb_o_Node *)tb_nn(v_n, 2112))->q_name, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 2112))->q_kids, 0LL, sizeof(tb_o_Node *), 2112))))) {
+            { const char * tb_v3732 = ((tb_o_Node *)tb_nn(v_n, 2113))->q_name; *(const char * *)tb_grow(v_cand) = tb_v3732; }
         }
     }
-    if ((((({ const char *tb_s3605 = v_k; ((unsigned char)tb_s3605[0] == 115 && (unsigned char)tb_s3605[1] == 101 && (unsigned char)tb_s3605[2] == 116 && tb_s3605[3] == 0); }) && ({ const char *tb_s3606 = ((tb_o_Node *)tb_nn(v_n, 1733))->q_value; ((unsigned char)tb_s3606[0] == 43 && (unsigned char)tb_s3606[1] == 61 && tb_s3606[2] == 0); })) && ({ const char *tb_s3607 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1733))->q_kids, 0LL, sizeof(tb_o_Node *), 1733)), 1733))->q_kind; ((unsigned char)tb_s3607[0] == 110 && (unsigned char)tb_s3607[1] == 97 && (unsigned char)tb_s3607[2] == 109 && (unsigned char)tb_s3607[3] == 101 && tb_s3607[4] == 0); })) && ({ const char *tb_s3608 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1733))->q_kids, 0LL, sizeof(tb_o_Node *), 1733)), 1733))->q_ty); ((unsigned char)tb_s3608[0] == 116 && (unsigned char)tb_s3608[1] == 101 && (unsigned char)tb_s3608[2] == 120 && (unsigned char)tb_s3608[3] == 116 && tb_s3608[4] == 0); }))) {
-        if (((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1734))->q_kids, 0LL, sizeof(tb_o_Node *), 1734)), 1734))->q_is_link) {
-            { const char * tb_v3609 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1735))->q_kids, 0LL, sizeof(tb_o_Node *), 1735)), 1735))->q_name; *(const char * *)tb_grow(v_bad) = tb_v3609; }
+    if ((((({ const char *tb_s3733 = v_k; ((unsigned char)tb_s3733[0] == 115 && (unsigned char)tb_s3733[1] == 101 && (unsigned char)tb_s3733[2] == 116 && tb_s3733[3] == 0); }) && ({ const char *tb_s3734 = ((tb_o_Node *)tb_nn(v_n, 2114))->q_value; ((unsigned char)tb_s3734[0] == 43 && (unsigned char)tb_s3734[1] == 61 && tb_s3734[2] == 0); })) && ({ const char *tb_s3735 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 2114))->q_kids, 0LL, sizeof(tb_o_Node *), 2114)), 2114))->q_kind; ((unsigned char)tb_s3735[0] == 110 && (unsigned char)tb_s3735[1] == 97 && (unsigned char)tb_s3735[2] == 109 && (unsigned char)tb_s3735[3] == 101 && tb_s3735[4] == 0); })) && ({ const char *tb_s3736 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 2114))->q_kids, 0LL, sizeof(tb_o_Node *), 2114)), 2114))->q_ty); ((unsigned char)tb_s3736[0] == 116 && (unsigned char)tb_s3736[1] == 101 && (unsigned char)tb_s3736[2] == 120 && (unsigned char)tb_s3736[3] == 116 && tb_s3736[4] == 0); }))) {
+        if (((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 2115))->q_kids, 0LL, sizeof(tb_o_Node *), 2115)), 2115))->q_is_link) {
+            { const char * tb_v3737 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 2116))->q_kids, 0LL, sizeof(tb_o_Node *), 2116)), 2116))->q_name; *(const char * *)tb_grow(v_bad) = tb_v3737; }
         } else {
-            { const char * tb_v3610 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1737))->q_kids, 0LL, sizeof(tb_o_Node *), 1737)), 1737))->q_name; *(const char * *)tb_grow(v_cand) = tb_v3610; }
+            { const char * tb_v3738 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 2118))->q_kids, 0LL, sizeof(tb_o_Node *), 2118)), 2118))->q_name; *(const char * *)tb_grow(v_cand) = tb_v3738; }
         }
     }
     {
-        tb_list * tb_l3611 = ((tb_o_Node *)tb_nn(v_n, 1738))->q_kids;
-        for (long long tb_i3611 = 0; tb_i3611 < tb_l3611->len; tb_i3611++) {
-            tb_o_Node * const v_kid = ((tb_o_Node * *)tb_l3611->data)[tb_i3611];
+        tb_list * tb_l3739 = ((tb_o_Node *)tb_nn(v_n, 2119))->q_kids;
+        for (long long tb_i3739 = 0; tb_i3739 < tb_l3739->len; tb_i3739++) {
+            tb_o_Node * const v_kid = ((tb_o_Node * *)tb_l3739->data)[tb_i3739];
             f_emit__bld_scan(v_c, v_kid, 0, v_cand, v_bad);
         }
     }
@@ -11714,54 +12622,54 @@ static void f_emit__bld_scan(tb_o_Comp * v_c, tb_o_Node * v_n, _Bool v_in_par, t
 
 static void f_emit__find_builders(tb_o_Comp * v_c, tb_o_Node * v_f) {
     tb_list * v_fresh = tb_list_new(sizeof(const char *));
-    { tb_list * tb_v3612 = v_fresh; tb_list * *tb_p3612 = &(((tb_o_Comp *)tb_nn(v_c, 1743))->q_builders); *tb_p3612 = tb_v3612; }
+    { tb_list * tb_v3740 = v_fresh; tb_list * *tb_p3740 = &(((tb_o_Comp *)tb_nn(v_c, 2124))->q_builders); *tb_p3740 = tb_v3740; }
     tb_list * v_cand = tb_list_new(sizeof(const char *));
     tb_list * v_bad = tb_list_new(sizeof(const char *));
     {
-        tb_list * tb_l3613 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_f, 1746))->q_kids, 0LL, sizeof(tb_o_Node *), 1746)), 1746))->q_kids;
-        for (long long tb_i3613 = 0; tb_i3613 < tb_l3613->len; tb_i3613++) {
-            tb_o_Node * const v_p = ((tb_o_Node * *)tb_l3613->data)[tb_i3613];
-            if (((tb_o_Node *)tb_nn(v_p, 1747))->q_is_link) {
-                { const char * tb_v3614 = ((tb_o_Node *)tb_nn(v_p, 1748))->q_name; *(const char * *)tb_grow(v_bad) = tb_v3614; }
+        tb_list * tb_l3741 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_f, 2127))->q_kids, 0LL, sizeof(tb_o_Node *), 2127)), 2127))->q_kids;
+        for (long long tb_i3741 = 0; tb_i3741 < tb_l3741->len; tb_i3741++) {
+            tb_o_Node * const v_p = ((tb_o_Node * *)tb_l3741->data)[tb_i3741];
+            if (((tb_o_Node *)tb_nn(v_p, 2128))->q_is_link) {
+                { const char * tb_v3742 = ((tb_o_Node *)tb_nn(v_p, 2129))->q_name; *(const char * *)tb_grow(v_bad) = tb_v3742; }
             }
         }
     }
-    f_emit__bld_scan(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_f, 1749))->q_kids, 1LL, sizeof(tb_o_Node *), 1749)), 0, v_cand, v_bad);
+    f_emit__bld_scan(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_f, 2130))->q_kids, 1LL, sizeof(tb_o_Node *), 2130)), 0, v_cand, v_bad);
     {
-        tb_list * tb_l3615 = v_cand;
-        for (long long tb_i3615 = 0; tb_i3615 < tb_l3615->len; tb_i3615++) {
-            const char * const v_name = ((const char * *)tb_l3615->data)[tb_i3615];
-            if (((!f_emit__bld_has(v_bad, v_name)) && (!f_emit__bld_has(((tb_o_Comp *)tb_nn(v_c, 1751))->q_builders, v_name)))) {
-                { const char * tb_v3616 = v_name; *(const char * *)tb_grow(((tb_o_Comp *)tb_nn(v_c, 1752))->q_builders) = tb_v3616; }
+        tb_list * tb_l3743 = v_cand;
+        for (long long tb_i3743 = 0; tb_i3743 < tb_l3743->len; tb_i3743++) {
+            const char * const v_name = ((const char * *)tb_l3743->data)[tb_i3743];
+            if (((!f_emit__bld_has(v_bad, v_name)) && (!f_emit__bld_has(((tb_o_Comp *)tb_nn(v_c, 2132))->q_builders, v_name)))) {
+                { const char * tb_v3744 = v_name; *(const char * *)tb_grow(((tb_o_Comp *)tb_nn(v_c, 2133))->q_builders) = tb_v3744; }
             }
         }
     }
 }
 
 static _Bool f_emit__is_bld(tb_o_Comp * v_c, tb_o_Node * v_n) {
-    return ((((({ const char *tb_s3617 = ((tb_o_Node *)tb_nn(v_n, 1756))->q_kind; ((unsigned char)tb_s3617[0] == 110 && (unsigned char)tb_s3617[1] == 97 && (unsigned char)tb_s3617[2] == 109 && (unsigned char)tb_s3617[3] == 101 && tb_s3617[4] == 0); }) && (!((tb_o_Node *)tb_nn(v_n, 1756))->q_is_link)) && ((((tb_o_Comp *)tb_nn(v_c, 1756))->q_builders)->len > 0LL)) && ({ const char *tb_s3618 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_n, 1756))->q_ty); ((unsigned char)tb_s3618[0] == 116 && (unsigned char)tb_s3618[1] == 101 && (unsigned char)tb_s3618[2] == 120 && (unsigned char)tb_s3618[3] == 116 && tb_s3618[4] == 0); })) && f_emit__bld_has(((tb_o_Comp *)tb_nn(v_c, 1756))->q_builders, ((tb_o_Node *)tb_nn(v_n, 1756))->q_name));
-    tb_crash(1755, "функция is_bld дошла до конца без return");
+    return ((((({ const char *tb_s3745 = ((tb_o_Node *)tb_nn(v_n, 2137))->q_kind; ((unsigned char)tb_s3745[0] == 110 && (unsigned char)tb_s3745[1] == 97 && (unsigned char)tb_s3745[2] == 109 && (unsigned char)tb_s3745[3] == 101 && tb_s3745[4] == 0); }) && (!((tb_o_Node *)tb_nn(v_n, 2137))->q_is_link)) && ((((tb_o_Comp *)tb_nn(v_c, 2137))->q_builders)->len > 0LL)) && ({ const char *tb_s3746 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_n, 2137))->q_ty); ((unsigned char)tb_s3746[0] == 116 && (unsigned char)tb_s3746[1] == 101 && (unsigned char)tb_s3746[2] == 120 && (unsigned char)tb_s3746[3] == 116 && tb_s3746[4] == 0); })) && f_emit__bld_has(((tb_o_Comp *)tb_nn(v_c, 2137))->q_builders, ((tb_o_Node *)tb_nn(v_n, 2137))->q_name));
+    tb_crash(2136, "функция is_bld дошла до конца без return");
     return 0;
 }
 
 static void f_emit__emit_q(tb_o_Comp * v_c, tb_o_Node * v_n) {
     if (f_emit__is_bld(v_c, v_n)) {
-        f_emit__put(v_c, ({ const char *tb_c3619_0 = "v_"; long long tb_c3619_0n = sizeof("v_") - 1; const char *tb_c3619_1 = ((tb_o_Node *)tb_nn(v_n, 1761))->q_name; long long tb_c3619_1n = (long long)strlen(tb_c3619_1); char *tb_c3619r = tb_mem(tb_c3619_0n + tb_c3619_1n + 1), *tb_c3619rw = tb_c3619r; memcpy(tb_c3619rw, tb_c3619_0, tb_c3619_0n); tb_c3619rw += tb_c3619_0n; memcpy(tb_c3619rw, tb_c3619_1, tb_c3619_1n); tb_c3619rw += tb_c3619_1n; *tb_c3619rw = 0; (const char *)tb_c3619r; }));
+        f_emit__put(v_c, ({ const char *tb_c3747_0 = "v_"; long long tb_c3747_0n = sizeof("v_") - 1; const char *tb_c3747_1 = ((tb_o_Node *)tb_nn(v_n, 2142))->q_name; long long tb_c3747_1n = (long long)strlen(tb_c3747_1); char *tb_c3747r = tb_mem(tb_c3747_0n + tb_c3747_1n + 1), *tb_c3747rw = tb_c3747r; memcpy(tb_c3747rw, tb_c3747_0, tb_c3747_0n); tb_c3747rw += tb_c3747_0n; memcpy(tb_c3747rw, tb_c3747_1, tb_c3747_1n); tb_c3747rw += tb_c3747_1n; *tb_c3747rw = 0; (const char *)tb_c3747r; }));
     } else {
         f_emit__emit_expr(v_c, v_n);
     }
 }
 
 static void f_emit__emit_app(tb_o_Comp * v_c, const char * v_name, tb_o_Node * v_part) {
-    const char * v_vars = ({ const char *tb_c3620_0 = "&v_"; long long tb_c3620_0n = sizeof("&v_") - 1; const char *tb_c3620_1 = v_name; long long tb_c3620_1n = (long long)strlen(tb_c3620_1); const char *tb_c3620_2 = ", &tb_rl_"; long long tb_c3620_2n = sizeof(", &tb_rl_") - 1; const char *tb_c3620_3 = v_name; long long tb_c3620_3n = (long long)strlen(tb_c3620_3); const char *tb_c3620_4 = ", &tb_rc_"; long long tb_c3620_4n = sizeof(", &tb_rc_") - 1; const char *tb_c3620_5 = v_name; long long tb_c3620_5n = (long long)strlen(tb_c3620_5); const char *tb_c3620_6 = ", "; long long tb_c3620_6n = sizeof(", ") - 1; char *tb_c3620r = tb_mem(tb_c3620_0n + tb_c3620_1n + tb_c3620_2n + tb_c3620_3n + tb_c3620_4n + tb_c3620_5n + tb_c3620_6n + 1), *tb_c3620rw = tb_c3620r; memcpy(tb_c3620rw, tb_c3620_0, tb_c3620_0n); tb_c3620rw += tb_c3620_0n; memcpy(tb_c3620rw, tb_c3620_1, tb_c3620_1n); tb_c3620rw += tb_c3620_1n; memcpy(tb_c3620rw, tb_c3620_2, tb_c3620_2n); tb_c3620rw += tb_c3620_2n; memcpy(tb_c3620rw, tb_c3620_3, tb_c3620_3n); tb_c3620rw += tb_c3620_3n; memcpy(tb_c3620rw, tb_c3620_4, tb_c3620_4n); tb_c3620rw += tb_c3620_4n; memcpy(tb_c3620rw, tb_c3620_5, tb_c3620_5n); tb_c3620rw += tb_c3620_5n; memcpy(tb_c3620rw, tb_c3620_6, tb_c3620_6n); tb_c3620rw += tb_c3620_6n; *tb_c3620rw = 0; (const char *)tb_c3620r; });
-    if (({ const char *tb_s3621 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_part, 1767))->q_ty); ((unsigned char)tb_s3621[0] == 105 && (unsigned char)tb_s3621[1] == 110 && (unsigned char)tb_s3621[2] == 116 && tb_s3621[3] == 0); })) {
-        f_emit__put(v_c, ({ const char *tb_c3622_0 = "tb_app_i("; long long tb_c3622_0n = sizeof("tb_app_i(") - 1; const char *tb_c3622_1 = v_vars; long long tb_c3622_1n = (long long)strlen(tb_c3622_1); char *tb_c3622r = tb_mem(tb_c3622_0n + tb_c3622_1n + 1), *tb_c3622rw = tb_c3622r; memcpy(tb_c3622rw, tb_c3622_0, tb_c3622_0n); tb_c3622rw += tb_c3622_0n; memcpy(tb_c3622rw, tb_c3622_1, tb_c3622_1n); tb_c3622rw += tb_c3622_1n; *tb_c3622rw = 0; (const char *)tb_c3622r; }));
+    const char * v_vars = ({ const char *tb_c3748_0 = "&v_"; long long tb_c3748_0n = sizeof("&v_") - 1; const char *tb_c3748_1 = v_name; long long tb_c3748_1n = (long long)strlen(tb_c3748_1); const char *tb_c3748_2 = ", &tb_rl_"; long long tb_c3748_2n = sizeof(", &tb_rl_") - 1; const char *tb_c3748_3 = v_name; long long tb_c3748_3n = (long long)strlen(tb_c3748_3); const char *tb_c3748_4 = ", &tb_rc_"; long long tb_c3748_4n = sizeof(", &tb_rc_") - 1; const char *tb_c3748_5 = v_name; long long tb_c3748_5n = (long long)strlen(tb_c3748_5); const char *tb_c3748_6 = ", "; long long tb_c3748_6n = sizeof(", ") - 1; char *tb_c3748r = tb_mem(tb_c3748_0n + tb_c3748_1n + tb_c3748_2n + tb_c3748_3n + tb_c3748_4n + tb_c3748_5n + tb_c3748_6n + 1), *tb_c3748rw = tb_c3748r; memcpy(tb_c3748rw, tb_c3748_0, tb_c3748_0n); tb_c3748rw += tb_c3748_0n; memcpy(tb_c3748rw, tb_c3748_1, tb_c3748_1n); tb_c3748rw += tb_c3748_1n; memcpy(tb_c3748rw, tb_c3748_2, tb_c3748_2n); tb_c3748rw += tb_c3748_2n; memcpy(tb_c3748rw, tb_c3748_3, tb_c3748_3n); tb_c3748rw += tb_c3748_3n; memcpy(tb_c3748rw, tb_c3748_4, tb_c3748_4n); tb_c3748rw += tb_c3748_4n; memcpy(tb_c3748rw, tb_c3748_5, tb_c3748_5n); tb_c3748rw += tb_c3748_5n; memcpy(tb_c3748rw, tb_c3748_6, tb_c3748_6n); tb_c3748rw += tb_c3748_6n; *tb_c3748rw = 0; (const char *)tb_c3748r; });
+    if (({ const char *tb_s3749 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_part, 2148))->q_ty); ((unsigned char)tb_s3749[0] == 105 && (unsigned char)tb_s3749[1] == 110 && (unsigned char)tb_s3749[2] == 116 && tb_s3749[3] == 0); })) {
+        f_emit__put(v_c, ({ const char *tb_c3750_0 = "tb_app_i("; long long tb_c3750_0n = sizeof("tb_app_i(") - 1; const char *tb_c3750_1 = v_vars; long long tb_c3750_1n = (long long)strlen(tb_c3750_1); char *tb_c3750r = tb_mem(tb_c3750_0n + tb_c3750_1n + 1), *tb_c3750rw = tb_c3750r; memcpy(tb_c3750rw, tb_c3750_0, tb_c3750_0n); tb_c3750rw += tb_c3750_0n; memcpy(tb_c3750rw, tb_c3750_1, tb_c3750_1n); tb_c3750rw += tb_c3750_1n; *tb_c3750rw = 0; (const char *)tb_c3750r; }));
         f_emit__emit_expr(v_c, v_part);
         f_emit__put(v_c, ");");
-    } else if (({ const char *tb_s3623 = ((tb_o_Node *)tb_nn(v_part, 1772))->q_kind; ((unsigned char)tb_s3623[0] == 115 && (unsigned char)tb_s3623[1] == 116 && (unsigned char)tb_s3623[2] == 114 && (unsigned char)tb_s3623[3] == 105 && (unsigned char)tb_s3623[4] == 110 && (unsigned char)tb_s3623[5] == 103 && tb_s3623[6] == 0); })) {
-        f_emit__put(v_c, ({ const char *tb_c3624_0 = "tb_app_n("; long long tb_c3624_0n = sizeof("tb_app_n(") - 1; const char *tb_c3624_1 = v_vars; long long tb_c3624_1n = (long long)strlen(tb_c3624_1); const char *tb_c3624_2 = ((tb_o_Node *)tb_nn(v_part, 1774))->q_value; long long tb_c3624_2n = (long long)strlen(tb_c3624_2); const char *tb_c3624_3 = ", sizeof("; long long tb_c3624_3n = sizeof(", sizeof(") - 1; const char *tb_c3624_4 = ((tb_o_Node *)tb_nn(v_part, 1774))->q_value; long long tb_c3624_4n = (long long)strlen(tb_c3624_4); const char *tb_c3624_5 = ") - 1);"; long long tb_c3624_5n = sizeof(") - 1);") - 1; char *tb_c3624r = tb_mem(tb_c3624_0n + tb_c3624_1n + tb_c3624_2n + tb_c3624_3n + tb_c3624_4n + tb_c3624_5n + 1), *tb_c3624rw = tb_c3624r; memcpy(tb_c3624rw, tb_c3624_0, tb_c3624_0n); tb_c3624rw += tb_c3624_0n; memcpy(tb_c3624rw, tb_c3624_1, tb_c3624_1n); tb_c3624rw += tb_c3624_1n; memcpy(tb_c3624rw, tb_c3624_2, tb_c3624_2n); tb_c3624rw += tb_c3624_2n; memcpy(tb_c3624rw, tb_c3624_3, tb_c3624_3n); tb_c3624rw += tb_c3624_3n; memcpy(tb_c3624rw, tb_c3624_4, tb_c3624_4n); tb_c3624rw += tb_c3624_4n; memcpy(tb_c3624rw, tb_c3624_5, tb_c3624_5n); tb_c3624rw += tb_c3624_5n; *tb_c3624rw = 0; (const char *)tb_c3624r; }));
+    } else if (({ const char *tb_s3751 = ((tb_o_Node *)tb_nn(v_part, 2153))->q_kind; ((unsigned char)tb_s3751[0] == 115 && (unsigned char)tb_s3751[1] == 116 && (unsigned char)tb_s3751[2] == 114 && (unsigned char)tb_s3751[3] == 105 && (unsigned char)tb_s3751[4] == 110 && (unsigned char)tb_s3751[5] == 103 && tb_s3751[6] == 0); })) {
+        f_emit__put(v_c, ({ const char *tb_c3752_0 = "tb_app_n("; long long tb_c3752_0n = sizeof("tb_app_n(") - 1; const char *tb_c3752_1 = v_vars; long long tb_c3752_1n = (long long)strlen(tb_c3752_1); const char *tb_c3752_2 = ((tb_o_Node *)tb_nn(v_part, 2155))->q_value; long long tb_c3752_2n = (long long)strlen(tb_c3752_2); const char *tb_c3752_3 = ", sizeof("; long long tb_c3752_3n = sizeof(", sizeof(") - 1; const char *tb_c3752_4 = ((tb_o_Node *)tb_nn(v_part, 2155))->q_value; long long tb_c3752_4n = (long long)strlen(tb_c3752_4); const char *tb_c3752_5 = ") - 1);"; long long tb_c3752_5n = sizeof(") - 1);") - 1; char *tb_c3752r = tb_mem(tb_c3752_0n + tb_c3752_1n + tb_c3752_2n + tb_c3752_3n + tb_c3752_4n + tb_c3752_5n + 1), *tb_c3752rw = tb_c3752r; memcpy(tb_c3752rw, tb_c3752_0, tb_c3752_0n); tb_c3752rw += tb_c3752_0n; memcpy(tb_c3752rw, tb_c3752_1, tb_c3752_1n); tb_c3752rw += tb_c3752_1n; memcpy(tb_c3752rw, tb_c3752_2, tb_c3752_2n); tb_c3752rw += tb_c3752_2n; memcpy(tb_c3752rw, tb_c3752_3, tb_c3752_3n); tb_c3752rw += tb_c3752_3n; memcpy(tb_c3752rw, tb_c3752_4, tb_c3752_4n); tb_c3752rw += tb_c3752_4n; memcpy(tb_c3752rw, tb_c3752_5, tb_c3752_5n); tb_c3752rw += tb_c3752_5n; *tb_c3752rw = 0; (const char *)tb_c3752r; }));
     } else {
-        f_emit__put(v_c, ({ const char *tb_c3625_0 = "tb_app("; long long tb_c3625_0n = sizeof("tb_app(") - 1; const char *tb_c3625_1 = v_vars; long long tb_c3625_1n = (long long)strlen(tb_c3625_1); char *tb_c3625r = tb_mem(tb_c3625_0n + tb_c3625_1n + 1), *tb_c3625rw = tb_c3625r; memcpy(tb_c3625rw, tb_c3625_0, tb_c3625_0n); tb_c3625rw += tb_c3625_0n; memcpy(tb_c3625rw, tb_c3625_1, tb_c3625_1n); tb_c3625rw += tb_c3625_1n; *tb_c3625rw = 0; (const char *)tb_c3625r; }));
+        f_emit__put(v_c, ({ const char *tb_c3753_0 = "tb_app("; long long tb_c3753_0n = sizeof("tb_app(") - 1; const char *tb_c3753_1 = v_vars; long long tb_c3753_1n = (long long)strlen(tb_c3753_1); char *tb_c3753r = tb_mem(tb_c3753_0n + tb_c3753_1n + 1), *tb_c3753rw = tb_c3753r; memcpy(tb_c3753rw, tb_c3753_0, tb_c3753_0n); tb_c3753rw += tb_c3753_0n; memcpy(tb_c3753rw, tb_c3753_1, tb_c3753_1n); tb_c3753rw += tb_c3753_1n; *tb_c3753rw = 0; (const char *)tb_c3753r; }));
         f_emit__emit_as_text(v_c, v_part);
         f_emit__put(v_c, ");");
     }
@@ -11769,29 +12677,29 @@ static void f_emit__emit_app(tb_o_Comp * v_c, const char * v_name, tb_o_Node * v
 
 static _Bool f_emit__is_plain_ty(long long v_t) {
     return (((v_t == 1LL) || (v_t == 2LL)) || (v_t == 3LL));
-    tb_crash(1785, "функция is_plain_ty дошла до конца без return");
+    tb_crash(2166, "функция is_plain_ty дошла до конца без return");
     return 0;
 }
 
 static void f_emit__at_inner(tb_o_Node * v_n, tb_list * v_inner) {
-    const char * v_k = ((tb_o_Node *)tb_nn(v_n, 1790))->q_kind;
-    if (((((({ const char *tb_s3626 = v_k; ((unsigned char)tb_s3626[0] == 97 && (unsigned char)tb_s3626[1] == 115 && (unsigned char)tb_s3626[2] == 115 && (unsigned char)tb_s3626[3] == 105 && (unsigned char)tb_s3626[4] == 103 && (unsigned char)tb_s3626[5] == 110 && tb_s3626[6] == 0); }) && ((tb_o_Node *)tb_nn(v_n, 1791))->q_creates) || ({ const char *tb_s3627 = v_k; ((unsigned char)tb_s3627[0] == 101 && (unsigned char)tb_s3627[1] == 97 && (unsigned char)tb_s3627[2] == 99 && (unsigned char)tb_s3627[3] == 104 && tb_s3627[4] == 0); })) || ({ const char *tb_s3628 = v_k; ((unsigned char)tb_s3628[0] == 99 && (unsigned char)tb_s3628[1] == 111 && (unsigned char)tb_s3628[2] == 117 && (unsigned char)tb_s3628[3] == 110 && (unsigned char)tb_s3628[4] == 116 && tb_s3628[5] == 0); })) || ({ const char *tb_s3629 = v_k; ((unsigned char)tb_s3629[0] == 101 && (unsigned char)tb_s3629[1] == 108 && (unsigned char)tb_s3629[2] == 115 && (unsigned char)tb_s3629[3] == 101 && (unsigned char)tb_s3629[4] == 95 && (unsigned char)tb_s3629[5] == 101 && (unsigned char)tb_s3629[6] == 114 && (unsigned char)tb_s3629[7] == 114 && tb_s3629[8] == 0); }))) {
-        { const char * tb_v3630 = ((tb_o_Node *)tb_nn(v_n, 1792))->q_name; *(const char * *)tb_grow(v_inner) = tb_v3630; }
+    const char * v_k = ((tb_o_Node *)tb_nn(v_n, 2171))->q_kind;
+    if (((((({ const char *tb_s3754 = v_k; ((unsigned char)tb_s3754[0] == 97 && (unsigned char)tb_s3754[1] == 115 && (unsigned char)tb_s3754[2] == 115 && (unsigned char)tb_s3754[3] == 105 && (unsigned char)tb_s3754[4] == 103 && (unsigned char)tb_s3754[5] == 110 && tb_s3754[6] == 0); }) && ((tb_o_Node *)tb_nn(v_n, 2172))->q_creates) || ({ const char *tb_s3755 = v_k; ((unsigned char)tb_s3755[0] == 101 && (unsigned char)tb_s3755[1] == 97 && (unsigned char)tb_s3755[2] == 99 && (unsigned char)tb_s3755[3] == 104 && tb_s3755[4] == 0); })) || ({ const char *tb_s3756 = v_k; ((unsigned char)tb_s3756[0] == 99 && (unsigned char)tb_s3756[1] == 111 && (unsigned char)tb_s3756[2] == 117 && (unsigned char)tb_s3756[3] == 110 && (unsigned char)tb_s3756[4] == 116 && tb_s3756[5] == 0); })) || ({ const char *tb_s3757 = v_k; ((unsigned char)tb_s3757[0] == 101 && (unsigned char)tb_s3757[1] == 108 && (unsigned char)tb_s3757[2] == 115 && (unsigned char)tb_s3757[3] == 101 && (unsigned char)tb_s3757[4] == 95 && (unsigned char)tb_s3757[5] == 101 && (unsigned char)tb_s3757[6] == 114 && (unsigned char)tb_s3757[7] == 114 && tb_s3757[8] == 0); }))) {
+        { const char * tb_v3758 = ((tb_o_Node *)tb_nn(v_n, 2173))->q_name; *(const char * *)tb_grow(v_inner) = tb_v3758; }
     }
-    if (({ const char *tb_s3631 = v_k; ((unsigned char)tb_s3631[0] == 109 && (unsigned char)tb_s3631[1] == 117 && (unsigned char)tb_s3631[2] == 108 && (unsigned char)tb_s3631[3] == 116 && (unsigned char)tb_s3631[4] == 105 && tb_s3631[5] == 0); })) {
+    if (({ const char *tb_s3759 = v_k; ((unsigned char)tb_s3759[0] == 109 && (unsigned char)tb_s3759[1] == 117 && (unsigned char)tb_s3759[2] == 108 && (unsigned char)tb_s3759[3] == 116 && (unsigned char)tb_s3759[4] == 105 && tb_s3759[5] == 0); })) {
         {
-            long long tb_end3632 = ((((tb_o_Node *)tb_nn(v_n, 1794))->q_kids)->len - 2LL);
-            for (long long v_i = 0LL; v_i <= tb_end3632; v_i++) {
-                if (((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1795))->q_kids, v_i, sizeof(tb_o_Node *), 1795)), 1795))->q_creates) {
-                    { const char * tb_v3633 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1796))->q_kids, v_i, sizeof(tb_o_Node *), 1796)), 1796))->q_name; *(const char * *)tb_grow(v_inner) = tb_v3633; }
+            long long tb_end3760 = ((((tb_o_Node *)tb_nn(v_n, 2175))->q_kids)->len - 2LL);
+            for (long long v_i = 0LL; v_i <= tb_end3760; v_i++) {
+                if (((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 2176))->q_kids, v_i, sizeof(tb_o_Node *), 2176)), 2176))->q_creates) {
+                    { const char * tb_v3761 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 2177))->q_kids, v_i, sizeof(tb_o_Node *), 2177)), 2177))->q_name; *(const char * *)tb_grow(v_inner) = tb_v3761; }
                 }
             }
         }
     }
     {
-        tb_list * tb_l3634 = ((tb_o_Node *)tb_nn(v_n, 1797))->q_kids;
-        for (long long tb_i3634 = 0; tb_i3634 < tb_l3634->len; tb_i3634++) {
-            tb_o_Node * const v_kid = ((tb_o_Node * *)tb_l3634->data)[tb_i3634];
+        tb_list * tb_l3762 = ((tb_o_Node *)tb_nn(v_n, 2178))->q_kids;
+        for (long long tb_i3762 = 0; tb_i3762 < tb_l3762->len; tb_i3762++) {
+            tb_o_Node * const v_kid = ((tb_o_Node * *)tb_l3762->data)[tb_i3762];
             f_emit__at_inner(v_kid, v_inner);
         }
     }
@@ -11799,76 +12707,76 @@ static void f_emit__at_inner(tb_o_Node * v_n, tb_list * v_inner) {
 
 static _Bool f_emit__is_box(long long v_t) {
     return (v_t > 4LL);
-    tb_crash(1801, "функция is_box дошла до конца без return");
+    tb_crash(2182, "функция is_box дошла до конца без return");
     return 0;
 }
 
 static const char * f_emit__root_name(tb_o_Node * v_n) {
     tb_o_Node * v_r = v_n;
-    while ((({ const char *tb_s3635 = ((tb_o_Node *)tb_nn(v_r, 1807))->q_kind; ((unsigned char)tb_s3635[0] == 105 && (unsigned char)tb_s3635[1] == 110 && (unsigned char)tb_s3635[2] == 100 && (unsigned char)tb_s3635[3] == 101 && (unsigned char)tb_s3635[4] == 120 && tb_s3635[5] == 0); }) || ({ const char *tb_s3636 = ((tb_o_Node *)tb_nn(v_r, 1807))->q_kind; ((unsigned char)tb_s3636[0] == 102 && (unsigned char)tb_s3636[1] == 105 && (unsigned char)tb_s3636[2] == 101 && (unsigned char)tb_s3636[3] == 108 && (unsigned char)tb_s3636[4] == 100 && tb_s3636[5] == 0); }))) {
-        v_r = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_r, 1808))->q_kids, 0LL, sizeof(tb_o_Node *), 1808));
+    while ((({ const char *tb_s3763 = ((tb_o_Node *)tb_nn(v_r, 2188))->q_kind; ((unsigned char)tb_s3763[0] == 105 && (unsigned char)tb_s3763[1] == 110 && (unsigned char)tb_s3763[2] == 100 && (unsigned char)tb_s3763[3] == 101 && (unsigned char)tb_s3763[4] == 120 && tb_s3763[5] == 0); }) || ({ const char *tb_s3764 = ((tb_o_Node *)tb_nn(v_r, 2188))->q_kind; ((unsigned char)tb_s3764[0] == 102 && (unsigned char)tb_s3764[1] == 105 && (unsigned char)tb_s3764[2] == 101 && (unsigned char)tb_s3764[3] == 108 && (unsigned char)tb_s3764[4] == 100 && tb_s3764[5] == 0); }))) {
+        v_r = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_r, 2189))->q_kids, 0LL, sizeof(tb_o_Node *), 2189));
     }
-    if (({ const char *tb_s3637 = ((tb_o_Node *)tb_nn(v_r, 1809))->q_kind; ((unsigned char)tb_s3637[0] == 110 && (unsigned char)tb_s3637[1] == 97 && (unsigned char)tb_s3637[2] == 109 && (unsigned char)tb_s3637[3] == 101 && tb_s3637[4] == 0); })) {
-        return ((tb_o_Node *)tb_nn(v_r, 1810))->q_name;
+    if (({ const char *tb_s3765 = ((tb_o_Node *)tb_nn(v_r, 2190))->q_kind; ((unsigned char)tb_s3765[0] == 110 && (unsigned char)tb_s3765[1] == 97 && (unsigned char)tb_s3765[2] == 109 && (unsigned char)tb_s3765[3] == 101 && tb_s3765[4] == 0); })) {
+        return ((tb_o_Node *)tb_nn(v_r, 2191))->q_name;
     }
     return "";
-    tb_crash(1805, "функция root_name дошла до конца без return");
+    tb_crash(2186, "функция root_name дошла до конца без return");
     return "";
 }
 
 static _Bool f_emit__at_fresh_expr(tb_o_Node * v_n, tb_list * v_inner, tb_list * v_fresh) {
-    if (((({ const char *tb_s3638 = ((tb_o_Node *)tb_nn(v_n, 1815))->q_kind; ((unsigned char)tb_s3638[0] == 110 && (unsigned char)tb_s3638[1] == 97 && (unsigned char)tb_s3638[2] == 109 && (unsigned char)tb_s3638[3] == 101 && tb_s3638[4] == 0); }) && f_emit__is_box(((tb_o_Node *)tb_nn(v_n, 1815))->q_ty)) && (!(f_emit__bld_has(v_inner, ((tb_o_Node *)tb_nn(v_n, 1815))->q_name) && f_emit__bld_has(v_fresh, ((tb_o_Node *)tb_nn(v_n, 1815))->q_name))))) {
+    if (((({ const char *tb_s3766 = ((tb_o_Node *)tb_nn(v_n, 2196))->q_kind; ((unsigned char)tb_s3766[0] == 110 && (unsigned char)tb_s3766[1] == 97 && (unsigned char)tb_s3766[2] == 109 && (unsigned char)tb_s3766[3] == 101 && tb_s3766[4] == 0); }) && f_emit__is_box(((tb_o_Node *)tb_nn(v_n, 2196))->q_ty)) && (!(f_emit__bld_has(v_inner, ((tb_o_Node *)tb_nn(v_n, 2196))->q_name) && f_emit__bld_has(v_fresh, ((tb_o_Node *)tb_nn(v_n, 2196))->q_name))))) {
         return 0;
     }
     {
-        tb_list * tb_l3639 = ((tb_o_Node *)tb_nn(v_n, 1817))->q_kids;
-        for (long long tb_i3639 = 0; tb_i3639 < tb_l3639->len; tb_i3639++) {
-            tb_o_Node * const v_k = ((tb_o_Node * *)tb_l3639->data)[tb_i3639];
+        tb_list * tb_l3767 = ((tb_o_Node *)tb_nn(v_n, 2198))->q_kids;
+        for (long long tb_i3767 = 0; tb_i3767 < tb_l3767->len; tb_i3767++) {
+            tb_o_Node * const v_k = ((tb_o_Node * *)tb_l3767->data)[tb_i3767];
             if ((!f_emit__at_fresh_expr(v_k, v_inner, v_fresh))) {
                 return 0;
             }
         }
     }
     return 1;
-    tb_crash(1814, "функция at_fresh_expr дошла до конца без return");
+    tb_crash(2195, "функция at_fresh_expr дошла до конца без return");
     return 0;
 }
 
 static _Bool f_emit__at_unfresh(tb_o_Comp * v_c, tb_o_Node * v_n, tb_list * v_inner, tb_list * v_fresh) {
     _Bool v_changed = 0;
-    const char * v_k = ((tb_o_Node *)tb_nn(v_n, 1824))->q_kind;
+    const char * v_k = ((tb_o_Node *)tb_nn(v_n, 2205))->q_kind;
     const char * v_lose = "";
-    if ((((({ const char *tb_s3640 = v_k; ((unsigned char)tb_s3640[0] == 97 && (unsigned char)tb_s3640[1] == 115 && (unsigned char)tb_s3640[2] == 115 && (unsigned char)tb_s3640[3] == 105 && (unsigned char)tb_s3640[4] == 103 && (unsigned char)tb_s3640[5] == 110 && tb_s3640[6] == 0); }) && ((((tb_o_Node *)tb_nn(v_n, 1826))->q_kids)->len == 1LL)) && f_emit__is_box(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1826))->q_kids, 0LL, sizeof(tb_o_Node *), 1826)), 1826))->q_ty)) && (!f_emit__at_fresh_expr((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1826))->q_kids, 0LL, sizeof(tb_o_Node *), 1826)), v_inner, v_fresh)))) {
-        v_lose = ((tb_o_Node *)tb_nn(v_n, 1827))->q_name;
+    if ((((({ const char *tb_s3768 = v_k; ((unsigned char)tb_s3768[0] == 97 && (unsigned char)tb_s3768[1] == 115 && (unsigned char)tb_s3768[2] == 115 && (unsigned char)tb_s3768[3] == 105 && (unsigned char)tb_s3768[4] == 103 && (unsigned char)tb_s3768[5] == 110 && tb_s3768[6] == 0); }) && ((((tb_o_Node *)tb_nn(v_n, 2207))->q_kids)->len == 1LL)) && f_emit__is_box(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 2207))->q_kids, 0LL, sizeof(tb_o_Node *), 2207)), 2207))->q_ty)) && (!f_emit__at_fresh_expr((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 2207))->q_kids, 0LL, sizeof(tb_o_Node *), 2207)), v_inner, v_fresh)))) {
+        v_lose = ((tb_o_Node *)tb_nn(v_n, 2208))->q_name;
     }
-    if ((({ const char *tb_s3641 = v_k; ((unsigned char)tb_s3641[0] == 101 && (unsigned char)tb_s3641[1] == 97 && (unsigned char)tb_s3641[2] == 99 && (unsigned char)tb_s3641[3] == 104 && tb_s3641[4] == 0); }) && (!f_emit__at_fresh_expr((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1828))->q_kids, 0LL, sizeof(tb_o_Node *), 1828)), v_inner, v_fresh)))) {
-        v_lose = ((tb_o_Node *)tb_nn(v_n, 1829))->q_name;
+    if ((({ const char *tb_s3769 = v_k; ((unsigned char)tb_s3769[0] == 101 && (unsigned char)tb_s3769[1] == 97 && (unsigned char)tb_s3769[2] == 99 && (unsigned char)tb_s3769[3] == 104 && tb_s3769[4] == 0); }) && (!f_emit__at_fresh_expr((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 2209))->q_kids, 0LL, sizeof(tb_o_Node *), 2209)), v_inner, v_fresh)))) {
+        v_lose = ((tb_o_Node *)tb_nn(v_n, 2210))->q_name;
     }
-    if ((((({ const char *tb_s3642 = v_k; ((unsigned char)tb_s3642[0] == 115 && (unsigned char)tb_s3642[1] == 101 && (unsigned char)tb_s3642[2] == 116 && tb_s3642[3] == 0); }) && ({ const char *tb_s3643 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1830))->q_kids, 0LL, sizeof(tb_o_Node *), 1830)), 1830))->q_kind; !((unsigned char)tb_s3643[0] == 110 && (unsigned char)tb_s3643[1] == 97 && (unsigned char)tb_s3643[2] == 109 && (unsigned char)tb_s3643[3] == 101 && tb_s3643[4] == 0); })) && f_emit__is_box(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1830))->q_kids, 1LL, sizeof(tb_o_Node *), 1830)), 1830))->q_ty)) && (!f_emit__at_fresh_expr((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1830))->q_kids, 1LL, sizeof(tb_o_Node *), 1830)), v_inner, v_fresh)))) {
-        v_lose = f_emit__root_name((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1831))->q_kids, 0LL, sizeof(tb_o_Node *), 1831)));
+    if ((((({ const char *tb_s3770 = v_k; ((unsigned char)tb_s3770[0] == 115 && (unsigned char)tb_s3770[1] == 101 && (unsigned char)tb_s3770[2] == 116 && tb_s3770[3] == 0); }) && ({ const char *tb_s3771 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 2211))->q_kids, 0LL, sizeof(tb_o_Node *), 2211)), 2211))->q_kind; !((unsigned char)tb_s3771[0] == 110 && (unsigned char)tb_s3771[1] == 97 && (unsigned char)tb_s3771[2] == 109 && (unsigned char)tb_s3771[3] == 101 && tb_s3771[4] == 0); })) && f_emit__is_box(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 2211))->q_kids, 1LL, sizeof(tb_o_Node *), 2211)), 2211))->q_ty)) && (!f_emit__at_fresh_expr((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 2211))->q_kids, 1LL, sizeof(tb_o_Node *), 2211)), v_inner, v_fresh)))) {
+        v_lose = f_emit__root_name((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 2212))->q_kids, 0LL, sizeof(tb_o_Node *), 2212)));
     }
-    if ((((({ const char *tb_s3644 = v_k; ((unsigned char)tb_s3644[0] == 109 && (unsigned char)tb_s3644[1] == 101 && (unsigned char)tb_s3644[2] == 116 && (unsigned char)tb_s3644[3] == 104 && (unsigned char)tb_s3644[4] == 111 && (unsigned char)tb_s3644[5] == 100 && tb_s3644[6] == 0); }) && ({ const char *tb_s3645 = ((tb_o_Node *)tb_nn(v_n, 1832))->q_name; ((unsigned char)tb_s3645[0] == 97 && (unsigned char)tb_s3645[1] == 100 && (unsigned char)tb_s3645[2] == 100 && tb_s3645[3] == 0); })) && f_emit__is_box(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1832))->q_kids, 1LL, sizeof(tb_o_Node *), 1832)), 1832))->q_kids, 0LL, sizeof(tb_o_Node *), 1832)), 1832))->q_ty)) && (!f_emit__at_fresh_expr((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1832))->q_kids, 1LL, sizeof(tb_o_Node *), 1832)), 1832))->q_kids, 0LL, sizeof(tb_o_Node *), 1832)), v_inner, v_fresh)))) {
-        v_lose = f_emit__root_name((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1833))->q_kids, 0LL, sizeof(tb_o_Node *), 1833)));
+    if ((((({ const char *tb_s3772 = v_k; ((unsigned char)tb_s3772[0] == 109 && (unsigned char)tb_s3772[1] == 101 && (unsigned char)tb_s3772[2] == 116 && (unsigned char)tb_s3772[3] == 104 && (unsigned char)tb_s3772[4] == 111 && (unsigned char)tb_s3772[5] == 100 && tb_s3772[6] == 0); }) && ({ const char *tb_s3773 = ((tb_o_Node *)tb_nn(v_n, 2213))->q_name; ((unsigned char)tb_s3773[0] == 97 && (unsigned char)tb_s3773[1] == 100 && (unsigned char)tb_s3773[2] == 100 && tb_s3773[3] == 0); })) && f_emit__is_box(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 2213))->q_kids, 1LL, sizeof(tb_o_Node *), 2213)), 2213))->q_kids, 0LL, sizeof(tb_o_Node *), 2213)), 2213))->q_ty)) && (!f_emit__at_fresh_expr((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 2213))->q_kids, 1LL, sizeof(tb_o_Node *), 2213)), 2213))->q_kids, 0LL, sizeof(tb_o_Node *), 2213)), v_inner, v_fresh)))) {
+        v_lose = f_emit__root_name((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 2214))->q_kids, 0LL, sizeof(tb_o_Node *), 2214)));
     }
-    if (({ const char *tb_s3646 = v_k; ((unsigned char)tb_s3646[0] == 109 && (unsigned char)tb_s3646[1] == 117 && (unsigned char)tb_s3646[2] == 108 && (unsigned char)tb_s3646[3] == 116 && (unsigned char)tb_s3646[4] == 105 && tb_s3646[5] == 0); })) {
+    if (({ const char *tb_s3774 = v_k; ((unsigned char)tb_s3774[0] == 109 && (unsigned char)tb_s3774[1] == 117 && (unsigned char)tb_s3774[2] == 108 && (unsigned char)tb_s3774[3] == 116 && (unsigned char)tb_s3774[4] == 105 && tb_s3774[5] == 0); })) {
         {
-            long long tb_end3647 = ((((tb_o_Node *)tb_nn(v_n, 1835))->q_kids)->len - 2LL);
-            for (long long v_i = 0LL; v_i <= tb_end3647; v_i++) {
-                if (f_emit__bld_has(v_fresh, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1836))->q_kids, v_i, sizeof(tb_o_Node *), 1836)), 1836))->q_name)) {
-                    f_emit__drop_name(v_fresh, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1837))->q_kids, v_i, sizeof(tb_o_Node *), 1837)), 1837))->q_name);
+            long long tb_end3775 = ((((tb_o_Node *)tb_nn(v_n, 2216))->q_kids)->len - 2LL);
+            for (long long v_i = 0LL; v_i <= tb_end3775; v_i++) {
+                if (f_emit__bld_has(v_fresh, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 2217))->q_kids, v_i, sizeof(tb_o_Node *), 2217)), 2217))->q_name)) {
+                    f_emit__drop_name(v_fresh, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 2218))->q_kids, v_i, sizeof(tb_o_Node *), 2218)), 2218))->q_name);
                     v_changed = 1;
                 }
             }
         }
     }
-    if ((({ const char *tb_s3648 = v_lose; !(tb_s3648[0] == 0); }) && f_emit__bld_has(v_fresh, v_lose))) {
+    if ((({ const char *tb_s3776 = v_lose; !(tb_s3776[0] == 0); }) && f_emit__bld_has(v_fresh, v_lose))) {
         f_emit__drop_name(v_fresh, v_lose);
         v_changed = 1;
     }
     {
-        tb_list * tb_l3649 = ((tb_o_Node *)tb_nn(v_n, 1842))->q_kids;
-        for (long long tb_i3649 = 0; tb_i3649 < tb_l3649->len; tb_i3649++) {
-            tb_o_Node * const v_kid = ((tb_o_Node * *)tb_l3649->data)[tb_i3649];
+        tb_list * tb_l3777 = ((tb_o_Node *)tb_nn(v_n, 2223))->q_kids;
+        for (long long tb_i3777 = 0; tb_i3777 < tb_l3777->len; tb_i3777++) {
+            tb_o_Node * const v_kid = ((tb_o_Node * *)tb_l3777->data)[tb_i3777];
             if (f_emit__at_unfresh(v_c, v_kid, v_inner, v_fresh)) {
                 v_changed = 1;
             }
@@ -11880,159 +12788,159 @@ static _Bool f_emit__at_unfresh(tb_o_Comp * v_c, tb_o_Node * v_n, tb_list * v_in
 static void f_emit__drop_name(tb_list * v_names, const char * v_name) {
     tb_list * v_keep = tb_list_new(sizeof(const char *));
     {
-        tb_list * tb_l3650 = v_names;
-        for (long long tb_i3650 = 0; tb_i3650 < tb_l3650->len; tb_i3650++) {
-            const char * const v_x = ((const char * *)tb_l3650->data)[tb_i3650];
+        tb_list * tb_l3778 = v_names;
+        for (long long tb_i3778 = 0; tb_i3778 < tb_l3778->len; tb_i3778++) {
+            const char * const v_x = ((const char * *)tb_l3778->data)[tb_i3778];
             if ((strcmp(v_x, v_name) != 0)) {
-                { const char * tb_v3651 = v_x; *(const char * *)tb_grow(v_keep) = tb_v3651; }
+                { const char * tb_v3779 = v_x; *(const char * *)tb_grow(v_keep) = tb_v3779; }
             }
         }
     }
     while (((v_names)->len > 0LL)) {
-        tb_mark tb_am3652 = tb_temp_begin();
+        tb_mark tb_am3780 = tb_temp_begin();
         do {
-            const char * v_gone = (*(const char * *)tb_pop(v_names, 1852));
+            const char * v_gone = (*(const char * *)tb_pop(v_names, 2233));
         } while (0);
-        tb_temp_end(tb_am3652);
+        tb_temp_end(tb_am3780);
     }
     {
-        tb_list * tb_l3653 = v_keep;
-        for (long long tb_i3653 = 0; tb_i3653 < tb_l3653->len; tb_i3653++) {
-            const char * const v_x = ((const char * *)tb_l3653->data)[tb_i3653];
-            { const char * tb_v3654 = v_x; *(const char * *)tb_grow(v_names) = tb_v3654; }
+        tb_list * tb_l3781 = v_keep;
+        for (long long tb_i3781 = 0; tb_i3781 < tb_l3781->len; tb_i3781++) {
+            const char * const v_x = ((const char * *)tb_l3781->data)[tb_i3781];
+            { const char * tb_v3782 = v_x; *(const char * *)tb_grow(v_names) = tb_v3782; }
         }
     }
 }
 
 static _Bool f_emit__at_own(tb_o_Node * v_n, tb_list * v_inner, tb_list * v_fresh) {
     const char * v_r = f_emit__root_name(v_n);
-    return ((({ const char *tb_s3655 = v_r; !(tb_s3655[0] == 0); }) && f_emit__bld_has(v_inner, v_r)) && f_emit__bld_has(v_fresh, v_r));
-    tb_crash(1857, "функция at_own дошла до конца без return");
+    return ((({ const char *tb_s3783 = v_r; !(tb_s3783[0] == 0); }) && f_emit__bld_has(v_inner, v_r)) && f_emit__bld_has(v_fresh, v_r));
+    tb_crash(2238, "функция at_own дошла до конца без return");
     return 0;
 }
 
 static _Bool f_emit__at_bad(tb_o_Comp * v_c, tb_o_Node * v_n, tb_list * v_inner, tb_list * v_fresh, long long v_level) {
-    const char * v_k = ((tb_o_Node *)tb_nn(v_n, 1863))->q_kind;
-    if ((({ const char *tb_s3656 = v_k; ((unsigned char)tb_s3656[0] == 114 && (unsigned char)tb_s3656[1] == 101 && (unsigned char)tb_s3656[2] == 116 && (unsigned char)tb_s3656[3] == 117 && (unsigned char)tb_s3656[4] == 114 && (unsigned char)tb_s3656[5] == 110 && tb_s3656[6] == 0); }) && (!((tb_o_Comp *)tb_nn(v_c, 1864))->q_at_ret_ok))) {
+    const char * v_k = ((tb_o_Node *)tb_nn(v_n, 2244))->q_kind;
+    if ((({ const char *tb_s3784 = v_k; ((unsigned char)tb_s3784[0] == 114 && (unsigned char)tb_s3784[1] == 101 && (unsigned char)tb_s3784[2] == 116 && (unsigned char)tb_s3784[3] == 117 && (unsigned char)tb_s3784[4] == 114 && (unsigned char)tb_s3784[5] == 110 && tb_s3784[6] == 0); }) && (!((tb_o_Comp *)tb_nn(v_c, 2245))->q_at_ret_ok))) {
         return 1;
     }
-    if ((((((({ const char *tb_s3657 = v_k; ((unsigned char)tb_s3657[0] == 102 && (unsigned char)tb_s3657[1] == 97 && (unsigned char)tb_s3657[2] == 105 && (unsigned char)tb_s3657[3] == 108 && tb_s3657[4] == 0); }) || ({ const char *tb_s3658 = v_k; ((unsigned char)tb_s3658[0] == 116 && (unsigned char)tb_s3658[1] == 114 && (unsigned char)tb_s3658[2] == 121 && tb_s3658[3] == 0); })) || (strcmp(v_k, "background") == 0)) || ({ const char *tb_s3659 = v_k; ((unsigned char)tb_s3659[0] == 116 && (unsigned char)tb_s3659[1] == 111 && (unsigned char)tb_s3659[2] == 103 && (unsigned char)tb_s3659[3] == 101 && (unsigned char)tb_s3659[4] == 116 && (unsigned char)tb_s3659[5] == 104 && (unsigned char)tb_s3659[6] == 101 && (unsigned char)tb_s3659[7] == 114 && tb_s3659[8] == 0); })) || ({ const char *tb_s3660 = v_k; ((unsigned char)tb_s3660[0] == 116 && (unsigned char)tb_s3660[1] == 101 && (unsigned char)tb_s3660[2] == 109 && (unsigned char)tb_s3660[3] == 112 && tb_s3660[4] == 0); })) || ({ const char *tb_s3661 = v_k; ((unsigned char)tb_s3661[0] == 100 && (unsigned char)tb_s3661[1] == 97 && (unsigned char)tb_s3661[2] == 110 && (unsigned char)tb_s3661[3] == 103 && (unsigned char)tb_s3661[4] == 101 && (unsigned char)tb_s3661[5] == 114 && tb_s3661[6] == 0); }))) {
+    if ((((((({ const char *tb_s3785 = v_k; ((unsigned char)tb_s3785[0] == 102 && (unsigned char)tb_s3785[1] == 97 && (unsigned char)tb_s3785[2] == 105 && (unsigned char)tb_s3785[3] == 108 && tb_s3785[4] == 0); }) || ({ const char *tb_s3786 = v_k; ((unsigned char)tb_s3786[0] == 116 && (unsigned char)tb_s3786[1] == 114 && (unsigned char)tb_s3786[2] == 121 && tb_s3786[3] == 0); })) || (strcmp(v_k, "background") == 0)) || ({ const char *tb_s3787 = v_k; ((unsigned char)tb_s3787[0] == 116 && (unsigned char)tb_s3787[1] == 111 && (unsigned char)tb_s3787[2] == 103 && (unsigned char)tb_s3787[3] == 101 && (unsigned char)tb_s3787[4] == 116 && (unsigned char)tb_s3787[5] == 104 && (unsigned char)tb_s3787[6] == 101 && (unsigned char)tb_s3787[7] == 114 && tb_s3787[8] == 0); })) || ({ const char *tb_s3788 = v_k; ((unsigned char)tb_s3788[0] == 116 && (unsigned char)tb_s3788[1] == 101 && (unsigned char)tb_s3788[2] == 109 && (unsigned char)tb_s3788[3] == 112 && tb_s3788[4] == 0); })) || ({ const char *tb_s3789 = v_k; ((unsigned char)tb_s3789[0] == 100 && (unsigned char)tb_s3789[1] == 97 && (unsigned char)tb_s3789[2] == 110 && (unsigned char)tb_s3789[3] == 103 && (unsigned char)tb_s3789[4] == 101 && (unsigned char)tb_s3789[5] == 114 && tb_s3789[6] == 0); }))) {
         return 1;
     }
-    if ((({ const char *tb_s3662 = v_k; ((unsigned char)tb_s3662[0] == 115 && (unsigned char)tb_s3662[1] == 116 && (unsigned char)tb_s3662[2] == 111 && (unsigned char)tb_s3662[3] == 112 && tb_s3662[4] == 0); }) && (v_level == 0LL))) {
+    if ((({ const char *tb_s3790 = v_k; ((unsigned char)tb_s3790[0] == 115 && (unsigned char)tb_s3790[1] == 116 && (unsigned char)tb_s3790[2] == 111 && (unsigned char)tb_s3790[3] == 112 && tb_s3790[4] == 0); }) && (v_level == 0LL))) {
         return 1;
     }
-    if (((({ const char *tb_s3663 = v_k; ((unsigned char)tb_s3663[0] == 101 && (unsigned char)tb_s3663[1] == 97 && (unsigned char)tb_s3663[2] == 99 && (unsigned char)tb_s3663[3] == 104 && tb_s3663[4] == 0); }) || ({ const char *tb_s3664 = v_k; ((unsigned char)tb_s3664[0] == 99 && (unsigned char)tb_s3664[1] == 111 && (unsigned char)tb_s3664[2] == 117 && (unsigned char)tb_s3664[3] == 110 && (unsigned char)tb_s3664[4] == 116 && tb_s3664[5] == 0); })) && ((((tb_o_Node *)tb_nn(v_n, 1870))->q_is_par || ((tb_o_Node *)tb_nn(v_n, 1870))->q_by_vec) || ((tb_o_Node *)tb_nn(v_n, 1870))->q_by_piece))) {
+    if (((({ const char *tb_s3791 = v_k; ((unsigned char)tb_s3791[0] == 101 && (unsigned char)tb_s3791[1] == 97 && (unsigned char)tb_s3791[2] == 99 && (unsigned char)tb_s3791[3] == 104 && tb_s3791[4] == 0); }) || ({ const char *tb_s3792 = v_k; ((unsigned char)tb_s3792[0] == 99 && (unsigned char)tb_s3792[1] == 111 && (unsigned char)tb_s3792[2] == 117 && (unsigned char)tb_s3792[3] == 110 && (unsigned char)tb_s3792[4] == 116 && tb_s3792[5] == 0); })) && ((((tb_o_Node *)tb_nn(v_n, 2251))->q_is_par || ((tb_o_Node *)tb_nn(v_n, 2251))->q_by_vec) || ((tb_o_Node *)tb_nn(v_n, 2251))->q_by_piece))) {
         return 1;
     }
-    if ((((({ const char *tb_s3665 = v_k; ((unsigned char)tb_s3665[0] == 97 && (unsigned char)tb_s3665[1] == 115 && (unsigned char)tb_s3665[2] == 115 && (unsigned char)tb_s3665[3] == 105 && (unsigned char)tb_s3665[4] == 103 && (unsigned char)tb_s3665[5] == 110 && tb_s3665[6] == 0); }) && (!((tb_o_Node *)tb_nn(v_n, 1872))->q_creates)) && (!f_emit__is_plain_ty(((tb_o_Node *)tb_nn(v_n, 1872))->q_ty))) && (!f_emit__bld_has(v_inner, ((tb_o_Node *)tb_nn(v_n, 1872))->q_name)))) {
+    if ((((({ const char *tb_s3793 = v_k; ((unsigned char)tb_s3793[0] == 97 && (unsigned char)tb_s3793[1] == 115 && (unsigned char)tb_s3793[2] == 115 && (unsigned char)tb_s3793[3] == 105 && (unsigned char)tb_s3793[4] == 103 && (unsigned char)tb_s3793[5] == 110 && tb_s3793[6] == 0); }) && (!((tb_o_Node *)tb_nn(v_n, 2253))->q_creates)) && (!f_emit__is_plain_ty(((tb_o_Node *)tb_nn(v_n, 2253))->q_ty))) && (!f_emit__bld_has(v_inner, ((tb_o_Node *)tb_nn(v_n, 2253))->q_name)))) {
         return 1;
     }
-    if (({ const char *tb_s3666 = v_k; ((unsigned char)tb_s3666[0] == 115 && (unsigned char)tb_s3666[1] == 101 && (unsigned char)tb_s3666[2] == 116 && tb_s3666[3] == 0); })) {
-        tb_o_Node * v_target = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1875))->q_kids, 0LL, sizeof(tb_o_Node *), 1875));
-        if (((({ const char *tb_s3667 = ((tb_o_Node *)tb_nn(v_target, 1876))->q_kind; ((unsigned char)tb_s3667[0] == 110 && (unsigned char)tb_s3667[1] == 97 && (unsigned char)tb_s3667[2] == 109 && (unsigned char)tb_s3667[3] == 101 && tb_s3667[4] == 0); }) && (!f_emit__is_plain_ty(((tb_o_Node *)tb_nn(v_target, 1876))->q_ty))) && (!f_emit__bld_has(v_inner, ((tb_o_Node *)tb_nn(v_target, 1876))->q_name)))) {
+    if (({ const char *tb_s3794 = v_k; ((unsigned char)tb_s3794[0] == 115 && (unsigned char)tb_s3794[1] == 101 && (unsigned char)tb_s3794[2] == 116 && tb_s3794[3] == 0); })) {
+        tb_o_Node * v_target = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 2256))->q_kids, 0LL, sizeof(tb_o_Node *), 2256));
+        if (((({ const char *tb_s3795 = ((tb_o_Node *)tb_nn(v_target, 2257))->q_kind; ((unsigned char)tb_s3795[0] == 110 && (unsigned char)tb_s3795[1] == 97 && (unsigned char)tb_s3795[2] == 109 && (unsigned char)tb_s3795[3] == 101 && tb_s3795[4] == 0); }) && (!f_emit__is_plain_ty(((tb_o_Node *)tb_nn(v_target, 2257))->q_ty))) && (!f_emit__bld_has(v_inner, ((tb_o_Node *)tb_nn(v_target, 2257))->q_name)))) {
             return 1;
         }
-        if ((({ const char *tb_s3668 = ((tb_o_Node *)tb_nn(v_target, 1878))->q_kind; !((unsigned char)tb_s3668[0] == 110 && (unsigned char)tb_s3668[1] == 97 && (unsigned char)tb_s3668[2] == 109 && (unsigned char)tb_s3668[3] == 101 && tb_s3668[4] == 0); }) && (!f_emit__at_own(v_target, v_inner, v_fresh)))) {
-            if ((!f_emit__is_plain_ty(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1879))->q_kids, 1LL, sizeof(tb_o_Node *), 1879)), 1879))->q_ty))) {
+        if ((({ const char *tb_s3796 = ((tb_o_Node *)tb_nn(v_target, 2259))->q_kind; !((unsigned char)tb_s3796[0] == 110 && (unsigned char)tb_s3796[1] == 97 && (unsigned char)tb_s3796[2] == 109 && (unsigned char)tb_s3796[3] == 101 && tb_s3796[4] == 0); }) && (!f_emit__at_own(v_target, v_inner, v_fresh)))) {
+            if ((!f_emit__is_plain_ty(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 2260))->q_kids, 1LL, sizeof(tb_o_Node *), 2260)), 2260))->q_ty))) {
                 return 1;
             }
-            if (((({ const char *tb_s3669 = ((tb_o_Node *)tb_nn(v_target, 1881))->q_kind; ((unsigned char)tb_s3669[0] == 105 && (unsigned char)tb_s3669[1] == 110 && (unsigned char)tb_s3669[2] == 100 && (unsigned char)tb_s3669[3] == 101 && (unsigned char)tb_s3669[4] == 120 && tb_s3669[5] == 0); }) && ({ const char *tb_s3670 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_target, 1881))->q_kids, 0LL, sizeof(tb_o_Node *), 1881)), 1881))->q_ty); ((unsigned char)tb_s3670[0] == 100 && (unsigned char)tb_s3670[1] == 105 && (unsigned char)tb_s3670[2] == 99 && (unsigned char)tb_s3670[3] == 116 && tb_s3670[4] == 0); })) && (!f_emit__is_plain_ty(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_target, 1881))->q_kids, 1LL, sizeof(tb_o_Node *), 1881)), 1881))->q_ty)))) {
+            if (((({ const char *tb_s3797 = ((tb_o_Node *)tb_nn(v_target, 2262))->q_kind; ((unsigned char)tb_s3797[0] == 105 && (unsigned char)tb_s3797[1] == 110 && (unsigned char)tb_s3797[2] == 100 && (unsigned char)tb_s3797[3] == 101 && (unsigned char)tb_s3797[4] == 120 && tb_s3797[5] == 0); }) && ({ const char *tb_s3798 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_target, 2262))->q_kids, 0LL, sizeof(tb_o_Node *), 2262)), 2262))->q_ty); ((unsigned char)tb_s3798[0] == 100 && (unsigned char)tb_s3798[1] == 105 && (unsigned char)tb_s3798[2] == 99 && (unsigned char)tb_s3798[3] == 116 && tb_s3798[4] == 0); })) && (!f_emit__is_plain_ty(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_target, 2262))->q_kids, 1LL, sizeof(tb_o_Node *), 2262)), 2262))->q_ty)))) {
                 return 1;
             }
         }
     }
-    if ((((({ const char *tb_s3671 = v_k; ((unsigned char)tb_s3671[0] == 109 && (unsigned char)tb_s3671[1] == 101 && (unsigned char)tb_s3671[2] == 116 && (unsigned char)tb_s3671[3] == 104 && (unsigned char)tb_s3671[4] == 111 && (unsigned char)tb_s3671[5] == 100 && tb_s3671[6] == 0); }) && ({ const char *tb_s3672 = ((tb_o_Node *)tb_nn(v_n, 1883))->q_name; ((unsigned char)tb_s3672[0] == 97 && (unsigned char)tb_s3672[1] == 100 && (unsigned char)tb_s3672[2] == 100 && tb_s3672[3] == 0); })) && (!f_emit__is_plain_ty(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1883))->q_kids, 1LL, sizeof(tb_o_Node *), 1883)), 1883))->q_kids, 0LL, sizeof(tb_o_Node *), 1883)), 1883))->q_ty))) && (!f_emit__at_own((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1883))->q_kids, 0LL, sizeof(tb_o_Node *), 1883)), v_inner, v_fresh)))) {
+    if ((((({ const char *tb_s3799 = v_k; ((unsigned char)tb_s3799[0] == 109 && (unsigned char)tb_s3799[1] == 101 && (unsigned char)tb_s3799[2] == 116 && (unsigned char)tb_s3799[3] == 104 && (unsigned char)tb_s3799[4] == 111 && (unsigned char)tb_s3799[5] == 100 && tb_s3799[6] == 0); }) && ({ const char *tb_s3800 = ((tb_o_Node *)tb_nn(v_n, 2264))->q_name; ((unsigned char)tb_s3800[0] == 97 && (unsigned char)tb_s3800[1] == 100 && (unsigned char)tb_s3800[2] == 100 && tb_s3800[3] == 0); })) && (!f_emit__is_plain_ty(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 2264))->q_kids, 1LL, sizeof(tb_o_Node *), 2264)), 2264))->q_kids, 0LL, sizeof(tb_o_Node *), 2264)), 2264))->q_ty))) && (!f_emit__at_own((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 2264))->q_kids, 0LL, sizeof(tb_o_Node *), 2264)), v_inner, v_fresh)))) {
         return 1;
     }
-    if (({ const char *tb_s3673 = v_k; ((unsigned char)tb_s3673[0] == 109 && (unsigned char)tb_s3673[1] == 117 && (unsigned char)tb_s3673[2] == 108 && (unsigned char)tb_s3673[3] == 116 && (unsigned char)tb_s3673[4] == 105 && tb_s3673[5] == 0); })) {
+    if (({ const char *tb_s3801 = v_k; ((unsigned char)tb_s3801[0] == 109 && (unsigned char)tb_s3801[1] == 117 && (unsigned char)tb_s3801[2] == 108 && (unsigned char)tb_s3801[3] == 116 && (unsigned char)tb_s3801[4] == 105 && tb_s3801[5] == 0); })) {
         {
-            long long tb_end3674 = ((((tb_o_Node *)tb_nn(v_n, 1886))->q_kids)->len - 2LL);
-            for (long long v_i = 0LL; v_i <= tb_end3674; v_i++) {
-                if (((!f_emit__is_plain_ty(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1887))->q_kids, v_i, sizeof(tb_o_Node *), 1887)), 1887))->q_ty)) && (!f_emit__bld_has(v_inner, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1887))->q_kids, v_i, sizeof(tb_o_Node *), 1887)), 1887))->q_name)))) {
+            long long tb_end3802 = ((((tb_o_Node *)tb_nn(v_n, 2267))->q_kids)->len - 2LL);
+            for (long long v_i = 0LL; v_i <= tb_end3802; v_i++) {
+                if (((!f_emit__is_plain_ty(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 2268))->q_kids, v_i, sizeof(tb_o_Node *), 2268)), 2268))->q_ty)) && (!f_emit__bld_has(v_inner, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 2268))->q_kids, v_i, sizeof(tb_o_Node *), 2268)), 2268))->q_name)))) {
                     return 1;
                 }
             }
         }
     }
-    if ((({ const char *tb_s3675 = v_k; ((unsigned char)tb_s3675[0] == 108 && (unsigned char)tb_s3675[1] == 105 && (unsigned char)tb_s3675[2] == 110 && (unsigned char)tb_s3675[3] == 107 && (unsigned char)tb_s3675[4] == 100 && (unsigned char)tb_s3675[5] == 101 && (unsigned char)tb_s3675[6] == 99 && (unsigned char)tb_s3675[7] == 108 && tb_s3675[8] == 0); }) && (!f_emit__is_plain_ty(((tb_o_Node *)tb_nn(v_n, 1889))->q_ty)))) {
+    if ((({ const char *tb_s3803 = v_k; ((unsigned char)tb_s3803[0] == 108 && (unsigned char)tb_s3803[1] == 105 && (unsigned char)tb_s3803[2] == 110 && (unsigned char)tb_s3803[3] == 107 && (unsigned char)tb_s3803[4] == 100 && (unsigned char)tb_s3803[5] == 101 && (unsigned char)tb_s3803[6] == 99 && (unsigned char)tb_s3803[7] == 108 && tb_s3803[8] == 0); }) && (!f_emit__is_plain_ty(((tb_o_Node *)tb_nn(v_n, 2270))->q_ty)))) {
         return 1;
     }
-    if (((({ const char *tb_s3676 = v_k; ((unsigned char)tb_s3676[0] == 99 && (unsigned char)tb_s3676[1] == 97 && (unsigned char)tb_s3676[2] == 108 && (unsigned char)tb_s3676[3] == 108 && tb_s3676[4] == 0); }) && ((tb_o_Node *)tb_nn(v_n, 1891))->q_has_ref) && ({ const char *tb_s3677 = ((tb_o_Node *)tb_nn(((tb_o_Node *)tb_nn(v_n, 1891))->q_ref, 1891))->q_kind; ((unsigned char)tb_s3677[0] == 102 && (unsigned char)tb_s3677[1] == 117 && (unsigned char)tb_s3677[2] == 110 && (unsigned char)tb_s3677[3] == 99 && tb_s3677[4] == 0); }))) {
-        tb_o_Node * v_params = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(((tb_o_Node *)tb_nn(v_n, 1892))->q_ref, 1892))->q_kids, 0LL, sizeof(tb_o_Node *), 1892));
+    if (((({ const char *tb_s3804 = v_k; ((unsigned char)tb_s3804[0] == 99 && (unsigned char)tb_s3804[1] == 97 && (unsigned char)tb_s3804[2] == 108 && (unsigned char)tb_s3804[3] == 108 && tb_s3804[4] == 0); }) && ((tb_o_Node *)tb_nn(v_n, 2272))->q_has_ref) && ({ const char *tb_s3805 = ((tb_o_Node *)tb_nn(((tb_o_Node *)tb_nn(v_n, 2272))->q_ref, 2272))->q_kind; ((unsigned char)tb_s3805[0] == 102 && (unsigned char)tb_s3805[1] == 117 && (unsigned char)tb_s3805[2] == 110 && (unsigned char)tb_s3805[3] == 99 && tb_s3805[4] == 0); }))) {
+        tb_o_Node * v_params = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(((tb_o_Node *)tb_nn(v_n, 2273))->q_ref, 2273))->q_kids, 0LL, sizeof(tb_o_Node *), 2273));
         {
-            long long tb_end3678 = ((((tb_o_Node *)tb_nn(v_n, 1893))->q_kids)->len - 1LL);
-            for (long long v_i = 0LL; v_i <= tb_end3678; v_i++) {
-                tb_o_Node * v_a = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1894))->q_kids, v_i, sizeof(tb_o_Node *), 1894)), 1894))->q_kids, 0LL, sizeof(tb_o_Node *), 1894));
-                if ((f_emit__is_box(((tb_o_Node *)tb_nn(v_a, 1896))->q_ty) && (!f_emit__at_fresh_expr(v_a, v_inner, v_fresh)))) {
+            long long tb_end3806 = ((((tb_o_Node *)tb_nn(v_n, 2274))->q_kids)->len - 1LL);
+            for (long long v_i = 0LL; v_i <= tb_end3806; v_i++) {
+                tb_o_Node * v_a = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 2275))->q_kids, v_i, sizeof(tb_o_Node *), 2275)), 2275))->q_kids, 0LL, sizeof(tb_o_Node *), 2275));
+                if ((f_emit__is_box(((tb_o_Node *)tb_nn(v_a, 2277))->q_ty) && (!f_emit__at_fresh_expr(v_a, v_inner, v_fresh)))) {
                     return 1;
                 }
-                if (((((v_i < (((tb_o_Node *)tb_nn(v_params, 1898))->q_kids)->len) && ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_params, 1898))->q_kids, v_i, sizeof(tb_o_Node *), 1898)), 1898))->q_is_link) && (!f_emit__is_plain_ty(((tb_o_Node *)tb_nn(v_a, 1898))->q_ty))) && (!f_emit__bld_has(v_inner, f_emit__root_name(v_a))))) {
+                if (((((v_i < (((tb_o_Node *)tb_nn(v_params, 2279))->q_kids)->len) && ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_params, 2279))->q_kids, v_i, sizeof(tb_o_Node *), 2279)), 2279))->q_is_link) && (!f_emit__is_plain_ty(((tb_o_Node *)tb_nn(v_a, 2279))->q_ty))) && (!f_emit__bld_has(v_inner, f_emit__root_name(v_a))))) {
                     return 1;
                 }
             }
         }
     }
     long long v_next_level = v_level;
-    if ((((({ const char *tb_s3679 = v_k; ((unsigned char)tb_s3679[0] == 101 && (unsigned char)tb_s3679[1] == 97 && (unsigned char)tb_s3679[2] == 99 && (unsigned char)tb_s3679[3] == 104 && tb_s3679[4] == 0); }) || ({ const char *tb_s3680 = v_k; ((unsigned char)tb_s3680[0] == 99 && (unsigned char)tb_s3680[1] == 111 && (unsigned char)tb_s3680[2] == 117 && (unsigned char)tb_s3680[3] == 110 && (unsigned char)tb_s3680[4] == 116 && tb_s3680[5] == 0); })) || (strcmp(v_k, "repeat_times") == 0)) || (strcmp(v_k, "repeat_while") == 0))) {
+    if ((((({ const char *tb_s3807 = v_k; ((unsigned char)tb_s3807[0] == 101 && (unsigned char)tb_s3807[1] == 97 && (unsigned char)tb_s3807[2] == 99 && (unsigned char)tb_s3807[3] == 104 && tb_s3807[4] == 0); }) || ({ const char *tb_s3808 = v_k; ((unsigned char)tb_s3808[0] == 99 && (unsigned char)tb_s3808[1] == 111 && (unsigned char)tb_s3808[2] == 117 && (unsigned char)tb_s3808[3] == 110 && (unsigned char)tb_s3808[4] == 116 && tb_s3808[5] == 0); })) || (strcmp(v_k, "repeat_times") == 0)) || (strcmp(v_k, "repeat_while") == 0))) {
         v_next_level = (v_level + 1LL);
     }
     {
-        tb_list * tb_l3681 = ((tb_o_Node *)tb_nn(v_n, 1903))->q_kids;
-        for (long long tb_i3681 = 0; tb_i3681 < tb_l3681->len; tb_i3681++) {
-            tb_o_Node * const v_kid = ((tb_o_Node * *)tb_l3681->data)[tb_i3681];
+        tb_list * tb_l3809 = ((tb_o_Node *)tb_nn(v_n, 2284))->q_kids;
+        for (long long tb_i3809 = 0; tb_i3809 < tb_l3809->len; tb_i3809++) {
+            tb_o_Node * const v_kid = ((tb_o_Node * *)tb_l3809->data)[tb_i3809];
             if (f_emit__at_bad(v_c, v_kid, v_inner, v_fresh, v_next_level)) {
                 return 1;
             }
         }
     }
     return 0;
-    tb_crash(1862, "функция at_bad дошла до конца без return");
+    tb_crash(2243, "функция at_bad дошла до конца без return");
     return 0;
 }
 
 static _Bool f_emit__at_allocates(tb_o_Comp * v_c, tb_o_Node * v_n) {
     tb_list * v_seen = tb_list_new(sizeof(const char *));
     return f_emit__at_alloc_in(v_c, v_n, v_seen);
-    tb_crash(1909, "функция at_allocates дошла до конца без return");
+    tb_crash(2290, "функция at_allocates дошла до конца без return");
     return 0;
 }
 
 static _Bool f_emit__at_alloc_in(tb_o_Comp * v_c, tb_o_Node * v_n, tb_list * v_seen) {
-    const char * v_k = ((tb_o_Node *)tb_nn(v_n, 1916))->q_kind;
-    if (((((((({ const char *tb_s3682 = v_k; ((unsigned char)tb_s3682[0] == 99 && (unsigned char)tb_s3682[1] == 97 && (unsigned char)tb_s3682[2] == 108 && (unsigned char)tb_s3682[3] == 108 && tb_s3682[4] == 0); }) || ({ const char *tb_s3683 = v_k; ((unsigned char)tb_s3683[0] == 98 && (unsigned char)tb_s3683[1] == 105 && (unsigned char)tb_s3683[2] == 110 && (unsigned char)tb_s3683[3] == 111 && (unsigned char)tb_s3683[4] == 112 && tb_s3683[5] == 0); })) || ({ const char *tb_s3684 = v_k; ((unsigned char)tb_s3684[0] == 108 && (unsigned char)tb_s3684[1] == 105 && (unsigned char)tb_s3684[2] == 115 && (unsigned char)tb_s3684[3] == 116 && tb_s3684[4] == 0); })) || ({ const char *tb_s3685 = v_k; ((unsigned char)tb_s3685[0] == 100 && (unsigned char)tb_s3685[1] == 105 && (unsigned char)tb_s3685[2] == 99 && (unsigned char)tb_s3685[3] == 116 && tb_s3685[4] == 0); })) || ({ const char *tb_s3686 = v_k; ((unsigned char)tb_s3686[0] == 109 && (unsigned char)tb_s3686[1] == 101 && (unsigned char)tb_s3686[2] == 116 && (unsigned char)tb_s3686[3] == 104 && (unsigned char)tb_s3686[4] == 111 && (unsigned char)tb_s3686[5] == 100 && tb_s3686[6] == 0); })) && (((tb_o_Node *)tb_nn(v_n, 1917))->q_ty > 0LL)) && (!f_emit__is_plain_ty(((tb_o_Node *)tb_nn(v_n, 1917))->q_ty)))) {
+    const char * v_k = ((tb_o_Node *)tb_nn(v_n, 2297))->q_kind;
+    if (((((((({ const char *tb_s3810 = v_k; ((unsigned char)tb_s3810[0] == 99 && (unsigned char)tb_s3810[1] == 97 && (unsigned char)tb_s3810[2] == 108 && (unsigned char)tb_s3810[3] == 108 && tb_s3810[4] == 0); }) || ({ const char *tb_s3811 = v_k; ((unsigned char)tb_s3811[0] == 98 && (unsigned char)tb_s3811[1] == 105 && (unsigned char)tb_s3811[2] == 110 && (unsigned char)tb_s3811[3] == 111 && (unsigned char)tb_s3811[4] == 112 && tb_s3811[5] == 0); })) || ({ const char *tb_s3812 = v_k; ((unsigned char)tb_s3812[0] == 108 && (unsigned char)tb_s3812[1] == 105 && (unsigned char)tb_s3812[2] == 115 && (unsigned char)tb_s3812[3] == 116 && tb_s3812[4] == 0); })) || ({ const char *tb_s3813 = v_k; ((unsigned char)tb_s3813[0] == 100 && (unsigned char)tb_s3813[1] == 105 && (unsigned char)tb_s3813[2] == 99 && (unsigned char)tb_s3813[3] == 116 && tb_s3813[4] == 0); })) || ({ const char *tb_s3814 = v_k; ((unsigned char)tb_s3814[0] == 109 && (unsigned char)tb_s3814[1] == 101 && (unsigned char)tb_s3814[2] == 116 && (unsigned char)tb_s3814[3] == 104 && (unsigned char)tb_s3814[4] == 111 && (unsigned char)tb_s3814[5] == 100 && tb_s3814[6] == 0); })) && (((tb_o_Node *)tb_nn(v_n, 2298))->q_ty > 0LL)) && (!f_emit__is_plain_ty(((tb_o_Node *)tb_nn(v_n, 2298))->q_ty)))) {
         return 1;
     }
-    if ((({ const char *tb_s3687 = v_k; ((unsigned char)tb_s3687[0] == 99 && (unsigned char)tb_s3687[1] == 97 && (unsigned char)tb_s3687[2] == 108 && (unsigned char)tb_s3687[3] == 108 && tb_s3687[4] == 0); }) && ((tb_o_Node *)tb_nn(v_n, 1919))->q_has_ref)) {
-        if (({ const char *tb_s3688 = ((tb_o_Node *)tb_nn(((tb_o_Node *)tb_nn(v_n, 1920))->q_ref, 1920))->q_kind; !((unsigned char)tb_s3688[0] == 102 && (unsigned char)tb_s3688[1] == 117 && (unsigned char)tb_s3688[2] == 110 && (unsigned char)tb_s3688[3] == 99 && tb_s3688[4] == 0); })) {
+    if ((({ const char *tb_s3815 = v_k; ((unsigned char)tb_s3815[0] == 99 && (unsigned char)tb_s3815[1] == 97 && (unsigned char)tb_s3815[2] == 108 && (unsigned char)tb_s3815[3] == 108 && tb_s3815[4] == 0); }) && ((tb_o_Node *)tb_nn(v_n, 2300))->q_has_ref)) {
+        if (({ const char *tb_s3816 = ((tb_o_Node *)tb_nn(((tb_o_Node *)tb_nn(v_n, 2301))->q_ref, 2301))->q_kind; !((unsigned char)tb_s3816[0] == 102 && (unsigned char)tb_s3816[1] == 117 && (unsigned char)tb_s3816[2] == 110 && (unsigned char)tb_s3816[3] == 99 && tb_s3816[4] == 0); })) {
             return 1;
         }
-        const char * v_key = ({ const char *tb_c3689_0 = ((tb_o_Node *)tb_nn(((tb_o_Node *)tb_nn(v_n, 1922))->q_ref, 1922))->q_name; long long tb_c3689_0n = (long long)strlen(tb_c3689_0); const char *tb_c3689_1 = ":"; long long tb_c3689_1n = sizeof(":") - 1; char tb_c3689_2d[24]; long long tb_c3689_2n; const char *tb_c3689_2 = tb_digits(((tb_o_Node *)tb_nn(((tb_o_Node *)tb_nn(v_n, 1922))->q_ref, 1922))->q_line, tb_c3689_2d, &tb_c3689_2n); char *tb_c3689r = tb_mem(tb_c3689_0n + tb_c3689_1n + tb_c3689_2n + 1), *tb_c3689rw = tb_c3689r; memcpy(tb_c3689rw, tb_c3689_0, tb_c3689_0n); tb_c3689rw += tb_c3689_0n; memcpy(tb_c3689rw, tb_c3689_1, tb_c3689_1n); tb_c3689rw += tb_c3689_1n; memcpy(tb_c3689rw, tb_c3689_2, tb_c3689_2n); tb_c3689rw += tb_c3689_2n; *tb_c3689rw = 0; (const char *)tb_c3689r; });
+        const char * v_key = ({ const char *tb_c3817_0 = ((tb_o_Node *)tb_nn(((tb_o_Node *)tb_nn(v_n, 2303))->q_ref, 2303))->q_name; long long tb_c3817_0n = (long long)strlen(tb_c3817_0); const char *tb_c3817_1 = ":"; long long tb_c3817_1n = sizeof(":") - 1; char tb_c3817_2d[24]; long long tb_c3817_2n; const char *tb_c3817_2 = tb_digits(((tb_o_Node *)tb_nn(((tb_o_Node *)tb_nn(v_n, 2303))->q_ref, 2303))->q_line, tb_c3817_2d, &tb_c3817_2n); char *tb_c3817r = tb_mem(tb_c3817_0n + tb_c3817_1n + tb_c3817_2n + 1), *tb_c3817rw = tb_c3817r; memcpy(tb_c3817rw, tb_c3817_0, tb_c3817_0n); tb_c3817rw += tb_c3817_0n; memcpy(tb_c3817rw, tb_c3817_1, tb_c3817_1n); tb_c3817rw += tb_c3817_1n; memcpy(tb_c3817rw, tb_c3817_2, tb_c3817_2n); tb_c3817rw += tb_c3817_2n; *tb_c3817rw = 0; (const char *)tb_c3817r; });
         {
-            tb_list * tb_l3690 = v_seen;
-            for (long long tb_i3690 = 0; tb_i3690 < tb_l3690->len; tb_i3690++) {
-                const char * const v_name = ((const char * *)tb_l3690->data)[tb_i3690];
+            tb_list * tb_l3818 = v_seen;
+            for (long long tb_i3818 = 0; tb_i3818 < tb_l3818->len; tb_i3818++) {
+                const char * const v_name = ((const char * *)tb_l3818->data)[tb_i3818];
                 if ((strcmp(v_name, v_key) == 0)) {
                     return 0;
                 }
             }
         }
-        { const char * tb_v3691 = v_key; *(const char * *)tb_grow(v_seen) = tb_v3691; }
-        if (f_emit__at_alloc_in(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(((tb_o_Node *)tb_nn(v_n, 1927))->q_ref, 1927))->q_kids, 1LL, sizeof(tb_o_Node *), 1927)), v_seen)) {
+        { const char * tb_v3819 = v_key; *(const char * *)tb_grow(v_seen) = tb_v3819; }
+        if (f_emit__at_alloc_in(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(((tb_o_Node *)tb_nn(v_n, 2308))->q_ref, 2308))->q_kids, 1LL, sizeof(tb_o_Node *), 2308)), v_seen)) {
             return 1;
         }
     }
     {
-        tb_list * tb_l3692 = ((tb_o_Node *)tb_nn(v_n, 1929))->q_kids;
-        for (long long tb_i3692 = 0; tb_i3692 < tb_l3692->len; tb_i3692++) {
-            tb_o_Node * const v_kid = ((tb_o_Node * *)tb_l3692->data)[tb_i3692];
+        tb_list * tb_l3820 = ((tb_o_Node *)tb_nn(v_n, 2310))->q_kids;
+        for (long long tb_i3820 = 0; tb_i3820 < tb_l3820->len; tb_i3820++) {
+            tb_o_Node * const v_kid = ((tb_o_Node * *)tb_l3820->data)[tb_i3820];
             if (f_emit__at_alloc_in(v_c, v_kid, v_seen)) {
                 return 1;
             }
         }
     }
     return 0;
-    tb_crash(1915, "функция at_alloc_in дошла до конца без return");
+    tb_crash(2296, "функция at_alloc_in дошла до конца без return");
     return 0;
 }
 
@@ -12044,34 +12952,34 @@ static _Bool f_emit__auto_temp_ok(tb_o_Comp * v_c, tb_o_Node * v_body) {
     f_emit__at_inner(v_body, v_inner);
     tb_list * v_fresh = tb_list_new(sizeof(const char *));
     {
-        tb_list * tb_l3693 = v_inner;
-        for (long long tb_i3693 = 0; tb_i3693 < tb_l3693->len; tb_i3693++) {
-            const char * const v_x = ((const char * *)tb_l3693->data)[tb_i3693];
-            { const char * tb_v3694 = v_x; *(const char * *)tb_grow(v_fresh) = tb_v3694; }
+        tb_list * tb_l3821 = v_inner;
+        for (long long tb_i3821 = 0; tb_i3821 < tb_l3821->len; tb_i3821++) {
+            const char * const v_x = ((const char * *)tb_l3821->data)[tb_i3821];
+            { const char * tb_v3822 = v_x; *(const char * *)tb_grow(v_fresh) = tb_v3822; }
         }
     }
     while (f_emit__at_unfresh(v_c, v_body, v_inner, v_fresh)) {
         v_fresh = v_fresh;
     }
     return (!f_emit__at_bad(v_c, v_body, v_inner, v_fresh, 0LL));
-    tb_crash(1934, "функция auto_temp_ok дошла до конца без return");
+    tb_crash(2315, "функция auto_temp_ok дошла до конца без return");
     return 0;
 }
 
 static _Bool f_emit__func_arena_ok(tb_o_Comp * v_c, tb_o_Node * v_f) {
-    if ((({ const char *tb_s3695 = ((tb_o_Node *)tb_nn(v_f, 1949))->q_name; ((unsigned char)tb_s3695[0] == 109 && (unsigned char)tb_s3695[1] == 97 && (unsigned char)tb_s3695[2] == 105 && (unsigned char)tb_s3695[3] == 110 && tb_s3695[4] == 0); }) || (!((({ const char *tb_s3696 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_f, 1949))->q_ty); ((unsigned char)tb_s3696[0] == 110 && (unsigned char)tb_s3696[1] == 111 && (unsigned char)tb_s3696[2] == 110 && (unsigned char)tb_s3696[3] == 101 && tb_s3696[4] == 0); }) || ({ const char *tb_s3697 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_f, 1949))->q_ty); ((unsigned char)tb_s3697[0] == 109 && (unsigned char)tb_s3697[1] == 117 && (unsigned char)tb_s3697[2] == 108 && (unsigned char)tb_s3697[3] == 116 && (unsigned char)tb_s3697[4] == 105 && tb_s3697[5] == 0); })) || f_emit__is_plain_ty(((tb_o_Node *)tb_nn(v_f, 1949))->q_ty))))) {
+    if ((({ const char *tb_s3823 = ((tb_o_Node *)tb_nn(v_f, 2330))->q_name; ((unsigned char)tb_s3823[0] == 109 && (unsigned char)tb_s3823[1] == 97 && (unsigned char)tb_s3823[2] == 105 && (unsigned char)tb_s3823[3] == 110 && tb_s3823[4] == 0); }) || (!((({ const char *tb_s3824 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_f, 2330))->q_ty); ((unsigned char)tb_s3824[0] == 110 && (unsigned char)tb_s3824[1] == 111 && (unsigned char)tb_s3824[2] == 110 && (unsigned char)tb_s3824[3] == 101 && tb_s3824[4] == 0); }) || ({ const char *tb_s3825 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_f, 2330))->q_ty); ((unsigned char)tb_s3825[0] == 109 && (unsigned char)tb_s3825[1] == 117 && (unsigned char)tb_s3825[2] == 108 && (unsigned char)tb_s3825[3] == 116 && (unsigned char)tb_s3825[4] == 105 && tb_s3825[5] == 0); })) || f_emit__is_plain_ty(((tb_o_Node *)tb_nn(v_f, 2330))->q_ty))))) {
         return 0;
     }
     {
-        tb_list * tb_l3698 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_f, 1951))->q_kids, 2LL, sizeof(tb_o_Node *), 1951)), 1951))->q_kids;
-        for (long long tb_i3698 = 0; tb_i3698 < tb_l3698->len; tb_i3698++) {
-            tb_o_Node * const v_o = ((tb_o_Node * *)tb_l3698->data)[tb_i3698];
-            if ((!f_emit__is_plain_ty(((tb_o_Node *)tb_nn(v_o, 1952))->q_ty))) {
+        tb_list * tb_l3826 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_f, 2332))->q_kids, 2LL, sizeof(tb_o_Node *), 2332)), 2332))->q_kids;
+        for (long long tb_i3826 = 0; tb_i3826 < tb_l3826->len; tb_i3826++) {
+            tb_o_Node * const v_o = ((tb_o_Node * *)tb_l3826->data)[tb_i3826];
+            if ((!f_emit__is_plain_ty(((tb_o_Node *)tb_nn(v_o, 2333))->q_ty))) {
                 return 0;
             }
         }
     }
-    tb_o_Node * v_body = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_f, 1954))->q_kids, 1LL, sizeof(tb_o_Node *), 1954));
+    tb_o_Node * v_body = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_f, 2335))->q_kids, 1LL, sizeof(tb_o_Node *), 2335));
     if ((!f_emit__at_allocates(v_c, v_body))) {
         return 0;
     }
@@ -12079,20 +12987,20 @@ static _Bool f_emit__func_arena_ok(tb_o_Comp * v_c, tb_o_Node * v_f) {
     f_emit__at_inner(v_body, v_inner);
     tb_list * v_fresh = tb_list_new(sizeof(const char *));
     {
-        tb_list * tb_l3699 = v_inner;
-        for (long long tb_i3699 = 0; tb_i3699 < tb_l3699->len; tb_i3699++) {
-            const char * const v_x = ((const char * *)tb_l3699->data)[tb_i3699];
-            { const char * tb_v3700 = v_x; *(const char * *)tb_grow(v_fresh) = tb_v3700; }
+        tb_list * tb_l3827 = v_inner;
+        for (long long tb_i3827 = 0; tb_i3827 < tb_l3827->len; tb_i3827++) {
+            const char * const v_x = ((const char * *)tb_l3827->data)[tb_i3827];
+            { const char * tb_v3828 = v_x; *(const char * *)tb_grow(v_fresh) = tb_v3828; }
         }
     }
     while (f_emit__at_unfresh(v_c, v_body, v_inner, v_fresh)) {
         v_fresh = v_fresh;
     }
-    { _Bool tb_v3701 = 1; _Bool *tb_p3701 = &(((tb_o_Comp *)tb_nn(v_c, 1964))->q_at_ret_ok); *tb_p3701 = tb_v3701; }
+    { _Bool tb_v3829 = 1; _Bool *tb_p3829 = &(((tb_o_Comp *)tb_nn(v_c, 2345))->q_at_ret_ok); *tb_p3829 = tb_v3829; }
     _Bool v_bad = f_emit__at_bad(v_c, v_body, v_inner, v_fresh, 0LL);
-    { _Bool tb_v3702 = 0; _Bool *tb_p3702 = &(((tb_o_Comp *)tb_nn(v_c, 1966))->q_at_ret_ok); *tb_p3702 = tb_v3702; }
+    { _Bool tb_v3830 = 0; _Bool *tb_p3830 = &(((tb_o_Comp *)tb_nn(v_c, 2347))->q_at_ret_ok); *tb_p3830 = tb_v3830; }
     return (!v_bad);
-    tb_crash(1948, "функция func_arena_ok дошла до конца без return");
+    tb_crash(2329, "функция func_arena_ok дошла до конца без return");
     return 0;
 }
 
@@ -12101,130 +13009,130 @@ static void f_emit__emit_loop_body(tb_o_Comp * v_c, tb_o_Node * v_body, long lon
         f_emit__emit_block(v_c, v_body, v_depth);
         return;
     }
-    { long long tb_v3703 = 1LL; long long *tb_p3703 = &(((tb_o_Comp *)tb_nn(v_c, 1974))->q_label); *tb_p3703 += tb_v3703; }
-    const char * v_id = ({ const char *tb_c3704_0 = ""; long long tb_c3704_0n = sizeof("") - 1; char tb_c3704_1d[24]; long long tb_c3704_1n; const char *tb_c3704_1 = tb_digits(((tb_o_Comp *)tb_nn(v_c, 1975))->q_label, tb_c3704_1d, &tb_c3704_1n); char *tb_c3704r = tb_mem(tb_c3704_0n + tb_c3704_1n + 1), *tb_c3704rw = tb_c3704r; memcpy(tb_c3704rw, tb_c3704_0, tb_c3704_0n); tb_c3704rw += tb_c3704_0n; memcpy(tb_c3704rw, tb_c3704_1, tb_c3704_1n); tb_c3704rw += tb_c3704_1n; *tb_c3704rw = 0; (const char *)tb_c3704r; });
+    { long long tb_v3831 = 1LL; long long *tb_p3831 = &(((tb_o_Comp *)tb_nn(v_c, 2355))->q_label); *tb_p3831 += tb_v3831; }
+    const char * v_id = ({ const char *tb_c3832_0 = ""; long long tb_c3832_0n = sizeof("") - 1; char tb_c3832_1d[24]; long long tb_c3832_1n; const char *tb_c3832_1 = tb_digits(((tb_o_Comp *)tb_nn(v_c, 2356))->q_label, tb_c3832_1d, &tb_c3832_1n); char *tb_c3832r = tb_mem(tb_c3832_0n + tb_c3832_1n + 1), *tb_c3832rw = tb_c3832r; memcpy(tb_c3832rw, tb_c3832_0, tb_c3832_0n); tb_c3832rw += tb_c3832_0n; memcpy(tb_c3832rw, tb_c3832_1, tb_c3832_1n); tb_c3832rw += tb_c3832_1n; *tb_c3832rw = 0; (const char *)tb_c3832r; });
     f_emit__indent(v_c, v_depth);
-    f_emit__put(v_c, ({ const char *tb_c3705_0 = "tb_mark tb_am"; long long tb_c3705_0n = sizeof("tb_mark tb_am") - 1; const char *tb_c3705_1 = v_id; long long tb_c3705_1n = (long long)strlen(tb_c3705_1); const char *tb_c3705_2 = " = tb_temp_begin();\n"; long long tb_c3705_2n = sizeof(" = tb_temp_begin();\n") - 1; char *tb_c3705r = tb_mem(tb_c3705_0n + tb_c3705_1n + tb_c3705_2n + 1), *tb_c3705rw = tb_c3705r; memcpy(tb_c3705rw, tb_c3705_0, tb_c3705_0n); tb_c3705rw += tb_c3705_0n; memcpy(tb_c3705rw, tb_c3705_1, tb_c3705_1n); tb_c3705rw += tb_c3705_1n; memcpy(tb_c3705rw, tb_c3705_2, tb_c3705_2n); tb_c3705rw += tb_c3705_2n; *tb_c3705rw = 0; (const char *)tb_c3705r; }));
+    f_emit__put(v_c, ({ const char *tb_c3833_0 = "tb_mark tb_am"; long long tb_c3833_0n = sizeof("tb_mark tb_am") - 1; const char *tb_c3833_1 = v_id; long long tb_c3833_1n = (long long)strlen(tb_c3833_1); const char *tb_c3833_2 = " = tb_temp_begin();\n"; long long tb_c3833_2n = sizeof(" = tb_temp_begin();\n") - 1; char *tb_c3833r = tb_mem(tb_c3833_0n + tb_c3833_1n + tb_c3833_2n + 1), *tb_c3833rw = tb_c3833r; memcpy(tb_c3833rw, tb_c3833_0, tb_c3833_0n); tb_c3833rw += tb_c3833_0n; memcpy(tb_c3833rw, tb_c3833_1, tb_c3833_1n); tb_c3833rw += tb_c3833_1n; memcpy(tb_c3833rw, tb_c3833_2, tb_c3833_2n); tb_c3833rw += tb_c3833_2n; *tb_c3833rw = 0; (const char *)tb_c3833r; }));
     f_emit__indent(v_c, v_depth);
     f_emit__put(v_c, "do {\n");
     f_emit__emit_block(v_c, v_body, (v_depth + 1LL));
     f_emit__indent(v_c, v_depth);
     f_emit__put(v_c, "} while (0);\n");
     f_emit__indent(v_c, v_depth);
-    f_emit__put(v_c, ({ const char *tb_c3706_0 = "tb_temp_end(tb_am"; long long tb_c3706_0n = sizeof("tb_temp_end(tb_am") - 1; const char *tb_c3706_1 = v_id; long long tb_c3706_1n = (long long)strlen(tb_c3706_1); const char *tb_c3706_2 = ");\n"; long long tb_c3706_2n = sizeof(");\n") - 1; char *tb_c3706r = tb_mem(tb_c3706_0n + tb_c3706_1n + tb_c3706_2n + 1), *tb_c3706rw = tb_c3706r; memcpy(tb_c3706rw, tb_c3706_0, tb_c3706_0n); tb_c3706rw += tb_c3706_0n; memcpy(tb_c3706rw, tb_c3706_1, tb_c3706_1n); tb_c3706rw += tb_c3706_1n; memcpy(tb_c3706rw, tb_c3706_2, tb_c3706_2n); tb_c3706rw += tb_c3706_2n; *tb_c3706rw = 0; (const char *)tb_c3706r; }));
+    f_emit__put(v_c, ({ const char *tb_c3834_0 = "tb_temp_end(tb_am"; long long tb_c3834_0n = sizeof("tb_temp_end(tb_am") - 1; const char *tb_c3834_1 = v_id; long long tb_c3834_1n = (long long)strlen(tb_c3834_1); const char *tb_c3834_2 = ");\n"; long long tb_c3834_2n = sizeof(");\n") - 1; char *tb_c3834r = tb_mem(tb_c3834_0n + tb_c3834_1n + tb_c3834_2n + 1), *tb_c3834rw = tb_c3834r; memcpy(tb_c3834rw, tb_c3834_0, tb_c3834_0n); tb_c3834rw += tb_c3834_0n; memcpy(tb_c3834rw, tb_c3834_1, tb_c3834_1n); tb_c3834rw += tb_c3834_1n; memcpy(tb_c3834rw, tb_c3834_2, tb_c3834_2n); tb_c3834rw += tb_c3834_2n; *tb_c3834rw = 0; (const char *)tb_c3834r; }));
 }
 
 static void f_emit__emit_func(tb_o_Comp * v_c, tb_o_Node * v_f) {
-    { tb_o_Node * tb_v3707 = v_f; tb_o_Node * *tb_p3707 = &(((tb_o_Comp *)tb_nn(v_c, 1988))->q_cur_func); *tb_p3707 = tb_v3707; }
-    tb_o_Node * v_outputs = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_f, 1989))->q_kids, 2LL, sizeof(tb_o_Node *), 1989));
+    { tb_o_Node * tb_v3835 = v_f; tb_o_Node * *tb_p3835 = &(((tb_o_Comp *)tb_nn(v_c, 2369))->q_cur_func); *tb_p3835 = tb_v3835; }
+    tb_o_Node * v_outputs = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_f, 2370))->q_kids, 2LL, sizeof(tb_o_Node *), 2370));
     f_emit__put(v_c, "\n");
     f_emit__emit_signature(v_c, v_f);
     f_emit__put(v_c, " {\n");
     {
-        tb_list * tb_l3708 = ((tb_o_Node *)tb_nn(v_outputs, 1993))->q_kids;
-        for (long long tb_i3708 = 0; tb_i3708 < tb_l3708->len; tb_i3708++) {
-            tb_o_Node * const v_o = ((tb_o_Node * *)tb_l3708->data)[tb_i3708];
-            if ((!((tb_o_Node *)tb_nn(v_o, 1994))->q_is_const)) {
-                f_emit__put(v_c, ({ const char *tb_c3709_0 = "    "; long long tb_c3709_0n = sizeof("    ") - 1; const char *tb_c3709_1 = f_emit__c_type(v_c, ((tb_o_Node *)tb_nn(v_o, 1995))->q_ty); long long tb_c3709_1n = (long long)strlen(tb_c3709_1); const char *tb_c3709_2 = " v_"; long long tb_c3709_2n = sizeof(" v_") - 1; const char *tb_c3709_3 = ((tb_o_Node *)tb_nn(v_o, 1995))->q_name; long long tb_c3709_3n = (long long)strlen(tb_c3709_3); const char *tb_c3709_4 = " = "; long long tb_c3709_4n = sizeof(" = ") - 1; char *tb_c3709r = tb_mem(tb_c3709_0n + tb_c3709_1n + tb_c3709_2n + tb_c3709_3n + tb_c3709_4n + 1), *tb_c3709rw = tb_c3709r; memcpy(tb_c3709rw, tb_c3709_0, tb_c3709_0n); tb_c3709rw += tb_c3709_0n; memcpy(tb_c3709rw, tb_c3709_1, tb_c3709_1n); tb_c3709rw += tb_c3709_1n; memcpy(tb_c3709rw, tb_c3709_2, tb_c3709_2n); tb_c3709rw += tb_c3709_2n; memcpy(tb_c3709rw, tb_c3709_3, tb_c3709_3n); tb_c3709rw += tb_c3709_3n; memcpy(tb_c3709rw, tb_c3709_4, tb_c3709_4n); tb_c3709rw += tb_c3709_4n; *tb_c3709rw = 0; (const char *)tb_c3709r; }));
-                f_emit__emit_default(v_c, ((tb_o_Node *)tb_nn(v_o, 1996))->q_ty);
+        tb_list * tb_l3836 = ((tb_o_Node *)tb_nn(v_outputs, 2374))->q_kids;
+        for (long long tb_i3836 = 0; tb_i3836 < tb_l3836->len; tb_i3836++) {
+            tb_o_Node * const v_o = ((tb_o_Node * *)tb_l3836->data)[tb_i3836];
+            if ((!((tb_o_Node *)tb_nn(v_o, 2375))->q_is_const)) {
+                f_emit__put(v_c, ({ const char *tb_c3837_0 = "    "; long long tb_c3837_0n = sizeof("    ") - 1; const char *tb_c3837_1 = f_emit__c_type(v_c, ((tb_o_Node *)tb_nn(v_o, 2376))->q_ty); long long tb_c3837_1n = (long long)strlen(tb_c3837_1); const char *tb_c3837_2 = " v_"; long long tb_c3837_2n = sizeof(" v_") - 1; const char *tb_c3837_3 = ((tb_o_Node *)tb_nn(v_o, 2376))->q_name; long long tb_c3837_3n = (long long)strlen(tb_c3837_3); const char *tb_c3837_4 = " = "; long long tb_c3837_4n = sizeof(" = ") - 1; char *tb_c3837r = tb_mem(tb_c3837_0n + tb_c3837_1n + tb_c3837_2n + tb_c3837_3n + tb_c3837_4n + 1), *tb_c3837rw = tb_c3837r; memcpy(tb_c3837rw, tb_c3837_0, tb_c3837_0n); tb_c3837rw += tb_c3837_0n; memcpy(tb_c3837rw, tb_c3837_1, tb_c3837_1n); tb_c3837rw += tb_c3837_1n; memcpy(tb_c3837rw, tb_c3837_2, tb_c3837_2n); tb_c3837rw += tb_c3837_2n; memcpy(tb_c3837rw, tb_c3837_3, tb_c3837_3n); tb_c3837rw += tb_c3837_3n; memcpy(tb_c3837rw, tb_c3837_4, tb_c3837_4n); tb_c3837rw += tb_c3837_4n; *tb_c3837rw = 0; (const char *)tb_c3837r; }));
+                f_emit__emit_default(v_c, ((tb_o_Node *)tb_nn(v_o, 2377))->q_ty);
                 f_emit__put(v_c, ";\n");
             }
         }
     }
     f_emit__find_builders(v_c, v_f);
     {
-        tb_list * tb_l3710 = ((tb_o_Comp *)tb_nn(v_c, 1999))->q_builders;
-        for (long long tb_i3710 = 0; tb_i3710 < tb_l3710->len; tb_i3710++) {
-            const char * const v_b = ((const char * *)tb_l3710->data)[tb_i3710];
-            f_emit__put(v_c, ({ const char *tb_c3711_0 = "    long long tb_rl_"; long long tb_c3711_0n = sizeof("    long long tb_rl_") - 1; const char *tb_c3711_1 = v_b; long long tb_c3711_1n = (long long)strlen(tb_c3711_1); const char *tb_c3711_2 = " = -1, tb_rc_"; long long tb_c3711_2n = sizeof(" = -1, tb_rc_") - 1; const char *tb_c3711_3 = v_b; long long tb_c3711_3n = (long long)strlen(tb_c3711_3); const char *tb_c3711_4 = " = 0; (void)tb_rl_"; long long tb_c3711_4n = sizeof(" = 0; (void)tb_rl_") - 1; const char *tb_c3711_5 = v_b; long long tb_c3711_5n = (long long)strlen(tb_c3711_5); const char *tb_c3711_6 = "; (void)tb_rc_"; long long tb_c3711_6n = sizeof("; (void)tb_rc_") - 1; const char *tb_c3711_7 = v_b; long long tb_c3711_7n = (long long)strlen(tb_c3711_7); const char *tb_c3711_8 = ";\n"; long long tb_c3711_8n = sizeof(";\n") - 1; char *tb_c3711r = tb_mem(tb_c3711_0n + tb_c3711_1n + tb_c3711_2n + tb_c3711_3n + tb_c3711_4n + tb_c3711_5n + tb_c3711_6n + tb_c3711_7n + tb_c3711_8n + 1), *tb_c3711rw = tb_c3711r; memcpy(tb_c3711rw, tb_c3711_0, tb_c3711_0n); tb_c3711rw += tb_c3711_0n; memcpy(tb_c3711rw, tb_c3711_1, tb_c3711_1n); tb_c3711rw += tb_c3711_1n; memcpy(tb_c3711rw, tb_c3711_2, tb_c3711_2n); tb_c3711rw += tb_c3711_2n; memcpy(tb_c3711rw, tb_c3711_3, tb_c3711_3n); tb_c3711rw += tb_c3711_3n; memcpy(tb_c3711rw, tb_c3711_4, tb_c3711_4n); tb_c3711rw += tb_c3711_4n; memcpy(tb_c3711rw, tb_c3711_5, tb_c3711_5n); tb_c3711rw += tb_c3711_5n; memcpy(tb_c3711rw, tb_c3711_6, tb_c3711_6n); tb_c3711rw += tb_c3711_6n; memcpy(tb_c3711rw, tb_c3711_7, tb_c3711_7n); tb_c3711rw += tb_c3711_7n; memcpy(tb_c3711rw, tb_c3711_8, tb_c3711_8n); tb_c3711rw += tb_c3711_8n; *tb_c3711rw = 0; (const char *)tb_c3711r; }));
+        tb_list * tb_l3838 = ((tb_o_Comp *)tb_nn(v_c, 2380))->q_builders;
+        for (long long tb_i3838 = 0; tb_i3838 < tb_l3838->len; tb_i3838++) {
+            const char * const v_b = ((const char * *)tb_l3838->data)[tb_i3838];
+            f_emit__put(v_c, ({ const char *tb_c3839_0 = "    long long tb_rl_"; long long tb_c3839_0n = sizeof("    long long tb_rl_") - 1; const char *tb_c3839_1 = v_b; long long tb_c3839_1n = (long long)strlen(tb_c3839_1); const char *tb_c3839_2 = " = -1, tb_rc_"; long long tb_c3839_2n = sizeof(" = -1, tb_rc_") - 1; const char *tb_c3839_3 = v_b; long long tb_c3839_3n = (long long)strlen(tb_c3839_3); const char *tb_c3839_4 = " = 0; (void)tb_rl_"; long long tb_c3839_4n = sizeof(" = 0; (void)tb_rl_") - 1; const char *tb_c3839_5 = v_b; long long tb_c3839_5n = (long long)strlen(tb_c3839_5); const char *tb_c3839_6 = "; (void)tb_rc_"; long long tb_c3839_6n = sizeof("; (void)tb_rc_") - 1; const char *tb_c3839_7 = v_b; long long tb_c3839_7n = (long long)strlen(tb_c3839_7); const char *tb_c3839_8 = ";\n"; long long tb_c3839_8n = sizeof(";\n") - 1; char *tb_c3839r = tb_mem(tb_c3839_0n + tb_c3839_1n + tb_c3839_2n + tb_c3839_3n + tb_c3839_4n + tb_c3839_5n + tb_c3839_6n + tb_c3839_7n + tb_c3839_8n + 1), *tb_c3839rw = tb_c3839r; memcpy(tb_c3839rw, tb_c3839_0, tb_c3839_0n); tb_c3839rw += tb_c3839_0n; memcpy(tb_c3839rw, tb_c3839_1, tb_c3839_1n); tb_c3839rw += tb_c3839_1n; memcpy(tb_c3839rw, tb_c3839_2, tb_c3839_2n); tb_c3839rw += tb_c3839_2n; memcpy(tb_c3839rw, tb_c3839_3, tb_c3839_3n); tb_c3839rw += tb_c3839_3n; memcpy(tb_c3839rw, tb_c3839_4, tb_c3839_4n); tb_c3839rw += tb_c3839_4n; memcpy(tb_c3839rw, tb_c3839_5, tb_c3839_5n); tb_c3839rw += tb_c3839_5n; memcpy(tb_c3839rw, tb_c3839_6, tb_c3839_6n); tb_c3839rw += tb_c3839_6n; memcpy(tb_c3839rw, tb_c3839_7, tb_c3839_7n); tb_c3839rw += tb_c3839_7n; memcpy(tb_c3839rw, tb_c3839_8, tb_c3839_8n); tb_c3839rw += tb_c3839_8n; *tb_c3839rw = 0; (const char *)tb_c3839r; }));
         }
     }
-    { const char * tb_v3712 = ""; const char * *tb_p3712 = &(((tb_o_Comp *)tb_nn(v_c, 2001))->q_fmark); *tb_p3712 = tb_v3712; }
+    { const char * tb_v3840 = ""; const char * *tb_p3840 = &(((tb_o_Comp *)tb_nn(v_c, 2382))->q_fmark); *tb_p3840 = tb_v3840; }
     if (f_emit__func_arena_ok(v_c, v_f)) {
-        { const char * tb_v3713 = "tb_fm"; const char * *tb_p3713 = &(((tb_o_Comp *)tb_nn(v_c, 2005))->q_fmark); *tb_p3713 = tb_v3713; }
+        { const char * tb_v3841 = "tb_fm"; const char * *tb_p3841 = &(((tb_o_Comp *)tb_nn(v_c, 2386))->q_fmark); *tb_p3841 = tb_v3841; }
         f_emit__put(v_c, "    int tb_fa = tb_temp_depth == 0; tb_mark tb_fm = {0, 0}; if (tb_fa) tb_fm = tb_temp_begin();\n");
     }
-    f_emit__emit_block(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_f, 2007))->q_kids, 1LL, sizeof(tb_o_Node *), 2007)), 1LL);
+    f_emit__emit_block(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_f, 2388))->q_kids, 1LL, sizeof(tb_o_Node *), 2388)), 1LL);
     tb_list * v_no_builders = tb_list_new(sizeof(const char *));
-    { tb_list * tb_v3714 = v_no_builders; tb_list * *tb_p3714 = &(((tb_o_Comp *)tb_nn(v_c, 2009))->q_builders); *tb_p3714 = tb_v3714; }
-    if (({ const char *tb_s3715 = ((tb_o_Comp *)tb_nn(v_c, 2010))->q_fmark; !(tb_s3715[0] == 0); })) {
+    { tb_list * tb_v3842 = v_no_builders; tb_list * *tb_p3842 = &(((tb_o_Comp *)tb_nn(v_c, 2390))->q_builders); *tb_p3842 = tb_v3842; }
+    if (({ const char *tb_s3843 = ((tb_o_Comp *)tb_nn(v_c, 2391))->q_fmark; !(tb_s3843[0] == 0); })) {
         f_emit__put(v_c, "    if (tb_fa) tb_temp_end(tb_fm);\n");
     }
-    { const char * tb_v3716 = ""; const char * *tb_p3716 = &(((tb_o_Comp *)tb_nn(v_c, 2012))->q_fmark); *tb_p3716 = tb_v3716; }
-    if (((((tb_o_Node *)tb_nn(v_outputs, 2013))->q_kids)->len > 0LL)) {
+    { const char * tb_v3844 = ""; const char * *tb_p3844 = &(((tb_o_Comp *)tb_nn(v_c, 2393))->q_fmark); *tb_p3844 = tb_v3844; }
+    if (((((tb_o_Node *)tb_nn(v_outputs, 2394))->q_kids)->len > 0LL)) {
         f_emit__emit_gives_return(v_c, 1LL);
-    } else if (({ const char *tb_s3717 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_f, 2015))->q_ty); !((unsigned char)tb_s3717[0] == 110 && (unsigned char)tb_s3717[1] == 111 && (unsigned char)tb_s3717[2] == 110 && (unsigned char)tb_s3717[3] == 101 && tb_s3717[4] == 0); })) {
-        f_emit__put(v_c, ({ const char *tb_c3718_0 = "    tb_crash("; long long tb_c3718_0n = sizeof("    tb_crash(") - 1; char tb_c3718_1d[24]; long long tb_c3718_1n; const char *tb_c3718_1 = tb_digits(((tb_o_Node *)tb_nn(v_f, 2016))->q_line, tb_c3718_1d, &tb_c3718_1n); const char *tb_c3718_2 = ", \"функция "; long long tb_c3718_2n = sizeof(", \"функция ") - 1; const char *tb_c3718_3 = ((tb_o_Node *)tb_nn(v_f, 2016))->q_name; long long tb_c3718_3n = (long long)strlen(tb_c3718_3); const char *tb_c3718_4 = " дошла до конца без return\");\n"; long long tb_c3718_4n = sizeof(" дошла до конца без return\");\n") - 1; char *tb_c3718r = tb_mem(tb_c3718_0n + tb_c3718_1n + tb_c3718_2n + tb_c3718_3n + tb_c3718_4n + 1), *tb_c3718rw = tb_c3718r; memcpy(tb_c3718rw, tb_c3718_0, tb_c3718_0n); tb_c3718rw += tb_c3718_0n; memcpy(tb_c3718rw, tb_c3718_1, tb_c3718_1n); tb_c3718rw += tb_c3718_1n; memcpy(tb_c3718rw, tb_c3718_2, tb_c3718_2n); tb_c3718rw += tb_c3718_2n; memcpy(tb_c3718rw, tb_c3718_3, tb_c3718_3n); tb_c3718rw += tb_c3718_3n; memcpy(tb_c3718rw, tb_c3718_4, tb_c3718_4n); tb_c3718rw += tb_c3718_4n; *tb_c3718rw = 0; (const char *)tb_c3718r; }));
+    } else if (({ const char *tb_s3845 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_f, 2396))->q_ty); !((unsigned char)tb_s3845[0] == 110 && (unsigned char)tb_s3845[1] == 111 && (unsigned char)tb_s3845[2] == 110 && (unsigned char)tb_s3845[3] == 101 && tb_s3845[4] == 0); })) {
+        f_emit__put(v_c, ({ const char *tb_c3846_0 = "    tb_crash("; long long tb_c3846_0n = sizeof("    tb_crash(") - 1; char tb_c3846_1d[24]; long long tb_c3846_1n; const char *tb_c3846_1 = tb_digits(((tb_o_Node *)tb_nn(v_f, 2397))->q_line, tb_c3846_1d, &tb_c3846_1n); const char *tb_c3846_2 = ", \"функция "; long long tb_c3846_2n = sizeof(", \"функция ") - 1; const char *tb_c3846_3 = ((tb_o_Node *)tb_nn(v_f, 2397))->q_name; long long tb_c3846_3n = (long long)strlen(tb_c3846_3); const char *tb_c3846_4 = " дошла до конца без return\");\n"; long long tb_c3846_4n = sizeof(" дошла до конца без return\");\n") - 1; char *tb_c3846r = tb_mem(tb_c3846_0n + tb_c3846_1n + tb_c3846_2n + tb_c3846_3n + tb_c3846_4n + 1), *tb_c3846rw = tb_c3846r; memcpy(tb_c3846rw, tb_c3846_0, tb_c3846_0n); tb_c3846rw += tb_c3846_0n; memcpy(tb_c3846rw, tb_c3846_1, tb_c3846_1n); tb_c3846rw += tb_c3846_1n; memcpy(tb_c3846rw, tb_c3846_2, tb_c3846_2n); tb_c3846rw += tb_c3846_2n; memcpy(tb_c3846rw, tb_c3846_3, tb_c3846_3n); tb_c3846rw += tb_c3846_3n; memcpy(tb_c3846rw, tb_c3846_4, tb_c3846_4n); tb_c3846rw += tb_c3846_4n; *tb_c3846rw = 0; (const char *)tb_c3846r; }));
         f_emit__put(v_c, "    return ");
-        f_emit__emit_default(v_c, ((tb_o_Node *)tb_nn(v_f, 2018))->q_ty);
+        f_emit__emit_default(v_c, ((tb_o_Node *)tb_nn(v_f, 2399))->q_ty);
         f_emit__put(v_c, ";\n");
     }
     f_emit__put(v_c, "}\n");
 }
 
 static void f_emit__emit_show(tb_o_Comp * v_c, tb_o_Type * v_t) {
-    const char * v_k = ((tb_o_Type *)tb_nn(v_t, 2024))->q_kind;
-    if (((({ const char *tb_s3719 = v_k; ((unsigned char)tb_s3719[0] == 110 && (unsigned char)tb_s3719[1] == 111 && (unsigned char)tb_s3719[2] == 110 && (unsigned char)tb_s3719[3] == 101 && tb_s3719[4] == 0); }) || ({ const char *tb_s3720 = v_k; ((unsigned char)tb_s3720[0] == 109 && (unsigned char)tb_s3720[1] == 117 && (unsigned char)tb_s3720[2] == 108 && (unsigned char)tb_s3720[3] == 116 && (unsigned char)tb_s3720[4] == 105 && tb_s3720[5] == 0); })) || ({ const char *tb_s3721 = v_k; ((unsigned char)tb_s3721[0] == 117 && (unsigned char)tb_s3721[1] == 110 && (unsigned char)tb_s3721[2] == 107 && (unsigned char)tb_s3721[3] == 110 && (unsigned char)tb_s3721[4] == 111 && (unsigned char)tb_s3721[5] == 119 && (unsigned char)tb_s3721[6] == 110 && tb_s3721[7] == 0); }))) {
+    const char * v_k = ((tb_o_Type *)tb_nn(v_t, 2405))->q_kind;
+    if (((({ const char *tb_s3847 = v_k; ((unsigned char)tb_s3847[0] == 110 && (unsigned char)tb_s3847[1] == 111 && (unsigned char)tb_s3847[2] == 110 && (unsigned char)tb_s3847[3] == 101 && tb_s3847[4] == 0); }) || ({ const char *tb_s3848 = v_k; ((unsigned char)tb_s3848[0] == 109 && (unsigned char)tb_s3848[1] == 117 && (unsigned char)tb_s3848[2] == 108 && (unsigned char)tb_s3848[3] == 116 && (unsigned char)tb_s3848[4] == 105 && tb_s3848[5] == 0); })) || ({ const char *tb_s3849 = v_k; ((unsigned char)tb_s3849[0] == 117 && (unsigned char)tb_s3849[1] == 110 && (unsigned char)tb_s3849[2] == 107 && (unsigned char)tb_s3849[3] == 110 && (unsigned char)tb_s3849[4] == 111 && (unsigned char)tb_s3849[5] == 119 && (unsigned char)tb_s3849[6] == 110 && tb_s3849[7] == 0); }))) {
         return;
     }
-    if (({ const char *tb_s3722 = v_k; ((unsigned char)tb_s3722[0] == 116 && (unsigned char)tb_s3722[1] == 97 && (unsigned char)tb_s3722[2] == 115 && (unsigned char)tb_s3722[3] == 107 && tb_s3722[4] == 0); })) {
-        f_emit__put(v_c, ({ const char *tb_c3723_0 = "static void tb_show_"; long long tb_c3723_0n = sizeof("static void tb_show_") - 1; char tb_c3723_1d[24]; long long tb_c3723_1n; const char *tb_c3723_1 = tb_digits(((tb_o_Type *)tb_nn(v_t, 2028))->q_id, tb_c3723_1d, &tb_c3723_1n); const char *tb_c3723_2 = "(tb_task *x) { (void)x; tb_ps(\"<background>\"); }\n"; long long tb_c3723_2n = sizeof("(tb_task *x) { (void)x; tb_ps(\"<background>\"); }\n") - 1; char *tb_c3723r = tb_mem(tb_c3723_0n + tb_c3723_1n + tb_c3723_2n + 1), *tb_c3723rw = tb_c3723r; memcpy(tb_c3723rw, tb_c3723_0, tb_c3723_0n); tb_c3723rw += tb_c3723_0n; memcpy(tb_c3723rw, tb_c3723_1, tb_c3723_1n); tb_c3723rw += tb_c3723_1n; memcpy(tb_c3723rw, tb_c3723_2, tb_c3723_2n); tb_c3723rw += tb_c3723_2n; *tb_c3723rw = 0; (const char *)tb_c3723r; }));
+    if (({ const char *tb_s3850 = v_k; ((unsigned char)tb_s3850[0] == 116 && (unsigned char)tb_s3850[1] == 97 && (unsigned char)tb_s3850[2] == 115 && (unsigned char)tb_s3850[3] == 107 && tb_s3850[4] == 0); })) {
+        f_emit__put(v_c, ({ const char *tb_c3851_0 = "static void tb_show_"; long long tb_c3851_0n = sizeof("static void tb_show_") - 1; char tb_c3851_1d[24]; long long tb_c3851_1n; const char *tb_c3851_1 = tb_digits(((tb_o_Type *)tb_nn(v_t, 2409))->q_id, tb_c3851_1d, &tb_c3851_1n); const char *tb_c3851_2 = "(tb_task *x) { (void)x; tb_ps(\"<background>\"); }\n"; long long tb_c3851_2n = sizeof("(tb_task *x) { (void)x; tb_ps(\"<background>\"); }\n") - 1; char *tb_c3851r = tb_mem(tb_c3851_0n + tb_c3851_1n + tb_c3851_2n + 1), *tb_c3851rw = tb_c3851r; memcpy(tb_c3851rw, tb_c3851_0, tb_c3851_0n); tb_c3851rw += tb_c3851_0n; memcpy(tb_c3851rw, tb_c3851_1, tb_c3851_1n); tb_c3851rw += tb_c3851_1n; memcpy(tb_c3851rw, tb_c3851_2, tb_c3851_2n); tb_c3851rw += tb_c3851_2n; *tb_c3851rw = 0; (const char *)tb_c3851r; }));
         return;
     }
-    f_emit__put(v_c, ({ const char *tb_c3724_0 = "static void tb_show_"; long long tb_c3724_0n = sizeof("static void tb_show_") - 1; char tb_c3724_1d[24]; long long tb_c3724_1n; const char *tb_c3724_1 = tb_digits(((tb_o_Type *)tb_nn(v_t, 2030))->q_id, tb_c3724_1d, &tb_c3724_1n); const char *tb_c3724_2 = "("; long long tb_c3724_2n = sizeof("(") - 1; const char *tb_c3724_3 = f_emit__c_type(v_c, ((tb_o_Type *)tb_nn(v_t, 2030))->q_id); long long tb_c3724_3n = (long long)strlen(tb_c3724_3); const char *tb_c3724_4 = " x) {\n"; long long tb_c3724_4n = sizeof(" x) {\n") - 1; char *tb_c3724r = tb_mem(tb_c3724_0n + tb_c3724_1n + tb_c3724_2n + tb_c3724_3n + tb_c3724_4n + 1), *tb_c3724rw = tb_c3724r; memcpy(tb_c3724rw, tb_c3724_0, tb_c3724_0n); tb_c3724rw += tb_c3724_0n; memcpy(tb_c3724rw, tb_c3724_1, tb_c3724_1n); tb_c3724rw += tb_c3724_1n; memcpy(tb_c3724rw, tb_c3724_2, tb_c3724_2n); tb_c3724rw += tb_c3724_2n; memcpy(tb_c3724rw, tb_c3724_3, tb_c3724_3n); tb_c3724rw += tb_c3724_3n; memcpy(tb_c3724rw, tb_c3724_4, tb_c3724_4n); tb_c3724rw += tb_c3724_4n; *tb_c3724rw = 0; (const char *)tb_c3724r; }));
-    if (({ const char *tb_s3725 = v_k; ((unsigned char)tb_s3725[0] == 105 && (unsigned char)tb_s3725[1] == 110 && (unsigned char)tb_s3725[2] == 116 && tb_s3725[3] == 0); })) {
+    f_emit__put(v_c, ({ const char *tb_c3852_0 = "static void tb_show_"; long long tb_c3852_0n = sizeof("static void tb_show_") - 1; char tb_c3852_1d[24]; long long tb_c3852_1n; const char *tb_c3852_1 = tb_digits(((tb_o_Type *)tb_nn(v_t, 2411))->q_id, tb_c3852_1d, &tb_c3852_1n); const char *tb_c3852_2 = "("; long long tb_c3852_2n = sizeof("(") - 1; const char *tb_c3852_3 = f_emit__c_type(v_c, ((tb_o_Type *)tb_nn(v_t, 2411))->q_id); long long tb_c3852_3n = (long long)strlen(tb_c3852_3); const char *tb_c3852_4 = " x) {\n"; long long tb_c3852_4n = sizeof(" x) {\n") - 1; char *tb_c3852r = tb_mem(tb_c3852_0n + tb_c3852_1n + tb_c3852_2n + tb_c3852_3n + tb_c3852_4n + 1), *tb_c3852rw = tb_c3852r; memcpy(tb_c3852rw, tb_c3852_0, tb_c3852_0n); tb_c3852rw += tb_c3852_0n; memcpy(tb_c3852rw, tb_c3852_1, tb_c3852_1n); tb_c3852rw += tb_c3852_1n; memcpy(tb_c3852rw, tb_c3852_2, tb_c3852_2n); tb_c3852rw += tb_c3852_2n; memcpy(tb_c3852rw, tb_c3852_3, tb_c3852_3n); tb_c3852rw += tb_c3852_3n; memcpy(tb_c3852rw, tb_c3852_4, tb_c3852_4n); tb_c3852rw += tb_c3852_4n; *tb_c3852rw = 0; (const char *)tb_c3852r; }));
+    if (({ const char *tb_s3853 = v_k; ((unsigned char)tb_s3853[0] == 105 && (unsigned char)tb_s3853[1] == 110 && (unsigned char)tb_s3853[2] == 116 && tb_s3853[3] == 0); })) {
         f_emit__put(v_c, "    printf(\"%lld\", x);\n");
-    } else if (({ const char *tb_s3726 = v_k; ((unsigned char)tb_s3726[0] == 100 && (unsigned char)tb_s3726[1] == 101 && (unsigned char)tb_s3726[2] == 99 && tb_s3726[3] == 0); })) {
+    } else if (({ const char *tb_s3854 = v_k; ((unsigned char)tb_s3854[0] == 100 && (unsigned char)tb_s3854[1] == 101 && (unsigned char)tb_s3854[2] == 99 && tb_s3854[3] == 0); })) {
         f_emit__put(v_c, "    printf(\"%g\", x);\n");
-    } else if (({ const char *tb_s3727 = v_k; ((unsigned char)tb_s3727[0] == 98 && (unsigned char)tb_s3727[1] == 111 && (unsigned char)tb_s3727[2] == 111 && (unsigned char)tb_s3727[3] == 108 && tb_s3727[4] == 0); })) {
+    } else if (({ const char *tb_s3855 = v_k; ((unsigned char)tb_s3855[0] == 98 && (unsigned char)tb_s3855[1] == 111 && (unsigned char)tb_s3855[2] == 111 && (unsigned char)tb_s3855[3] == 108 && tb_s3855[4] == 0); })) {
         f_emit__put(v_c, "    tb_ps(x ? \"true\" : \"false\");\n");
-    } else if (({ const char *tb_s3728 = v_k; ((unsigned char)tb_s3728[0] == 116 && (unsigned char)tb_s3728[1] == 101 && (unsigned char)tb_s3728[2] == 120 && (unsigned char)tb_s3728[3] == 116 && tb_s3728[4] == 0); })) {
+    } else if (({ const char *tb_s3856 = v_k; ((unsigned char)tb_s3856[0] == 116 && (unsigned char)tb_s3856[1] == 101 && (unsigned char)tb_s3856[2] == 120 && (unsigned char)tb_s3856[3] == 116 && tb_s3856[4] == 0); })) {
         f_emit__put(v_c, "    tb_ps(x);\n");
-    } else if (({ const char *tb_s3729 = v_k; ((unsigned char)tb_s3729[0] == 108 && (unsigned char)tb_s3729[1] == 105 && (unsigned char)tb_s3729[2] == 115 && (unsigned char)tb_s3729[3] == 116 && tb_s3729[4] == 0); })) {
-        const char * v_elem = f_emit__c_type(v_c, ((tb_o_Type *)tb_nn(v_t, 2040))->q_elem);
+    } else if (({ const char *tb_s3857 = v_k; ((unsigned char)tb_s3857[0] == 108 && (unsigned char)tb_s3857[1] == 105 && (unsigned char)tb_s3857[2] == 115 && (unsigned char)tb_s3857[3] == 116 && tb_s3857[4] == 0); })) {
+        const char * v_elem = f_emit__c_type(v_c, ((tb_o_Type *)tb_nn(v_t, 2421))->q_elem);
         f_emit__put(v_c, "    tb_ps(\"[\");\n");
         f_emit__put(v_c, "    for (long long i = 0; i < x->len; i++) {\n");
         f_emit__put(v_c, "        if (i > 0) tb_ps(\", \");\n");
-        if (f_check__is_cols_obj(v_c, ((tb_o_Type *)tb_nn(v_t, 2044))->q_elem)) {
-            f_emit__put(v_c, ({ const char *tb_c3730_0 = "        tb_show_"; long long tb_c3730_0n = sizeof("        tb_show_") - 1; char tb_c3730_1d[24]; long long tb_c3730_1n; const char *tb_c3730_1 = tb_digits(((tb_o_Type *)tb_nn(v_t, 2045))->q_elem, tb_c3730_1d, &tb_c3730_1n); const char *tb_c3730_2 = "(("; long long tb_c3730_2n = sizeof("((") - 1; const char *tb_c3730_3 = v_elem; long long tb_c3730_3n = (long long)strlen(tb_c3730_3); const char *tb_c3730_4 = "){x, i});\n"; long long tb_c3730_4n = sizeof("){x, i});\n") - 1; char *tb_c3730r = tb_mem(tb_c3730_0n + tb_c3730_1n + tb_c3730_2n + tb_c3730_3n + tb_c3730_4n + 1), *tb_c3730rw = tb_c3730r; memcpy(tb_c3730rw, tb_c3730_0, tb_c3730_0n); tb_c3730rw += tb_c3730_0n; memcpy(tb_c3730rw, tb_c3730_1, tb_c3730_1n); tb_c3730rw += tb_c3730_1n; memcpy(tb_c3730rw, tb_c3730_2, tb_c3730_2n); tb_c3730rw += tb_c3730_2n; memcpy(tb_c3730rw, tb_c3730_3, tb_c3730_3n); tb_c3730rw += tb_c3730_3n; memcpy(tb_c3730rw, tb_c3730_4, tb_c3730_4n); tb_c3730rw += tb_c3730_4n; *tb_c3730rw = 0; (const char *)tb_c3730r; }));
-        } else if ((((tb_o_Type *)tb_nn(v_t, 2046))->q_elem == 3LL)) {
+        if (f_check__is_cols_obj(v_c, ((tb_o_Type *)tb_nn(v_t, 2425))->q_elem)) {
+            f_emit__put(v_c, ({ const char *tb_c3858_0 = "        tb_show_"; long long tb_c3858_0n = sizeof("        tb_show_") - 1; char tb_c3858_1d[24]; long long tb_c3858_1n; const char *tb_c3858_1 = tb_digits(((tb_o_Type *)tb_nn(v_t, 2426))->q_elem, tb_c3858_1d, &tb_c3858_1n); const char *tb_c3858_2 = "(("; long long tb_c3858_2n = sizeof("((") - 1; const char *tb_c3858_3 = v_elem; long long tb_c3858_3n = (long long)strlen(tb_c3858_3); const char *tb_c3858_4 = "){x, i});\n"; long long tb_c3858_4n = sizeof("){x, i});\n") - 1; char *tb_c3858r = tb_mem(tb_c3858_0n + tb_c3858_1n + tb_c3858_2n + tb_c3858_3n + tb_c3858_4n + 1), *tb_c3858rw = tb_c3858r; memcpy(tb_c3858rw, tb_c3858_0, tb_c3858_0n); tb_c3858rw += tb_c3858_0n; memcpy(tb_c3858rw, tb_c3858_1, tb_c3858_1n); tb_c3858rw += tb_c3858_1n; memcpy(tb_c3858rw, tb_c3858_2, tb_c3858_2n); tb_c3858rw += tb_c3858_2n; memcpy(tb_c3858rw, tb_c3858_3, tb_c3858_3n); tb_c3858rw += tb_c3858_3n; memcpy(tb_c3858rw, tb_c3858_4, tb_c3858_4n); tb_c3858rw += tb_c3858_4n; *tb_c3858rw = 0; (const char *)tb_c3858r; }));
+        } else if ((((tb_o_Type *)tb_nn(v_t, 2427))->q_elem == 3LL)) {
             f_emit__put(v_c, "        tb_show_3(TB_BIT(x, i));\n");
         } else {
-            f_emit__put(v_c, ({ const char *tb_c3731_0 = "        tb_show_"; long long tb_c3731_0n = sizeof("        tb_show_") - 1; char tb_c3731_1d[24]; long long tb_c3731_1n; const char *tb_c3731_1 = tb_digits(((tb_o_Type *)tb_nn(v_t, 2049))->q_elem, tb_c3731_1d, &tb_c3731_1n); const char *tb_c3731_2 = "((("; long long tb_c3731_2n = sizeof("(((") - 1; const char *tb_c3731_3 = v_elem; long long tb_c3731_3n = (long long)strlen(tb_c3731_3); const char *tb_c3731_4 = " *)x->data)[i]);\n"; long long tb_c3731_4n = sizeof(" *)x->data)[i]);\n") - 1; char *tb_c3731r = tb_mem(tb_c3731_0n + tb_c3731_1n + tb_c3731_2n + tb_c3731_3n + tb_c3731_4n + 1), *tb_c3731rw = tb_c3731r; memcpy(tb_c3731rw, tb_c3731_0, tb_c3731_0n); tb_c3731rw += tb_c3731_0n; memcpy(tb_c3731rw, tb_c3731_1, tb_c3731_1n); tb_c3731rw += tb_c3731_1n; memcpy(tb_c3731rw, tb_c3731_2, tb_c3731_2n); tb_c3731rw += tb_c3731_2n; memcpy(tb_c3731rw, tb_c3731_3, tb_c3731_3n); tb_c3731rw += tb_c3731_3n; memcpy(tb_c3731rw, tb_c3731_4, tb_c3731_4n); tb_c3731rw += tb_c3731_4n; *tb_c3731rw = 0; (const char *)tb_c3731r; }));
+            f_emit__put(v_c, ({ const char *tb_c3859_0 = "        tb_show_"; long long tb_c3859_0n = sizeof("        tb_show_") - 1; char tb_c3859_1d[24]; long long tb_c3859_1n; const char *tb_c3859_1 = tb_digits(((tb_o_Type *)tb_nn(v_t, 2430))->q_elem, tb_c3859_1d, &tb_c3859_1n); const char *tb_c3859_2 = "((("; long long tb_c3859_2n = sizeof("(((") - 1; const char *tb_c3859_3 = v_elem; long long tb_c3859_3n = (long long)strlen(tb_c3859_3); const char *tb_c3859_4 = " *)x->data)[i]);\n"; long long tb_c3859_4n = sizeof(" *)x->data)[i]);\n") - 1; char *tb_c3859r = tb_mem(tb_c3859_0n + tb_c3859_1n + tb_c3859_2n + tb_c3859_3n + tb_c3859_4n + 1), *tb_c3859rw = tb_c3859r; memcpy(tb_c3859rw, tb_c3859_0, tb_c3859_0n); tb_c3859rw += tb_c3859_0n; memcpy(tb_c3859rw, tb_c3859_1, tb_c3859_1n); tb_c3859rw += tb_c3859_1n; memcpy(tb_c3859rw, tb_c3859_2, tb_c3859_2n); tb_c3859rw += tb_c3859_2n; memcpy(tb_c3859rw, tb_c3859_3, tb_c3859_3n); tb_c3859rw += tb_c3859_3n; memcpy(tb_c3859rw, tb_c3859_4, tb_c3859_4n); tb_c3859rw += tb_c3859_4n; *tb_c3859rw = 0; (const char *)tb_c3859r; }));
         }
         f_emit__put(v_c, "    }\n");
         f_emit__put(v_c, "    tb_ps(\"]\");\n");
-    } else if (({ const char *tb_s3732 = v_k; ((unsigned char)tb_s3732[0] == 100 && (unsigned char)tb_s3732[1] == 105 && (unsigned char)tb_s3732[2] == 99 && (unsigned char)tb_s3732[3] == 116 && tb_s3732[4] == 0); })) {
-        const char * v_kt = f_emit__c_type(v_c, ((tb_o_Type *)tb_nn(v_t, 2053))->q_key);
-        const char * v_vt = f_emit__c_type(v_c, ((tb_o_Type *)tb_nn(v_t, 2054))->q_elem);
+    } else if (({ const char *tb_s3860 = v_k; ((unsigned char)tb_s3860[0] == 100 && (unsigned char)tb_s3860[1] == 105 && (unsigned char)tb_s3860[2] == 99 && (unsigned char)tb_s3860[3] == 116 && tb_s3860[4] == 0); })) {
+        const char * v_kt = f_emit__c_type(v_c, ((tb_o_Type *)tb_nn(v_t, 2434))->q_key);
+        const char * v_vt = f_emit__c_type(v_c, ((tb_o_Type *)tb_nn(v_t, 2435))->q_elem);
         f_emit__put(v_c, "    tb_ps(\"{\");\n");
         f_emit__put(v_c, "    for (long long i = 0; i < x->keys->len; i++) {\n");
         f_emit__put(v_c, "        if (i > 0) tb_ps(\", \");\n");
-        f_emit__put(v_c, ({ const char *tb_c3733_0 = "        tb_show_"; long long tb_c3733_0n = sizeof("        tb_show_") - 1; char tb_c3733_1d[24]; long long tb_c3733_1n; const char *tb_c3733_1 = tb_digits(((tb_o_Type *)tb_nn(v_t, 2058))->q_key, tb_c3733_1d, &tb_c3733_1n); const char *tb_c3733_2 = "((("; long long tb_c3733_2n = sizeof("(((") - 1; const char *tb_c3733_3 = v_kt; long long tb_c3733_3n = (long long)strlen(tb_c3733_3); const char *tb_c3733_4 = " *)x->keys->data)[i]);\n"; long long tb_c3733_4n = sizeof(" *)x->keys->data)[i]);\n") - 1; char *tb_c3733r = tb_mem(tb_c3733_0n + tb_c3733_1n + tb_c3733_2n + tb_c3733_3n + tb_c3733_4n + 1), *tb_c3733rw = tb_c3733r; memcpy(tb_c3733rw, tb_c3733_0, tb_c3733_0n); tb_c3733rw += tb_c3733_0n; memcpy(tb_c3733rw, tb_c3733_1, tb_c3733_1n); tb_c3733rw += tb_c3733_1n; memcpy(tb_c3733rw, tb_c3733_2, tb_c3733_2n); tb_c3733rw += tb_c3733_2n; memcpy(tb_c3733rw, tb_c3733_3, tb_c3733_3n); tb_c3733rw += tb_c3733_3n; memcpy(tb_c3733rw, tb_c3733_4, tb_c3733_4n); tb_c3733rw += tb_c3733_4n; *tb_c3733rw = 0; (const char *)tb_c3733r; }));
+        f_emit__put(v_c, ({ const char *tb_c3861_0 = "        tb_show_"; long long tb_c3861_0n = sizeof("        tb_show_") - 1; char tb_c3861_1d[24]; long long tb_c3861_1n; const char *tb_c3861_1 = tb_digits(((tb_o_Type *)tb_nn(v_t, 2439))->q_key, tb_c3861_1d, &tb_c3861_1n); const char *tb_c3861_2 = "((("; long long tb_c3861_2n = sizeof("(((") - 1; const char *tb_c3861_3 = v_kt; long long tb_c3861_3n = (long long)strlen(tb_c3861_3); const char *tb_c3861_4 = " *)x->keys->data)[i]);\n"; long long tb_c3861_4n = sizeof(" *)x->keys->data)[i]);\n") - 1; char *tb_c3861r = tb_mem(tb_c3861_0n + tb_c3861_1n + tb_c3861_2n + tb_c3861_3n + tb_c3861_4n + 1), *tb_c3861rw = tb_c3861r; memcpy(tb_c3861rw, tb_c3861_0, tb_c3861_0n); tb_c3861rw += tb_c3861_0n; memcpy(tb_c3861rw, tb_c3861_1, tb_c3861_1n); tb_c3861rw += tb_c3861_1n; memcpy(tb_c3861rw, tb_c3861_2, tb_c3861_2n); tb_c3861rw += tb_c3861_2n; memcpy(tb_c3861rw, tb_c3861_3, tb_c3861_3n); tb_c3861rw += tb_c3861_3n; memcpy(tb_c3861rw, tb_c3861_4, tb_c3861_4n); tb_c3861rw += tb_c3861_4n; *tb_c3861rw = 0; (const char *)tb_c3861r; }));
         f_emit__put(v_c, "        tb_ps(\": \");\n");
-        f_emit__put(v_c, ({ const char *tb_c3734_0 = "        tb_show_"; long long tb_c3734_0n = sizeof("        tb_show_") - 1; char tb_c3734_1d[24]; long long tb_c3734_1n; const char *tb_c3734_1 = tb_digits(((tb_o_Type *)tb_nn(v_t, 2060))->q_elem, tb_c3734_1d, &tb_c3734_1n); const char *tb_c3734_2 = "((("; long long tb_c3734_2n = sizeof("(((") - 1; const char *tb_c3734_3 = v_vt; long long tb_c3734_3n = (long long)strlen(tb_c3734_3); const char *tb_c3734_4 = " *)x->vals->data)[i]);\n"; long long tb_c3734_4n = sizeof(" *)x->vals->data)[i]);\n") - 1; char *tb_c3734r = tb_mem(tb_c3734_0n + tb_c3734_1n + tb_c3734_2n + tb_c3734_3n + tb_c3734_4n + 1), *tb_c3734rw = tb_c3734r; memcpy(tb_c3734rw, tb_c3734_0, tb_c3734_0n); tb_c3734rw += tb_c3734_0n; memcpy(tb_c3734rw, tb_c3734_1, tb_c3734_1n); tb_c3734rw += tb_c3734_1n; memcpy(tb_c3734rw, tb_c3734_2, tb_c3734_2n); tb_c3734rw += tb_c3734_2n; memcpy(tb_c3734rw, tb_c3734_3, tb_c3734_3n); tb_c3734rw += tb_c3734_3n; memcpy(tb_c3734rw, tb_c3734_4, tb_c3734_4n); tb_c3734rw += tb_c3734_4n; *tb_c3734rw = 0; (const char *)tb_c3734r; }));
+        f_emit__put(v_c, ({ const char *tb_c3862_0 = "        tb_show_"; long long tb_c3862_0n = sizeof("        tb_show_") - 1; char tb_c3862_1d[24]; long long tb_c3862_1n; const char *tb_c3862_1 = tb_digits(((tb_o_Type *)tb_nn(v_t, 2441))->q_elem, tb_c3862_1d, &tb_c3862_1n); const char *tb_c3862_2 = "((("; long long tb_c3862_2n = sizeof("(((") - 1; const char *tb_c3862_3 = v_vt; long long tb_c3862_3n = (long long)strlen(tb_c3862_3); const char *tb_c3862_4 = " *)x->vals->data)[i]);\n"; long long tb_c3862_4n = sizeof(" *)x->vals->data)[i]);\n") - 1; char *tb_c3862r = tb_mem(tb_c3862_0n + tb_c3862_1n + tb_c3862_2n + tb_c3862_3n + tb_c3862_4n + 1), *tb_c3862rw = tb_c3862r; memcpy(tb_c3862rw, tb_c3862_0, tb_c3862_0n); tb_c3862rw += tb_c3862_0n; memcpy(tb_c3862rw, tb_c3862_1, tb_c3862_1n); tb_c3862rw += tb_c3862_1n; memcpy(tb_c3862rw, tb_c3862_2, tb_c3862_2n); tb_c3862rw += tb_c3862_2n; memcpy(tb_c3862rw, tb_c3862_3, tb_c3862_3n); tb_c3862rw += tb_c3862_3n; memcpy(tb_c3862rw, tb_c3862_4, tb_c3862_4n); tb_c3862rw += tb_c3862_4n; *tb_c3862rw = 0; (const char *)tb_c3862r; }));
         f_emit__put(v_c, "    }\n");
         f_emit__put(v_c, "    tb_ps(\"}\");\n");
-    } else if (({ const char *tb_s3735 = v_k; ((unsigned char)tb_s3735[0] == 111 && (unsigned char)tb_s3735[1] == 98 && (unsigned char)tb_s3735[2] == 106 && tb_s3735[3] == 0); })) {
-        tb_o_Node * v_o = ((tb_o_Type *)tb_nn(v_t, 2064))->q_obj_node;
-        if (((tb_o_Node *)tb_nn(v_o, 2065))->q_by_cols) {
+    } else if (({ const char *tb_s3863 = v_k; ((unsigned char)tb_s3863[0] == 111 && (unsigned char)tb_s3863[1] == 98 && (unsigned char)tb_s3863[2] == 106 && tb_s3863[3] == 0); })) {
+        tb_o_Node * v_o = ((tb_o_Type *)tb_nn(v_t, 2445))->q_obj_node;
+        if (((tb_o_Node *)tb_nn(v_o, 2446))->q_by_cols) {
             f_emit__put(v_c, "    if (x.c == 0) { tb_ps(\"пусто\"); return; }\n");
         } else {
             f_emit__put(v_c, "    if (x == 0) { tb_ps(\"пусто\"); return; }\n");
         }
-        f_emit__put(v_c, ({ const char *tb_c3736_0 = "    tb_ps(\""; long long tb_c3736_0n = sizeof("    tb_ps(\"") - 1; const char *tb_c3736_1 = ((tb_o_Node *)tb_nn(v_o, 2069))->q_name; long long tb_c3736_1n = (long long)strlen(tb_c3736_1); const char *tb_c3736_2 = "(\");\n"; long long tb_c3736_2n = sizeof("(\");\n") - 1; char *tb_c3736r = tb_mem(tb_c3736_0n + tb_c3736_1n + tb_c3736_2n + 1), *tb_c3736rw = tb_c3736r; memcpy(tb_c3736rw, tb_c3736_0, tb_c3736_0n); tb_c3736rw += tb_c3736_0n; memcpy(tb_c3736rw, tb_c3736_1, tb_c3736_1n); tb_c3736rw += tb_c3736_1n; memcpy(tb_c3736rw, tb_c3736_2, tb_c3736_2n); tb_c3736rw += tb_c3736_2n; *tb_c3736rw = 0; (const char *)tb_c3736r; }));
+        f_emit__put(v_c, ({ const char *tb_c3864_0 = "    tb_ps(\""; long long tb_c3864_0n = sizeof("    tb_ps(\"") - 1; const char *tb_c3864_1 = ((tb_o_Node *)tb_nn(v_o, 2450))->q_name; long long tb_c3864_1n = (long long)strlen(tb_c3864_1); const char *tb_c3864_2 = "(\");\n"; long long tb_c3864_2n = sizeof("(\");\n") - 1; char *tb_c3864r = tb_mem(tb_c3864_0n + tb_c3864_1n + tb_c3864_2n + 1), *tb_c3864rw = tb_c3864r; memcpy(tb_c3864rw, tb_c3864_0, tb_c3864_0n); tb_c3864rw += tb_c3864_0n; memcpy(tb_c3864rw, tb_c3864_1, tb_c3864_1n); tb_c3864rw += tb_c3864_1n; memcpy(tb_c3864rw, tb_c3864_2, tb_c3864_2n); tb_c3864rw += tb_c3864_2n; *tb_c3864rw = 0; (const char *)tb_c3864r; }));
         {
-            long long tb_end3737 = ((((tb_o_Node *)tb_nn(v_o, 2070))->q_kids)->len - 1LL);
-            for (long long v_i = 0LL; v_i <= tb_end3737; v_i++) {
+            long long tb_end3865 = ((((tb_o_Node *)tb_nn(v_o, 2451))->q_kids)->len - 1LL);
+            for (long long v_i = 0LL; v_i <= tb_end3865; v_i++) {
                 const char * v_sep = "";
                 if ((v_i > 0LL)) {
                     v_sep = ", ";
                 }
-                f_emit__put(v_c, ({ const char *tb_c3738_0 = "    tb_ps(\""; long long tb_c3738_0n = sizeof("    tb_ps(\"") - 1; const char *tb_c3738_1 = v_sep; long long tb_c3738_1n = (long long)strlen(tb_c3738_1); const char *tb_c3738_2 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_o, 2074))->q_kids, v_i, sizeof(tb_o_Node *), 2074)), 2074))->q_name; long long tb_c3738_2n = (long long)strlen(tb_c3738_2); const char *tb_c3738_3 = ": \");\n"; long long tb_c3738_3n = sizeof(": \");\n") - 1; char *tb_c3738r = tb_mem(tb_c3738_0n + tb_c3738_1n + tb_c3738_2n + tb_c3738_3n + 1), *tb_c3738rw = tb_c3738r; memcpy(tb_c3738rw, tb_c3738_0, tb_c3738_0n); tb_c3738rw += tb_c3738_0n; memcpy(tb_c3738rw, tb_c3738_1, tb_c3738_1n); tb_c3738rw += tb_c3738_1n; memcpy(tb_c3738rw, tb_c3738_2, tb_c3738_2n); tb_c3738rw += tb_c3738_2n; memcpy(tb_c3738rw, tb_c3738_3, tb_c3738_3n); tb_c3738rw += tb_c3738_3n; *tb_c3738rw = 0; (const char *)tb_c3738r; }));
-                if (((tb_o_Node *)tb_nn(v_o, 2075))->q_by_cols) {
-                    f_emit__put(v_c, ({ const char *tb_c3739_0 = "    tb_show_"; long long tb_c3739_0n = sizeof("    tb_show_") - 1; char tb_c3739_1d[24]; long long tb_c3739_1n; const char *tb_c3739_1 = tb_digits(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_o, 2076))->q_kids, v_i, sizeof(tb_o_Node *), 2076)), 2076))->q_ty, tb_c3739_1d, &tb_c3739_1n); const char *tb_c3739_2 = "(x.c->q_"; long long tb_c3739_2n = sizeof("(x.c->q_") - 1; const char *tb_c3739_3 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_o, 2076))->q_kids, v_i, sizeof(tb_o_Node *), 2076)), 2076))->q_name; long long tb_c3739_3n = (long long)strlen(tb_c3739_3); const char *tb_c3739_4 = "[x.i]);\n"; long long tb_c3739_4n = sizeof("[x.i]);\n") - 1; char *tb_c3739r = tb_mem(tb_c3739_0n + tb_c3739_1n + tb_c3739_2n + tb_c3739_3n + tb_c3739_4n + 1), *tb_c3739rw = tb_c3739r; memcpy(tb_c3739rw, tb_c3739_0, tb_c3739_0n); tb_c3739rw += tb_c3739_0n; memcpy(tb_c3739rw, tb_c3739_1, tb_c3739_1n); tb_c3739rw += tb_c3739_1n; memcpy(tb_c3739rw, tb_c3739_2, tb_c3739_2n); tb_c3739rw += tb_c3739_2n; memcpy(tb_c3739rw, tb_c3739_3, tb_c3739_3n); tb_c3739rw += tb_c3739_3n; memcpy(tb_c3739rw, tb_c3739_4, tb_c3739_4n); tb_c3739rw += tb_c3739_4n; *tb_c3739rw = 0; (const char *)tb_c3739r; }));
+                f_emit__put(v_c, ({ const char *tb_c3866_0 = "    tb_ps(\""; long long tb_c3866_0n = sizeof("    tb_ps(\"") - 1; const char *tb_c3866_1 = v_sep; long long tb_c3866_1n = (long long)strlen(tb_c3866_1); const char *tb_c3866_2 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_o, 2455))->q_kids, v_i, sizeof(tb_o_Node *), 2455)), 2455))->q_name; long long tb_c3866_2n = (long long)strlen(tb_c3866_2); const char *tb_c3866_3 = ": \");\n"; long long tb_c3866_3n = sizeof(": \");\n") - 1; char *tb_c3866r = tb_mem(tb_c3866_0n + tb_c3866_1n + tb_c3866_2n + tb_c3866_3n + 1), *tb_c3866rw = tb_c3866r; memcpy(tb_c3866rw, tb_c3866_0, tb_c3866_0n); tb_c3866rw += tb_c3866_0n; memcpy(tb_c3866rw, tb_c3866_1, tb_c3866_1n); tb_c3866rw += tb_c3866_1n; memcpy(tb_c3866rw, tb_c3866_2, tb_c3866_2n); tb_c3866rw += tb_c3866_2n; memcpy(tb_c3866rw, tb_c3866_3, tb_c3866_3n); tb_c3866rw += tb_c3866_3n; *tb_c3866rw = 0; (const char *)tb_c3866r; }));
+                if (((tb_o_Node *)tb_nn(v_o, 2456))->q_by_cols) {
+                    f_emit__put(v_c, ({ const char *tb_c3867_0 = "    tb_show_"; long long tb_c3867_0n = sizeof("    tb_show_") - 1; char tb_c3867_1d[24]; long long tb_c3867_1n; const char *tb_c3867_1 = tb_digits(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_o, 2457))->q_kids, v_i, sizeof(tb_o_Node *), 2457)), 2457))->q_ty, tb_c3867_1d, &tb_c3867_1n); const char *tb_c3867_2 = "(x.c->q_"; long long tb_c3867_2n = sizeof("(x.c->q_") - 1; const char *tb_c3867_3 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_o, 2457))->q_kids, v_i, sizeof(tb_o_Node *), 2457)), 2457))->q_name; long long tb_c3867_3n = (long long)strlen(tb_c3867_3); const char *tb_c3867_4 = "[x.i]);\n"; long long tb_c3867_4n = sizeof("[x.i]);\n") - 1; char *tb_c3867r = tb_mem(tb_c3867_0n + tb_c3867_1n + tb_c3867_2n + tb_c3867_3n + tb_c3867_4n + 1), *tb_c3867rw = tb_c3867r; memcpy(tb_c3867rw, tb_c3867_0, tb_c3867_0n); tb_c3867rw += tb_c3867_0n; memcpy(tb_c3867rw, tb_c3867_1, tb_c3867_1n); tb_c3867rw += tb_c3867_1n; memcpy(tb_c3867rw, tb_c3867_2, tb_c3867_2n); tb_c3867rw += tb_c3867_2n; memcpy(tb_c3867rw, tb_c3867_3, tb_c3867_3n); tb_c3867rw += tb_c3867_3n; memcpy(tb_c3867rw, tb_c3867_4, tb_c3867_4n); tb_c3867rw += tb_c3867_4n; *tb_c3867rw = 0; (const char *)tb_c3867r; }));
                 } else {
-                    f_emit__put(v_c, ({ const char *tb_c3740_0 = "    tb_show_"; long long tb_c3740_0n = sizeof("    tb_show_") - 1; char tb_c3740_1d[24]; long long tb_c3740_1n; const char *tb_c3740_1 = tb_digits(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_o, 2078))->q_kids, v_i, sizeof(tb_o_Node *), 2078)), 2078))->q_ty, tb_c3740_1d, &tb_c3740_1n); const char *tb_c3740_2 = "(x"; long long tb_c3740_2n = sizeof("(x") - 1; const char *tb_c3740_3 = f_emit__field_path(v_o, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_o, 2078))->q_kids, v_i, sizeof(tb_o_Node *), 2078)), 2078))->q_name); long long tb_c3740_3n = (long long)strlen(tb_c3740_3); const char *tb_c3740_4 = ");\n"; long long tb_c3740_4n = sizeof(");\n") - 1; char *tb_c3740r = tb_mem(tb_c3740_0n + tb_c3740_1n + tb_c3740_2n + tb_c3740_3n + tb_c3740_4n + 1), *tb_c3740rw = tb_c3740r; memcpy(tb_c3740rw, tb_c3740_0, tb_c3740_0n); tb_c3740rw += tb_c3740_0n; memcpy(tb_c3740rw, tb_c3740_1, tb_c3740_1n); tb_c3740rw += tb_c3740_1n; memcpy(tb_c3740rw, tb_c3740_2, tb_c3740_2n); tb_c3740rw += tb_c3740_2n; memcpy(tb_c3740rw, tb_c3740_3, tb_c3740_3n); tb_c3740rw += tb_c3740_3n; memcpy(tb_c3740rw, tb_c3740_4, tb_c3740_4n); tb_c3740rw += tb_c3740_4n; *tb_c3740rw = 0; (const char *)tb_c3740r; }));
+                    f_emit__put(v_c, ({ const char *tb_c3868_0 = "    tb_show_"; long long tb_c3868_0n = sizeof("    tb_show_") - 1; char tb_c3868_1d[24]; long long tb_c3868_1n; const char *tb_c3868_1 = tb_digits(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_o, 2459))->q_kids, v_i, sizeof(tb_o_Node *), 2459)), 2459))->q_ty, tb_c3868_1d, &tb_c3868_1n); const char *tb_c3868_2 = "(x"; long long tb_c3868_2n = sizeof("(x") - 1; const char *tb_c3868_3 = f_emit__field_path(v_o, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_o, 2459))->q_kids, v_i, sizeof(tb_o_Node *), 2459)), 2459))->q_name); long long tb_c3868_3n = (long long)strlen(tb_c3868_3); const char *tb_c3868_4 = ");\n"; long long tb_c3868_4n = sizeof(");\n") - 1; char *tb_c3868r = tb_mem(tb_c3868_0n + tb_c3868_1n + tb_c3868_2n + tb_c3868_3n + tb_c3868_4n + 1), *tb_c3868rw = tb_c3868r; memcpy(tb_c3868rw, tb_c3868_0, tb_c3868_0n); tb_c3868rw += tb_c3868_0n; memcpy(tb_c3868rw, tb_c3868_1, tb_c3868_1n); tb_c3868rw += tb_c3868_1n; memcpy(tb_c3868rw, tb_c3868_2, tb_c3868_2n); tb_c3868rw += tb_c3868_2n; memcpy(tb_c3868rw, tb_c3868_3, tb_c3868_3n); tb_c3868rw += tb_c3868_3n; memcpy(tb_c3868rw, tb_c3868_4, tb_c3868_4n); tb_c3868rw += tb_c3868_4n; *tb_c3868rw = 0; (const char *)tb_c3868r; }));
                 }
             }
         }
@@ -12234,49 +13142,49 @@ static void f_emit__emit_show(tb_o_Comp * v_c, tb_o_Type * v_t) {
 }
 
 static void f_emit__emit_cols_obj(tb_o_Comp * v_c, tb_o_Node * v_o) {
-    f_emit__put(v_c, ({ const char *tb_c3741_0 = "struct tb_cols_"; long long tb_c3741_0n = sizeof("struct tb_cols_") - 1; const char *tb_c3741_1 = ((tb_o_Node *)tb_nn(v_o, 2086))->q_name; long long tb_c3741_1n = (long long)strlen(tb_c3741_1); const char *tb_c3741_2 = " {\n    long long len, cap;\n"; long long tb_c3741_2n = sizeof(" {\n    long long len, cap;\n") - 1; char *tb_c3741r = tb_mem(tb_c3741_0n + tb_c3741_1n + tb_c3741_2n + 1), *tb_c3741rw = tb_c3741r; memcpy(tb_c3741rw, tb_c3741_0, tb_c3741_0n); tb_c3741rw += tb_c3741_0n; memcpy(tb_c3741rw, tb_c3741_1, tb_c3741_1n); tb_c3741rw += tb_c3741_1n; memcpy(tb_c3741rw, tb_c3741_2, tb_c3741_2n); tb_c3741rw += tb_c3741_2n; *tb_c3741rw = 0; (const char *)tb_c3741r; }));
+    f_emit__put(v_c, ({ const char *tb_c3869_0 = "struct tb_cols_"; long long tb_c3869_0n = sizeof("struct tb_cols_") - 1; const char *tb_c3869_1 = ((tb_o_Node *)tb_nn(v_o, 2467))->q_name; long long tb_c3869_1n = (long long)strlen(tb_c3869_1); const char *tb_c3869_2 = " {\n    long long len, cap;\n"; long long tb_c3869_2n = sizeof(" {\n    long long len, cap;\n") - 1; char *tb_c3869r = tb_mem(tb_c3869_0n + tb_c3869_1n + tb_c3869_2n + 1), *tb_c3869rw = tb_c3869r; memcpy(tb_c3869rw, tb_c3869_0, tb_c3869_0n); tb_c3869rw += tb_c3869_0n; memcpy(tb_c3869rw, tb_c3869_1, tb_c3869_1n); tb_c3869rw += tb_c3869_1n; memcpy(tb_c3869rw, tb_c3869_2, tb_c3869_2n); tb_c3869rw += tb_c3869_2n; *tb_c3869rw = 0; (const char *)tb_c3869r; }));
     {
-        tb_list * tb_l3742 = ((tb_o_Node *)tb_nn(v_o, 2087))->q_kids;
-        for (long long tb_i3742 = 0; tb_i3742 < tb_l3742->len; tb_i3742++) {
-            tb_o_Node * const v_f = ((tb_o_Node * *)tb_l3742->data)[tb_i3742];
-            f_emit__put(v_c, ({ const char *tb_c3743_0 = "    "; long long tb_c3743_0n = sizeof("    ") - 1; const char *tb_c3743_1 = f_emit__c_type(v_c, ((tb_o_Node *)tb_nn(v_f, 2088))->q_ty); long long tb_c3743_1n = (long long)strlen(tb_c3743_1); const char *tb_c3743_2 = " *q_"; long long tb_c3743_2n = sizeof(" *q_") - 1; const char *tb_c3743_3 = ((tb_o_Node *)tb_nn(v_f, 2088))->q_name; long long tb_c3743_3n = (long long)strlen(tb_c3743_3); const char *tb_c3743_4 = ";\n"; long long tb_c3743_4n = sizeof(";\n") - 1; char *tb_c3743r = tb_mem(tb_c3743_0n + tb_c3743_1n + tb_c3743_2n + tb_c3743_3n + tb_c3743_4n + 1), *tb_c3743rw = tb_c3743r; memcpy(tb_c3743rw, tb_c3743_0, tb_c3743_0n); tb_c3743rw += tb_c3743_0n; memcpy(tb_c3743rw, tb_c3743_1, tb_c3743_1n); tb_c3743rw += tb_c3743_1n; memcpy(tb_c3743rw, tb_c3743_2, tb_c3743_2n); tb_c3743rw += tb_c3743_2n; memcpy(tb_c3743rw, tb_c3743_3, tb_c3743_3n); tb_c3743rw += tb_c3743_3n; memcpy(tb_c3743rw, tb_c3743_4, tb_c3743_4n); tb_c3743rw += tb_c3743_4n; *tb_c3743rw = 0; (const char *)tb_c3743r; }));
+        tb_list * tb_l3870 = ((tb_o_Node *)tb_nn(v_o, 2468))->q_kids;
+        for (long long tb_i3870 = 0; tb_i3870 < tb_l3870->len; tb_i3870++) {
+            tb_o_Node * const v_f = ((tb_o_Node * *)tb_l3870->data)[tb_i3870];
+            f_emit__put(v_c, ({ const char *tb_c3871_0 = "    "; long long tb_c3871_0n = sizeof("    ") - 1; const char *tb_c3871_1 = f_emit__c_type(v_c, ((tb_o_Node *)tb_nn(v_f, 2469))->q_ty); long long tb_c3871_1n = (long long)strlen(tb_c3871_1); const char *tb_c3871_2 = " *q_"; long long tb_c3871_2n = sizeof(" *q_") - 1; const char *tb_c3871_3 = ((tb_o_Node *)tb_nn(v_f, 2469))->q_name; long long tb_c3871_3n = (long long)strlen(tb_c3871_3); const char *tb_c3871_4 = ";\n"; long long tb_c3871_4n = sizeof(";\n") - 1; char *tb_c3871r = tb_mem(tb_c3871_0n + tb_c3871_1n + tb_c3871_2n + tb_c3871_3n + tb_c3871_4n + 1), *tb_c3871rw = tb_c3871r; memcpy(tb_c3871rw, tb_c3871_0, tb_c3871_0n); tb_c3871rw += tb_c3871_0n; memcpy(tb_c3871rw, tb_c3871_1, tb_c3871_1n); tb_c3871rw += tb_c3871_1n; memcpy(tb_c3871rw, tb_c3871_2, tb_c3871_2n); tb_c3871rw += tb_c3871_2n; memcpy(tb_c3871rw, tb_c3871_3, tb_c3871_3n); tb_c3871rw += tb_c3871_3n; memcpy(tb_c3871rw, tb_c3871_4, tb_c3871_4n); tb_c3871rw += tb_c3871_4n; *tb_c3871rw = 0; (const char *)tb_c3871r; }));
         }
     }
     f_emit__put(v_c, "};\n");
 }
 
 static void f_emit__emit_obj(tb_o_Comp * v_c, tb_o_Node * v_o) {
-    if (((tb_o_Node *)tb_nn(v_o, 2092))->q_by_cols) {
+    if (((tb_o_Node *)tb_nn(v_o, 2473))->q_by_cols) {
         f_emit__emit_cols_obj(v_c, v_o);
         return;
     }
     if (f_emit__has_cold(v_o)) {
-        f_emit__put(v_c, ({ const char *tb_c3744_0 = "struct tb_c_"; long long tb_c3744_0n = sizeof("struct tb_c_") - 1; const char *tb_c3744_1 = ((tb_o_Node *)tb_nn(v_o, 2097))->q_name; long long tb_c3744_1n = (long long)strlen(tb_c3744_1); const char *tb_c3744_2 = " {\n"; long long tb_c3744_2n = sizeof(" {\n") - 1; char *tb_c3744r = tb_mem(tb_c3744_0n + tb_c3744_1n + tb_c3744_2n + 1), *tb_c3744rw = tb_c3744r; memcpy(tb_c3744rw, tb_c3744_0, tb_c3744_0n); tb_c3744rw += tb_c3744_0n; memcpy(tb_c3744rw, tb_c3744_1, tb_c3744_1n); tb_c3744rw += tb_c3744_1n; memcpy(tb_c3744rw, tb_c3744_2, tb_c3744_2n); tb_c3744rw += tb_c3744_2n; *tb_c3744rw = 0; (const char *)tb_c3744r; }));
+        f_emit__put(v_c, ({ const char *tb_c3872_0 = "struct tb_c_"; long long tb_c3872_0n = sizeof("struct tb_c_") - 1; const char *tb_c3872_1 = ((tb_o_Node *)tb_nn(v_o, 2478))->q_name; long long tb_c3872_1n = (long long)strlen(tb_c3872_1); const char *tb_c3872_2 = " {\n"; long long tb_c3872_2n = sizeof(" {\n") - 1; char *tb_c3872r = tb_mem(tb_c3872_0n + tb_c3872_1n + tb_c3872_2n + 1), *tb_c3872rw = tb_c3872r; memcpy(tb_c3872rw, tb_c3872_0, tb_c3872_0n); tb_c3872rw += tb_c3872_0n; memcpy(tb_c3872rw, tb_c3872_1, tb_c3872_1n); tb_c3872rw += tb_c3872_1n; memcpy(tb_c3872rw, tb_c3872_2, tb_c3872_2n); tb_c3872rw += tb_c3872_2n; *tb_c3872rw = 0; (const char *)tb_c3872r; }));
         {
-            tb_list * tb_l3745 = ((tb_o_Node *)tb_nn(v_o, 2098))->q_kids;
-            for (long long tb_i3745 = 0; tb_i3745 < tb_l3745->len; tb_i3745++) {
-                tb_o_Node * const v_f = ((tb_o_Node * *)tb_l3745->data)[tb_i3745];
-                if (((tb_o_Node *)tb_nn(v_f, 2099))->q_is_cold) {
-                    f_emit__put(v_c, ({ const char *tb_c3746_0 = "    "; long long tb_c3746_0n = sizeof("    ") - 1; const char *tb_c3746_1 = f_emit__c_type(v_c, ((tb_o_Node *)tb_nn(v_f, 2100))->q_ty); long long tb_c3746_1n = (long long)strlen(tb_c3746_1); const char *tb_c3746_2 = " q_"; long long tb_c3746_2n = sizeof(" q_") - 1; const char *tb_c3746_3 = ((tb_o_Node *)tb_nn(v_f, 2100))->q_name; long long tb_c3746_3n = (long long)strlen(tb_c3746_3); const char *tb_c3746_4 = ";\n"; long long tb_c3746_4n = sizeof(";\n") - 1; char *tb_c3746r = tb_mem(tb_c3746_0n + tb_c3746_1n + tb_c3746_2n + tb_c3746_3n + tb_c3746_4n + 1), *tb_c3746rw = tb_c3746r; memcpy(tb_c3746rw, tb_c3746_0, tb_c3746_0n); tb_c3746rw += tb_c3746_0n; memcpy(tb_c3746rw, tb_c3746_1, tb_c3746_1n); tb_c3746rw += tb_c3746_1n; memcpy(tb_c3746rw, tb_c3746_2, tb_c3746_2n); tb_c3746rw += tb_c3746_2n; memcpy(tb_c3746rw, tb_c3746_3, tb_c3746_3n); tb_c3746rw += tb_c3746_3n; memcpy(tb_c3746rw, tb_c3746_4, tb_c3746_4n); tb_c3746rw += tb_c3746_4n; *tb_c3746rw = 0; (const char *)tb_c3746r; }));
+            tb_list * tb_l3873 = ((tb_o_Node *)tb_nn(v_o, 2479))->q_kids;
+            for (long long tb_i3873 = 0; tb_i3873 < tb_l3873->len; tb_i3873++) {
+                tb_o_Node * const v_f = ((tb_o_Node * *)tb_l3873->data)[tb_i3873];
+                if (((tb_o_Node *)tb_nn(v_f, 2480))->q_is_cold) {
+                    f_emit__put(v_c, ({ const char *tb_c3874_0 = "    "; long long tb_c3874_0n = sizeof("    ") - 1; const char *tb_c3874_1 = f_emit__c_type(v_c, ((tb_o_Node *)tb_nn(v_f, 2481))->q_ty); long long tb_c3874_1n = (long long)strlen(tb_c3874_1); const char *tb_c3874_2 = " q_"; long long tb_c3874_2n = sizeof(" q_") - 1; const char *tb_c3874_3 = ((tb_o_Node *)tb_nn(v_f, 2481))->q_name; long long tb_c3874_3n = (long long)strlen(tb_c3874_3); const char *tb_c3874_4 = ";\n"; long long tb_c3874_4n = sizeof(";\n") - 1; char *tb_c3874r = tb_mem(tb_c3874_0n + tb_c3874_1n + tb_c3874_2n + tb_c3874_3n + tb_c3874_4n + 1), *tb_c3874rw = tb_c3874r; memcpy(tb_c3874rw, tb_c3874_0, tb_c3874_0n); tb_c3874rw += tb_c3874_0n; memcpy(tb_c3874rw, tb_c3874_1, tb_c3874_1n); tb_c3874rw += tb_c3874_1n; memcpy(tb_c3874rw, tb_c3874_2, tb_c3874_2n); tb_c3874rw += tb_c3874_2n; memcpy(tb_c3874rw, tb_c3874_3, tb_c3874_3n); tb_c3874rw += tb_c3874_3n; memcpy(tb_c3874rw, tb_c3874_4, tb_c3874_4n); tb_c3874rw += tb_c3874_4n; *tb_c3874rw = 0; (const char *)tb_c3874r; }));
                 }
             }
         }
         f_emit__put(v_c, "};\n");
     }
-    f_emit__put(v_c, ({ const char *tb_c3747_0 = "struct tb_o_"; long long tb_c3747_0n = sizeof("struct tb_o_") - 1; const char *tb_c3747_1 = ((tb_o_Node *)tb_nn(v_o, 2102))->q_name; long long tb_c3747_1n = (long long)strlen(tb_c3747_1); const char *tb_c3747_2 = " {\n"; long long tb_c3747_2n = sizeof(" {\n") - 1; char *tb_c3747r = tb_mem(tb_c3747_0n + tb_c3747_1n + tb_c3747_2n + 1), *tb_c3747rw = tb_c3747r; memcpy(tb_c3747rw, tb_c3747_0, tb_c3747_0n); tb_c3747rw += tb_c3747_0n; memcpy(tb_c3747rw, tb_c3747_1, tb_c3747_1n); tb_c3747rw += tb_c3747_1n; memcpy(tb_c3747rw, tb_c3747_2, tb_c3747_2n); tb_c3747rw += tb_c3747_2n; *tb_c3747rw = 0; (const char *)tb_c3747r; }));
+    f_emit__put(v_c, ({ const char *tb_c3875_0 = "struct tb_o_"; long long tb_c3875_0n = sizeof("struct tb_o_") - 1; const char *tb_c3875_1 = ((tb_o_Node *)tb_nn(v_o, 2483))->q_name; long long tb_c3875_1n = (long long)strlen(tb_c3875_1); const char *tb_c3875_2 = " {\n"; long long tb_c3875_2n = sizeof(" {\n") - 1; char *tb_c3875r = tb_mem(tb_c3875_0n + tb_c3875_1n + tb_c3875_2n + 1), *tb_c3875rw = tb_c3875r; memcpy(tb_c3875rw, tb_c3875_0, tb_c3875_0n); tb_c3875rw += tb_c3875_0n; memcpy(tb_c3875rw, tb_c3875_1, tb_c3875_1n); tb_c3875rw += tb_c3875_1n; memcpy(tb_c3875rw, tb_c3875_2, tb_c3875_2n); tb_c3875rw += tb_c3875_2n; *tb_c3875rw = 0; (const char *)tb_c3875r; }));
     {
-        tb_list * tb_l3748 = ((tb_o_Node *)tb_nn(v_o, 2103))->q_kids;
-        for (long long tb_i3748 = 0; tb_i3748 < tb_l3748->len; tb_i3748++) {
-            tb_o_Node * const v_f = ((tb_o_Node * *)tb_l3748->data)[tb_i3748];
-            if ((!((tb_o_Node *)tb_nn(v_f, 2104))->q_is_cold)) {
-                f_emit__put(v_c, ({ const char *tb_c3749_0 = "    "; long long tb_c3749_0n = sizeof("    ") - 1; const char *tb_c3749_1 = f_emit__c_type(v_c, ((tb_o_Node *)tb_nn(v_f, 2105))->q_ty); long long tb_c3749_1n = (long long)strlen(tb_c3749_1); const char *tb_c3749_2 = " q_"; long long tb_c3749_2n = sizeof(" q_") - 1; const char *tb_c3749_3 = ((tb_o_Node *)tb_nn(v_f, 2105))->q_name; long long tb_c3749_3n = (long long)strlen(tb_c3749_3); const char *tb_c3749_4 = ";\n"; long long tb_c3749_4n = sizeof(";\n") - 1; char *tb_c3749r = tb_mem(tb_c3749_0n + tb_c3749_1n + tb_c3749_2n + tb_c3749_3n + tb_c3749_4n + 1), *tb_c3749rw = tb_c3749r; memcpy(tb_c3749rw, tb_c3749_0, tb_c3749_0n); tb_c3749rw += tb_c3749_0n; memcpy(tb_c3749rw, tb_c3749_1, tb_c3749_1n); tb_c3749rw += tb_c3749_1n; memcpy(tb_c3749rw, tb_c3749_2, tb_c3749_2n); tb_c3749rw += tb_c3749_2n; memcpy(tb_c3749rw, tb_c3749_3, tb_c3749_3n); tb_c3749rw += tb_c3749_3n; memcpy(tb_c3749rw, tb_c3749_4, tb_c3749_4n); tb_c3749rw += tb_c3749_4n; *tb_c3749rw = 0; (const char *)tb_c3749r; }));
+        tb_list * tb_l3876 = ((tb_o_Node *)tb_nn(v_o, 2484))->q_kids;
+        for (long long tb_i3876 = 0; tb_i3876 < tb_l3876->len; tb_i3876++) {
+            tb_o_Node * const v_f = ((tb_o_Node * *)tb_l3876->data)[tb_i3876];
+            if ((!((tb_o_Node *)tb_nn(v_f, 2485))->q_is_cold)) {
+                f_emit__put(v_c, ({ const char *tb_c3877_0 = "    "; long long tb_c3877_0n = sizeof("    ") - 1; const char *tb_c3877_1 = f_emit__c_type(v_c, ((tb_o_Node *)tb_nn(v_f, 2486))->q_ty); long long tb_c3877_1n = (long long)strlen(tb_c3877_1); const char *tb_c3877_2 = " q_"; long long tb_c3877_2n = sizeof(" q_") - 1; const char *tb_c3877_3 = ((tb_o_Node *)tb_nn(v_f, 2486))->q_name; long long tb_c3877_3n = (long long)strlen(tb_c3877_3); const char *tb_c3877_4 = ";\n"; long long tb_c3877_4n = sizeof(";\n") - 1; char *tb_c3877r = tb_mem(tb_c3877_0n + tb_c3877_1n + tb_c3877_2n + tb_c3877_3n + tb_c3877_4n + 1), *tb_c3877rw = tb_c3877r; memcpy(tb_c3877rw, tb_c3877_0, tb_c3877_0n); tb_c3877rw += tb_c3877_0n; memcpy(tb_c3877rw, tb_c3877_1, tb_c3877_1n); tb_c3877rw += tb_c3877_1n; memcpy(tb_c3877rw, tb_c3877_2, tb_c3877_2n); tb_c3877rw += tb_c3877_2n; memcpy(tb_c3877rw, tb_c3877_3, tb_c3877_3n); tb_c3877rw += tb_c3877_3n; memcpy(tb_c3877rw, tb_c3877_4, tb_c3877_4n); tb_c3877rw += tb_c3877_4n; *tb_c3877rw = 0; (const char *)tb_c3877r; }));
             }
         }
     }
     if (f_emit__has_cold(v_o)) {
-        f_emit__put(v_c, ({ const char *tb_c3750_0 = "    struct tb_c_"; long long tb_c3750_0n = sizeof("    struct tb_c_") - 1; const char *tb_c3750_1 = ((tb_o_Node *)tb_nn(v_o, 2107))->q_name; long long tb_c3750_1n = (long long)strlen(tb_c3750_1); const char *tb_c3750_2 = " *tb_cold;\n"; long long tb_c3750_2n = sizeof(" *tb_cold;\n") - 1; char *tb_c3750r = tb_mem(tb_c3750_0n + tb_c3750_1n + tb_c3750_2n + 1), *tb_c3750rw = tb_c3750r; memcpy(tb_c3750rw, tb_c3750_0, tb_c3750_0n); tb_c3750rw += tb_c3750_0n; memcpy(tb_c3750rw, tb_c3750_1, tb_c3750_1n); tb_c3750rw += tb_c3750_1n; memcpy(tb_c3750rw, tb_c3750_2, tb_c3750_2n); tb_c3750rw += tb_c3750_2n; *tb_c3750rw = 0; (const char *)tb_c3750r; }));
+        f_emit__put(v_c, ({ const char *tb_c3878_0 = "    struct tb_c_"; long long tb_c3878_0n = sizeof("    struct tb_c_") - 1; const char *tb_c3878_1 = ((tb_o_Node *)tb_nn(v_o, 2488))->q_name; long long tb_c3878_1n = (long long)strlen(tb_c3878_1); const char *tb_c3878_2 = " *tb_cold;\n"; long long tb_c3878_2n = sizeof(" *tb_cold;\n") - 1; char *tb_c3878r = tb_mem(tb_c3878_0n + tb_c3878_1n + tb_c3878_2n + 1), *tb_c3878rw = tb_c3878r; memcpy(tb_c3878rw, tb_c3878_0, tb_c3878_0n); tb_c3878rw += tb_c3878_0n; memcpy(tb_c3878rw, tb_c3878_1, tb_c3878_1n); tb_c3878rw += tb_c3878_1n; memcpy(tb_c3878rw, tb_c3878_2, tb_c3878_2n); tb_c3878rw += tb_c3878_2n; *tb_c3878rw = 0; (const char *)tb_c3878r; }));
     }
-    if (((((tb_o_Node *)tb_nn(v_o, 2108))->q_kids)->len == 0LL)) {
+    if (((((tb_o_Node *)tb_nn(v_o, 2489))->q_kids)->len == 0LL)) {
         f_emit__put(v_c, "    char empty;\n");
     }
     f_emit__put(v_c, "};\n");
@@ -12284,168 +13192,168 @@ static void f_emit__emit_obj(tb_o_Comp * v_c, tb_o_Node * v_o) {
 
 static _Bool f_emit__has_cold(tb_o_Node * v_o) {
     {
-        tb_list * tb_l3751 = ((tb_o_Node *)tb_nn(v_o, 2113))->q_kids;
-        for (long long tb_i3751 = 0; tb_i3751 < tb_l3751->len; tb_i3751++) {
-            tb_o_Node * const v_f = ((tb_o_Node * *)tb_l3751->data)[tb_i3751];
-            if (((tb_o_Node *)tb_nn(v_f, 2114))->q_is_cold) {
+        tb_list * tb_l3879 = ((tb_o_Node *)tb_nn(v_o, 2494))->q_kids;
+        for (long long tb_i3879 = 0; tb_i3879 < tb_l3879->len; tb_i3879++) {
+            tb_o_Node * const v_f = ((tb_o_Node * *)tb_l3879->data)[tb_i3879];
+            if (((tb_o_Node *)tb_nn(v_f, 2495))->q_is_cold) {
                 return 1;
             }
         }
     }
     return 0;
-    tb_crash(2112, "функция has_cold дошла до конца без return");
+    tb_crash(2493, "функция has_cold дошла до конца без return");
     return 0;
 }
 
 static const char * f_emit__field_path(tb_o_Node * v_o, const char * v_name) {
     const char * v_r = "";
     {
-        tb_list * tb_l3752 = ((tb_o_Node *)tb_nn(v_o, 2120))->q_kids;
-        for (long long tb_i3752 = 0; tb_i3752 < tb_l3752->len; tb_i3752++) {
-            tb_o_Node * const v_f = ((tb_o_Node * *)tb_l3752->data)[tb_i3752];
-            if (((strcmp(((tb_o_Node *)tb_nn(v_f, 2121))->q_name, v_name) == 0) && ((tb_o_Node *)tb_nn(v_f, 2121))->q_is_cold)) {
-                return ({ const char *tb_c3753_0 = "->tb_cold->q_"; long long tb_c3753_0n = sizeof("->tb_cold->q_") - 1; const char *tb_c3753_1 = v_name; long long tb_c3753_1n = (long long)strlen(tb_c3753_1); char *tb_c3753r = tb_mem(tb_c3753_0n + tb_c3753_1n + 1), *tb_c3753rw = tb_c3753r; memcpy(tb_c3753rw, tb_c3753_0, tb_c3753_0n); tb_c3753rw += tb_c3753_0n; memcpy(tb_c3753rw, tb_c3753_1, tb_c3753_1n); tb_c3753rw += tb_c3753_1n; *tb_c3753rw = 0; (const char *)tb_c3753r; });
+        tb_list * tb_l3880 = ((tb_o_Node *)tb_nn(v_o, 2501))->q_kids;
+        for (long long tb_i3880 = 0; tb_i3880 < tb_l3880->len; tb_i3880++) {
+            tb_o_Node * const v_f = ((tb_o_Node * *)tb_l3880->data)[tb_i3880];
+            if (((strcmp(((tb_o_Node *)tb_nn(v_f, 2502))->q_name, v_name) == 0) && ((tb_o_Node *)tb_nn(v_f, 2502))->q_is_cold)) {
+                return ({ const char *tb_c3881_0 = "->tb_cold->q_"; long long tb_c3881_0n = sizeof("->tb_cold->q_") - 1; const char *tb_c3881_1 = v_name; long long tb_c3881_1n = (long long)strlen(tb_c3881_1); char *tb_c3881r = tb_mem(tb_c3881_0n + tb_c3881_1n + 1), *tb_c3881rw = tb_c3881r; memcpy(tb_c3881rw, tb_c3881_0, tb_c3881_0n); tb_c3881rw += tb_c3881_0n; memcpy(tb_c3881rw, tb_c3881_1, tb_c3881_1n); tb_c3881rw += tb_c3881_1n; *tb_c3881rw = 0; (const char *)tb_c3881r; });
             }
         }
     }
-    return ({ const char *tb_c3754_0 = "->q_"; long long tb_c3754_0n = sizeof("->q_") - 1; const char *tb_c3754_1 = v_name; long long tb_c3754_1n = (long long)strlen(tb_c3754_1); char *tb_c3754r = tb_mem(tb_c3754_0n + tb_c3754_1n + 1), *tb_c3754rw = tb_c3754r; memcpy(tb_c3754rw, tb_c3754_0, tb_c3754_0n); tb_c3754rw += tb_c3754_0n; memcpy(tb_c3754rw, tb_c3754_1, tb_c3754_1n); tb_c3754rw += tb_c3754_1n; *tb_c3754rw = 0; (const char *)tb_c3754r; });
+    return ({ const char *tb_c3882_0 = "->q_"; long long tb_c3882_0n = sizeof("->q_") - 1; const char *tb_c3882_1 = v_name; long long tb_c3882_1n = (long long)strlen(tb_c3882_1); char *tb_c3882r = tb_mem(tb_c3882_0n + tb_c3882_1n + 1), *tb_c3882rw = tb_c3882r; memcpy(tb_c3882rw, tb_c3882_0, tb_c3882_0n); tb_c3882rw += tb_c3882_0n; memcpy(tb_c3882rw, tb_c3882_1, tb_c3882_1n); tb_c3882rw += tb_c3882_1n; *tb_c3882rw = 0; (const char *)tb_c3882r; });
     return v_r;
 }
 
 static void f_emit__emit_cols_helpers(tb_o_Comp * v_c, tb_o_Node * v_o) {
-    const char * v_nm = ((tb_o_Node *)tb_nn(v_o, 2127))->q_name;
-    const char * v_cols = ({ const char *tb_c3755_0 = "tb_cols_"; long long tb_c3755_0n = sizeof("tb_cols_") - 1; const char *tb_c3755_1 = v_nm; long long tb_c3755_1n = (long long)strlen(tb_c3755_1); char *tb_c3755r = tb_mem(tb_c3755_0n + tb_c3755_1n + 1), *tb_c3755rw = tb_c3755r; memcpy(tb_c3755rw, tb_c3755_0, tb_c3755_0n); tb_c3755rw += tb_c3755_0n; memcpy(tb_c3755rw, tb_c3755_1, tb_c3755_1n); tb_c3755rw += tb_c3755_1n; *tb_c3755rw = 0; (const char *)tb_c3755r; });
-    const char * v_row = ({ const char *tb_c3756_0 = "tb_row_"; long long tb_c3756_0n = sizeof("tb_row_") - 1; const char *tb_c3756_1 = v_nm; long long tb_c3756_1n = (long long)strlen(tb_c3756_1); char *tb_c3756r = tb_mem(tb_c3756_0n + tb_c3756_1n + 1), *tb_c3756rw = tb_c3756r; memcpy(tb_c3756rw, tb_c3756_0, tb_c3756_0n); tb_c3756rw += tb_c3756_0n; memcpy(tb_c3756rw, tb_c3756_1, tb_c3756_1n); tb_c3756rw += tb_c3756_1n; *tb_c3756rw = 0; (const char *)tb_c3756r; });
-    f_emit__put(v_c, ({ const char *tb_c3757_0 = "static "; long long tb_c3757_0n = sizeof("static ") - 1; const char *tb_c3757_1 = v_cols; long long tb_c3757_1n = (long long)strlen(tb_c3757_1); const char *tb_c3757_2 = " *tb_cols_new_"; long long tb_c3757_2n = sizeof(" *tb_cols_new_") - 1; const char *tb_c3757_3 = v_nm; long long tb_c3757_3n = (long long)strlen(tb_c3757_3); const char *tb_c3757_4 = "(void) {\n"; long long tb_c3757_4n = sizeof("(void) {\n") - 1; char *tb_c3757r = tb_mem(tb_c3757_0n + tb_c3757_1n + tb_c3757_2n + tb_c3757_3n + tb_c3757_4n + 1), *tb_c3757rw = tb_c3757r; memcpy(tb_c3757rw, tb_c3757_0, tb_c3757_0n); tb_c3757rw += tb_c3757_0n; memcpy(tb_c3757rw, tb_c3757_1, tb_c3757_1n); tb_c3757rw += tb_c3757_1n; memcpy(tb_c3757rw, tb_c3757_2, tb_c3757_2n); tb_c3757rw += tb_c3757_2n; memcpy(tb_c3757rw, tb_c3757_3, tb_c3757_3n); tb_c3757rw += tb_c3757_3n; memcpy(tb_c3757rw, tb_c3757_4, tb_c3757_4n); tb_c3757rw += tb_c3757_4n; *tb_c3757rw = 0; (const char *)tb_c3757r; }));
-    f_emit__put(v_c, ({ const char *tb_c3758_0 = "    "; long long tb_c3758_0n = sizeof("    ") - 1; const char *tb_c3758_1 = v_cols; long long tb_c3758_1n = (long long)strlen(tb_c3758_1); const char *tb_c3758_2 = " *l = tb_mem(sizeof("; long long tb_c3758_2n = sizeof(" *l = tb_mem(sizeof(") - 1; const char *tb_c3758_3 = v_cols; long long tb_c3758_3n = (long long)strlen(tb_c3758_3); const char *tb_c3758_4 = "));\n    l->len = 0; l->cap = 4;\n"; long long tb_c3758_4n = sizeof("));\n    l->len = 0; l->cap = 4;\n") - 1; char *tb_c3758r = tb_mem(tb_c3758_0n + tb_c3758_1n + tb_c3758_2n + tb_c3758_3n + tb_c3758_4n + 1), *tb_c3758rw = tb_c3758r; memcpy(tb_c3758rw, tb_c3758_0, tb_c3758_0n); tb_c3758rw += tb_c3758_0n; memcpy(tb_c3758rw, tb_c3758_1, tb_c3758_1n); tb_c3758rw += tb_c3758_1n; memcpy(tb_c3758rw, tb_c3758_2, tb_c3758_2n); tb_c3758rw += tb_c3758_2n; memcpy(tb_c3758rw, tb_c3758_3, tb_c3758_3n); tb_c3758rw += tb_c3758_3n; memcpy(tb_c3758rw, tb_c3758_4, tb_c3758_4n); tb_c3758rw += tb_c3758_4n; *tb_c3758rw = 0; (const char *)tb_c3758r; }));
+    const char * v_nm = ((tb_o_Node *)tb_nn(v_o, 2508))->q_name;
+    const char * v_cols = ({ const char *tb_c3883_0 = "tb_cols_"; long long tb_c3883_0n = sizeof("tb_cols_") - 1; const char *tb_c3883_1 = v_nm; long long tb_c3883_1n = (long long)strlen(tb_c3883_1); char *tb_c3883r = tb_mem(tb_c3883_0n + tb_c3883_1n + 1), *tb_c3883rw = tb_c3883r; memcpy(tb_c3883rw, tb_c3883_0, tb_c3883_0n); tb_c3883rw += tb_c3883_0n; memcpy(tb_c3883rw, tb_c3883_1, tb_c3883_1n); tb_c3883rw += tb_c3883_1n; *tb_c3883rw = 0; (const char *)tb_c3883r; });
+    const char * v_row = ({ const char *tb_c3884_0 = "tb_row_"; long long tb_c3884_0n = sizeof("tb_row_") - 1; const char *tb_c3884_1 = v_nm; long long tb_c3884_1n = (long long)strlen(tb_c3884_1); char *tb_c3884r = tb_mem(tb_c3884_0n + tb_c3884_1n + 1), *tb_c3884rw = tb_c3884r; memcpy(tb_c3884rw, tb_c3884_0, tb_c3884_0n); tb_c3884rw += tb_c3884_0n; memcpy(tb_c3884rw, tb_c3884_1, tb_c3884_1n); tb_c3884rw += tb_c3884_1n; *tb_c3884rw = 0; (const char *)tb_c3884r; });
+    f_emit__put(v_c, ({ const char *tb_c3885_0 = "static "; long long tb_c3885_0n = sizeof("static ") - 1; const char *tb_c3885_1 = v_cols; long long tb_c3885_1n = (long long)strlen(tb_c3885_1); const char *tb_c3885_2 = " *tb_cols_new_"; long long tb_c3885_2n = sizeof(" *tb_cols_new_") - 1; const char *tb_c3885_3 = v_nm; long long tb_c3885_3n = (long long)strlen(tb_c3885_3); const char *tb_c3885_4 = "(void) {\n"; long long tb_c3885_4n = sizeof("(void) {\n") - 1; char *tb_c3885r = tb_mem(tb_c3885_0n + tb_c3885_1n + tb_c3885_2n + tb_c3885_3n + tb_c3885_4n + 1), *tb_c3885rw = tb_c3885r; memcpy(tb_c3885rw, tb_c3885_0, tb_c3885_0n); tb_c3885rw += tb_c3885_0n; memcpy(tb_c3885rw, tb_c3885_1, tb_c3885_1n); tb_c3885rw += tb_c3885_1n; memcpy(tb_c3885rw, tb_c3885_2, tb_c3885_2n); tb_c3885rw += tb_c3885_2n; memcpy(tb_c3885rw, tb_c3885_3, tb_c3885_3n); tb_c3885rw += tb_c3885_3n; memcpy(tb_c3885rw, tb_c3885_4, tb_c3885_4n); tb_c3885rw += tb_c3885_4n; *tb_c3885rw = 0; (const char *)tb_c3885r; }));
+    f_emit__put(v_c, ({ const char *tb_c3886_0 = "    "; long long tb_c3886_0n = sizeof("    ") - 1; const char *tb_c3886_1 = v_cols; long long tb_c3886_1n = (long long)strlen(tb_c3886_1); const char *tb_c3886_2 = " *l = tb_mem(sizeof("; long long tb_c3886_2n = sizeof(" *l = tb_mem(sizeof(") - 1; const char *tb_c3886_3 = v_cols; long long tb_c3886_3n = (long long)strlen(tb_c3886_3); const char *tb_c3886_4 = "));\n    l->len = 0; l->cap = 4;\n"; long long tb_c3886_4n = sizeof("));\n    l->len = 0; l->cap = 4;\n") - 1; char *tb_c3886r = tb_mem(tb_c3886_0n + tb_c3886_1n + tb_c3886_2n + tb_c3886_3n + tb_c3886_4n + 1), *tb_c3886rw = tb_c3886r; memcpy(tb_c3886rw, tb_c3886_0, tb_c3886_0n); tb_c3886rw += tb_c3886_0n; memcpy(tb_c3886rw, tb_c3886_1, tb_c3886_1n); tb_c3886rw += tb_c3886_1n; memcpy(tb_c3886rw, tb_c3886_2, tb_c3886_2n); tb_c3886rw += tb_c3886_2n; memcpy(tb_c3886rw, tb_c3886_3, tb_c3886_3n); tb_c3886rw += tb_c3886_3n; memcpy(tb_c3886rw, tb_c3886_4, tb_c3886_4n); tb_c3886rw += tb_c3886_4n; *tb_c3886rw = 0; (const char *)tb_c3886r; }));
     {
-        tb_list * tb_l3759 = ((tb_o_Node *)tb_nn(v_o, 2132))->q_kids;
-        for (long long tb_i3759 = 0; tb_i3759 < tb_l3759->len; tb_i3759++) {
-            tb_o_Node * const v_f = ((tb_o_Node * *)tb_l3759->data)[tb_i3759];
-            f_emit__put(v_c, ({ const char *tb_c3760_0 = "    l->q_"; long long tb_c3760_0n = sizeof("    l->q_") - 1; const char *tb_c3760_1 = ((tb_o_Node *)tb_nn(v_f, 2133))->q_name; long long tb_c3760_1n = (long long)strlen(tb_c3760_1); const char *tb_c3760_2 = " = tb_mem(sizeof("; long long tb_c3760_2n = sizeof(" = tb_mem(sizeof(") - 1; const char *tb_c3760_3 = f_emit__c_type(v_c, ((tb_o_Node *)tb_nn(v_f, 2133))->q_ty); long long tb_c3760_3n = (long long)strlen(tb_c3760_3); const char *tb_c3760_4 = ") * 4);\n"; long long tb_c3760_4n = sizeof(") * 4);\n") - 1; char *tb_c3760r = tb_mem(tb_c3760_0n + tb_c3760_1n + tb_c3760_2n + tb_c3760_3n + tb_c3760_4n + 1), *tb_c3760rw = tb_c3760r; memcpy(tb_c3760rw, tb_c3760_0, tb_c3760_0n); tb_c3760rw += tb_c3760_0n; memcpy(tb_c3760rw, tb_c3760_1, tb_c3760_1n); tb_c3760rw += tb_c3760_1n; memcpy(tb_c3760rw, tb_c3760_2, tb_c3760_2n); tb_c3760rw += tb_c3760_2n; memcpy(tb_c3760rw, tb_c3760_3, tb_c3760_3n); tb_c3760rw += tb_c3760_3n; memcpy(tb_c3760rw, tb_c3760_4, tb_c3760_4n); tb_c3760rw += tb_c3760_4n; *tb_c3760rw = 0; (const char *)tb_c3760r; }));
+        tb_list * tb_l3887 = ((tb_o_Node *)tb_nn(v_o, 2513))->q_kids;
+        for (long long tb_i3887 = 0; tb_i3887 < tb_l3887->len; tb_i3887++) {
+            tb_o_Node * const v_f = ((tb_o_Node * *)tb_l3887->data)[tb_i3887];
+            f_emit__put(v_c, ({ const char *tb_c3888_0 = "    l->q_"; long long tb_c3888_0n = sizeof("    l->q_") - 1; const char *tb_c3888_1 = ((tb_o_Node *)tb_nn(v_f, 2514))->q_name; long long tb_c3888_1n = (long long)strlen(tb_c3888_1); const char *tb_c3888_2 = " = tb_mem(sizeof("; long long tb_c3888_2n = sizeof(" = tb_mem(sizeof(") - 1; const char *tb_c3888_3 = f_emit__c_type(v_c, ((tb_o_Node *)tb_nn(v_f, 2514))->q_ty); long long tb_c3888_3n = (long long)strlen(tb_c3888_3); const char *tb_c3888_4 = ") * 4);\n"; long long tb_c3888_4n = sizeof(") * 4);\n") - 1; char *tb_c3888r = tb_mem(tb_c3888_0n + tb_c3888_1n + tb_c3888_2n + tb_c3888_3n + tb_c3888_4n + 1), *tb_c3888rw = tb_c3888r; memcpy(tb_c3888rw, tb_c3888_0, tb_c3888_0n); tb_c3888rw += tb_c3888_0n; memcpy(tb_c3888rw, tb_c3888_1, tb_c3888_1n); tb_c3888rw += tb_c3888_1n; memcpy(tb_c3888rw, tb_c3888_2, tb_c3888_2n); tb_c3888rw += tb_c3888_2n; memcpy(tb_c3888rw, tb_c3888_3, tb_c3888_3n); tb_c3888rw += tb_c3888_3n; memcpy(tb_c3888rw, tb_c3888_4, tb_c3888_4n); tb_c3888rw += tb_c3888_4n; *tb_c3888rw = 0; (const char *)tb_c3888r; }));
         }
     }
     f_emit__put(v_c, "    return l;\n}\n");
-    f_emit__put(v_c, ({ const char *tb_c3761_0 = "static void tb_colgrow_"; long long tb_c3761_0n = sizeof("static void tb_colgrow_") - 1; const char *tb_c3761_1 = v_nm; long long tb_c3761_1n = (long long)strlen(tb_c3761_1); const char *tb_c3761_2 = "("; long long tb_c3761_2n = sizeof("(") - 1; const char *tb_c3761_3 = v_cols; long long tb_c3761_3n = (long long)strlen(tb_c3761_3); const char *tb_c3761_4 = " *l) {\n"; long long tb_c3761_4n = sizeof(" *l) {\n") - 1; char *tb_c3761r = tb_mem(tb_c3761_0n + tb_c3761_1n + tb_c3761_2n + tb_c3761_3n + tb_c3761_4n + 1), *tb_c3761rw = tb_c3761r; memcpy(tb_c3761rw, tb_c3761_0, tb_c3761_0n); tb_c3761rw += tb_c3761_0n; memcpy(tb_c3761rw, tb_c3761_1, tb_c3761_1n); tb_c3761rw += tb_c3761_1n; memcpy(tb_c3761rw, tb_c3761_2, tb_c3761_2n); tb_c3761rw += tb_c3761_2n; memcpy(tb_c3761rw, tb_c3761_3, tb_c3761_3n); tb_c3761rw += tb_c3761_3n; memcpy(tb_c3761rw, tb_c3761_4, tb_c3761_4n); tb_c3761rw += tb_c3761_4n; *tb_c3761rw = 0; (const char *)tb_c3761r; }));
+    f_emit__put(v_c, ({ const char *tb_c3889_0 = "static void tb_colgrow_"; long long tb_c3889_0n = sizeof("static void tb_colgrow_") - 1; const char *tb_c3889_1 = v_nm; long long tb_c3889_1n = (long long)strlen(tb_c3889_1); const char *tb_c3889_2 = "("; long long tb_c3889_2n = sizeof("(") - 1; const char *tb_c3889_3 = v_cols; long long tb_c3889_3n = (long long)strlen(tb_c3889_3); const char *tb_c3889_4 = " *l) {\n"; long long tb_c3889_4n = sizeof(" *l) {\n") - 1; char *tb_c3889r = tb_mem(tb_c3889_0n + tb_c3889_1n + tb_c3889_2n + tb_c3889_3n + tb_c3889_4n + 1), *tb_c3889rw = tb_c3889r; memcpy(tb_c3889rw, tb_c3889_0, tb_c3889_0n); tb_c3889rw += tb_c3889_0n; memcpy(tb_c3889rw, tb_c3889_1, tb_c3889_1n); tb_c3889rw += tb_c3889_1n; memcpy(tb_c3889rw, tb_c3889_2, tb_c3889_2n); tb_c3889rw += tb_c3889_2n; memcpy(tb_c3889rw, tb_c3889_3, tb_c3889_3n); tb_c3889rw += tb_c3889_3n; memcpy(tb_c3889rw, tb_c3889_4, tb_c3889_4n); tb_c3889rw += tb_c3889_4n; *tb_c3889rw = 0; (const char *)tb_c3889r; }));
     f_emit__put(v_c, "    if (l->len < l->cap) return;\n    l->cap *= 2;\n");
     {
-        tb_list * tb_l3762 = ((tb_o_Node *)tb_nn(v_o, 2137))->q_kids;
-        for (long long tb_i3762 = 0; tb_i3762 < tb_l3762->len; tb_i3762++) {
-            tb_o_Node * const v_f = ((tb_o_Node * *)tb_l3762->data)[tb_i3762];
-            const char * v_ft = f_emit__c_type(v_c, ((tb_o_Node *)tb_nn(v_f, 2138))->q_ty);
-            f_emit__put(v_c, ({ const char *tb_c3763_0 = "    l->q_"; long long tb_c3763_0n = sizeof("    l->q_") - 1; const char *tb_c3763_1 = ((tb_o_Node *)tb_nn(v_f, 2139))->q_name; long long tb_c3763_1n = (long long)strlen(tb_c3763_1); const char *tb_c3763_2 = " = tb_resize(l->q_"; long long tb_c3763_2n = sizeof(" = tb_resize(l->q_") - 1; const char *tb_c3763_3 = ((tb_o_Node *)tb_nn(v_f, 2139))->q_name; long long tb_c3763_3n = (long long)strlen(tb_c3763_3); const char *tb_c3763_4 = ", sizeof("; long long tb_c3763_4n = sizeof(", sizeof(") - 1; const char *tb_c3763_5 = v_ft; long long tb_c3763_5n = (long long)strlen(tb_c3763_5); const char *tb_c3763_6 = ") * (l->cap / 2), sizeof("; long long tb_c3763_6n = sizeof(") * (l->cap / 2), sizeof(") - 1; const char *tb_c3763_7 = v_ft; long long tb_c3763_7n = (long long)strlen(tb_c3763_7); const char *tb_c3763_8 = ") * l->cap);\n"; long long tb_c3763_8n = sizeof(") * l->cap);\n") - 1; char *tb_c3763r = tb_mem(tb_c3763_0n + tb_c3763_1n + tb_c3763_2n + tb_c3763_3n + tb_c3763_4n + tb_c3763_5n + tb_c3763_6n + tb_c3763_7n + tb_c3763_8n + 1), *tb_c3763rw = tb_c3763r; memcpy(tb_c3763rw, tb_c3763_0, tb_c3763_0n); tb_c3763rw += tb_c3763_0n; memcpy(tb_c3763rw, tb_c3763_1, tb_c3763_1n); tb_c3763rw += tb_c3763_1n; memcpy(tb_c3763rw, tb_c3763_2, tb_c3763_2n); tb_c3763rw += tb_c3763_2n; memcpy(tb_c3763rw, tb_c3763_3, tb_c3763_3n); tb_c3763rw += tb_c3763_3n; memcpy(tb_c3763rw, tb_c3763_4, tb_c3763_4n); tb_c3763rw += tb_c3763_4n; memcpy(tb_c3763rw, tb_c3763_5, tb_c3763_5n); tb_c3763rw += tb_c3763_5n; memcpy(tb_c3763rw, tb_c3763_6, tb_c3763_6n); tb_c3763rw += tb_c3763_6n; memcpy(tb_c3763rw, tb_c3763_7, tb_c3763_7n); tb_c3763rw += tb_c3763_7n; memcpy(tb_c3763rw, tb_c3763_8, tb_c3763_8n); tb_c3763rw += tb_c3763_8n; *tb_c3763rw = 0; (const char *)tb_c3763r; }));
+        tb_list * tb_l3890 = ((tb_o_Node *)tb_nn(v_o, 2518))->q_kids;
+        for (long long tb_i3890 = 0; tb_i3890 < tb_l3890->len; tb_i3890++) {
+            tb_o_Node * const v_f = ((tb_o_Node * *)tb_l3890->data)[tb_i3890];
+            const char * v_ft = f_emit__c_type(v_c, ((tb_o_Node *)tb_nn(v_f, 2519))->q_ty);
+            f_emit__put(v_c, ({ const char *tb_c3891_0 = "    l->q_"; long long tb_c3891_0n = sizeof("    l->q_") - 1; const char *tb_c3891_1 = ((tb_o_Node *)tb_nn(v_f, 2520))->q_name; long long tb_c3891_1n = (long long)strlen(tb_c3891_1); const char *tb_c3891_2 = " = tb_resize(l->q_"; long long tb_c3891_2n = sizeof(" = tb_resize(l->q_") - 1; const char *tb_c3891_3 = ((tb_o_Node *)tb_nn(v_f, 2520))->q_name; long long tb_c3891_3n = (long long)strlen(tb_c3891_3); const char *tb_c3891_4 = ", sizeof("; long long tb_c3891_4n = sizeof(", sizeof(") - 1; const char *tb_c3891_5 = v_ft; long long tb_c3891_5n = (long long)strlen(tb_c3891_5); const char *tb_c3891_6 = ") * (l->cap / 2), sizeof("; long long tb_c3891_6n = sizeof(") * (l->cap / 2), sizeof(") - 1; const char *tb_c3891_7 = v_ft; long long tb_c3891_7n = (long long)strlen(tb_c3891_7); const char *tb_c3891_8 = ") * l->cap);\n"; long long tb_c3891_8n = sizeof(") * l->cap);\n") - 1; char *tb_c3891r = tb_mem(tb_c3891_0n + tb_c3891_1n + tb_c3891_2n + tb_c3891_3n + tb_c3891_4n + tb_c3891_5n + tb_c3891_6n + tb_c3891_7n + tb_c3891_8n + 1), *tb_c3891rw = tb_c3891r; memcpy(tb_c3891rw, tb_c3891_0, tb_c3891_0n); tb_c3891rw += tb_c3891_0n; memcpy(tb_c3891rw, tb_c3891_1, tb_c3891_1n); tb_c3891rw += tb_c3891_1n; memcpy(tb_c3891rw, tb_c3891_2, tb_c3891_2n); tb_c3891rw += tb_c3891_2n; memcpy(tb_c3891rw, tb_c3891_3, tb_c3891_3n); tb_c3891rw += tb_c3891_3n; memcpy(tb_c3891rw, tb_c3891_4, tb_c3891_4n); tb_c3891rw += tb_c3891_4n; memcpy(tb_c3891rw, tb_c3891_5, tb_c3891_5n); tb_c3891rw += tb_c3891_5n; memcpy(tb_c3891rw, tb_c3891_6, tb_c3891_6n); tb_c3891rw += tb_c3891_6n; memcpy(tb_c3891rw, tb_c3891_7, tb_c3891_7n); tb_c3891rw += tb_c3891_7n; memcpy(tb_c3891rw, tb_c3891_8, tb_c3891_8n); tb_c3891rw += tb_c3891_8n; *tb_c3891rw = 0; (const char *)tb_c3891r; }));
         }
     }
     f_emit__put(v_c, "}\n");
-    f_emit__put(v_c, ({ const char *tb_c3764_0 = "static "; long long tb_c3764_0n = sizeof("static ") - 1; const char *tb_c3764_1 = v_row; long long tb_c3764_1n = (long long)strlen(tb_c3764_1); const char *tb_c3764_2 = " tb_colat_"; long long tb_c3764_2n = sizeof(" tb_colat_") - 1; const char *tb_c3764_3 = v_nm; long long tb_c3764_3n = (long long)strlen(tb_c3764_3); const char *tb_c3764_4 = "("; long long tb_c3764_4n = sizeof("(") - 1; const char *tb_c3764_5 = v_cols; long long tb_c3764_5n = (long long)strlen(tb_c3764_5); const char *tb_c3764_6 = " *l, long long i, int line) {\n"; long long tb_c3764_6n = sizeof(" *l, long long i, int line) {\n") - 1; char *tb_c3764r = tb_mem(tb_c3764_0n + tb_c3764_1n + tb_c3764_2n + tb_c3764_3n + tb_c3764_4n + tb_c3764_5n + tb_c3764_6n + 1), *tb_c3764rw = tb_c3764r; memcpy(tb_c3764rw, tb_c3764_0, tb_c3764_0n); tb_c3764rw += tb_c3764_0n; memcpy(tb_c3764rw, tb_c3764_1, tb_c3764_1n); tb_c3764rw += tb_c3764_1n; memcpy(tb_c3764rw, tb_c3764_2, tb_c3764_2n); tb_c3764rw += tb_c3764_2n; memcpy(tb_c3764rw, tb_c3764_3, tb_c3764_3n); tb_c3764rw += tb_c3764_3n; memcpy(tb_c3764rw, tb_c3764_4, tb_c3764_4n); tb_c3764rw += tb_c3764_4n; memcpy(tb_c3764rw, tb_c3764_5, tb_c3764_5n); tb_c3764rw += tb_c3764_5n; memcpy(tb_c3764rw, tb_c3764_6, tb_c3764_6n); tb_c3764rw += tb_c3764_6n; *tb_c3764rw = 0; (const char *)tb_c3764r; }));
-    f_emit__put(v_c, ({ const char *tb_c3765_0 = "    if (TB_RARE((unsigned long long)i >= (unsigned long long)(("; long long tb_c3765_0n = sizeof("    if (TB_RARE((unsigned long long)i >= (unsigned long long)((") - 1; const char *tb_c3765_1 = v_cols; long long tb_c3765_1n = (long long)strlen(tb_c3765_1); const char *tb_c3765_2 = " *)tb_nn(l, line))->len)) tb_crash(line, \"номер за пределами списка\");\n"; long long tb_c3765_2n = sizeof(" *)tb_nn(l, line))->len)) tb_crash(line, \"номер за пределами списка\");\n") - 1; char *tb_c3765r = tb_mem(tb_c3765_0n + tb_c3765_1n + tb_c3765_2n + 1), *tb_c3765rw = tb_c3765r; memcpy(tb_c3765rw, tb_c3765_0, tb_c3765_0n); tb_c3765rw += tb_c3765_0n; memcpy(tb_c3765rw, tb_c3765_1, tb_c3765_1n); tb_c3765rw += tb_c3765_1n; memcpy(tb_c3765rw, tb_c3765_2, tb_c3765_2n); tb_c3765rw += tb_c3765_2n; *tb_c3765rw = 0; (const char *)tb_c3765r; }));
-    f_emit__put(v_c, ({ const char *tb_c3766_0 = "    return ("; long long tb_c3766_0n = sizeof("    return (") - 1; const char *tb_c3766_1 = v_row; long long tb_c3766_1n = (long long)strlen(tb_c3766_1); const char *tb_c3766_2 = "){l, i};\n}\n"; long long tb_c3766_2n = sizeof("){l, i};\n}\n") - 1; char *tb_c3766r = tb_mem(tb_c3766_0n + tb_c3766_1n + tb_c3766_2n + 1), *tb_c3766rw = tb_c3766r; memcpy(tb_c3766rw, tb_c3766_0, tb_c3766_0n); tb_c3766rw += tb_c3766_0n; memcpy(tb_c3766rw, tb_c3766_1, tb_c3766_1n); tb_c3766rw += tb_c3766_1n; memcpy(tb_c3766rw, tb_c3766_2, tb_c3766_2n); tb_c3766rw += tb_c3766_2n; *tb_c3766rw = 0; (const char *)tb_c3766r; }));
+    f_emit__put(v_c, ({ const char *tb_c3892_0 = "static "; long long tb_c3892_0n = sizeof("static ") - 1; const char *tb_c3892_1 = v_row; long long tb_c3892_1n = (long long)strlen(tb_c3892_1); const char *tb_c3892_2 = " tb_colat_"; long long tb_c3892_2n = sizeof(" tb_colat_") - 1; const char *tb_c3892_3 = v_nm; long long tb_c3892_3n = (long long)strlen(tb_c3892_3); const char *tb_c3892_4 = "("; long long tb_c3892_4n = sizeof("(") - 1; const char *tb_c3892_5 = v_cols; long long tb_c3892_5n = (long long)strlen(tb_c3892_5); const char *tb_c3892_6 = " *l, long long i, int line) {\n"; long long tb_c3892_6n = sizeof(" *l, long long i, int line) {\n") - 1; char *tb_c3892r = tb_mem(tb_c3892_0n + tb_c3892_1n + tb_c3892_2n + tb_c3892_3n + tb_c3892_4n + tb_c3892_5n + tb_c3892_6n + 1), *tb_c3892rw = tb_c3892r; memcpy(tb_c3892rw, tb_c3892_0, tb_c3892_0n); tb_c3892rw += tb_c3892_0n; memcpy(tb_c3892rw, tb_c3892_1, tb_c3892_1n); tb_c3892rw += tb_c3892_1n; memcpy(tb_c3892rw, tb_c3892_2, tb_c3892_2n); tb_c3892rw += tb_c3892_2n; memcpy(tb_c3892rw, tb_c3892_3, tb_c3892_3n); tb_c3892rw += tb_c3892_3n; memcpy(tb_c3892rw, tb_c3892_4, tb_c3892_4n); tb_c3892rw += tb_c3892_4n; memcpy(tb_c3892rw, tb_c3892_5, tb_c3892_5n); tb_c3892rw += tb_c3892_5n; memcpy(tb_c3892rw, tb_c3892_6, tb_c3892_6n); tb_c3892rw += tb_c3892_6n; *tb_c3892rw = 0; (const char *)tb_c3892r; }));
+    f_emit__put(v_c, ({ const char *tb_c3893_0 = "    if (TB_RARE((unsigned long long)i >= (unsigned long long)(("; long long tb_c3893_0n = sizeof("    if (TB_RARE((unsigned long long)i >= (unsigned long long)((") - 1; const char *tb_c3893_1 = v_cols; long long tb_c3893_1n = (long long)strlen(tb_c3893_1); const char *tb_c3893_2 = " *)tb_nn(l, line))->len)) tb_crash(line, \"номер за пределами списка\");\n"; long long tb_c3893_2n = sizeof(" *)tb_nn(l, line))->len)) tb_crash(line, \"номер за пределами списка\");\n") - 1; char *tb_c3893r = tb_mem(tb_c3893_0n + tb_c3893_1n + tb_c3893_2n + 1), *tb_c3893rw = tb_c3893r; memcpy(tb_c3893rw, tb_c3893_0, tb_c3893_0n); tb_c3893rw += tb_c3893_0n; memcpy(tb_c3893rw, tb_c3893_1, tb_c3893_1n); tb_c3893rw += tb_c3893_1n; memcpy(tb_c3893rw, tb_c3893_2, tb_c3893_2n); tb_c3893rw += tb_c3893_2n; *tb_c3893rw = 0; (const char *)tb_c3893r; }));
+    f_emit__put(v_c, ({ const char *tb_c3894_0 = "    return ("; long long tb_c3894_0n = sizeof("    return (") - 1; const char *tb_c3894_1 = v_row; long long tb_c3894_1n = (long long)strlen(tb_c3894_1); const char *tb_c3894_2 = "){l, i};\n}\n"; long long tb_c3894_2n = sizeof("){l, i};\n}\n") - 1; char *tb_c3894r = tb_mem(tb_c3894_0n + tb_c3894_1n + tb_c3894_2n + 1), *tb_c3894rw = tb_c3894r; memcpy(tb_c3894rw, tb_c3894_0, tb_c3894_0n); tb_c3894rw += tb_c3894_0n; memcpy(tb_c3894rw, tb_c3894_1, tb_c3894_1n); tb_c3894rw += tb_c3894_1n; memcpy(tb_c3894rw, tb_c3894_2, tb_c3894_2n); tb_c3894rw += tb_c3894_2n; *tb_c3894rw = 0; (const char *)tb_c3894r; }));
     {
-        tb_list * tb_l3767 = ((tb_o_Node *)tb_nn(v_o, 2144))->q_kids;
-        for (long long tb_i3767 = 0; tb_i3767 < tb_l3767->len; tb_i3767++) {
-            tb_o_Node * const v_f = ((tb_o_Node * *)tb_l3767->data)[tb_i3767];
-            const char * v_ft = f_emit__c_type(v_c, ((tb_o_Node *)tb_nn(v_f, 2145))->q_ty);
-            f_emit__put(v_c, ({ const char *tb_c3768_0 = "static inline "; long long tb_c3768_0n = sizeof("static inline ") - 1; const char *tb_c3768_1 = v_ft; long long tb_c3768_1n = (long long)strlen(tb_c3768_1); const char *tb_c3768_2 = " *tb_colf_"; long long tb_c3768_2n = sizeof(" *tb_colf_") - 1; const char *tb_c3768_3 = v_nm; long long tb_c3768_3n = (long long)strlen(tb_c3768_3); const char *tb_c3768_4 = "_"; long long tb_c3768_4n = sizeof("_") - 1; const char *tb_c3768_5 = ((tb_o_Node *)tb_nn(v_f, 2146))->q_name; long long tb_c3768_5n = (long long)strlen(tb_c3768_5); const char *tb_c3768_6 = "("; long long tb_c3768_6n = sizeof("(") - 1; const char *tb_c3768_7 = v_row; long long tb_c3768_7n = (long long)strlen(tb_c3768_7); const char *tb_c3768_8 = " r, int line) {\n"; long long tb_c3768_8n = sizeof(" r, int line) {\n") - 1; char *tb_c3768r = tb_mem(tb_c3768_0n + tb_c3768_1n + tb_c3768_2n + tb_c3768_3n + tb_c3768_4n + tb_c3768_5n + tb_c3768_6n + tb_c3768_7n + tb_c3768_8n + 1), *tb_c3768rw = tb_c3768r; memcpy(tb_c3768rw, tb_c3768_0, tb_c3768_0n); tb_c3768rw += tb_c3768_0n; memcpy(tb_c3768rw, tb_c3768_1, tb_c3768_1n); tb_c3768rw += tb_c3768_1n; memcpy(tb_c3768rw, tb_c3768_2, tb_c3768_2n); tb_c3768rw += tb_c3768_2n; memcpy(tb_c3768rw, tb_c3768_3, tb_c3768_3n); tb_c3768rw += tb_c3768_3n; memcpy(tb_c3768rw, tb_c3768_4, tb_c3768_4n); tb_c3768rw += tb_c3768_4n; memcpy(tb_c3768rw, tb_c3768_5, tb_c3768_5n); tb_c3768rw += tb_c3768_5n; memcpy(tb_c3768rw, tb_c3768_6, tb_c3768_6n); tb_c3768rw += tb_c3768_6n; memcpy(tb_c3768rw, tb_c3768_7, tb_c3768_7n); tb_c3768rw += tb_c3768_7n; memcpy(tb_c3768rw, tb_c3768_8, tb_c3768_8n); tb_c3768rw += tb_c3768_8n; *tb_c3768rw = 0; (const char *)tb_c3768r; }));
+        tb_list * tb_l3895 = ((tb_o_Node *)tb_nn(v_o, 2525))->q_kids;
+        for (long long tb_i3895 = 0; tb_i3895 < tb_l3895->len; tb_i3895++) {
+            tb_o_Node * const v_f = ((tb_o_Node * *)tb_l3895->data)[tb_i3895];
+            const char * v_ft = f_emit__c_type(v_c, ((tb_o_Node *)tb_nn(v_f, 2526))->q_ty);
+            f_emit__put(v_c, ({ const char *tb_c3896_0 = "static inline "; long long tb_c3896_0n = sizeof("static inline ") - 1; const char *tb_c3896_1 = v_ft; long long tb_c3896_1n = (long long)strlen(tb_c3896_1); const char *tb_c3896_2 = " *tb_colf_"; long long tb_c3896_2n = sizeof(" *tb_colf_") - 1; const char *tb_c3896_3 = v_nm; long long tb_c3896_3n = (long long)strlen(tb_c3896_3); const char *tb_c3896_4 = "_"; long long tb_c3896_4n = sizeof("_") - 1; const char *tb_c3896_5 = ((tb_o_Node *)tb_nn(v_f, 2527))->q_name; long long tb_c3896_5n = (long long)strlen(tb_c3896_5); const char *tb_c3896_6 = "("; long long tb_c3896_6n = sizeof("(") - 1; const char *tb_c3896_7 = v_row; long long tb_c3896_7n = (long long)strlen(tb_c3896_7); const char *tb_c3896_8 = " r, int line) {\n"; long long tb_c3896_8n = sizeof(" r, int line) {\n") - 1; char *tb_c3896r = tb_mem(tb_c3896_0n + tb_c3896_1n + tb_c3896_2n + tb_c3896_3n + tb_c3896_4n + tb_c3896_5n + tb_c3896_6n + tb_c3896_7n + tb_c3896_8n + 1), *tb_c3896rw = tb_c3896r; memcpy(tb_c3896rw, tb_c3896_0, tb_c3896_0n); tb_c3896rw += tb_c3896_0n; memcpy(tb_c3896rw, tb_c3896_1, tb_c3896_1n); tb_c3896rw += tb_c3896_1n; memcpy(tb_c3896rw, tb_c3896_2, tb_c3896_2n); tb_c3896rw += tb_c3896_2n; memcpy(tb_c3896rw, tb_c3896_3, tb_c3896_3n); tb_c3896rw += tb_c3896_3n; memcpy(tb_c3896rw, tb_c3896_4, tb_c3896_4n); tb_c3896rw += tb_c3896_4n; memcpy(tb_c3896rw, tb_c3896_5, tb_c3896_5n); tb_c3896rw += tb_c3896_5n; memcpy(tb_c3896rw, tb_c3896_6, tb_c3896_6n); tb_c3896rw += tb_c3896_6n; memcpy(tb_c3896rw, tb_c3896_7, tb_c3896_7n); tb_c3896rw += tb_c3896_7n; memcpy(tb_c3896rw, tb_c3896_8, tb_c3896_8n); tb_c3896rw += tb_c3896_8n; *tb_c3896rw = 0; (const char *)tb_c3896r; }));
             f_emit__put(v_c, "    if (TB_RARE(r.c == 0)) tb_crash(line, \"объект пустой: его ещё не создали\");\n");
-            f_emit__put(v_c, ({ const char *tb_c3769_0 = "    return &r.c->q_"; long long tb_c3769_0n = sizeof("    return &r.c->q_") - 1; const char *tb_c3769_1 = ((tb_o_Node *)tb_nn(v_f, 2148))->q_name; long long tb_c3769_1n = (long long)strlen(tb_c3769_1); const char *tb_c3769_2 = "[r.i];\n}\n"; long long tb_c3769_2n = sizeof("[r.i];\n}\n") - 1; char *tb_c3769r = tb_mem(tb_c3769_0n + tb_c3769_1n + tb_c3769_2n + 1), *tb_c3769rw = tb_c3769r; memcpy(tb_c3769rw, tb_c3769_0, tb_c3769_0n); tb_c3769rw += tb_c3769_0n; memcpy(tb_c3769rw, tb_c3769_1, tb_c3769_1n); tb_c3769rw += tb_c3769_1n; memcpy(tb_c3769rw, tb_c3769_2, tb_c3769_2n); tb_c3769rw += tb_c3769_2n; *tb_c3769rw = 0; (const char *)tb_c3769r; }));
+            f_emit__put(v_c, ({ const char *tb_c3897_0 = "    return &r.c->q_"; long long tb_c3897_0n = sizeof("    return &r.c->q_") - 1; const char *tb_c3897_1 = ((tb_o_Node *)tb_nn(v_f, 2529))->q_name; long long tb_c3897_1n = (long long)strlen(tb_c3897_1); const char *tb_c3897_2 = "[r.i];\n}\n"; long long tb_c3897_2n = sizeof("[r.i];\n}\n") - 1; char *tb_c3897r = tb_mem(tb_c3897_0n + tb_c3897_1n + tb_c3897_2n + 1), *tb_c3897rw = tb_c3897r; memcpy(tb_c3897rw, tb_c3897_0, tb_c3897_0n); tb_c3897rw += tb_c3897_0n; memcpy(tb_c3897rw, tb_c3897_1, tb_c3897_1n); tb_c3897rw += tb_c3897_1n; memcpy(tb_c3897rw, tb_c3897_2, tb_c3897_2n); tb_c3897rw += tb_c3897_2n; *tb_c3897rw = 0; (const char *)tb_c3897r; }));
         }
     }
-    f_emit__put(v_c, ({ const char *tb_c3770_0 = "static void tb_coladd_"; long long tb_c3770_0n = sizeof("static void tb_coladd_") - 1; const char *tb_c3770_1 = v_nm; long long tb_c3770_1n = (long long)strlen(tb_c3770_1); const char *tb_c3770_2 = "("; long long tb_c3770_2n = sizeof("(") - 1; const char *tb_c3770_3 = v_cols; long long tb_c3770_3n = (long long)strlen(tb_c3770_3); const char *tb_c3770_4 = " *l, "; long long tb_c3770_4n = sizeof(" *l, ") - 1; const char *tb_c3770_5 = v_row; long long tb_c3770_5n = (long long)strlen(tb_c3770_5); const char *tb_c3770_6 = " r, int line) {\n"; long long tb_c3770_6n = sizeof(" r, int line) {\n") - 1; char *tb_c3770r = tb_mem(tb_c3770_0n + tb_c3770_1n + tb_c3770_2n + tb_c3770_3n + tb_c3770_4n + tb_c3770_5n + tb_c3770_6n + 1), *tb_c3770rw = tb_c3770r; memcpy(tb_c3770rw, tb_c3770_0, tb_c3770_0n); tb_c3770rw += tb_c3770_0n; memcpy(tb_c3770rw, tb_c3770_1, tb_c3770_1n); tb_c3770rw += tb_c3770_1n; memcpy(tb_c3770rw, tb_c3770_2, tb_c3770_2n); tb_c3770rw += tb_c3770_2n; memcpy(tb_c3770rw, tb_c3770_3, tb_c3770_3n); tb_c3770rw += tb_c3770_3n; memcpy(tb_c3770rw, tb_c3770_4, tb_c3770_4n); tb_c3770rw += tb_c3770_4n; memcpy(tb_c3770rw, tb_c3770_5, tb_c3770_5n); tb_c3770rw += tb_c3770_5n; memcpy(tb_c3770rw, tb_c3770_6, tb_c3770_6n); tb_c3770rw += tb_c3770_6n; *tb_c3770rw = 0; (const char *)tb_c3770r; }));
+    f_emit__put(v_c, ({ const char *tb_c3898_0 = "static void tb_coladd_"; long long tb_c3898_0n = sizeof("static void tb_coladd_") - 1; const char *tb_c3898_1 = v_nm; long long tb_c3898_1n = (long long)strlen(tb_c3898_1); const char *tb_c3898_2 = "("; long long tb_c3898_2n = sizeof("(") - 1; const char *tb_c3898_3 = v_cols; long long tb_c3898_3n = (long long)strlen(tb_c3898_3); const char *tb_c3898_4 = " *l, "; long long tb_c3898_4n = sizeof(" *l, ") - 1; const char *tb_c3898_5 = v_row; long long tb_c3898_5n = (long long)strlen(tb_c3898_5); const char *tb_c3898_6 = " r, int line) {\n"; long long tb_c3898_6n = sizeof(" r, int line) {\n") - 1; char *tb_c3898r = tb_mem(tb_c3898_0n + tb_c3898_1n + tb_c3898_2n + tb_c3898_3n + tb_c3898_4n + tb_c3898_5n + tb_c3898_6n + 1), *tb_c3898rw = tb_c3898r; memcpy(tb_c3898rw, tb_c3898_0, tb_c3898_0n); tb_c3898rw += tb_c3898_0n; memcpy(tb_c3898rw, tb_c3898_1, tb_c3898_1n); tb_c3898rw += tb_c3898_1n; memcpy(tb_c3898rw, tb_c3898_2, tb_c3898_2n); tb_c3898rw += tb_c3898_2n; memcpy(tb_c3898rw, tb_c3898_3, tb_c3898_3n); tb_c3898rw += tb_c3898_3n; memcpy(tb_c3898rw, tb_c3898_4, tb_c3898_4n); tb_c3898rw += tb_c3898_4n; memcpy(tb_c3898rw, tb_c3898_5, tb_c3898_5n); tb_c3898rw += tb_c3898_5n; memcpy(tb_c3898rw, tb_c3898_6, tb_c3898_6n); tb_c3898rw += tb_c3898_6n; *tb_c3898rw = 0; (const char *)tb_c3898r; }));
     f_emit__put(v_c, "    if (TB_RARE(r.c == 0)) tb_crash(line, \"объект пустой: его ещё не создали\");\n");
     {
-        long long tb_end3771 = ((((tb_o_Node *)tb_nn(v_o, 2151))->q_kids)->len - 1LL);
-        for (long long v_i = 0LL; v_i <= tb_end3771; v_i++) {
-            f_emit__put(v_c, ({ const char *tb_c3772_0 = "    "; long long tb_c3772_0n = sizeof("    ") - 1; const char *tb_c3772_1 = f_emit__c_type(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_o, 2152))->q_kids, v_i, sizeof(tb_o_Node *), 2152)), 2152))->q_ty); long long tb_c3772_1n = (long long)strlen(tb_c3772_1); const char *tb_c3772_2 = " a"; long long tb_c3772_2n = sizeof(" a") - 1; char tb_c3772_3d[24]; long long tb_c3772_3n; const char *tb_c3772_3 = tb_digits(v_i, tb_c3772_3d, &tb_c3772_3n); const char *tb_c3772_4 = " = r.c->q_"; long long tb_c3772_4n = sizeof(" = r.c->q_") - 1; const char *tb_c3772_5 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_o, 2152))->q_kids, v_i, sizeof(tb_o_Node *), 2152)), 2152))->q_name; long long tb_c3772_5n = (long long)strlen(tb_c3772_5); const char *tb_c3772_6 = "[r.i];\n"; long long tb_c3772_6n = sizeof("[r.i];\n") - 1; char *tb_c3772r = tb_mem(tb_c3772_0n + tb_c3772_1n + tb_c3772_2n + tb_c3772_3n + tb_c3772_4n + tb_c3772_5n + tb_c3772_6n + 1), *tb_c3772rw = tb_c3772r; memcpy(tb_c3772rw, tb_c3772_0, tb_c3772_0n); tb_c3772rw += tb_c3772_0n; memcpy(tb_c3772rw, tb_c3772_1, tb_c3772_1n); tb_c3772rw += tb_c3772_1n; memcpy(tb_c3772rw, tb_c3772_2, tb_c3772_2n); tb_c3772rw += tb_c3772_2n; memcpy(tb_c3772rw, tb_c3772_3, tb_c3772_3n); tb_c3772rw += tb_c3772_3n; memcpy(tb_c3772rw, tb_c3772_4, tb_c3772_4n); tb_c3772rw += tb_c3772_4n; memcpy(tb_c3772rw, tb_c3772_5, tb_c3772_5n); tb_c3772rw += tb_c3772_5n; memcpy(tb_c3772rw, tb_c3772_6, tb_c3772_6n); tb_c3772rw += tb_c3772_6n; *tb_c3772rw = 0; (const char *)tb_c3772r; }));
+        long long tb_end3899 = ((((tb_o_Node *)tb_nn(v_o, 2532))->q_kids)->len - 1LL);
+        for (long long v_i = 0LL; v_i <= tb_end3899; v_i++) {
+            f_emit__put(v_c, ({ const char *tb_c3900_0 = "    "; long long tb_c3900_0n = sizeof("    ") - 1; const char *tb_c3900_1 = f_emit__c_type(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_o, 2533))->q_kids, v_i, sizeof(tb_o_Node *), 2533)), 2533))->q_ty); long long tb_c3900_1n = (long long)strlen(tb_c3900_1); const char *tb_c3900_2 = " a"; long long tb_c3900_2n = sizeof(" a") - 1; char tb_c3900_3d[24]; long long tb_c3900_3n; const char *tb_c3900_3 = tb_digits(v_i, tb_c3900_3d, &tb_c3900_3n); const char *tb_c3900_4 = " = r.c->q_"; long long tb_c3900_4n = sizeof(" = r.c->q_") - 1; const char *tb_c3900_5 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_o, 2533))->q_kids, v_i, sizeof(tb_o_Node *), 2533)), 2533))->q_name; long long tb_c3900_5n = (long long)strlen(tb_c3900_5); const char *tb_c3900_6 = "[r.i];\n"; long long tb_c3900_6n = sizeof("[r.i];\n") - 1; char *tb_c3900r = tb_mem(tb_c3900_0n + tb_c3900_1n + tb_c3900_2n + tb_c3900_3n + tb_c3900_4n + tb_c3900_5n + tb_c3900_6n + 1), *tb_c3900rw = tb_c3900r; memcpy(tb_c3900rw, tb_c3900_0, tb_c3900_0n); tb_c3900rw += tb_c3900_0n; memcpy(tb_c3900rw, tb_c3900_1, tb_c3900_1n); tb_c3900rw += tb_c3900_1n; memcpy(tb_c3900rw, tb_c3900_2, tb_c3900_2n); tb_c3900rw += tb_c3900_2n; memcpy(tb_c3900rw, tb_c3900_3, tb_c3900_3n); tb_c3900rw += tb_c3900_3n; memcpy(tb_c3900rw, tb_c3900_4, tb_c3900_4n); tb_c3900rw += tb_c3900_4n; memcpy(tb_c3900rw, tb_c3900_5, tb_c3900_5n); tb_c3900rw += tb_c3900_5n; memcpy(tb_c3900rw, tb_c3900_6, tb_c3900_6n); tb_c3900rw += tb_c3900_6n; *tb_c3900rw = 0; (const char *)tb_c3900r; }));
         }
     }
-    f_emit__put(v_c, ({ const char *tb_c3773_0 = "    tb_colgrow_"; long long tb_c3773_0n = sizeof("    tb_colgrow_") - 1; const char *tb_c3773_1 = v_nm; long long tb_c3773_1n = (long long)strlen(tb_c3773_1); const char *tb_c3773_2 = "(tb_nn(l, line));\n"; long long tb_c3773_2n = sizeof("(tb_nn(l, line));\n") - 1; char *tb_c3773r = tb_mem(tb_c3773_0n + tb_c3773_1n + tb_c3773_2n + 1), *tb_c3773rw = tb_c3773r; memcpy(tb_c3773rw, tb_c3773_0, tb_c3773_0n); tb_c3773rw += tb_c3773_0n; memcpy(tb_c3773rw, tb_c3773_1, tb_c3773_1n); tb_c3773rw += tb_c3773_1n; memcpy(tb_c3773rw, tb_c3773_2, tb_c3773_2n); tb_c3773rw += tb_c3773_2n; *tb_c3773rw = 0; (const char *)tb_c3773r; }));
+    f_emit__put(v_c, ({ const char *tb_c3901_0 = "    tb_colgrow_"; long long tb_c3901_0n = sizeof("    tb_colgrow_") - 1; const char *tb_c3901_1 = v_nm; long long tb_c3901_1n = (long long)strlen(tb_c3901_1); const char *tb_c3901_2 = "(tb_nn(l, line));\n"; long long tb_c3901_2n = sizeof("(tb_nn(l, line));\n") - 1; char *tb_c3901r = tb_mem(tb_c3901_0n + tb_c3901_1n + tb_c3901_2n + 1), *tb_c3901rw = tb_c3901r; memcpy(tb_c3901rw, tb_c3901_0, tb_c3901_0n); tb_c3901rw += tb_c3901_0n; memcpy(tb_c3901rw, tb_c3901_1, tb_c3901_1n); tb_c3901rw += tb_c3901_1n; memcpy(tb_c3901rw, tb_c3901_2, tb_c3901_2n); tb_c3901rw += tb_c3901_2n; *tb_c3901rw = 0; (const char *)tb_c3901r; }));
     {
-        long long tb_end3774 = ((((tb_o_Node *)tb_nn(v_o, 2154))->q_kids)->len - 1LL);
-        for (long long v_i = 0LL; v_i <= tb_end3774; v_i++) {
-            f_emit__put(v_c, ({ const char *tb_c3775_0 = "    l->q_"; long long tb_c3775_0n = sizeof("    l->q_") - 1; const char *tb_c3775_1 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_o, 2155))->q_kids, v_i, sizeof(tb_o_Node *), 2155)), 2155))->q_name; long long tb_c3775_1n = (long long)strlen(tb_c3775_1); const char *tb_c3775_2 = "[l->len] = a"; long long tb_c3775_2n = sizeof("[l->len] = a") - 1; char tb_c3775_3d[24]; long long tb_c3775_3n; const char *tb_c3775_3 = tb_digits(v_i, tb_c3775_3d, &tb_c3775_3n); const char *tb_c3775_4 = ";\n"; long long tb_c3775_4n = sizeof(";\n") - 1; char *tb_c3775r = tb_mem(tb_c3775_0n + tb_c3775_1n + tb_c3775_2n + tb_c3775_3n + tb_c3775_4n + 1), *tb_c3775rw = tb_c3775r; memcpy(tb_c3775rw, tb_c3775_0, tb_c3775_0n); tb_c3775rw += tb_c3775_0n; memcpy(tb_c3775rw, tb_c3775_1, tb_c3775_1n); tb_c3775rw += tb_c3775_1n; memcpy(tb_c3775rw, tb_c3775_2, tb_c3775_2n); tb_c3775rw += tb_c3775_2n; memcpy(tb_c3775rw, tb_c3775_3, tb_c3775_3n); tb_c3775rw += tb_c3775_3n; memcpy(tb_c3775rw, tb_c3775_4, tb_c3775_4n); tb_c3775rw += tb_c3775_4n; *tb_c3775rw = 0; (const char *)tb_c3775r; }));
+        long long tb_end3902 = ((((tb_o_Node *)tb_nn(v_o, 2535))->q_kids)->len - 1LL);
+        for (long long v_i = 0LL; v_i <= tb_end3902; v_i++) {
+            f_emit__put(v_c, ({ const char *tb_c3903_0 = "    l->q_"; long long tb_c3903_0n = sizeof("    l->q_") - 1; const char *tb_c3903_1 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_o, 2536))->q_kids, v_i, sizeof(tb_o_Node *), 2536)), 2536))->q_name; long long tb_c3903_1n = (long long)strlen(tb_c3903_1); const char *tb_c3903_2 = "[l->len] = a"; long long tb_c3903_2n = sizeof("[l->len] = a") - 1; char tb_c3903_3d[24]; long long tb_c3903_3n; const char *tb_c3903_3 = tb_digits(v_i, tb_c3903_3d, &tb_c3903_3n); const char *tb_c3903_4 = ";\n"; long long tb_c3903_4n = sizeof(";\n") - 1; char *tb_c3903r = tb_mem(tb_c3903_0n + tb_c3903_1n + tb_c3903_2n + tb_c3903_3n + tb_c3903_4n + 1), *tb_c3903rw = tb_c3903r; memcpy(tb_c3903rw, tb_c3903_0, tb_c3903_0n); tb_c3903rw += tb_c3903_0n; memcpy(tb_c3903rw, tb_c3903_1, tb_c3903_1n); tb_c3903rw += tb_c3903_1n; memcpy(tb_c3903rw, tb_c3903_2, tb_c3903_2n); tb_c3903rw += tb_c3903_2n; memcpy(tb_c3903rw, tb_c3903_3, tb_c3903_3n); tb_c3903rw += tb_c3903_3n; memcpy(tb_c3903rw, tb_c3903_4, tb_c3903_4n); tb_c3903rw += tb_c3903_4n; *tb_c3903rw = 0; (const char *)tb_c3903r; }));
         }
     }
     f_emit__put(v_c, "    l->len += 1;\n}\n");
-    f_emit__put(v_c, ({ const char *tb_c3776_0 = "static void tb_colpush_"; long long tb_c3776_0n = sizeof("static void tb_colpush_") - 1; const char *tb_c3776_1 = v_nm; long long tb_c3776_1n = (long long)strlen(tb_c3776_1); const char *tb_c3776_2 = "("; long long tb_c3776_2n = sizeof("(") - 1; const char *tb_c3776_3 = v_cols; long long tb_c3776_3n = (long long)strlen(tb_c3776_3); const char *tb_c3776_4 = " *l"; long long tb_c3776_4n = sizeof(" *l") - 1; char *tb_c3776r = tb_mem(tb_c3776_0n + tb_c3776_1n + tb_c3776_2n + tb_c3776_3n + tb_c3776_4n + 1), *tb_c3776rw = tb_c3776r; memcpy(tb_c3776rw, tb_c3776_0, tb_c3776_0n); tb_c3776rw += tb_c3776_0n; memcpy(tb_c3776rw, tb_c3776_1, tb_c3776_1n); tb_c3776rw += tb_c3776_1n; memcpy(tb_c3776rw, tb_c3776_2, tb_c3776_2n); tb_c3776rw += tb_c3776_2n; memcpy(tb_c3776rw, tb_c3776_3, tb_c3776_3n); tb_c3776rw += tb_c3776_3n; memcpy(tb_c3776rw, tb_c3776_4, tb_c3776_4n); tb_c3776rw += tb_c3776_4n; *tb_c3776rw = 0; (const char *)tb_c3776r; }));
+    f_emit__put(v_c, ({ const char *tb_c3904_0 = "static void tb_colpush_"; long long tb_c3904_0n = sizeof("static void tb_colpush_") - 1; const char *tb_c3904_1 = v_nm; long long tb_c3904_1n = (long long)strlen(tb_c3904_1); const char *tb_c3904_2 = "("; long long tb_c3904_2n = sizeof("(") - 1; const char *tb_c3904_3 = v_cols; long long tb_c3904_3n = (long long)strlen(tb_c3904_3); const char *tb_c3904_4 = " *l"; long long tb_c3904_4n = sizeof(" *l") - 1; char *tb_c3904r = tb_mem(tb_c3904_0n + tb_c3904_1n + tb_c3904_2n + tb_c3904_3n + tb_c3904_4n + 1), *tb_c3904rw = tb_c3904r; memcpy(tb_c3904rw, tb_c3904_0, tb_c3904_0n); tb_c3904rw += tb_c3904_0n; memcpy(tb_c3904rw, tb_c3904_1, tb_c3904_1n); tb_c3904rw += tb_c3904_1n; memcpy(tb_c3904rw, tb_c3904_2, tb_c3904_2n); tb_c3904rw += tb_c3904_2n; memcpy(tb_c3904rw, tb_c3904_3, tb_c3904_3n); tb_c3904rw += tb_c3904_3n; memcpy(tb_c3904rw, tb_c3904_4, tb_c3904_4n); tb_c3904rw += tb_c3904_4n; *tb_c3904rw = 0; (const char *)tb_c3904r; }));
     {
-        long long tb_end3777 = ((((tb_o_Node *)tb_nn(v_o, 2158))->q_kids)->len - 1LL);
-        for (long long v_i = 0LL; v_i <= tb_end3777; v_i++) {
-            f_emit__put(v_c, ({ const char *tb_c3778_0 = ", "; long long tb_c3778_0n = sizeof(", ") - 1; const char *tb_c3778_1 = f_emit__c_type(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_o, 2159))->q_kids, v_i, sizeof(tb_o_Node *), 2159)), 2159))->q_ty); long long tb_c3778_1n = (long long)strlen(tb_c3778_1); const char *tb_c3778_2 = " a"; long long tb_c3778_2n = sizeof(" a") - 1; char tb_c3778_3d[24]; long long tb_c3778_3n; const char *tb_c3778_3 = tb_digits(v_i, tb_c3778_3d, &tb_c3778_3n); char *tb_c3778r = tb_mem(tb_c3778_0n + tb_c3778_1n + tb_c3778_2n + tb_c3778_3n + 1), *tb_c3778rw = tb_c3778r; memcpy(tb_c3778rw, tb_c3778_0, tb_c3778_0n); tb_c3778rw += tb_c3778_0n; memcpy(tb_c3778rw, tb_c3778_1, tb_c3778_1n); tb_c3778rw += tb_c3778_1n; memcpy(tb_c3778rw, tb_c3778_2, tb_c3778_2n); tb_c3778rw += tb_c3778_2n; memcpy(tb_c3778rw, tb_c3778_3, tb_c3778_3n); tb_c3778rw += tb_c3778_3n; *tb_c3778rw = 0; (const char *)tb_c3778r; }));
+        long long tb_end3905 = ((((tb_o_Node *)tb_nn(v_o, 2539))->q_kids)->len - 1LL);
+        for (long long v_i = 0LL; v_i <= tb_end3905; v_i++) {
+            f_emit__put(v_c, ({ const char *tb_c3906_0 = ", "; long long tb_c3906_0n = sizeof(", ") - 1; const char *tb_c3906_1 = f_emit__c_type(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_o, 2540))->q_kids, v_i, sizeof(tb_o_Node *), 2540)), 2540))->q_ty); long long tb_c3906_1n = (long long)strlen(tb_c3906_1); const char *tb_c3906_2 = " a"; long long tb_c3906_2n = sizeof(" a") - 1; char tb_c3906_3d[24]; long long tb_c3906_3n; const char *tb_c3906_3 = tb_digits(v_i, tb_c3906_3d, &tb_c3906_3n); char *tb_c3906r = tb_mem(tb_c3906_0n + tb_c3906_1n + tb_c3906_2n + tb_c3906_3n + 1), *tb_c3906rw = tb_c3906r; memcpy(tb_c3906rw, tb_c3906_0, tb_c3906_0n); tb_c3906rw += tb_c3906_0n; memcpy(tb_c3906rw, tb_c3906_1, tb_c3906_1n); tb_c3906rw += tb_c3906_1n; memcpy(tb_c3906rw, tb_c3906_2, tb_c3906_2n); tb_c3906rw += tb_c3906_2n; memcpy(tb_c3906rw, tb_c3906_3, tb_c3906_3n); tb_c3906rw += tb_c3906_3n; *tb_c3906rw = 0; (const char *)tb_c3906r; }));
         }
     }
-    f_emit__put(v_c, ({ const char *tb_c3779_0 = ", int line) {\n    tb_colgrow_"; long long tb_c3779_0n = sizeof(", int line) {\n    tb_colgrow_") - 1; const char *tb_c3779_1 = v_nm; long long tb_c3779_1n = (long long)strlen(tb_c3779_1); const char *tb_c3779_2 = "(tb_nn(l, line));\n"; long long tb_c3779_2n = sizeof("(tb_nn(l, line));\n") - 1; char *tb_c3779r = tb_mem(tb_c3779_0n + tb_c3779_1n + tb_c3779_2n + 1), *tb_c3779rw = tb_c3779r; memcpy(tb_c3779rw, tb_c3779_0, tb_c3779_0n); tb_c3779rw += tb_c3779_0n; memcpy(tb_c3779rw, tb_c3779_1, tb_c3779_1n); tb_c3779rw += tb_c3779_1n; memcpy(tb_c3779rw, tb_c3779_2, tb_c3779_2n); tb_c3779rw += tb_c3779_2n; *tb_c3779rw = 0; (const char *)tb_c3779r; }));
+    f_emit__put(v_c, ({ const char *tb_c3907_0 = ", int line) {\n    tb_colgrow_"; long long tb_c3907_0n = sizeof(", int line) {\n    tb_colgrow_") - 1; const char *tb_c3907_1 = v_nm; long long tb_c3907_1n = (long long)strlen(tb_c3907_1); const char *tb_c3907_2 = "(tb_nn(l, line));\n"; long long tb_c3907_2n = sizeof("(tb_nn(l, line));\n") - 1; char *tb_c3907r = tb_mem(tb_c3907_0n + tb_c3907_1n + tb_c3907_2n + 1), *tb_c3907rw = tb_c3907r; memcpy(tb_c3907rw, tb_c3907_0, tb_c3907_0n); tb_c3907rw += tb_c3907_0n; memcpy(tb_c3907rw, tb_c3907_1, tb_c3907_1n); tb_c3907rw += tb_c3907_1n; memcpy(tb_c3907rw, tb_c3907_2, tb_c3907_2n); tb_c3907rw += tb_c3907_2n; *tb_c3907rw = 0; (const char *)tb_c3907r; }));
     {
-        long long tb_end3780 = ((((tb_o_Node *)tb_nn(v_o, 2161))->q_kids)->len - 1LL);
-        for (long long v_i = 0LL; v_i <= tb_end3780; v_i++) {
-            f_emit__put(v_c, ({ const char *tb_c3781_0 = "    l->q_"; long long tb_c3781_0n = sizeof("    l->q_") - 1; const char *tb_c3781_1 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_o, 2162))->q_kids, v_i, sizeof(tb_o_Node *), 2162)), 2162))->q_name; long long tb_c3781_1n = (long long)strlen(tb_c3781_1); const char *tb_c3781_2 = "[l->len] = a"; long long tb_c3781_2n = sizeof("[l->len] = a") - 1; char tb_c3781_3d[24]; long long tb_c3781_3n; const char *tb_c3781_3 = tb_digits(v_i, tb_c3781_3d, &tb_c3781_3n); const char *tb_c3781_4 = ";\n"; long long tb_c3781_4n = sizeof(";\n") - 1; char *tb_c3781r = tb_mem(tb_c3781_0n + tb_c3781_1n + tb_c3781_2n + tb_c3781_3n + tb_c3781_4n + 1), *tb_c3781rw = tb_c3781r; memcpy(tb_c3781rw, tb_c3781_0, tb_c3781_0n); tb_c3781rw += tb_c3781_0n; memcpy(tb_c3781rw, tb_c3781_1, tb_c3781_1n); tb_c3781rw += tb_c3781_1n; memcpy(tb_c3781rw, tb_c3781_2, tb_c3781_2n); tb_c3781rw += tb_c3781_2n; memcpy(tb_c3781rw, tb_c3781_3, tb_c3781_3n); tb_c3781rw += tb_c3781_3n; memcpy(tb_c3781rw, tb_c3781_4, tb_c3781_4n); tb_c3781rw += tb_c3781_4n; *tb_c3781rw = 0; (const char *)tb_c3781r; }));
+        long long tb_end3908 = ((((tb_o_Node *)tb_nn(v_o, 2542))->q_kids)->len - 1LL);
+        for (long long v_i = 0LL; v_i <= tb_end3908; v_i++) {
+            f_emit__put(v_c, ({ const char *tb_c3909_0 = "    l->q_"; long long tb_c3909_0n = sizeof("    l->q_") - 1; const char *tb_c3909_1 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_o, 2543))->q_kids, v_i, sizeof(tb_o_Node *), 2543)), 2543))->q_name; long long tb_c3909_1n = (long long)strlen(tb_c3909_1); const char *tb_c3909_2 = "[l->len] = a"; long long tb_c3909_2n = sizeof("[l->len] = a") - 1; char tb_c3909_3d[24]; long long tb_c3909_3n; const char *tb_c3909_3 = tb_digits(v_i, tb_c3909_3d, &tb_c3909_3n); const char *tb_c3909_4 = ";\n"; long long tb_c3909_4n = sizeof(";\n") - 1; char *tb_c3909r = tb_mem(tb_c3909_0n + tb_c3909_1n + tb_c3909_2n + tb_c3909_3n + tb_c3909_4n + 1), *tb_c3909rw = tb_c3909r; memcpy(tb_c3909rw, tb_c3909_0, tb_c3909_0n); tb_c3909rw += tb_c3909_0n; memcpy(tb_c3909rw, tb_c3909_1, tb_c3909_1n); tb_c3909rw += tb_c3909_1n; memcpy(tb_c3909rw, tb_c3909_2, tb_c3909_2n); tb_c3909rw += tb_c3909_2n; memcpy(tb_c3909rw, tb_c3909_3, tb_c3909_3n); tb_c3909rw += tb_c3909_3n; memcpy(tb_c3909rw, tb_c3909_4, tb_c3909_4n); tb_c3909rw += tb_c3909_4n; *tb_c3909rw = 0; (const char *)tb_c3909r; }));
         }
     }
     f_emit__put(v_c, "    l->len += 1;\n}\n");
-    f_emit__put(v_c, ({ const char *tb_c3782_0 = "static void tb_colset_"; long long tb_c3782_0n = sizeof("static void tb_colset_") - 1; const char *tb_c3782_1 = v_nm; long long tb_c3782_1n = (long long)strlen(tb_c3782_1); const char *tb_c3782_2 = "("; long long tb_c3782_2n = sizeof("(") - 1; const char *tb_c3782_3 = v_cols; long long tb_c3782_3n = (long long)strlen(tb_c3782_3); const char *tb_c3782_4 = " *l, long long i, "; long long tb_c3782_4n = sizeof(" *l, long long i, ") - 1; const char *tb_c3782_5 = v_row; long long tb_c3782_5n = (long long)strlen(tb_c3782_5); const char *tb_c3782_6 = " r, int line) {\n"; long long tb_c3782_6n = sizeof(" r, int line) {\n") - 1; char *tb_c3782r = tb_mem(tb_c3782_0n + tb_c3782_1n + tb_c3782_2n + tb_c3782_3n + tb_c3782_4n + tb_c3782_5n + tb_c3782_6n + 1), *tb_c3782rw = tb_c3782r; memcpy(tb_c3782rw, tb_c3782_0, tb_c3782_0n); tb_c3782rw += tb_c3782_0n; memcpy(tb_c3782rw, tb_c3782_1, tb_c3782_1n); tb_c3782rw += tb_c3782_1n; memcpy(tb_c3782rw, tb_c3782_2, tb_c3782_2n); tb_c3782rw += tb_c3782_2n; memcpy(tb_c3782rw, tb_c3782_3, tb_c3782_3n); tb_c3782rw += tb_c3782_3n; memcpy(tb_c3782rw, tb_c3782_4, tb_c3782_4n); tb_c3782rw += tb_c3782_4n; memcpy(tb_c3782rw, tb_c3782_5, tb_c3782_5n); tb_c3782rw += tb_c3782_5n; memcpy(tb_c3782rw, tb_c3782_6, tb_c3782_6n); tb_c3782rw += tb_c3782_6n; *tb_c3782rw = 0; (const char *)tb_c3782r; }));
-    f_emit__put(v_c, ({ const char *tb_c3783_0 = "    tb_colat_"; long long tb_c3783_0n = sizeof("    tb_colat_") - 1; const char *tb_c3783_1 = v_nm; long long tb_c3783_1n = (long long)strlen(tb_c3783_1); const char *tb_c3783_2 = "(l, i, line);\n"; long long tb_c3783_2n = sizeof("(l, i, line);\n") - 1; char *tb_c3783r = tb_mem(tb_c3783_0n + tb_c3783_1n + tb_c3783_2n + 1), *tb_c3783rw = tb_c3783r; memcpy(tb_c3783rw, tb_c3783_0, tb_c3783_0n); tb_c3783rw += tb_c3783_0n; memcpy(tb_c3783rw, tb_c3783_1, tb_c3783_1n); tb_c3783rw += tb_c3783_1n; memcpy(tb_c3783rw, tb_c3783_2, tb_c3783_2n); tb_c3783rw += tb_c3783_2n; *tb_c3783rw = 0; (const char *)tb_c3783r; }));
+    f_emit__put(v_c, ({ const char *tb_c3910_0 = "static void tb_colset_"; long long tb_c3910_0n = sizeof("static void tb_colset_") - 1; const char *tb_c3910_1 = v_nm; long long tb_c3910_1n = (long long)strlen(tb_c3910_1); const char *tb_c3910_2 = "("; long long tb_c3910_2n = sizeof("(") - 1; const char *tb_c3910_3 = v_cols; long long tb_c3910_3n = (long long)strlen(tb_c3910_3); const char *tb_c3910_4 = " *l, long long i, "; long long tb_c3910_4n = sizeof(" *l, long long i, ") - 1; const char *tb_c3910_5 = v_row; long long tb_c3910_5n = (long long)strlen(tb_c3910_5); const char *tb_c3910_6 = " r, int line) {\n"; long long tb_c3910_6n = sizeof(" r, int line) {\n") - 1; char *tb_c3910r = tb_mem(tb_c3910_0n + tb_c3910_1n + tb_c3910_2n + tb_c3910_3n + tb_c3910_4n + tb_c3910_5n + tb_c3910_6n + 1), *tb_c3910rw = tb_c3910r; memcpy(tb_c3910rw, tb_c3910_0, tb_c3910_0n); tb_c3910rw += tb_c3910_0n; memcpy(tb_c3910rw, tb_c3910_1, tb_c3910_1n); tb_c3910rw += tb_c3910_1n; memcpy(tb_c3910rw, tb_c3910_2, tb_c3910_2n); tb_c3910rw += tb_c3910_2n; memcpy(tb_c3910rw, tb_c3910_3, tb_c3910_3n); tb_c3910rw += tb_c3910_3n; memcpy(tb_c3910rw, tb_c3910_4, tb_c3910_4n); tb_c3910rw += tb_c3910_4n; memcpy(tb_c3910rw, tb_c3910_5, tb_c3910_5n); tb_c3910rw += tb_c3910_5n; memcpy(tb_c3910rw, tb_c3910_6, tb_c3910_6n); tb_c3910rw += tb_c3910_6n; *tb_c3910rw = 0; (const char *)tb_c3910r; }));
+    f_emit__put(v_c, ({ const char *tb_c3911_0 = "    tb_colat_"; long long tb_c3911_0n = sizeof("    tb_colat_") - 1; const char *tb_c3911_1 = v_nm; long long tb_c3911_1n = (long long)strlen(tb_c3911_1); const char *tb_c3911_2 = "(l, i, line);\n"; long long tb_c3911_2n = sizeof("(l, i, line);\n") - 1; char *tb_c3911r = tb_mem(tb_c3911_0n + tb_c3911_1n + tb_c3911_2n + 1), *tb_c3911rw = tb_c3911r; memcpy(tb_c3911rw, tb_c3911_0, tb_c3911_0n); tb_c3911rw += tb_c3911_0n; memcpy(tb_c3911rw, tb_c3911_1, tb_c3911_1n); tb_c3911rw += tb_c3911_1n; memcpy(tb_c3911rw, tb_c3911_2, tb_c3911_2n); tb_c3911rw += tb_c3911_2n; *tb_c3911rw = 0; (const char *)tb_c3911r; }));
     f_emit__put(v_c, "    if (TB_RARE(r.c == 0)) tb_crash(line, \"объект пустой: его ещё не создали\");\n");
     {
-        tb_list * tb_l3784 = ((tb_o_Node *)tb_nn(v_o, 2167))->q_kids;
-        for (long long tb_i3784 = 0; tb_i3784 < tb_l3784->len; tb_i3784++) {
-            tb_o_Node * const v_f = ((tb_o_Node * *)tb_l3784->data)[tb_i3784];
-            f_emit__put(v_c, ({ const char *tb_c3785_0 = "    l->q_"; long long tb_c3785_0n = sizeof("    l->q_") - 1; const char *tb_c3785_1 = ((tb_o_Node *)tb_nn(v_f, 2168))->q_name; long long tb_c3785_1n = (long long)strlen(tb_c3785_1); const char *tb_c3785_2 = "[i] = r.c->q_"; long long tb_c3785_2n = sizeof("[i] = r.c->q_") - 1; const char *tb_c3785_3 = ((tb_o_Node *)tb_nn(v_f, 2168))->q_name; long long tb_c3785_3n = (long long)strlen(tb_c3785_3); const char *tb_c3785_4 = "[r.i];\n"; long long tb_c3785_4n = sizeof("[r.i];\n") - 1; char *tb_c3785r = tb_mem(tb_c3785_0n + tb_c3785_1n + tb_c3785_2n + tb_c3785_3n + tb_c3785_4n + 1), *tb_c3785rw = tb_c3785r; memcpy(tb_c3785rw, tb_c3785_0, tb_c3785_0n); tb_c3785rw += tb_c3785_0n; memcpy(tb_c3785rw, tb_c3785_1, tb_c3785_1n); tb_c3785rw += tb_c3785_1n; memcpy(tb_c3785rw, tb_c3785_2, tb_c3785_2n); tb_c3785rw += tb_c3785_2n; memcpy(tb_c3785rw, tb_c3785_3, tb_c3785_3n); tb_c3785rw += tb_c3785_3n; memcpy(tb_c3785rw, tb_c3785_4, tb_c3785_4n); tb_c3785rw += tb_c3785_4n; *tb_c3785rw = 0; (const char *)tb_c3785r; }));
+        tb_list * tb_l3912 = ((tb_o_Node *)tb_nn(v_o, 2548))->q_kids;
+        for (long long tb_i3912 = 0; tb_i3912 < tb_l3912->len; tb_i3912++) {
+            tb_o_Node * const v_f = ((tb_o_Node * *)tb_l3912->data)[tb_i3912];
+            f_emit__put(v_c, ({ const char *tb_c3913_0 = "    l->q_"; long long tb_c3913_0n = sizeof("    l->q_") - 1; const char *tb_c3913_1 = ((tb_o_Node *)tb_nn(v_f, 2549))->q_name; long long tb_c3913_1n = (long long)strlen(tb_c3913_1); const char *tb_c3913_2 = "[i] = r.c->q_"; long long tb_c3913_2n = sizeof("[i] = r.c->q_") - 1; const char *tb_c3913_3 = ((tb_o_Node *)tb_nn(v_f, 2549))->q_name; long long tb_c3913_3n = (long long)strlen(tb_c3913_3); const char *tb_c3913_4 = "[r.i];\n"; long long tb_c3913_4n = sizeof("[r.i];\n") - 1; char *tb_c3913r = tb_mem(tb_c3913_0n + tb_c3913_1n + tb_c3913_2n + tb_c3913_3n + tb_c3913_4n + 1), *tb_c3913rw = tb_c3913r; memcpy(tb_c3913rw, tb_c3913_0, tb_c3913_0n); tb_c3913rw += tb_c3913_0n; memcpy(tb_c3913rw, tb_c3913_1, tb_c3913_1n); tb_c3913rw += tb_c3913_1n; memcpy(tb_c3913rw, tb_c3913_2, tb_c3913_2n); tb_c3913rw += tb_c3913_2n; memcpy(tb_c3913rw, tb_c3913_3, tb_c3913_3n); tb_c3913rw += tb_c3913_3n; memcpy(tb_c3913rw, tb_c3913_4, tb_c3913_4n); tb_c3913rw += tb_c3913_4n; *tb_c3913rw = 0; (const char *)tb_c3913r; }));
         }
     }
     f_emit__put(v_c, "}\n");
-    f_emit__put(v_c, ({ const char *tb_c3786_0 = "static "; long long tb_c3786_0n = sizeof("static ") - 1; const char *tb_c3786_1 = v_cols; long long tb_c3786_1n = (long long)strlen(tb_c3786_1); const char *tb_c3786_2 = " *tb_colsfrom_"; long long tb_c3786_2n = sizeof(" *tb_colsfrom_") - 1; const char *tb_c3786_3 = v_nm; long long tb_c3786_3n = (long long)strlen(tb_c3786_3); const char *tb_c3786_4 = "(long long n, "; long long tb_c3786_4n = sizeof("(long long n, ") - 1; const char *tb_c3786_5 = v_row; long long tb_c3786_5n = (long long)strlen(tb_c3786_5); const char *tb_c3786_6 = " *rows) {\n"; long long tb_c3786_6n = sizeof(" *rows) {\n") - 1; char *tb_c3786r = tb_mem(tb_c3786_0n + tb_c3786_1n + tb_c3786_2n + tb_c3786_3n + tb_c3786_4n + tb_c3786_5n + tb_c3786_6n + 1), *tb_c3786rw = tb_c3786r; memcpy(tb_c3786rw, tb_c3786_0, tb_c3786_0n); tb_c3786rw += tb_c3786_0n; memcpy(tb_c3786rw, tb_c3786_1, tb_c3786_1n); tb_c3786rw += tb_c3786_1n; memcpy(tb_c3786rw, tb_c3786_2, tb_c3786_2n); tb_c3786rw += tb_c3786_2n; memcpy(tb_c3786rw, tb_c3786_3, tb_c3786_3n); tb_c3786rw += tb_c3786_3n; memcpy(tb_c3786rw, tb_c3786_4, tb_c3786_4n); tb_c3786rw += tb_c3786_4n; memcpy(tb_c3786rw, tb_c3786_5, tb_c3786_5n); tb_c3786rw += tb_c3786_5n; memcpy(tb_c3786rw, tb_c3786_6, tb_c3786_6n); tb_c3786rw += tb_c3786_6n; *tb_c3786rw = 0; (const char *)tb_c3786r; }));
-    f_emit__put(v_c, ({ const char *tb_c3787_0 = "    "; long long tb_c3787_0n = sizeof("    ") - 1; const char *tb_c3787_1 = v_cols; long long tb_c3787_1n = (long long)strlen(tb_c3787_1); const char *tb_c3787_2 = " *l = tb_cols_new_"; long long tb_c3787_2n = sizeof(" *l = tb_cols_new_") - 1; const char *tb_c3787_3 = v_nm; long long tb_c3787_3n = (long long)strlen(tb_c3787_3); const char *tb_c3787_4 = "();\n"; long long tb_c3787_4n = sizeof("();\n") - 1; char *tb_c3787r = tb_mem(tb_c3787_0n + tb_c3787_1n + tb_c3787_2n + tb_c3787_3n + tb_c3787_4n + 1), *tb_c3787rw = tb_c3787r; memcpy(tb_c3787rw, tb_c3787_0, tb_c3787_0n); tb_c3787rw += tb_c3787_0n; memcpy(tb_c3787rw, tb_c3787_1, tb_c3787_1n); tb_c3787rw += tb_c3787_1n; memcpy(tb_c3787rw, tb_c3787_2, tb_c3787_2n); tb_c3787rw += tb_c3787_2n; memcpy(tb_c3787rw, tb_c3787_3, tb_c3787_3n); tb_c3787rw += tb_c3787_3n; memcpy(tb_c3787rw, tb_c3787_4, tb_c3787_4n); tb_c3787rw += tb_c3787_4n; *tb_c3787rw = 0; (const char *)tb_c3787r; }));
-    f_emit__put(v_c, ({ const char *tb_c3788_0 = "    for (long long i = 0; i < n; i++) tb_coladd_"; long long tb_c3788_0n = sizeof("    for (long long i = 0; i < n; i++) tb_coladd_") - 1; const char *tb_c3788_1 = v_nm; long long tb_c3788_1n = (long long)strlen(tb_c3788_1); const char *tb_c3788_2 = "(l, rows[i], 0);\n"; long long tb_c3788_2n = sizeof("(l, rows[i], 0);\n") - 1; char *tb_c3788r = tb_mem(tb_c3788_0n + tb_c3788_1n + tb_c3788_2n + 1), *tb_c3788rw = tb_c3788r; memcpy(tb_c3788rw, tb_c3788_0, tb_c3788_0n); tb_c3788rw += tb_c3788_0n; memcpy(tb_c3788rw, tb_c3788_1, tb_c3788_1n); tb_c3788rw += tb_c3788_1n; memcpy(tb_c3788rw, tb_c3788_2, tb_c3788_2n); tb_c3788rw += tb_c3788_2n; *tb_c3788rw = 0; (const char *)tb_c3788r; }));
+    f_emit__put(v_c, ({ const char *tb_c3914_0 = "static "; long long tb_c3914_0n = sizeof("static ") - 1; const char *tb_c3914_1 = v_cols; long long tb_c3914_1n = (long long)strlen(tb_c3914_1); const char *tb_c3914_2 = " *tb_colsfrom_"; long long tb_c3914_2n = sizeof(" *tb_colsfrom_") - 1; const char *tb_c3914_3 = v_nm; long long tb_c3914_3n = (long long)strlen(tb_c3914_3); const char *tb_c3914_4 = "(long long n, "; long long tb_c3914_4n = sizeof("(long long n, ") - 1; const char *tb_c3914_5 = v_row; long long tb_c3914_5n = (long long)strlen(tb_c3914_5); const char *tb_c3914_6 = " *rows) {\n"; long long tb_c3914_6n = sizeof(" *rows) {\n") - 1; char *tb_c3914r = tb_mem(tb_c3914_0n + tb_c3914_1n + tb_c3914_2n + tb_c3914_3n + tb_c3914_4n + tb_c3914_5n + tb_c3914_6n + 1), *tb_c3914rw = tb_c3914r; memcpy(tb_c3914rw, tb_c3914_0, tb_c3914_0n); tb_c3914rw += tb_c3914_0n; memcpy(tb_c3914rw, tb_c3914_1, tb_c3914_1n); tb_c3914rw += tb_c3914_1n; memcpy(tb_c3914rw, tb_c3914_2, tb_c3914_2n); tb_c3914rw += tb_c3914_2n; memcpy(tb_c3914rw, tb_c3914_3, tb_c3914_3n); tb_c3914rw += tb_c3914_3n; memcpy(tb_c3914rw, tb_c3914_4, tb_c3914_4n); tb_c3914rw += tb_c3914_4n; memcpy(tb_c3914rw, tb_c3914_5, tb_c3914_5n); tb_c3914rw += tb_c3914_5n; memcpy(tb_c3914rw, tb_c3914_6, tb_c3914_6n); tb_c3914rw += tb_c3914_6n; *tb_c3914rw = 0; (const char *)tb_c3914r; }));
+    f_emit__put(v_c, ({ const char *tb_c3915_0 = "    "; long long tb_c3915_0n = sizeof("    ") - 1; const char *tb_c3915_1 = v_cols; long long tb_c3915_1n = (long long)strlen(tb_c3915_1); const char *tb_c3915_2 = " *l = tb_cols_new_"; long long tb_c3915_2n = sizeof(" *l = tb_cols_new_") - 1; const char *tb_c3915_3 = v_nm; long long tb_c3915_3n = (long long)strlen(tb_c3915_3); const char *tb_c3915_4 = "();\n"; long long tb_c3915_4n = sizeof("();\n") - 1; char *tb_c3915r = tb_mem(tb_c3915_0n + tb_c3915_1n + tb_c3915_2n + tb_c3915_3n + tb_c3915_4n + 1), *tb_c3915rw = tb_c3915r; memcpy(tb_c3915rw, tb_c3915_0, tb_c3915_0n); tb_c3915rw += tb_c3915_0n; memcpy(tb_c3915rw, tb_c3915_1, tb_c3915_1n); tb_c3915rw += tb_c3915_1n; memcpy(tb_c3915rw, tb_c3915_2, tb_c3915_2n); tb_c3915rw += tb_c3915_2n; memcpy(tb_c3915rw, tb_c3915_3, tb_c3915_3n); tb_c3915rw += tb_c3915_3n; memcpy(tb_c3915rw, tb_c3915_4, tb_c3915_4n); tb_c3915rw += tb_c3915_4n; *tb_c3915rw = 0; (const char *)tb_c3915r; }));
+    f_emit__put(v_c, ({ const char *tb_c3916_0 = "    for (long long i = 0; i < n; i++) tb_coladd_"; long long tb_c3916_0n = sizeof("    for (long long i = 0; i < n; i++) tb_coladd_") - 1; const char *tb_c3916_1 = v_nm; long long tb_c3916_1n = (long long)strlen(tb_c3916_1); const char *tb_c3916_2 = "(l, rows[i], 0);\n"; long long tb_c3916_2n = sizeof("(l, rows[i], 0);\n") - 1; char *tb_c3916r = tb_mem(tb_c3916_0n + tb_c3916_1n + tb_c3916_2n + 1), *tb_c3916rw = tb_c3916r; memcpy(tb_c3916rw, tb_c3916_0, tb_c3916_0n); tb_c3916rw += tb_c3916_0n; memcpy(tb_c3916rw, tb_c3916_1, tb_c3916_1n); tb_c3916rw += tb_c3916_1n; memcpy(tb_c3916rw, tb_c3916_2, tb_c3916_2n); tb_c3916rw += tb_c3916_2n; *tb_c3916rw = 0; (const char *)tb_c3916r; }));
     f_emit__put(v_c, "    return l;\n}\n");
-    f_emit__put(v_c, ({ const char *tb_c3789_0 = "static "; long long tb_c3789_0n = sizeof("static ") - 1; const char *tb_c3789_1 = v_row; long long tb_c3789_1n = (long long)strlen(tb_c3789_1); const char *tb_c3789_2 = " tb_new_"; long long tb_c3789_2n = sizeof(" tb_new_") - 1; const char *tb_c3789_3 = v_nm; long long tb_c3789_3n = (long long)strlen(tb_c3789_3); const char *tb_c3789_4 = "("; long long tb_c3789_4n = sizeof("(") - 1; char *tb_c3789r = tb_mem(tb_c3789_0n + tb_c3789_1n + tb_c3789_2n + tb_c3789_3n + tb_c3789_4n + 1), *tb_c3789rw = tb_c3789r; memcpy(tb_c3789rw, tb_c3789_0, tb_c3789_0n); tb_c3789rw += tb_c3789_0n; memcpy(tb_c3789rw, tb_c3789_1, tb_c3789_1n); tb_c3789rw += tb_c3789_1n; memcpy(tb_c3789rw, tb_c3789_2, tb_c3789_2n); tb_c3789rw += tb_c3789_2n; memcpy(tb_c3789rw, tb_c3789_3, tb_c3789_3n); tb_c3789rw += tb_c3789_3n; memcpy(tb_c3789rw, tb_c3789_4, tb_c3789_4n); tb_c3789rw += tb_c3789_4n; *tb_c3789rw = 0; (const char *)tb_c3789r; }));
-    if (((((tb_o_Node *)tb_nn(v_o, 2176))->q_kids)->len == 0LL)) {
+    f_emit__put(v_c, ({ const char *tb_c3917_0 = "static "; long long tb_c3917_0n = sizeof("static ") - 1; const char *tb_c3917_1 = v_row; long long tb_c3917_1n = (long long)strlen(tb_c3917_1); const char *tb_c3917_2 = " tb_new_"; long long tb_c3917_2n = sizeof(" tb_new_") - 1; const char *tb_c3917_3 = v_nm; long long tb_c3917_3n = (long long)strlen(tb_c3917_3); const char *tb_c3917_4 = "("; long long tb_c3917_4n = sizeof("(") - 1; char *tb_c3917r = tb_mem(tb_c3917_0n + tb_c3917_1n + tb_c3917_2n + tb_c3917_3n + tb_c3917_4n + 1), *tb_c3917rw = tb_c3917r; memcpy(tb_c3917rw, tb_c3917_0, tb_c3917_0n); tb_c3917rw += tb_c3917_0n; memcpy(tb_c3917rw, tb_c3917_1, tb_c3917_1n); tb_c3917rw += tb_c3917_1n; memcpy(tb_c3917rw, tb_c3917_2, tb_c3917_2n); tb_c3917rw += tb_c3917_2n; memcpy(tb_c3917rw, tb_c3917_3, tb_c3917_3n); tb_c3917rw += tb_c3917_3n; memcpy(tb_c3917rw, tb_c3917_4, tb_c3917_4n); tb_c3917rw += tb_c3917_4n; *tb_c3917rw = 0; (const char *)tb_c3917r; }));
+    if (((((tb_o_Node *)tb_nn(v_o, 2557))->q_kids)->len == 0LL)) {
         f_emit__put(v_c, "void");
     }
     {
-        long long tb_end3790 = ((((tb_o_Node *)tb_nn(v_o, 2178))->q_kids)->len - 1LL);
-        for (long long v_i = 0LL; v_i <= tb_end3790; v_i++) {
+        long long tb_end3918 = ((((tb_o_Node *)tb_nn(v_o, 2559))->q_kids)->len - 1LL);
+        for (long long v_i = 0LL; v_i <= tb_end3918; v_i++) {
             if ((v_i > 0LL)) {
                 f_emit__put(v_c, ", ");
             }
-            f_emit__put(v_c, ({ const char *tb_c3791_0 = f_emit__c_type(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_o, 2181))->q_kids, v_i, sizeof(tb_o_Node *), 2181)), 2181))->q_ty); long long tb_c3791_0n = (long long)strlen(tb_c3791_0); const char *tb_c3791_1 = " a"; long long tb_c3791_1n = sizeof(" a") - 1; char tb_c3791_2d[24]; long long tb_c3791_2n; const char *tb_c3791_2 = tb_digits(v_i, tb_c3791_2d, &tb_c3791_2n); char *tb_c3791r = tb_mem(tb_c3791_0n + tb_c3791_1n + tb_c3791_2n + 1), *tb_c3791rw = tb_c3791r; memcpy(tb_c3791rw, tb_c3791_0, tb_c3791_0n); tb_c3791rw += tb_c3791_0n; memcpy(tb_c3791rw, tb_c3791_1, tb_c3791_1n); tb_c3791rw += tb_c3791_1n; memcpy(tb_c3791rw, tb_c3791_2, tb_c3791_2n); tb_c3791rw += tb_c3791_2n; *tb_c3791rw = 0; (const char *)tb_c3791r; }));
+            f_emit__put(v_c, ({ const char *tb_c3919_0 = f_emit__c_type(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_o, 2562))->q_kids, v_i, sizeof(tb_o_Node *), 2562)), 2562))->q_ty); long long tb_c3919_0n = (long long)strlen(tb_c3919_0); const char *tb_c3919_1 = " a"; long long tb_c3919_1n = sizeof(" a") - 1; char tb_c3919_2d[24]; long long tb_c3919_2n; const char *tb_c3919_2 = tb_digits(v_i, tb_c3919_2d, &tb_c3919_2n); char *tb_c3919r = tb_mem(tb_c3919_0n + tb_c3919_1n + tb_c3919_2n + 1), *tb_c3919rw = tb_c3919r; memcpy(tb_c3919rw, tb_c3919_0, tb_c3919_0n); tb_c3919rw += tb_c3919_0n; memcpy(tb_c3919rw, tb_c3919_1, tb_c3919_1n); tb_c3919rw += tb_c3919_1n; memcpy(tb_c3919rw, tb_c3919_2, tb_c3919_2n); tb_c3919rw += tb_c3919_2n; *tb_c3919rw = 0; (const char *)tb_c3919r; }));
         }
     }
-    f_emit__put(v_c, ({ const char *tb_c3792_0 = ") {\n    "; long long tb_c3792_0n = sizeof(") {\n    ") - 1; const char *tb_c3792_1 = v_cols; long long tb_c3792_1n = (long long)strlen(tb_c3792_1); const char *tb_c3792_2 = " *l = tb_cols_new_"; long long tb_c3792_2n = sizeof(" *l = tb_cols_new_") - 1; const char *tb_c3792_3 = v_nm; long long tb_c3792_3n = (long long)strlen(tb_c3792_3); const char *tb_c3792_4 = "();\n"; long long tb_c3792_4n = sizeof("();\n") - 1; char *tb_c3792r = tb_mem(tb_c3792_0n + tb_c3792_1n + tb_c3792_2n + tb_c3792_3n + tb_c3792_4n + 1), *tb_c3792rw = tb_c3792r; memcpy(tb_c3792rw, tb_c3792_0, tb_c3792_0n); tb_c3792rw += tb_c3792_0n; memcpy(tb_c3792rw, tb_c3792_1, tb_c3792_1n); tb_c3792rw += tb_c3792_1n; memcpy(tb_c3792rw, tb_c3792_2, tb_c3792_2n); tb_c3792rw += tb_c3792_2n; memcpy(tb_c3792rw, tb_c3792_3, tb_c3792_3n); tb_c3792rw += tb_c3792_3n; memcpy(tb_c3792rw, tb_c3792_4, tb_c3792_4n); tb_c3792rw += tb_c3792_4n; *tb_c3792rw = 0; (const char *)tb_c3792r; }));
+    f_emit__put(v_c, ({ const char *tb_c3920_0 = ") {\n    "; long long tb_c3920_0n = sizeof(") {\n    ") - 1; const char *tb_c3920_1 = v_cols; long long tb_c3920_1n = (long long)strlen(tb_c3920_1); const char *tb_c3920_2 = " *l = tb_cols_new_"; long long tb_c3920_2n = sizeof(" *l = tb_cols_new_") - 1; const char *tb_c3920_3 = v_nm; long long tb_c3920_3n = (long long)strlen(tb_c3920_3); const char *tb_c3920_4 = "();\n"; long long tb_c3920_4n = sizeof("();\n") - 1; char *tb_c3920r = tb_mem(tb_c3920_0n + tb_c3920_1n + tb_c3920_2n + tb_c3920_3n + tb_c3920_4n + 1), *tb_c3920rw = tb_c3920r; memcpy(tb_c3920rw, tb_c3920_0, tb_c3920_0n); tb_c3920rw += tb_c3920_0n; memcpy(tb_c3920rw, tb_c3920_1, tb_c3920_1n); tb_c3920rw += tb_c3920_1n; memcpy(tb_c3920rw, tb_c3920_2, tb_c3920_2n); tb_c3920rw += tb_c3920_2n; memcpy(tb_c3920rw, tb_c3920_3, tb_c3920_3n); tb_c3920rw += tb_c3920_3n; memcpy(tb_c3920rw, tb_c3920_4, tb_c3920_4n); tb_c3920rw += tb_c3920_4n; *tb_c3920rw = 0; (const char *)tb_c3920r; }));
     {
-        long long tb_end3793 = ((((tb_o_Node *)tb_nn(v_o, 2183))->q_kids)->len - 1LL);
-        for (long long v_i = 0LL; v_i <= tb_end3793; v_i++) {
-            f_emit__put(v_c, ({ const char *tb_c3794_0 = "    l->q_"; long long tb_c3794_0n = sizeof("    l->q_") - 1; const char *tb_c3794_1 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_o, 2184))->q_kids, v_i, sizeof(tb_o_Node *), 2184)), 2184))->q_name; long long tb_c3794_1n = (long long)strlen(tb_c3794_1); const char *tb_c3794_2 = "[0] = a"; long long tb_c3794_2n = sizeof("[0] = a") - 1; char tb_c3794_3d[24]; long long tb_c3794_3n; const char *tb_c3794_3 = tb_digits(v_i, tb_c3794_3d, &tb_c3794_3n); const char *tb_c3794_4 = ";\n"; long long tb_c3794_4n = sizeof(";\n") - 1; char *tb_c3794r = tb_mem(tb_c3794_0n + tb_c3794_1n + tb_c3794_2n + tb_c3794_3n + tb_c3794_4n + 1), *tb_c3794rw = tb_c3794r; memcpy(tb_c3794rw, tb_c3794_0, tb_c3794_0n); tb_c3794rw += tb_c3794_0n; memcpy(tb_c3794rw, tb_c3794_1, tb_c3794_1n); tb_c3794rw += tb_c3794_1n; memcpy(tb_c3794rw, tb_c3794_2, tb_c3794_2n); tb_c3794rw += tb_c3794_2n; memcpy(tb_c3794rw, tb_c3794_3, tb_c3794_3n); tb_c3794rw += tb_c3794_3n; memcpy(tb_c3794rw, tb_c3794_4, tb_c3794_4n); tb_c3794rw += tb_c3794_4n; *tb_c3794rw = 0; (const char *)tb_c3794r; }));
+        long long tb_end3921 = ((((tb_o_Node *)tb_nn(v_o, 2564))->q_kids)->len - 1LL);
+        for (long long v_i = 0LL; v_i <= tb_end3921; v_i++) {
+            f_emit__put(v_c, ({ const char *tb_c3922_0 = "    l->q_"; long long tb_c3922_0n = sizeof("    l->q_") - 1; const char *tb_c3922_1 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_o, 2565))->q_kids, v_i, sizeof(tb_o_Node *), 2565)), 2565))->q_name; long long tb_c3922_1n = (long long)strlen(tb_c3922_1); const char *tb_c3922_2 = "[0] = a"; long long tb_c3922_2n = sizeof("[0] = a") - 1; char tb_c3922_3d[24]; long long tb_c3922_3n; const char *tb_c3922_3 = tb_digits(v_i, tb_c3922_3d, &tb_c3922_3n); const char *tb_c3922_4 = ";\n"; long long tb_c3922_4n = sizeof(";\n") - 1; char *tb_c3922r = tb_mem(tb_c3922_0n + tb_c3922_1n + tb_c3922_2n + tb_c3922_3n + tb_c3922_4n + 1), *tb_c3922rw = tb_c3922r; memcpy(tb_c3922rw, tb_c3922_0, tb_c3922_0n); tb_c3922rw += tb_c3922_0n; memcpy(tb_c3922rw, tb_c3922_1, tb_c3922_1n); tb_c3922rw += tb_c3922_1n; memcpy(tb_c3922rw, tb_c3922_2, tb_c3922_2n); tb_c3922rw += tb_c3922_2n; memcpy(tb_c3922rw, tb_c3922_3, tb_c3922_3n); tb_c3922rw += tb_c3922_3n; memcpy(tb_c3922rw, tb_c3922_4, tb_c3922_4n); tb_c3922rw += tb_c3922_4n; *tb_c3922rw = 0; (const char *)tb_c3922r; }));
         }
     }
-    f_emit__put(v_c, ({ const char *tb_c3795_0 = "    l->len = 1;\n    return ("; long long tb_c3795_0n = sizeof("    l->len = 1;\n    return (") - 1; const char *tb_c3795_1 = v_row; long long tb_c3795_1n = (long long)strlen(tb_c3795_1); const char *tb_c3795_2 = "){l, 0};\n}\n"; long long tb_c3795_2n = sizeof("){l, 0};\n}\n") - 1; char *tb_c3795r = tb_mem(tb_c3795_0n + tb_c3795_1n + tb_c3795_2n + 1), *tb_c3795rw = tb_c3795r; memcpy(tb_c3795rw, tb_c3795_0, tb_c3795_0n); tb_c3795rw += tb_c3795_0n; memcpy(tb_c3795rw, tb_c3795_1, tb_c3795_1n); tb_c3795rw += tb_c3795_1n; memcpy(tb_c3795rw, tb_c3795_2, tb_c3795_2n); tb_c3795rw += tb_c3795_2n; *tb_c3795rw = 0; (const char *)tb_c3795r; }));
+    f_emit__put(v_c, ({ const char *tb_c3923_0 = "    l->len = 1;\n    return ("; long long tb_c3923_0n = sizeof("    l->len = 1;\n    return (") - 1; const char *tb_c3923_1 = v_row; long long tb_c3923_1n = (long long)strlen(tb_c3923_1); const char *tb_c3923_2 = "){l, 0};\n}\n"; long long tb_c3923_2n = sizeof("){l, 0};\n}\n") - 1; char *tb_c3923r = tb_mem(tb_c3923_0n + tb_c3923_1n + tb_c3923_2n + 1), *tb_c3923rw = tb_c3923r; memcpy(tb_c3923rw, tb_c3923_0, tb_c3923_0n); tb_c3923rw += tb_c3923_0n; memcpy(tb_c3923rw, tb_c3923_1, tb_c3923_1n); tb_c3923rw += tb_c3923_1n; memcpy(tb_c3923rw, tb_c3923_2, tb_c3923_2n); tb_c3923rw += tb_c3923_2n; *tb_c3923rw = 0; (const char *)tb_c3923r; }));
 }
 
 static void f_emit__emit_constructor(tb_o_Comp * v_c, tb_o_Node * v_o) {
-    if (((tb_o_Node *)tb_nn(v_o, 2188))->q_by_cols) {
+    if (((tb_o_Node *)tb_nn(v_o, 2569))->q_by_cols) {
         f_emit__emit_cols_helpers(v_c, v_o);
         return;
     }
-    f_emit__put(v_c, ({ const char *tb_c3796_0 = "static tb_o_"; long long tb_c3796_0n = sizeof("static tb_o_") - 1; const char *tb_c3796_1 = ((tb_o_Node *)tb_nn(v_o, 2191))->q_name; long long tb_c3796_1n = (long long)strlen(tb_c3796_1); const char *tb_c3796_2 = " *tb_new_"; long long tb_c3796_2n = sizeof(" *tb_new_") - 1; const char *tb_c3796_3 = ((tb_o_Node *)tb_nn(v_o, 2191))->q_name; long long tb_c3796_3n = (long long)strlen(tb_c3796_3); const char *tb_c3796_4 = "("; long long tb_c3796_4n = sizeof("(") - 1; char *tb_c3796r = tb_mem(tb_c3796_0n + tb_c3796_1n + tb_c3796_2n + tb_c3796_3n + tb_c3796_4n + 1), *tb_c3796rw = tb_c3796r; memcpy(tb_c3796rw, tb_c3796_0, tb_c3796_0n); tb_c3796rw += tb_c3796_0n; memcpy(tb_c3796rw, tb_c3796_1, tb_c3796_1n); tb_c3796rw += tb_c3796_1n; memcpy(tb_c3796rw, tb_c3796_2, tb_c3796_2n); tb_c3796rw += tb_c3796_2n; memcpy(tb_c3796rw, tb_c3796_3, tb_c3796_3n); tb_c3796rw += tb_c3796_3n; memcpy(tb_c3796rw, tb_c3796_4, tb_c3796_4n); tb_c3796rw += tb_c3796_4n; *tb_c3796rw = 0; (const char *)tb_c3796r; }));
-    if (((((tb_o_Node *)tb_nn(v_o, 2192))->q_kids)->len == 0LL)) {
+    f_emit__put(v_c, ({ const char *tb_c3924_0 = "static tb_o_"; long long tb_c3924_0n = sizeof("static tb_o_") - 1; const char *tb_c3924_1 = ((tb_o_Node *)tb_nn(v_o, 2572))->q_name; long long tb_c3924_1n = (long long)strlen(tb_c3924_1); const char *tb_c3924_2 = " *tb_new_"; long long tb_c3924_2n = sizeof(" *tb_new_") - 1; const char *tb_c3924_3 = ((tb_o_Node *)tb_nn(v_o, 2572))->q_name; long long tb_c3924_3n = (long long)strlen(tb_c3924_3); const char *tb_c3924_4 = "("; long long tb_c3924_4n = sizeof("(") - 1; char *tb_c3924r = tb_mem(tb_c3924_0n + tb_c3924_1n + tb_c3924_2n + tb_c3924_3n + tb_c3924_4n + 1), *tb_c3924rw = tb_c3924r; memcpy(tb_c3924rw, tb_c3924_0, tb_c3924_0n); tb_c3924rw += tb_c3924_0n; memcpy(tb_c3924rw, tb_c3924_1, tb_c3924_1n); tb_c3924rw += tb_c3924_1n; memcpy(tb_c3924rw, tb_c3924_2, tb_c3924_2n); tb_c3924rw += tb_c3924_2n; memcpy(tb_c3924rw, tb_c3924_3, tb_c3924_3n); tb_c3924rw += tb_c3924_3n; memcpy(tb_c3924rw, tb_c3924_4, tb_c3924_4n); tb_c3924rw += tb_c3924_4n; *tb_c3924rw = 0; (const char *)tb_c3924r; }));
+    if (((((tb_o_Node *)tb_nn(v_o, 2573))->q_kids)->len == 0LL)) {
         f_emit__put(v_c, "void");
     }
     {
-        long long tb_end3797 = ((((tb_o_Node *)tb_nn(v_o, 2194))->q_kids)->len - 1LL);
-        for (long long v_i = 0LL; v_i <= tb_end3797; v_i++) {
+        long long tb_end3925 = ((((tb_o_Node *)tb_nn(v_o, 2575))->q_kids)->len - 1LL);
+        for (long long v_i = 0LL; v_i <= tb_end3925; v_i++) {
             if ((v_i > 0LL)) {
                 f_emit__put(v_c, ", ");
             }
-            f_emit__put(v_c, ({ const char *tb_c3798_0 = f_emit__c_type(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_o, 2197))->q_kids, v_i, sizeof(tb_o_Node *), 2197)), 2197))->q_ty); long long tb_c3798_0n = (long long)strlen(tb_c3798_0); const char *tb_c3798_1 = " a"; long long tb_c3798_1n = sizeof(" a") - 1; char tb_c3798_2d[24]; long long tb_c3798_2n; const char *tb_c3798_2 = tb_digits(v_i, tb_c3798_2d, &tb_c3798_2n); char *tb_c3798r = tb_mem(tb_c3798_0n + tb_c3798_1n + tb_c3798_2n + 1), *tb_c3798rw = tb_c3798r; memcpy(tb_c3798rw, tb_c3798_0, tb_c3798_0n); tb_c3798rw += tb_c3798_0n; memcpy(tb_c3798rw, tb_c3798_1, tb_c3798_1n); tb_c3798rw += tb_c3798_1n; memcpy(tb_c3798rw, tb_c3798_2, tb_c3798_2n); tb_c3798rw += tb_c3798_2n; *tb_c3798rw = 0; (const char *)tb_c3798r; }));
+            f_emit__put(v_c, ({ const char *tb_c3926_0 = f_emit__c_type(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_o, 2578))->q_kids, v_i, sizeof(tb_o_Node *), 2578)), 2578))->q_ty); long long tb_c3926_0n = (long long)strlen(tb_c3926_0); const char *tb_c3926_1 = " a"; long long tb_c3926_1n = sizeof(" a") - 1; char tb_c3926_2d[24]; long long tb_c3926_2n; const char *tb_c3926_2 = tb_digits(v_i, tb_c3926_2d, &tb_c3926_2n); char *tb_c3926r = tb_mem(tb_c3926_0n + tb_c3926_1n + tb_c3926_2n + 1), *tb_c3926rw = tb_c3926r; memcpy(tb_c3926rw, tb_c3926_0, tb_c3926_0n); tb_c3926rw += tb_c3926_0n; memcpy(tb_c3926rw, tb_c3926_1, tb_c3926_1n); tb_c3926rw += tb_c3926_1n; memcpy(tb_c3926rw, tb_c3926_2, tb_c3926_2n); tb_c3926rw += tb_c3926_2n; *tb_c3926rw = 0; (const char *)tb_c3926r; }));
         }
     }
     f_emit__put(v_c, ") {\n");
-    f_emit__put(v_c, ({ const char *tb_c3799_0 = "    tb_o_"; long long tb_c3799_0n = sizeof("    tb_o_") - 1; const char *tb_c3799_1 = ((tb_o_Node *)tb_nn(v_o, 2199))->q_name; long long tb_c3799_1n = (long long)strlen(tb_c3799_1); const char *tb_c3799_2 = " *o = tb_obj_mem(sizeof(tb_o_"; long long tb_c3799_2n = sizeof(" *o = tb_obj_mem(sizeof(tb_o_") - 1; const char *tb_c3799_3 = ((tb_o_Node *)tb_nn(v_o, 2199))->q_name; long long tb_c3799_3n = (long long)strlen(tb_c3799_3); const char *tb_c3799_4 = "));\n"; long long tb_c3799_4n = sizeof("));\n") - 1; char *tb_c3799r = tb_mem(tb_c3799_0n + tb_c3799_1n + tb_c3799_2n + tb_c3799_3n + tb_c3799_4n + 1), *tb_c3799rw = tb_c3799r; memcpy(tb_c3799rw, tb_c3799_0, tb_c3799_0n); tb_c3799rw += tb_c3799_0n; memcpy(tb_c3799rw, tb_c3799_1, tb_c3799_1n); tb_c3799rw += tb_c3799_1n; memcpy(tb_c3799rw, tb_c3799_2, tb_c3799_2n); tb_c3799rw += tb_c3799_2n; memcpy(tb_c3799rw, tb_c3799_3, tb_c3799_3n); tb_c3799rw += tb_c3799_3n; memcpy(tb_c3799rw, tb_c3799_4, tb_c3799_4n); tb_c3799rw += tb_c3799_4n; *tb_c3799rw = 0; (const char *)tb_c3799r; }));
+    f_emit__put(v_c, ({ const char *tb_c3927_0 = "    tb_o_"; long long tb_c3927_0n = sizeof("    tb_o_") - 1; const char *tb_c3927_1 = ((tb_o_Node *)tb_nn(v_o, 2580))->q_name; long long tb_c3927_1n = (long long)strlen(tb_c3927_1); const char *tb_c3927_2 = " *o = tb_obj_mem(sizeof(tb_o_"; long long tb_c3927_2n = sizeof(" *o = tb_obj_mem(sizeof(tb_o_") - 1; const char *tb_c3927_3 = ((tb_o_Node *)tb_nn(v_o, 2580))->q_name; long long tb_c3927_3n = (long long)strlen(tb_c3927_3); const char *tb_c3927_4 = "));\n"; long long tb_c3927_4n = sizeof("));\n") - 1; char *tb_c3927r = tb_mem(tb_c3927_0n + tb_c3927_1n + tb_c3927_2n + tb_c3927_3n + tb_c3927_4n + 1), *tb_c3927rw = tb_c3927r; memcpy(tb_c3927rw, tb_c3927_0, tb_c3927_0n); tb_c3927rw += tb_c3927_0n; memcpy(tb_c3927rw, tb_c3927_1, tb_c3927_1n); tb_c3927rw += tb_c3927_1n; memcpy(tb_c3927rw, tb_c3927_2, tb_c3927_2n); tb_c3927rw += tb_c3927_2n; memcpy(tb_c3927rw, tb_c3927_3, tb_c3927_3n); tb_c3927rw += tb_c3927_3n; memcpy(tb_c3927rw, tb_c3927_4, tb_c3927_4n); tb_c3927rw += tb_c3927_4n; *tb_c3927rw = 0; (const char *)tb_c3927r; }));
     if (f_emit__has_cold(v_o)) {
-        f_emit__put(v_c, ({ const char *tb_c3800_0 = "    o->tb_cold = tb_cold_mem(sizeof(struct tb_c_"; long long tb_c3800_0n = sizeof("    o->tb_cold = tb_cold_mem(sizeof(struct tb_c_") - 1; const char *tb_c3800_1 = ((tb_o_Node *)tb_nn(v_o, 2201))->q_name; long long tb_c3800_1n = (long long)strlen(tb_c3800_1); const char *tb_c3800_2 = "));\n"; long long tb_c3800_2n = sizeof("));\n") - 1; char *tb_c3800r = tb_mem(tb_c3800_0n + tb_c3800_1n + tb_c3800_2n + 1), *tb_c3800rw = tb_c3800r; memcpy(tb_c3800rw, tb_c3800_0, tb_c3800_0n); tb_c3800rw += tb_c3800_0n; memcpy(tb_c3800rw, tb_c3800_1, tb_c3800_1n); tb_c3800rw += tb_c3800_1n; memcpy(tb_c3800rw, tb_c3800_2, tb_c3800_2n); tb_c3800rw += tb_c3800_2n; *tb_c3800rw = 0; (const char *)tb_c3800r; }));
+        f_emit__put(v_c, ({ const char *tb_c3928_0 = "    o->tb_cold = tb_cold_mem(sizeof(struct tb_c_"; long long tb_c3928_0n = sizeof("    o->tb_cold = tb_cold_mem(sizeof(struct tb_c_") - 1; const char *tb_c3928_1 = ((tb_o_Node *)tb_nn(v_o, 2582))->q_name; long long tb_c3928_1n = (long long)strlen(tb_c3928_1); const char *tb_c3928_2 = "));\n"; long long tb_c3928_2n = sizeof("));\n") - 1; char *tb_c3928r = tb_mem(tb_c3928_0n + tb_c3928_1n + tb_c3928_2n + 1), *tb_c3928rw = tb_c3928r; memcpy(tb_c3928rw, tb_c3928_0, tb_c3928_0n); tb_c3928rw += tb_c3928_0n; memcpy(tb_c3928rw, tb_c3928_1, tb_c3928_1n); tb_c3928rw += tb_c3928_1n; memcpy(tb_c3928rw, tb_c3928_2, tb_c3928_2n); tb_c3928rw += tb_c3928_2n; *tb_c3928rw = 0; (const char *)tb_c3928r; }));
     }
     {
-        long long tb_end3801 = ((((tb_o_Node *)tb_nn(v_o, 2202))->q_kids)->len - 1LL);
-        for (long long v_i = 0LL; v_i <= tb_end3801; v_i++) {
-            f_emit__put(v_c, ({ const char *tb_c3802_0 = "    o"; long long tb_c3802_0n = sizeof("    o") - 1; const char *tb_c3802_1 = f_emit__field_path(v_o, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_o, 2203))->q_kids, v_i, sizeof(tb_o_Node *), 2203)), 2203))->q_name); long long tb_c3802_1n = (long long)strlen(tb_c3802_1); const char *tb_c3802_2 = " = a"; long long tb_c3802_2n = sizeof(" = a") - 1; char tb_c3802_3d[24]; long long tb_c3802_3n; const char *tb_c3802_3 = tb_digits(v_i, tb_c3802_3d, &tb_c3802_3n); const char *tb_c3802_4 = ";\n"; long long tb_c3802_4n = sizeof(";\n") - 1; char *tb_c3802r = tb_mem(tb_c3802_0n + tb_c3802_1n + tb_c3802_2n + tb_c3802_3n + tb_c3802_4n + 1), *tb_c3802rw = tb_c3802r; memcpy(tb_c3802rw, tb_c3802_0, tb_c3802_0n); tb_c3802rw += tb_c3802_0n; memcpy(tb_c3802rw, tb_c3802_1, tb_c3802_1n); tb_c3802rw += tb_c3802_1n; memcpy(tb_c3802rw, tb_c3802_2, tb_c3802_2n); tb_c3802rw += tb_c3802_2n; memcpy(tb_c3802rw, tb_c3802_3, tb_c3802_3n); tb_c3802rw += tb_c3802_3n; memcpy(tb_c3802rw, tb_c3802_4, tb_c3802_4n); tb_c3802rw += tb_c3802_4n; *tb_c3802rw = 0; (const char *)tb_c3802r; }));
+        long long tb_end3929 = ((((tb_o_Node *)tb_nn(v_o, 2583))->q_kids)->len - 1LL);
+        for (long long v_i = 0LL; v_i <= tb_end3929; v_i++) {
+            f_emit__put(v_c, ({ const char *tb_c3930_0 = "    o"; long long tb_c3930_0n = sizeof("    o") - 1; const char *tb_c3930_1 = f_emit__field_path(v_o, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_o, 2584))->q_kids, v_i, sizeof(tb_o_Node *), 2584)), 2584))->q_name); long long tb_c3930_1n = (long long)strlen(tb_c3930_1); const char *tb_c3930_2 = " = a"; long long tb_c3930_2n = sizeof(" = a") - 1; char tb_c3930_3d[24]; long long tb_c3930_3n; const char *tb_c3930_3 = tb_digits(v_i, tb_c3930_3d, &tb_c3930_3n); const char *tb_c3930_4 = ";\n"; long long tb_c3930_4n = sizeof(";\n") - 1; char *tb_c3930r = tb_mem(tb_c3930_0n + tb_c3930_1n + tb_c3930_2n + tb_c3930_3n + tb_c3930_4n + 1), *tb_c3930rw = tb_c3930r; memcpy(tb_c3930rw, tb_c3930_0, tb_c3930_0n); tb_c3930rw += tb_c3930_0n; memcpy(tb_c3930rw, tb_c3930_1, tb_c3930_1n); tb_c3930rw += tb_c3930_1n; memcpy(tb_c3930rw, tb_c3930_2, tb_c3930_2n); tb_c3930rw += tb_c3930_2n; memcpy(tb_c3930rw, tb_c3930_3, tb_c3930_3n); tb_c3930rw += tb_c3930_3n; memcpy(tb_c3930rw, tb_c3930_4, tb_c3930_4n); tb_c3930rw += tb_c3930_4n; *tb_c3930rw = 0; (const char *)tb_c3930r; }));
         }
     }
     f_emit__put(v_c, "    return o;\n}\n");
@@ -12453,96 +13361,96 @@ static void f_emit__emit_constructor(tb_o_Comp * v_c, tb_o_Node * v_o) {
 
 static void f_emit__emit_c(tb_o_Comp * v_c, tb_o_Node * v_program) {
     tb_list * v_fresh = tb_list_new(sizeof(const char *));
-    { tb_list * tb_v3803 = v_fresh; tb_list * *tb_p3803 = &(((tb_o_Comp *)tb_nn(v_c, 2208))->q_out); *tb_p3803 = tb_v3803; }
-    { long long tb_v3804 = 0LL; long long *tb_p3804 = &(((tb_o_Comp *)tb_nn(v_c, 2209))->q_label); *tb_p3804 = tb_v3804; }
+    { tb_list * tb_v3931 = v_fresh; tb_list * *tb_p3931 = &(((tb_o_Comp *)tb_nn(v_c, 2589))->q_out); *tb_p3931 = tb_v3931; }
+    { long long tb_v3932 = 0LL; long long *tb_p3932 = &(((tb_o_Comp *)tb_nn(v_c, 2590))->q_label); *tb_p3932 = tb_v3932; }
     f_emit__put(v_c, "// Сделано компилятором Tachbit 0.7. Не правь руками: правь файл .tb\n");
-    if (((tb_o_Comp *)tb_nn(v_c, 2211))->q_bare) {
+    if (((tb_o_Comp *)tb_nn(v_c, 2592))->q_bare) {
         f_emit__put(v_c, "#define TB_BARE 1\n");
     }
-    if (((tb_o_Comp *)tb_nn(v_c, 2213))->q_gfx) {
+    if (((tb_o_Comp *)tb_nn(v_c, 2594))->q_gfx) {
         f_emit__put(v_c, "#define TB_GFX 1\n");
     }
     f_emit__put(v_c, f_runtime_text__runtime_text());
     {
-        tb_list * tb_l3805 = ((tb_o_Comp *)tb_nn(v_c, 2217))->q_globals;
-        for (long long tb_i3805 = 0; tb_i3805 < tb_l3805->len; tb_i3805++) {
-            tb_o_Node * const v_g = ((tb_o_Node * *)tb_l3805->data)[tb_i3805];
-            if (((tb_o_Comp *)tb_nn(v_c, 2218))->q_bare) {
-                f_emit__put(v_c, ({ const char *tb_c3806_0 = "static volatile "; long long tb_c3806_0n = sizeof("static volatile ") - 1; const char *tb_c3806_1 = f_emit__c_type(v_c, ((tb_o_Node *)tb_nn(v_g, 2219))->q_ty); long long tb_c3806_1n = (long long)strlen(tb_c3806_1); const char *tb_c3806_2 = " v_"; long long tb_c3806_2n = sizeof(" v_") - 1; const char *tb_c3806_3 = ((tb_o_Node *)tb_nn(v_g, 2219))->q_name; long long tb_c3806_3n = (long long)strlen(tb_c3806_3); const char *tb_c3806_4 = " = "; long long tb_c3806_4n = sizeof(" = ") - 1; char *tb_c3806r = tb_mem(tb_c3806_0n + tb_c3806_1n + tb_c3806_2n + tb_c3806_3n + tb_c3806_4n + 1), *tb_c3806rw = tb_c3806r; memcpy(tb_c3806rw, tb_c3806_0, tb_c3806_0n); tb_c3806rw += tb_c3806_0n; memcpy(tb_c3806rw, tb_c3806_1, tb_c3806_1n); tb_c3806rw += tb_c3806_1n; memcpy(tb_c3806rw, tb_c3806_2, tb_c3806_2n); tb_c3806rw += tb_c3806_2n; memcpy(tb_c3806rw, tb_c3806_3, tb_c3806_3n); tb_c3806rw += tb_c3806_3n; memcpy(tb_c3806rw, tb_c3806_4, tb_c3806_4n); tb_c3806rw += tb_c3806_4n; *tb_c3806rw = 0; (const char *)tb_c3806r; }));
+        tb_list * tb_l3933 = ((tb_o_Comp *)tb_nn(v_c, 2598))->q_globals;
+        for (long long tb_i3933 = 0; tb_i3933 < tb_l3933->len; tb_i3933++) {
+            tb_o_Node * const v_g = ((tb_o_Node * *)tb_l3933->data)[tb_i3933];
+            if (((tb_o_Comp *)tb_nn(v_c, 2599))->q_bare) {
+                f_emit__put(v_c, ({ const char *tb_c3934_0 = "static volatile "; long long tb_c3934_0n = sizeof("static volatile ") - 1; const char *tb_c3934_1 = f_emit__c_type(v_c, ((tb_o_Node *)tb_nn(v_g, 2600))->q_ty); long long tb_c3934_1n = (long long)strlen(tb_c3934_1); const char *tb_c3934_2 = " v_"; long long tb_c3934_2n = sizeof(" v_") - 1; const char *tb_c3934_3 = ((tb_o_Node *)tb_nn(v_g, 2600))->q_name; long long tb_c3934_3n = (long long)strlen(tb_c3934_3); const char *tb_c3934_4 = " = "; long long tb_c3934_4n = sizeof(" = ") - 1; char *tb_c3934r = tb_mem(tb_c3934_0n + tb_c3934_1n + tb_c3934_2n + tb_c3934_3n + tb_c3934_4n + 1), *tb_c3934rw = tb_c3934r; memcpy(tb_c3934rw, tb_c3934_0, tb_c3934_0n); tb_c3934rw += tb_c3934_0n; memcpy(tb_c3934rw, tb_c3934_1, tb_c3934_1n); tb_c3934rw += tb_c3934_1n; memcpy(tb_c3934rw, tb_c3934_2, tb_c3934_2n); tb_c3934rw += tb_c3934_2n; memcpy(tb_c3934rw, tb_c3934_3, tb_c3934_3n); tb_c3934rw += tb_c3934_3n; memcpy(tb_c3934rw, tb_c3934_4, tb_c3934_4n); tb_c3934rw += tb_c3934_4n; *tb_c3934rw = 0; (const char *)tb_c3934r; }));
             } else {
-                f_emit__put(v_c, ({ const char *tb_c3807_0 = "static "; long long tb_c3807_0n = sizeof("static ") - 1; const char *tb_c3807_1 = f_emit__c_type(v_c, ((tb_o_Node *)tb_nn(v_g, 2221))->q_ty); long long tb_c3807_1n = (long long)strlen(tb_c3807_1); const char *tb_c3807_2 = " v_"; long long tb_c3807_2n = sizeof(" v_") - 1; const char *tb_c3807_3 = ((tb_o_Node *)tb_nn(v_g, 2221))->q_name; long long tb_c3807_3n = (long long)strlen(tb_c3807_3); const char *tb_c3807_4 = " = "; long long tb_c3807_4n = sizeof(" = ") - 1; char *tb_c3807r = tb_mem(tb_c3807_0n + tb_c3807_1n + tb_c3807_2n + tb_c3807_3n + tb_c3807_4n + 1), *tb_c3807rw = tb_c3807r; memcpy(tb_c3807rw, tb_c3807_0, tb_c3807_0n); tb_c3807rw += tb_c3807_0n; memcpy(tb_c3807rw, tb_c3807_1, tb_c3807_1n); tb_c3807rw += tb_c3807_1n; memcpy(tb_c3807rw, tb_c3807_2, tb_c3807_2n); tb_c3807rw += tb_c3807_2n; memcpy(tb_c3807rw, tb_c3807_3, tb_c3807_3n); tb_c3807rw += tb_c3807_3n; memcpy(tb_c3807rw, tb_c3807_4, tb_c3807_4n); tb_c3807rw += tb_c3807_4n; *tb_c3807rw = 0; (const char *)tb_c3807r; }));
+                f_emit__put(v_c, ({ const char *tb_c3935_0 = "static "; long long tb_c3935_0n = sizeof("static ") - 1; const char *tb_c3935_1 = f_emit__c_type(v_c, ((tb_o_Node *)tb_nn(v_g, 2602))->q_ty); long long tb_c3935_1n = (long long)strlen(tb_c3935_1); const char *tb_c3935_2 = " v_"; long long tb_c3935_2n = sizeof(" v_") - 1; const char *tb_c3935_3 = ((tb_o_Node *)tb_nn(v_g, 2602))->q_name; long long tb_c3935_3n = (long long)strlen(tb_c3935_3); const char *tb_c3935_4 = " = "; long long tb_c3935_4n = sizeof(" = ") - 1; char *tb_c3935r = tb_mem(tb_c3935_0n + tb_c3935_1n + tb_c3935_2n + tb_c3935_3n + tb_c3935_4n + 1), *tb_c3935rw = tb_c3935r; memcpy(tb_c3935rw, tb_c3935_0, tb_c3935_0n); tb_c3935rw += tb_c3935_0n; memcpy(tb_c3935rw, tb_c3935_1, tb_c3935_1n); tb_c3935rw += tb_c3935_1n; memcpy(tb_c3935rw, tb_c3935_2, tb_c3935_2n); tb_c3935rw += tb_c3935_2n; memcpy(tb_c3935rw, tb_c3935_3, tb_c3935_3n); tb_c3935rw += tb_c3935_3n; memcpy(tb_c3935rw, tb_c3935_4, tb_c3935_4n); tb_c3935rw += tb_c3935_4n; *tb_c3935rw = 0; (const char *)tb_c3935r; }));
             }
-            f_emit__emit_as(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_g, 2222))->q_kids, 0LL, sizeof(tb_o_Node *), 2222)), ((tb_o_Node *)tb_nn(v_g, 2222))->q_ty);
+            f_emit__emit_as(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_g, 2603))->q_kids, 0LL, sizeof(tb_o_Node *), 2603)), ((tb_o_Node *)tb_nn(v_g, 2603))->q_ty);
             f_emit__put(v_c, ";\n");
         }
     }
     {
-        tb_list * tb_l3808 = ((tb_o_Node *)tb_nn(v_program, 2226))->q_kids;
-        for (long long tb_i3808 = 0; tb_i3808 < tb_l3808->len; tb_i3808++) {
-            tb_o_Node * const v_top = ((tb_o_Node * *)tb_l3808->data)[tb_i3808];
-            if ((({ const char *tb_s3809 = ((tb_o_Node *)tb_nn(v_top, 2227))->q_kind; ((unsigned char)tb_s3809[0] == 111 && (unsigned char)tb_s3809[1] == 98 && (unsigned char)tb_s3809[2] == 106 && tb_s3809[3] == 0); }) && ((tb_o_Node *)tb_nn(v_top, 2227))->q_by_cols)) {
-                f_emit__put(v_c, ({ const char *tb_c3810_0 = "typedef struct tb_cols_"; long long tb_c3810_0n = sizeof("typedef struct tb_cols_") - 1; const char *tb_c3810_1 = ((tb_o_Node *)tb_nn(v_top, 2228))->q_name; long long tb_c3810_1n = (long long)strlen(tb_c3810_1); const char *tb_c3810_2 = " tb_cols_"; long long tb_c3810_2n = sizeof(" tb_cols_") - 1; const char *tb_c3810_3 = ((tb_o_Node *)tb_nn(v_top, 2228))->q_name; long long tb_c3810_3n = (long long)strlen(tb_c3810_3); const char *tb_c3810_4 = ";\n"; long long tb_c3810_4n = sizeof(";\n") - 1; char *tb_c3810r = tb_mem(tb_c3810_0n + tb_c3810_1n + tb_c3810_2n + tb_c3810_3n + tb_c3810_4n + 1), *tb_c3810rw = tb_c3810r; memcpy(tb_c3810rw, tb_c3810_0, tb_c3810_0n); tb_c3810rw += tb_c3810_0n; memcpy(tb_c3810rw, tb_c3810_1, tb_c3810_1n); tb_c3810rw += tb_c3810_1n; memcpy(tb_c3810rw, tb_c3810_2, tb_c3810_2n); tb_c3810rw += tb_c3810_2n; memcpy(tb_c3810rw, tb_c3810_3, tb_c3810_3n); tb_c3810rw += tb_c3810_3n; memcpy(tb_c3810rw, tb_c3810_4, tb_c3810_4n); tb_c3810rw += tb_c3810_4n; *tb_c3810rw = 0; (const char *)tb_c3810r; }));
-                f_emit__put(v_c, ({ const char *tb_c3811_0 = "typedef struct { tb_cols_"; long long tb_c3811_0n = sizeof("typedef struct { tb_cols_") - 1; const char *tb_c3811_1 = ((tb_o_Node *)tb_nn(v_top, 2229))->q_name; long long tb_c3811_1n = (long long)strlen(tb_c3811_1); const char *tb_c3811_2 = " *c; long long i; } tb_row_"; long long tb_c3811_2n = sizeof(" *c; long long i; } tb_row_") - 1; const char *tb_c3811_3 = ((tb_o_Node *)tb_nn(v_top, 2229))->q_name; long long tb_c3811_3n = (long long)strlen(tb_c3811_3); const char *tb_c3811_4 = ";\n"; long long tb_c3811_4n = sizeof(";\n") - 1; char *tb_c3811r = tb_mem(tb_c3811_0n + tb_c3811_1n + tb_c3811_2n + tb_c3811_3n + tb_c3811_4n + 1), *tb_c3811rw = tb_c3811r; memcpy(tb_c3811rw, tb_c3811_0, tb_c3811_0n); tb_c3811rw += tb_c3811_0n; memcpy(tb_c3811rw, tb_c3811_1, tb_c3811_1n); tb_c3811rw += tb_c3811_1n; memcpy(tb_c3811rw, tb_c3811_2, tb_c3811_2n); tb_c3811rw += tb_c3811_2n; memcpy(tb_c3811rw, tb_c3811_3, tb_c3811_3n); tb_c3811rw += tb_c3811_3n; memcpy(tb_c3811rw, tb_c3811_4, tb_c3811_4n); tb_c3811rw += tb_c3811_4n; *tb_c3811rw = 0; (const char *)tb_c3811r; }));
-            } else if (({ const char *tb_s3812 = ((tb_o_Node *)tb_nn(v_top, 2230))->q_kind; ((unsigned char)tb_s3812[0] == 111 && (unsigned char)tb_s3812[1] == 98 && (unsigned char)tb_s3812[2] == 106 && tb_s3812[3] == 0); })) {
-                f_emit__put(v_c, ({ const char *tb_c3813_0 = "typedef struct tb_o_"; long long tb_c3813_0n = sizeof("typedef struct tb_o_") - 1; const char *tb_c3813_1 = ((tb_o_Node *)tb_nn(v_top, 2231))->q_name; long long tb_c3813_1n = (long long)strlen(tb_c3813_1); const char *tb_c3813_2 = " tb_o_"; long long tb_c3813_2n = sizeof(" tb_o_") - 1; const char *tb_c3813_3 = ((tb_o_Node *)tb_nn(v_top, 2231))->q_name; long long tb_c3813_3n = (long long)strlen(tb_c3813_3); const char *tb_c3813_4 = ";\n"; long long tb_c3813_4n = sizeof(";\n") - 1; char *tb_c3813r = tb_mem(tb_c3813_0n + tb_c3813_1n + tb_c3813_2n + tb_c3813_3n + tb_c3813_4n + 1), *tb_c3813rw = tb_c3813r; memcpy(tb_c3813rw, tb_c3813_0, tb_c3813_0n); tb_c3813rw += tb_c3813_0n; memcpy(tb_c3813rw, tb_c3813_1, tb_c3813_1n); tb_c3813rw += tb_c3813_1n; memcpy(tb_c3813rw, tb_c3813_2, tb_c3813_2n); tb_c3813rw += tb_c3813_2n; memcpy(tb_c3813rw, tb_c3813_3, tb_c3813_3n); tb_c3813rw += tb_c3813_3n; memcpy(tb_c3813rw, tb_c3813_4, tb_c3813_4n); tb_c3813rw += tb_c3813_4n; *tb_c3813rw = 0; (const char *)tb_c3813r; }));
+        tb_list * tb_l3936 = ((tb_o_Node *)tb_nn(v_program, 2607))->q_kids;
+        for (long long tb_i3936 = 0; tb_i3936 < tb_l3936->len; tb_i3936++) {
+            tb_o_Node * const v_top = ((tb_o_Node * *)tb_l3936->data)[tb_i3936];
+            if ((({ const char *tb_s3937 = ((tb_o_Node *)tb_nn(v_top, 2608))->q_kind; ((unsigned char)tb_s3937[0] == 111 && (unsigned char)tb_s3937[1] == 98 && (unsigned char)tb_s3937[2] == 106 && tb_s3937[3] == 0); }) && ((tb_o_Node *)tb_nn(v_top, 2608))->q_by_cols)) {
+                f_emit__put(v_c, ({ const char *tb_c3938_0 = "typedef struct tb_cols_"; long long tb_c3938_0n = sizeof("typedef struct tb_cols_") - 1; const char *tb_c3938_1 = ((tb_o_Node *)tb_nn(v_top, 2609))->q_name; long long tb_c3938_1n = (long long)strlen(tb_c3938_1); const char *tb_c3938_2 = " tb_cols_"; long long tb_c3938_2n = sizeof(" tb_cols_") - 1; const char *tb_c3938_3 = ((tb_o_Node *)tb_nn(v_top, 2609))->q_name; long long tb_c3938_3n = (long long)strlen(tb_c3938_3); const char *tb_c3938_4 = ";\n"; long long tb_c3938_4n = sizeof(";\n") - 1; char *tb_c3938r = tb_mem(tb_c3938_0n + tb_c3938_1n + tb_c3938_2n + tb_c3938_3n + tb_c3938_4n + 1), *tb_c3938rw = tb_c3938r; memcpy(tb_c3938rw, tb_c3938_0, tb_c3938_0n); tb_c3938rw += tb_c3938_0n; memcpy(tb_c3938rw, tb_c3938_1, tb_c3938_1n); tb_c3938rw += tb_c3938_1n; memcpy(tb_c3938rw, tb_c3938_2, tb_c3938_2n); tb_c3938rw += tb_c3938_2n; memcpy(tb_c3938rw, tb_c3938_3, tb_c3938_3n); tb_c3938rw += tb_c3938_3n; memcpy(tb_c3938rw, tb_c3938_4, tb_c3938_4n); tb_c3938rw += tb_c3938_4n; *tb_c3938rw = 0; (const char *)tb_c3938r; }));
+                f_emit__put(v_c, ({ const char *tb_c3939_0 = "typedef struct { tb_cols_"; long long tb_c3939_0n = sizeof("typedef struct { tb_cols_") - 1; const char *tb_c3939_1 = ((tb_o_Node *)tb_nn(v_top, 2610))->q_name; long long tb_c3939_1n = (long long)strlen(tb_c3939_1); const char *tb_c3939_2 = " *c; long long i; } tb_row_"; long long tb_c3939_2n = sizeof(" *c; long long i; } tb_row_") - 1; const char *tb_c3939_3 = ((tb_o_Node *)tb_nn(v_top, 2610))->q_name; long long tb_c3939_3n = (long long)strlen(tb_c3939_3); const char *tb_c3939_4 = ";\n"; long long tb_c3939_4n = sizeof(";\n") - 1; char *tb_c3939r = tb_mem(tb_c3939_0n + tb_c3939_1n + tb_c3939_2n + tb_c3939_3n + tb_c3939_4n + 1), *tb_c3939rw = tb_c3939r; memcpy(tb_c3939rw, tb_c3939_0, tb_c3939_0n); tb_c3939rw += tb_c3939_0n; memcpy(tb_c3939rw, tb_c3939_1, tb_c3939_1n); tb_c3939rw += tb_c3939_1n; memcpy(tb_c3939rw, tb_c3939_2, tb_c3939_2n); tb_c3939rw += tb_c3939_2n; memcpy(tb_c3939rw, tb_c3939_3, tb_c3939_3n); tb_c3939rw += tb_c3939_3n; memcpy(tb_c3939rw, tb_c3939_4, tb_c3939_4n); tb_c3939rw += tb_c3939_4n; *tb_c3939rw = 0; (const char *)tb_c3939r; }));
+            } else if (({ const char *tb_s3940 = ((tb_o_Node *)tb_nn(v_top, 2611))->q_kind; ((unsigned char)tb_s3940[0] == 111 && (unsigned char)tb_s3940[1] == 98 && (unsigned char)tb_s3940[2] == 106 && tb_s3940[3] == 0); })) {
+                f_emit__put(v_c, ({ const char *tb_c3941_0 = "typedef struct tb_o_"; long long tb_c3941_0n = sizeof("typedef struct tb_o_") - 1; const char *tb_c3941_1 = ((tb_o_Node *)tb_nn(v_top, 2612))->q_name; long long tb_c3941_1n = (long long)strlen(tb_c3941_1); const char *tb_c3941_2 = " tb_o_"; long long tb_c3941_2n = sizeof(" tb_o_") - 1; const char *tb_c3941_3 = ((tb_o_Node *)tb_nn(v_top, 2612))->q_name; long long tb_c3941_3n = (long long)strlen(tb_c3941_3); const char *tb_c3941_4 = ";\n"; long long tb_c3941_4n = sizeof(";\n") - 1; char *tb_c3941r = tb_mem(tb_c3941_0n + tb_c3941_1n + tb_c3941_2n + tb_c3941_3n + tb_c3941_4n + 1), *tb_c3941rw = tb_c3941r; memcpy(tb_c3941rw, tb_c3941_0, tb_c3941_0n); tb_c3941rw += tb_c3941_0n; memcpy(tb_c3941rw, tb_c3941_1, tb_c3941_1n); tb_c3941rw += tb_c3941_1n; memcpy(tb_c3941rw, tb_c3941_2, tb_c3941_2n); tb_c3941rw += tb_c3941_2n; memcpy(tb_c3941rw, tb_c3941_3, tb_c3941_3n); tb_c3941rw += tb_c3941_3n; memcpy(tb_c3941rw, tb_c3941_4, tb_c3941_4n); tb_c3941rw += tb_c3941_4n; *tb_c3941rw = 0; (const char *)tb_c3941r; }));
             }
         }
     }
     {
-        tb_list * tb_l3814 = ((tb_o_Node *)tb_nn(v_program, 2232))->q_kids;
-        for (long long tb_i3814 = 0; tb_i3814 < tb_l3814->len; tb_i3814++) {
-            tb_o_Node * const v_top = ((tb_o_Node * *)tb_l3814->data)[tb_i3814];
-            if (({ const char *tb_s3815 = ((tb_o_Node *)tb_nn(v_top, 2233))->q_kind; ((unsigned char)tb_s3815[0] == 111 && (unsigned char)tb_s3815[1] == 98 && (unsigned char)tb_s3815[2] == 106 && tb_s3815[3] == 0); })) {
+        tb_list * tb_l3942 = ((tb_o_Node *)tb_nn(v_program, 2613))->q_kids;
+        for (long long tb_i3942 = 0; tb_i3942 < tb_l3942->len; tb_i3942++) {
+            tb_o_Node * const v_top = ((tb_o_Node * *)tb_l3942->data)[tb_i3942];
+            if (({ const char *tb_s3943 = ((tb_o_Node *)tb_nn(v_top, 2614))->q_kind; ((unsigned char)tb_s3943[0] == 111 && (unsigned char)tb_s3943[1] == 98 && (unsigned char)tb_s3943[2] == 106 && tb_s3943[3] == 0); })) {
                 f_emit__emit_obj(v_c, v_top);
             }
         }
     }
     {
-        tb_list * tb_l3816 = ((tb_o_Node *)tb_nn(v_program, 2236))->q_kids;
-        for (long long tb_i3816 = 0; tb_i3816 < tb_l3816->len; tb_i3816++) {
-            tb_o_Node * const v_top = ((tb_o_Node * *)tb_l3816->data)[tb_i3816];
-            if ((({ const char *tb_s3817 = ((tb_o_Node *)tb_nn(v_top, 2237))->q_kind; ((unsigned char)tb_s3817[0] == 102 && (unsigned char)tb_s3817[1] == 117 && (unsigned char)tb_s3817[2] == 110 && (unsigned char)tb_s3817[3] == 99 && tb_s3817[4] == 0); }) && ((((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_top, 2237))->q_kids, 2LL, sizeof(tb_o_Node *), 2237)), 2237))->q_kids)->len > 1LL))) {
+        tb_list * tb_l3944 = ((tb_o_Node *)tb_nn(v_program, 2617))->q_kids;
+        for (long long tb_i3944 = 0; tb_i3944 < tb_l3944->len; tb_i3944++) {
+            tb_o_Node * const v_top = ((tb_o_Node * *)tb_l3944->data)[tb_i3944];
+            if ((({ const char *tb_s3945 = ((tb_o_Node *)tb_nn(v_top, 2618))->q_kind; ((unsigned char)tb_s3945[0] == 102 && (unsigned char)tb_s3945[1] == 117 && (unsigned char)tb_s3945[2] == 110 && (unsigned char)tb_s3945[3] == 99 && tb_s3945[4] == 0); }) && ((((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_top, 2618))->q_kids, 2LL, sizeof(tb_o_Node *), 2618)), 2618))->q_kids)->len > 1LL))) {
                 f_emit__put(v_c, "typedef struct {");
                 {
-                    long long tb_end3818 = ((((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_top, 2239))->q_kids, 2LL, sizeof(tb_o_Node *), 2239)), 2239))->q_kids)->len - 1LL);
-                    for (long long v_j = 0LL; v_j <= tb_end3818; v_j++) {
-                        f_emit__put(v_c, ({ const char *tb_c3819_0 = " "; long long tb_c3819_0n = sizeof(" ") - 1; const char *tb_c3819_1 = f_emit__c_type(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_top, 2240))->q_kids, 2LL, sizeof(tb_o_Node *), 2240)), 2240))->q_kids, v_j, sizeof(tb_o_Node *), 2240)), 2240))->q_ty); long long tb_c3819_1n = (long long)strlen(tb_c3819_1); const char *tb_c3819_2 = " o"; long long tb_c3819_2n = sizeof(" o") - 1; char tb_c3819_3d[24]; long long tb_c3819_3n; const char *tb_c3819_3 = tb_digits(v_j, tb_c3819_3d, &tb_c3819_3n); const char *tb_c3819_4 = ";"; long long tb_c3819_4n = sizeof(";") - 1; char *tb_c3819r = tb_mem(tb_c3819_0n + tb_c3819_1n + tb_c3819_2n + tb_c3819_3n + tb_c3819_4n + 1), *tb_c3819rw = tb_c3819r; memcpy(tb_c3819rw, tb_c3819_0, tb_c3819_0n); tb_c3819rw += tb_c3819_0n; memcpy(tb_c3819rw, tb_c3819_1, tb_c3819_1n); tb_c3819rw += tb_c3819_1n; memcpy(tb_c3819rw, tb_c3819_2, tb_c3819_2n); tb_c3819rw += tb_c3819_2n; memcpy(tb_c3819rw, tb_c3819_3, tb_c3819_3n); tb_c3819rw += tb_c3819_3n; memcpy(tb_c3819rw, tb_c3819_4, tb_c3819_4n); tb_c3819rw += tb_c3819_4n; *tb_c3819rw = 0; (const char *)tb_c3819r; }));
+                    long long tb_end3946 = ((((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_top, 2620))->q_kids, 2LL, sizeof(tb_o_Node *), 2620)), 2620))->q_kids)->len - 1LL);
+                    for (long long v_j = 0LL; v_j <= tb_end3946; v_j++) {
+                        f_emit__put(v_c, ({ const char *tb_c3947_0 = " "; long long tb_c3947_0n = sizeof(" ") - 1; const char *tb_c3947_1 = f_emit__c_type(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_top, 2621))->q_kids, 2LL, sizeof(tb_o_Node *), 2621)), 2621))->q_kids, v_j, sizeof(tb_o_Node *), 2621)), 2621))->q_ty); long long tb_c3947_1n = (long long)strlen(tb_c3947_1); const char *tb_c3947_2 = " o"; long long tb_c3947_2n = sizeof(" o") - 1; char tb_c3947_3d[24]; long long tb_c3947_3n; const char *tb_c3947_3 = tb_digits(v_j, tb_c3947_3d, &tb_c3947_3n); const char *tb_c3947_4 = ";"; long long tb_c3947_4n = sizeof(";") - 1; char *tb_c3947r = tb_mem(tb_c3947_0n + tb_c3947_1n + tb_c3947_2n + tb_c3947_3n + tb_c3947_4n + 1), *tb_c3947rw = tb_c3947r; memcpy(tb_c3947rw, tb_c3947_0, tb_c3947_0n); tb_c3947rw += tb_c3947_0n; memcpy(tb_c3947rw, tb_c3947_1, tb_c3947_1n); tb_c3947rw += tb_c3947_1n; memcpy(tb_c3947rw, tb_c3947_2, tb_c3947_2n); tb_c3947rw += tb_c3947_2n; memcpy(tb_c3947rw, tb_c3947_3, tb_c3947_3n); tb_c3947rw += tb_c3947_3n; memcpy(tb_c3947rw, tb_c3947_4, tb_c3947_4n); tb_c3947rw += tb_c3947_4n; *tb_c3947rw = 0; (const char *)tb_c3947r; }));
                     }
                 }
-                f_emit__put(v_c, ({ const char *tb_c3820_0 = " } tb_r_"; long long tb_c3820_0n = sizeof(" } tb_r_") - 1; const char *tb_c3820_1 = f_emit__fname(v_top); long long tb_c3820_1n = (long long)strlen(tb_c3820_1); const char *tb_c3820_2 = ";\n"; long long tb_c3820_2n = sizeof(";\n") - 1; char *tb_c3820r = tb_mem(tb_c3820_0n + tb_c3820_1n + tb_c3820_2n + 1), *tb_c3820rw = tb_c3820r; memcpy(tb_c3820rw, tb_c3820_0, tb_c3820_0n); tb_c3820rw += tb_c3820_0n; memcpy(tb_c3820rw, tb_c3820_1, tb_c3820_1n); tb_c3820rw += tb_c3820_1n; memcpy(tb_c3820rw, tb_c3820_2, tb_c3820_2n); tb_c3820rw += tb_c3820_2n; *tb_c3820rw = 0; (const char *)tb_c3820r; }));
+                f_emit__put(v_c, ({ const char *tb_c3948_0 = " } tb_r_"; long long tb_c3948_0n = sizeof(" } tb_r_") - 1; const char *tb_c3948_1 = f_emit__fname(v_top); long long tb_c3948_1n = (long long)strlen(tb_c3948_1); const char *tb_c3948_2 = ";\n"; long long tb_c3948_2n = sizeof(";\n") - 1; char *tb_c3948r = tb_mem(tb_c3948_0n + tb_c3948_1n + tb_c3948_2n + 1), *tb_c3948rw = tb_c3948r; memcpy(tb_c3948rw, tb_c3948_0, tb_c3948_0n); tb_c3948rw += tb_c3948_0n; memcpy(tb_c3948rw, tb_c3948_1, tb_c3948_1n); tb_c3948rw += tb_c3948_1n; memcpy(tb_c3948rw, tb_c3948_2, tb_c3948_2n); tb_c3948rw += tb_c3948_2n; *tb_c3948rw = 0; (const char *)tb_c3948r; }));
             }
         }
     }
     {
-        tb_list * tb_l3821 = ((tb_o_Comp *)tb_nn(v_c, 2242))->q_types;
-        for (long long tb_i3821 = 0; tb_i3821 < tb_l3821->len; tb_i3821++) {
-            tb_o_Type * const v_t = ((tb_o_Type * *)tb_l3821->data)[tb_i3821];
-            const char * v_k = ((tb_o_Type *)tb_nn(v_t, 2243))->q_kind;
-            if (((({ const char *tb_s3822 = v_k; !((unsigned char)tb_s3822[0] == 110 && (unsigned char)tb_s3822[1] == 111 && (unsigned char)tb_s3822[2] == 110 && (unsigned char)tb_s3822[3] == 101 && tb_s3822[4] == 0); }) && ({ const char *tb_s3823 = v_k; !((unsigned char)tb_s3823[0] == 109 && (unsigned char)tb_s3823[1] == 117 && (unsigned char)tb_s3823[2] == 108 && (unsigned char)tb_s3823[3] == 116 && (unsigned char)tb_s3823[4] == 105 && tb_s3823[5] == 0); })) && ({ const char *tb_s3824 = v_k; !((unsigned char)tb_s3824[0] == 117 && (unsigned char)tb_s3824[1] == 110 && (unsigned char)tb_s3824[2] == 107 && (unsigned char)tb_s3824[3] == 110 && (unsigned char)tb_s3824[4] == 111 && (unsigned char)tb_s3824[5] == 119 && (unsigned char)tb_s3824[6] == 110 && tb_s3824[7] == 0); }))) {
-                f_emit__put(v_c, ({ const char *tb_c3825_0 = "static void tb_show_"; long long tb_c3825_0n = sizeof("static void tb_show_") - 1; char tb_c3825_1d[24]; long long tb_c3825_1n; const char *tb_c3825_1 = tb_digits(((tb_o_Type *)tb_nn(v_t, 2245))->q_id, tb_c3825_1d, &tb_c3825_1n); const char *tb_c3825_2 = "("; long long tb_c3825_2n = sizeof("(") - 1; const char *tb_c3825_3 = f_emit__c_type(v_c, ((tb_o_Type *)tb_nn(v_t, 2245))->q_id); long long tb_c3825_3n = (long long)strlen(tb_c3825_3); const char *tb_c3825_4 = " x);\n"; long long tb_c3825_4n = sizeof(" x);\n") - 1; char *tb_c3825r = tb_mem(tb_c3825_0n + tb_c3825_1n + tb_c3825_2n + tb_c3825_3n + tb_c3825_4n + 1), *tb_c3825rw = tb_c3825r; memcpy(tb_c3825rw, tb_c3825_0, tb_c3825_0n); tb_c3825rw += tb_c3825_0n; memcpy(tb_c3825rw, tb_c3825_1, tb_c3825_1n); tb_c3825rw += tb_c3825_1n; memcpy(tb_c3825rw, tb_c3825_2, tb_c3825_2n); tb_c3825rw += tb_c3825_2n; memcpy(tb_c3825rw, tb_c3825_3, tb_c3825_3n); tb_c3825rw += tb_c3825_3n; memcpy(tb_c3825rw, tb_c3825_4, tb_c3825_4n); tb_c3825rw += tb_c3825_4n; *tb_c3825rw = 0; (const char *)tb_c3825r; }));
+        tb_list * tb_l3949 = ((tb_o_Comp *)tb_nn(v_c, 2623))->q_types;
+        for (long long tb_i3949 = 0; tb_i3949 < tb_l3949->len; tb_i3949++) {
+            tb_o_Type * const v_t = ((tb_o_Type * *)tb_l3949->data)[tb_i3949];
+            const char * v_k = ((tb_o_Type *)tb_nn(v_t, 2624))->q_kind;
+            if (((({ const char *tb_s3950 = v_k; !((unsigned char)tb_s3950[0] == 110 && (unsigned char)tb_s3950[1] == 111 && (unsigned char)tb_s3950[2] == 110 && (unsigned char)tb_s3950[3] == 101 && tb_s3950[4] == 0); }) && ({ const char *tb_s3951 = v_k; !((unsigned char)tb_s3951[0] == 109 && (unsigned char)tb_s3951[1] == 117 && (unsigned char)tb_s3951[2] == 108 && (unsigned char)tb_s3951[3] == 116 && (unsigned char)tb_s3951[4] == 105 && tb_s3951[5] == 0); })) && ({ const char *tb_s3952 = v_k; !((unsigned char)tb_s3952[0] == 117 && (unsigned char)tb_s3952[1] == 110 && (unsigned char)tb_s3952[2] == 107 && (unsigned char)tb_s3952[3] == 110 && (unsigned char)tb_s3952[4] == 111 && (unsigned char)tb_s3952[5] == 119 && (unsigned char)tb_s3952[6] == 110 && tb_s3952[7] == 0); }))) {
+                f_emit__put(v_c, ({ const char *tb_c3953_0 = "static void tb_show_"; long long tb_c3953_0n = sizeof("static void tb_show_") - 1; char tb_c3953_1d[24]; long long tb_c3953_1n; const char *tb_c3953_1 = tb_digits(((tb_o_Type *)tb_nn(v_t, 2626))->q_id, tb_c3953_1d, &tb_c3953_1n); const char *tb_c3953_2 = "("; long long tb_c3953_2n = sizeof("(") - 1; const char *tb_c3953_3 = f_emit__c_type(v_c, ((tb_o_Type *)tb_nn(v_t, 2626))->q_id); long long tb_c3953_3n = (long long)strlen(tb_c3953_3); const char *tb_c3953_4 = " x);\n"; long long tb_c3953_4n = sizeof(" x);\n") - 1; char *tb_c3953r = tb_mem(tb_c3953_0n + tb_c3953_1n + tb_c3953_2n + tb_c3953_3n + tb_c3953_4n + 1), *tb_c3953rw = tb_c3953r; memcpy(tb_c3953rw, tb_c3953_0, tb_c3953_0n); tb_c3953rw += tb_c3953_0n; memcpy(tb_c3953rw, tb_c3953_1, tb_c3953_1n); tb_c3953rw += tb_c3953_1n; memcpy(tb_c3953rw, tb_c3953_2, tb_c3953_2n); tb_c3953rw += tb_c3953_2n; memcpy(tb_c3953rw, tb_c3953_3, tb_c3953_3n); tb_c3953rw += tb_c3953_3n; memcpy(tb_c3953rw, tb_c3953_4, tb_c3953_4n); tb_c3953rw += tb_c3953_4n; *tb_c3953rw = 0; (const char *)tb_c3953r; }));
             }
         }
     }
     {
-        long long tb_end3826 = ((((tb_o_Comp *)tb_nn(v_c, 2246))->q_temp_types)->len - 1LL);
-        for (long long v_i = 1LL; v_i <= tb_end3826; v_i++) {
-            f_emit__put(v_c, ({ const char *tb_c3827_0 = "static _Thread_local "; long long tb_c3827_0n = sizeof("static _Thread_local ") - 1; const char *tb_c3827_1 = f_emit__c_type(v_c, (*(long long *)tb_at(((tb_o_Comp *)tb_nn(v_c, 2247))->q_temp_types, v_i, sizeof(long long), 2247))); long long tb_c3827_1n = (long long)strlen(tb_c3827_1); const char *tb_c3827_2 = " tb_t"; long long tb_c3827_2n = sizeof(" tb_t") - 1; char tb_c3827_3d[24]; long long tb_c3827_3n; const char *tb_c3827_3 = tb_digits(v_i, tb_c3827_3d, &tb_c3827_3n); const char *tb_c3827_4 = ";   // для  f() or запасное\n"; long long tb_c3827_4n = sizeof(";   // для  f() or запасное\n") - 1; char *tb_c3827r = tb_mem(tb_c3827_0n + tb_c3827_1n + tb_c3827_2n + tb_c3827_3n + tb_c3827_4n + 1), *tb_c3827rw = tb_c3827r; memcpy(tb_c3827rw, tb_c3827_0, tb_c3827_0n); tb_c3827rw += tb_c3827_0n; memcpy(tb_c3827rw, tb_c3827_1, tb_c3827_1n); tb_c3827rw += tb_c3827_1n; memcpy(tb_c3827rw, tb_c3827_2, tb_c3827_2n); tb_c3827rw += tb_c3827_2n; memcpy(tb_c3827rw, tb_c3827_3, tb_c3827_3n); tb_c3827rw += tb_c3827_3n; memcpy(tb_c3827rw, tb_c3827_4, tb_c3827_4n); tb_c3827rw += tb_c3827_4n; *tb_c3827rw = 0; (const char *)tb_c3827r; }));
+        long long tb_end3954 = ((((tb_o_Comp *)tb_nn(v_c, 2627))->q_temp_types)->len - 1LL);
+        for (long long v_i = 1LL; v_i <= tb_end3954; v_i++) {
+            f_emit__put(v_c, ({ const char *tb_c3955_0 = "static _Thread_local "; long long tb_c3955_0n = sizeof("static _Thread_local ") - 1; const char *tb_c3955_1 = f_emit__c_type(v_c, (*(long long *)tb_at(((tb_o_Comp *)tb_nn(v_c, 2628))->q_temp_types, v_i, sizeof(long long), 2628))); long long tb_c3955_1n = (long long)strlen(tb_c3955_1); const char *tb_c3955_2 = " tb_t"; long long tb_c3955_2n = sizeof(" tb_t") - 1; char tb_c3955_3d[24]; long long tb_c3955_3n; const char *tb_c3955_3 = tb_digits(v_i, tb_c3955_3d, &tb_c3955_3n); const char *tb_c3955_4 = ";   // для  f() or запасное\n"; long long tb_c3955_4n = sizeof(";   // для  f() or запасное\n") - 1; char *tb_c3955r = tb_mem(tb_c3955_0n + tb_c3955_1n + tb_c3955_2n + tb_c3955_3n + tb_c3955_4n + 1), *tb_c3955rw = tb_c3955r; memcpy(tb_c3955rw, tb_c3955_0, tb_c3955_0n); tb_c3955rw += tb_c3955_0n; memcpy(tb_c3955rw, tb_c3955_1, tb_c3955_1n); tb_c3955rw += tb_c3955_1n; memcpy(tb_c3955rw, tb_c3955_2, tb_c3955_2n); tb_c3955rw += tb_c3955_2n; memcpy(tb_c3955rw, tb_c3955_3, tb_c3955_3n); tb_c3955rw += tb_c3955_3n; memcpy(tb_c3955rw, tb_c3955_4, tb_c3955_4n); tb_c3955rw += tb_c3955_4n; *tb_c3955rw = 0; (const char *)tb_c3955r; }));
         }
     }
     {
-        tb_list * tb_l3828 = ((tb_o_Node *)tb_nn(v_program, 2248))->q_kids;
-        for (long long tb_i3828 = 0; tb_i3828 < tb_l3828->len; tb_i3828++) {
-            tb_o_Node * const v_top = ((tb_o_Node * *)tb_l3828->data)[tb_i3828];
-            if (({ const char *tb_s3829 = ((tb_o_Node *)tb_nn(v_top, 2249))->q_kind; ((unsigned char)tb_s3829[0] == 111 && (unsigned char)tb_s3829[1] == 98 && (unsigned char)tb_s3829[2] == 106 && tb_s3829[3] == 0); })) {
+        tb_list * tb_l3956 = ((tb_o_Node *)tb_nn(v_program, 2629))->q_kids;
+        for (long long tb_i3956 = 0; tb_i3956 < tb_l3956->len; tb_i3956++) {
+            tb_o_Node * const v_top = ((tb_o_Node * *)tb_l3956->data)[tb_i3956];
+            if (({ const char *tb_s3957 = ((tb_o_Node *)tb_nn(v_top, 2630))->q_kind; ((unsigned char)tb_s3957[0] == 111 && (unsigned char)tb_s3957[1] == 98 && (unsigned char)tb_s3957[2] == 106 && tb_s3957[3] == 0); })) {
                 f_emit__emit_constructor(v_c, v_top);
             }
         }
     }
     {
-        tb_list * tb_l3830 = ((tb_o_Node *)tb_nn(v_program, 2251))->q_kids;
-        for (long long tb_i3830 = 0; tb_i3830 < tb_l3830->len; tb_i3830++) {
-            tb_o_Node * const v_top = ((tb_o_Node * *)tb_l3830->data)[tb_i3830];
-            if (({ const char *tb_s3831 = ((tb_o_Node *)tb_nn(v_top, 2252))->q_kind; ((unsigned char)tb_s3831[0] == 102 && (unsigned char)tb_s3831[1] == 117 && (unsigned char)tb_s3831[2] == 110 && (unsigned char)tb_s3831[3] == 99 && tb_s3831[4] == 0); })) {
+        tb_list * tb_l3958 = ((tb_o_Node *)tb_nn(v_program, 2632))->q_kids;
+        for (long long tb_i3958 = 0; tb_i3958 < tb_l3958->len; tb_i3958++) {
+            tb_o_Node * const v_top = ((tb_o_Node * *)tb_l3958->data)[tb_i3958];
+            if (({ const char *tb_s3959 = ((tb_o_Node *)tb_nn(v_top, 2633))->q_kind; ((unsigned char)tb_s3959[0] == 102 && (unsigned char)tb_s3959[1] == 117 && (unsigned char)tb_s3959[2] == 110 && (unsigned char)tb_s3959[3] == 99 && tb_s3959[4] == 0); })) {
                 f_emit__emit_signature(v_c, v_top);
                 f_emit__put(v_c, ";\n");
             }
@@ -12550,74 +13458,74 @@ static void f_emit__emit_c(tb_o_Comp * v_c, tb_o_Node * v_program) {
     }
     f_emit__put(v_c, "\n");
     {
-        tb_list * tb_l3832 = ((tb_o_Comp *)tb_nn(v_c, 2256))->q_types;
-        for (long long tb_i3832 = 0; tb_i3832 < tb_l3832->len; tb_i3832++) {
-            tb_o_Type * const v_t = ((tb_o_Type * *)tb_l3832->data)[tb_i3832];
+        tb_list * tb_l3960 = ((tb_o_Comp *)tb_nn(v_c, 2637))->q_types;
+        for (long long tb_i3960 = 0; tb_i3960 < tb_l3960->len; tb_i3960++) {
+            tb_o_Type * const v_t = ((tb_o_Type * *)tb_l3960->data)[tb_i3960];
             f_emit__emit_show(v_c, v_t);
         }
     }
-    tb_list * v_saved = ((tb_o_Comp *)tb_nn(v_c, 2259))->q_out;
+    tb_list * v_saved = ((tb_o_Comp *)tb_nn(v_c, 2640))->q_out;
     tb_list * v_funcs_out = tb_list_new(sizeof(const char *));
-    { tb_list * tb_v3833 = v_funcs_out; tb_list * *tb_p3833 = &(((tb_o_Comp *)tb_nn(v_c, 2261))->q_out); *tb_p3833 = tb_v3833; }
+    { tb_list * tb_v3961 = v_funcs_out; tb_list * *tb_p3961 = &(((tb_o_Comp *)tb_nn(v_c, 2642))->q_out); *tb_p3961 = tb_v3961; }
     {
-        tb_list * tb_l3834 = ((tb_o_Node *)tb_nn(v_program, 2262))->q_kids;
-        for (long long tb_i3834 = 0; tb_i3834 < tb_l3834->len; tb_i3834++) {
-            tb_o_Node * const v_top = ((tb_o_Node * *)tb_l3834->data)[tb_i3834];
-            if (({ const char *tb_s3835 = ((tb_o_Node *)tb_nn(v_top, 2263))->q_kind; ((unsigned char)tb_s3835[0] == 102 && (unsigned char)tb_s3835[1] == 117 && (unsigned char)tb_s3835[2] == 110 && (unsigned char)tb_s3835[3] == 99 && tb_s3835[4] == 0); })) {
+        tb_list * tb_l3962 = ((tb_o_Node *)tb_nn(v_program, 2643))->q_kids;
+        for (long long tb_i3962 = 0; tb_i3962 < tb_l3962->len; tb_i3962++) {
+            tb_o_Node * const v_top = ((tb_o_Node * *)tb_l3962->data)[tb_i3962];
+            if (({ const char *tb_s3963 = ((tb_o_Node *)tb_nn(v_top, 2644))->q_kind; ((unsigned char)tb_s3963[0] == 102 && (unsigned char)tb_s3963[1] == 117 && (unsigned char)tb_s3963[2] == 110 && (unsigned char)tb_s3963[3] == 99 && tb_s3963[4] == 0); })) {
                 f_emit__emit_func(v_c, v_top);
             }
         }
     }
-    { tb_list * tb_v3836 = v_saved; tb_list * *tb_p3836 = &(((tb_o_Comp *)tb_nn(v_c, 2265))->q_out); *tb_p3836 = tb_v3836; }
+    { tb_list * tb_v3964 = v_saved; tb_list * *tb_p3964 = &(((tb_o_Comp *)tb_nn(v_c, 2646))->q_out); *tb_p3964 = tb_v3964; }
     {
-        tb_list * tb_l3837 = ((tb_o_Comp *)tb_nn(v_c, 2266))->q_workers;
-        for (long long tb_i3837 = 0; tb_i3837 < tb_l3837->len; tb_i3837++) {
-            const char * const v_w = ((const char * *)tb_l3837->data)[tb_i3837];
+        tb_list * tb_l3965 = ((tb_o_Comp *)tb_nn(v_c, 2647))->q_workers;
+        for (long long tb_i3965 = 0; tb_i3965 < tb_l3965->len; tb_i3965++) {
+            const char * const v_w = ((const char * *)tb_l3965->data)[tb_i3965];
             f_emit__put(v_c, v_w);
         }
     }
     {
-        tb_list * tb_l3838 = v_funcs_out;
-        for (long long tb_i3838 = 0; tb_i3838 < tb_l3838->len; tb_i3838++) {
-            const char * const v_f = ((const char * *)tb_l3838->data)[tb_i3838];
+        tb_list * tb_l3966 = v_funcs_out;
+        for (long long tb_i3966 = 0; tb_i3966 < tb_l3966->len; tb_i3966++) {
+            const char * const v_f = ((const char * *)tb_l3966->data)[tb_i3966];
             f_emit__put(v_c, v_f);
         }
     }
-    tb_o_Node * v_main_func = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_program, 2270))->q_kids, 0LL, sizeof(tb_o_Node *), 2270));
+    tb_o_Node * v_main_func = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_program, 2651))->q_kids, 0LL, sizeof(tb_o_Node *), 2651));
     {
-        tb_list * tb_l3839 = ((tb_o_Node *)tb_nn(v_program, 2271))->q_kids;
-        for (long long tb_i3839 = 0; tb_i3839 < tb_l3839->len; tb_i3839++) {
-            tb_o_Node * const v_top = ((tb_o_Node * *)tb_l3839->data)[tb_i3839];
-            if (((({ const char *tb_s3840 = ((tb_o_Node *)tb_nn(v_top, 2272))->q_kind; ((unsigned char)tb_s3840[0] == 102 && (unsigned char)tb_s3840[1] == 117 && (unsigned char)tb_s3840[2] == 110 && (unsigned char)tb_s3840[3] == 99 && tb_s3840[4] == 0); }) && ({ const char *tb_s3841 = ((tb_o_Node *)tb_nn(v_top, 2272))->q_name; ((unsigned char)tb_s3841[0] == 109 && (unsigned char)tb_s3841[1] == 97 && (unsigned char)tb_s3841[2] == 105 && (unsigned char)tb_s3841[3] == 110 && tb_s3841[4] == 0); })) && (strcmp(((tb_o_Node *)tb_nn(v_top, 2272))->q_mod, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_program, 2272))->q_kids, 0LL, sizeof(tb_o_Node *), 2272)), 2272))->q_mod) == 0))) {
+        tb_list * tb_l3967 = ((tb_o_Node *)tb_nn(v_program, 2652))->q_kids;
+        for (long long tb_i3967 = 0; tb_i3967 < tb_l3967->len; tb_i3967++) {
+            tb_o_Node * const v_top = ((tb_o_Node * *)tb_l3967->data)[tb_i3967];
+            if (((({ const char *tb_s3968 = ((tb_o_Node *)tb_nn(v_top, 2653))->q_kind; ((unsigned char)tb_s3968[0] == 102 && (unsigned char)tb_s3968[1] == 117 && (unsigned char)tb_s3968[2] == 110 && (unsigned char)tb_s3968[3] == 99 && tb_s3968[4] == 0); }) && ({ const char *tb_s3969 = ((tb_o_Node *)tb_nn(v_top, 2653))->q_name; ((unsigned char)tb_s3969[0] == 109 && (unsigned char)tb_s3969[1] == 97 && (unsigned char)tb_s3969[2] == 105 && (unsigned char)tb_s3969[3] == 110 && tb_s3969[4] == 0); })) && (strcmp(((tb_o_Node *)tb_nn(v_top, 2653))->q_mod, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_program, 2653))->q_kids, 0LL, sizeof(tb_o_Node *), 2653)), 2653))->q_mod) == 0))) {
                 v_main_func = v_top;
             }
         }
     }
     {
-        tb_list * tb_l3842 = ((tb_o_Comp *)tb_nn(v_c, 2274))->q_locks;
-        for (long long tb_i3842 = 0; tb_i3842 < tb_l3842->len; tb_i3842++) {
-            const char * const v_l = ((const char * *)tb_l3842->data)[tb_i3842];
-            f_emit__put(v_c, ({ const char *tb_c3843_0 = "int tb_lk_"; long long tb_c3843_0n = sizeof("int tb_lk_") - 1; const char *tb_c3843_1 = v_l; long long tb_c3843_1n = (long long)strlen(tb_c3843_1); const char *tb_c3843_2 = " = 0;\n"; long long tb_c3843_2n = sizeof(" = 0;\n") - 1; char *tb_c3843r = tb_mem(tb_c3843_0n + tb_c3843_1n + tb_c3843_2n + 1), *tb_c3843rw = tb_c3843r; memcpy(tb_c3843rw, tb_c3843_0, tb_c3843_0n); tb_c3843rw += tb_c3843_0n; memcpy(tb_c3843rw, tb_c3843_1, tb_c3843_1n); tb_c3843rw += tb_c3843_1n; memcpy(tb_c3843rw, tb_c3843_2, tb_c3843_2n); tb_c3843rw += tb_c3843_2n; *tb_c3843rw = 0; (const char *)tb_c3843r; }));
+        tb_list * tb_l3970 = ((tb_o_Comp *)tb_nn(v_c, 2655))->q_locks;
+        for (long long tb_i3970 = 0; tb_i3970 < tb_l3970->len; tb_i3970++) {
+            const char * const v_l = ((const char * *)tb_l3970->data)[tb_i3970];
+            f_emit__put(v_c, ({ const char *tb_c3971_0 = "int tb_lk_"; long long tb_c3971_0n = sizeof("int tb_lk_") - 1; const char *tb_c3971_1 = v_l; long long tb_c3971_1n = (long long)strlen(tb_c3971_1); const char *tb_c3971_2 = " = 0;\n"; long long tb_c3971_2n = sizeof(" = 0;\n") - 1; char *tb_c3971r = tb_mem(tb_c3971_0n + tb_c3971_1n + tb_c3971_2n + 1), *tb_c3971rw = tb_c3971r; memcpy(tb_c3971rw, tb_c3971_0, tb_c3971_0n); tb_c3971rw += tb_c3971_0n; memcpy(tb_c3971rw, tb_c3971_1, tb_c3971_1n); tb_c3971rw += tb_c3971_1n; memcpy(tb_c3971rw, tb_c3971_2, tb_c3971_2n); tb_c3971rw += tb_c3971_2n; *tb_c3971rw = 0; (const char *)tb_c3971r; }));
         }
     }
-    if (((tb_o_Comp *)tb_nn(v_c, 2276))->q_bare) {
+    if (((tb_o_Comp *)tb_nn(v_c, 2657))->q_bare) {
         f_emit__put(v_c, "\nvoid tb_kmain(void) {\n    tb_args = tb_list_new(sizeof(const char *));\n");
         {
-            tb_list * tb_l3844 = ((tb_o_Node *)tb_nn(v_program, 2278))->q_kids;
-            for (long long tb_i3844 = 0; tb_i3844 < tb_l3844->len; tb_i3844++) {
-                tb_o_Node * const v_top = ((tb_o_Node * *)tb_l3844->data)[tb_i3844];
-                if ((({ const char *tb_s3845 = ((tb_o_Node *)tb_nn(v_top, 2279))->q_kind; ((unsigned char)tb_s3845[0] == 102 && (unsigned char)tb_s3845[1] == 117 && (unsigned char)tb_s3845[2] == 110 && (unsigned char)tb_s3845[3] == 99 && tb_s3845[4] == 0); }) && (((tb_o_Node *)tb_nn(v_top, 2279))->q_irq != 0LL))) {
-                    f_emit__put(v_c, ({ const char *tb_c3846_0 = "    tb_irq_set("; long long tb_c3846_0n = sizeof("    tb_irq_set(") - 1; char tb_c3846_1d[24]; long long tb_c3846_1n; const char *tb_c3846_1 = tb_digits(((tb_o_Node *)tb_nn(v_top, 2280))->q_irq, tb_c3846_1d, &tb_c3846_1n); const char *tb_c3846_2 = ", "; long long tb_c3846_2n = sizeof(", ") - 1; const char *tb_c3846_3 = f_emit__fname(v_top); long long tb_c3846_3n = (long long)strlen(tb_c3846_3); const char *tb_c3846_4 = ");\n"; long long tb_c3846_4n = sizeof(");\n") - 1; char *tb_c3846r = tb_mem(tb_c3846_0n + tb_c3846_1n + tb_c3846_2n + tb_c3846_3n + tb_c3846_4n + 1), *tb_c3846rw = tb_c3846r; memcpy(tb_c3846rw, tb_c3846_0, tb_c3846_0n); tb_c3846rw += tb_c3846_0n; memcpy(tb_c3846rw, tb_c3846_1, tb_c3846_1n); tb_c3846rw += tb_c3846_1n; memcpy(tb_c3846rw, tb_c3846_2, tb_c3846_2n); tb_c3846rw += tb_c3846_2n; memcpy(tb_c3846rw, tb_c3846_3, tb_c3846_3n); tb_c3846rw += tb_c3846_3n; memcpy(tb_c3846rw, tb_c3846_4, tb_c3846_4n); tb_c3846rw += tb_c3846_4n; *tb_c3846rw = 0; (const char *)tb_c3846r; }));
+            tb_list * tb_l3972 = ((tb_o_Node *)tb_nn(v_program, 2659))->q_kids;
+            for (long long tb_i3972 = 0; tb_i3972 < tb_l3972->len; tb_i3972++) {
+                tb_o_Node * const v_top = ((tb_o_Node * *)tb_l3972->data)[tb_i3972];
+                if ((({ const char *tb_s3973 = ((tb_o_Node *)tb_nn(v_top, 2660))->q_kind; ((unsigned char)tb_s3973[0] == 102 && (unsigned char)tb_s3973[1] == 117 && (unsigned char)tb_s3973[2] == 110 && (unsigned char)tb_s3973[3] == 99 && tb_s3973[4] == 0); }) && (((tb_o_Node *)tb_nn(v_top, 2660))->q_irq != 0LL))) {
+                    f_emit__put(v_c, ({ const char *tb_c3974_0 = "    tb_irq_set("; long long tb_c3974_0n = sizeof("    tb_irq_set(") - 1; char tb_c3974_1d[24]; long long tb_c3974_1n; const char *tb_c3974_1 = tb_digits(((tb_o_Node *)tb_nn(v_top, 2661))->q_irq, tb_c3974_1d, &tb_c3974_1n); const char *tb_c3974_2 = ", "; long long tb_c3974_2n = sizeof(", ") - 1; const char *tb_c3974_3 = f_emit__fname(v_top); long long tb_c3974_3n = (long long)strlen(tb_c3974_3); const char *tb_c3974_4 = ");\n"; long long tb_c3974_4n = sizeof(");\n") - 1; char *tb_c3974r = tb_mem(tb_c3974_0n + tb_c3974_1n + tb_c3974_2n + tb_c3974_3n + tb_c3974_4n + 1), *tb_c3974rw = tb_c3974r; memcpy(tb_c3974rw, tb_c3974_0, tb_c3974_0n); tb_c3974rw += tb_c3974_0n; memcpy(tb_c3974rw, tb_c3974_1, tb_c3974_1n); tb_c3974rw += tb_c3974_1n; memcpy(tb_c3974rw, tb_c3974_2, tb_c3974_2n); tb_c3974rw += tb_c3974_2n; memcpy(tb_c3974rw, tb_c3974_3, tb_c3974_3n); tb_c3974rw += tb_c3974_3n; memcpy(tb_c3974rw, tb_c3974_4, tb_c3974_4n); tb_c3974rw += tb_c3974_4n; *tb_c3974rw = 0; (const char *)tb_c3974r; }));
                 }
             }
         }
-        f_emit__put(v_c, ({ const char *tb_c3847_0 = "    "; long long tb_c3847_0n = sizeof("    ") - 1; const char *tb_c3847_1 = f_emit__fname(v_main_func); long long tb_c3847_1n = (long long)strlen(tb_c3847_1); const char *tb_c3847_2 = "();\n}\n"; long long tb_c3847_2n = sizeof("();\n}\n") - 1; char *tb_c3847r = tb_mem(tb_c3847_0n + tb_c3847_1n + tb_c3847_2n + 1), *tb_c3847rw = tb_c3847r; memcpy(tb_c3847rw, tb_c3847_0, tb_c3847_0n); tb_c3847rw += tb_c3847_0n; memcpy(tb_c3847rw, tb_c3847_1, tb_c3847_1n); tb_c3847rw += tb_c3847_1n; memcpy(tb_c3847rw, tb_c3847_2, tb_c3847_2n); tb_c3847rw += tb_c3847_2n; *tb_c3847rw = 0; (const char *)tb_c3847r; }));
+        f_emit__put(v_c, ({ const char *tb_c3975_0 = "    "; long long tb_c3975_0n = sizeof("    ") - 1; const char *tb_c3975_1 = f_emit__fname(v_main_func); long long tb_c3975_1n = (long long)strlen(tb_c3975_1); const char *tb_c3975_2 = "();\n}\n"; long long tb_c3975_2n = sizeof("();\n}\n") - 1; char *tb_c3975r = tb_mem(tb_c3975_0n + tb_c3975_1n + tb_c3975_2n + 1), *tb_c3975rw = tb_c3975r; memcpy(tb_c3975rw, tb_c3975_0, tb_c3975_0n); tb_c3975rw += tb_c3975_0n; memcpy(tb_c3975rw, tb_c3975_1, tb_c3975_1n); tb_c3975rw += tb_c3975_1n; memcpy(tb_c3975rw, tb_c3975_2, tb_c3975_2n); tb_c3975rw += tb_c3975_2n; *tb_c3975rw = 0; (const char *)tb_c3975r; }));
         return;
     }
     f_emit__put(v_c, "\nint main(int argc, char **argv) {\n");
     f_emit__put(v_c, "    tb_args = tb_list_new(sizeof(const char *));\n");
     f_emit__put(v_c, "    for (int i = 1; i < argc; i++) *(const char **)tb_grow(tb_args) = argv[i];\n");
-    f_emit__put(v_c, ({ const char *tb_c3848_0 = "    "; long long tb_c3848_0n = sizeof("    ") - 1; const char *tb_c3848_1 = f_emit__fname(v_main_func); long long tb_c3848_1n = (long long)strlen(tb_c3848_1); const char *tb_c3848_2 = "();\n    return 0;\n}\n"; long long tb_c3848_2n = sizeof("();\n    return 0;\n}\n") - 1; char *tb_c3848r = tb_mem(tb_c3848_0n + tb_c3848_1n + tb_c3848_2n + 1), *tb_c3848rw = tb_c3848r; memcpy(tb_c3848rw, tb_c3848_0, tb_c3848_0n); tb_c3848rw += tb_c3848_0n; memcpy(tb_c3848rw, tb_c3848_1, tb_c3848_1n); tb_c3848rw += tb_c3848_1n; memcpy(tb_c3848rw, tb_c3848_2, tb_c3848_2n); tb_c3848rw += tb_c3848_2n; *tb_c3848rw = 0; (const char *)tb_c3848r; }));
+    f_emit__put(v_c, ({ const char *tb_c3976_0 = "    "; long long tb_c3976_0n = sizeof("    ") - 1; const char *tb_c3976_1 = f_emit__fname(v_main_func); long long tb_c3976_1n = (long long)strlen(tb_c3976_1); const char *tb_c3976_2 = "();\n    return 0;\n}\n"; long long tb_c3976_2n = sizeof("();\n    return 0;\n}\n") - 1; char *tb_c3976r = tb_mem(tb_c3976_0n + tb_c3976_1n + tb_c3976_2n + 1), *tb_c3976rw = tb_c3976r; memcpy(tb_c3976rw, tb_c3976_0, tb_c3976_0n); tb_c3976rw += tb_c3976_0n; memcpy(tb_c3976rw, tb_c3976_1, tb_c3976_1n); tb_c3976rw += tb_c3976_1n; memcpy(tb_c3976rw, tb_c3976_2, tb_c3976_2n); tb_c3976rw += tb_c3976_2n; *tb_c3976rw = 0; (const char *)tb_c3976r; }));
 }
 
 int main(int argc, char **argv) {

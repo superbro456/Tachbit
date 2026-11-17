@@ -1,0 +1,10 @@
+// 0.7: номер в «коробке» (max/min), но коробка больше списка — проверка остаётся
+func main()
+    xs = list int
+    repeat 10 times
+        xs.add(1)
+    s = 0
+    count i from 0 to 30
+        k = max(0, min(i, 20))
+        s += xs[k]
+    print(s)
