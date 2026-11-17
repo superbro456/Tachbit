@@ -66,6 +66,13 @@ tb start hello.tb  # или просто один файл (можно без .t
 - заготовки: напиши `main`, `func`, `each`, `cores`, `bg` и нажми Tab;
 - `//` комментирует строку по Cmd+/, блоки сворачиваются по отступам.
 
+### Значок файлов .tb в Finder (Mac)
+
+```
+./tools/install_mac_icons.sh
+```
+Ставит маленькую программу `~/Applications/Tachbit.app`: у файлов `.tb` в Finder появляется свой значок, а двойной щелчок открывает их в VS Code. Значок — `assets/tachbit-file-icon.svg` (и `-1024.png`).
+
 ### Свои цвета: тема Tachbit Dark / Light
 
 В расширении две темы в цветах логотипа. Включить: Cmd+K, потом Cmd+T → **Tachbit Dark** (или **Tachbit Light**).

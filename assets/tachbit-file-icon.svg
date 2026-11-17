@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <filter id="sh" x="-10%" y="-10%" width="120%" height="120%"><feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#000" flood-opacity="0.28"/></filter>
+  </defs>
+  <path d="M212 60 H640 L852 272 V924 Q852 964 812 964 H212 Q172 964 172 924 V100 Q172 60 212 60 Z" fill="#fbfbfa" filter="url(#sh)"/>
+  <path d="M640 60 V232 Q640 272 680 272 H852 Z" fill="#dcdcdc"/>
+  <g transform="translate(332 330) scale(3)">
+    <rect x="6" y="6" width="108" height="108" rx="26" fill="#1c1c1e"/>
+    <g fill="none" stroke="#ffffff" stroke-width="10" stroke-linecap="round"><path d="M54 28 V78 Q54 92 68 92 H74"/><path d="M38 48 H74"/></g>
+    <circle cx="86" cy="32" r="9" fill="#4fb3ac"/>
+  </g>
+  <text x="512" y="860" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-weight="700" font-size="104" fill="#4fb3ac" letter-spacing="6">TB</text>
+</svg>
