@@ -1,21 +1,15 @@
 #!/bin/bash
 # Ставит команду tb, чтобы запускать Tachbit из любой папки:
-#   ./tools/install.sh        — поставить компилятор, написанный на самом Tachbit (всё новое)
-#   ./tools/install.sh --c    — поставить стартер на C (умеет только до 0.5)
+#   ./tools/install.sh        — поставить компилятор (он написан на самом Tachbit)
 # После этого:  tb new имя  /  tb start имя
 # Запускай этот скрипт заново после git pull, чтобы tb обновился.
 cd "$(dirname "$0")/.." || exit 1
 bin="$HOME/.tachbit/bin"
 mkdir -p "$bin" || exit 1
-if [ "$1" != "--c" ]; then
-    # без стартера на C: семя compiler/seed/tb.c собирает компилятор из compiler/*.tb
-    ./tools/build_tb.sh || exit 1
-    cp ./tachbit-tb "$bin/tb"
-    echo "стоит компилятор на Tachbit (собран сам собой, без стартера на C)"
-else
-    cc -std=c99 -O2 -o ./tachbit archive/compiler-c/*.c || { echo "не получилось собрать стартер"; exit 1; }
-    cp ./tachbit "$bin/tb"
-fi
+# семя compiler/seed/tb.c собирает компилятор из compiler/*.tb
+./tools/build_tb.sh || exit 1
+cp ./tachbit-tb "$bin/tb"
+echo "стоит компилятор на Tachbit (собран сам собой)"
 
 line='export PATH="$HOME/.tachbit/bin:$PATH"'
 added=""
