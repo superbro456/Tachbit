@@ -13,6 +13,7 @@ bench/*
 !bench/*.py
 !bench/run.sh
 !bench/*_pure.c
+!bench/*_smart.c
 /tb
 build/
 compiler/*

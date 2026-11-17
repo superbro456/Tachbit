@@ -27,12 +27,24 @@ best() {
     echo "$best_time"
 }
 
+# C с той же хитростью, что у Tachbit (потоки, колонки, арена, заказ памяти наперёд ...)
+smart() {
+    cc -O2 -o "$1_s" "$1_smart.c" -lpthread || exit 1
+    echo "   C с той же хитростью: $(best ./$1_s) с$2   ($1_smart.c)"
+    rm -f "$1_s"
+}
+
 for task in fib primes cores physics; do
     ../tachbit-tb build $task.tb > /dev/null || exit 1
     cc -O2 -o ${task}_c ${task}_pure.c || exit 1
     echo "== $task  (ответ: $(./$task))"
     echo "   Tachbit: $(best ./$task) с"
     echo "   C:       $(best ./${task}_c) с"
+    if [ -f ${task}_smart.c ]; then
+        cc -O2 -o ${task}_s ${task}_smart.c -lpthread || exit 1
+        echo "   C с той же хитростью: $(best ./${task}_s) с   (${task}_smart.c)"
+        rm -f ${task}_s
+    fi
     if [ -z "$NOPY" ] && [ -f $task.py ] && command -v python3 > /dev/null; then
         echo "   Python:  $(seconds python3 $task.py) с   (Python медленный: ждём один запуск)"
     fi
@@ -47,6 +59,7 @@ echo "== columns  (ответ: $(./columns))"
 echo "   Tachbit by columns:   $(best ./columns) с"
 echo "   Tachbit обычный obj:  $(best ./cards) с"
 echo "   C (массив структур):  $(best ./columns_c) с"
+smart columns
 if [ -z "$NOPY" ] && [ -f $task.py ] && command -v python3 > /dev/null; then
     py=$(seconds python3 columns.py)
     echo "   Python:  $(awk "BEGIN { print $py * 10 }") с   (считал 2 млн объектов, время ×10)"
@@ -71,6 +84,7 @@ echo "== temp  (ответ: $(./temp))"
 echo "   Tachbit с temp:   $(best ./temp) с, память $(mem ./temp) МБ"
 echo "   Tachbit без temp: $(best ./notemp) с, память $(mem ./notemp) МБ  (память шага отдаётся сама)"
 echo "   C (malloc/free):  $(best ./temp_c) с, память $(mem ./temp_c) МБ"
+smart temp ", память $(cc -O2 -o temp_s temp_smart.c && mem ./temp_s) МБ"
 if [ -z "$NOPY" ] && [ -f $task.py ] && command -v python3 > /dev/null; then
     echo "   Python:  $(seconds python3 temp.py) с"
 fi
@@ -84,6 +98,7 @@ echo "== vec  (ответ: $(./vec))"
 echo "   Tachbit by vec:    $(best ./vec) с"
 echo "   Tachbit без vec:   $(best ./novec) с"
 echo "   C (обычный цикл):  $(best ./vec_c) с"
+smart vec
 if [ -z "$NOPY" ] && [ -f $task.py ] && command -v python3 > /dev/null; then
     py=$(seconds python3 vec.py)
     echo "   Python:  $(awk "BEGIN { print $py * 10 }") с   (считал 1 млн чисел, время ×10)"
@@ -98,6 +113,7 @@ echo "== pieces  (ответ: $(./pieces))"
 echo "   Tachbit by 4096:     $(best ./pieces) с"
 echo "   Tachbit без кусков:  $(best ./nopieces) с"
 echo "   C (проходы подряд):  $(best ./pieces_c) с"
+smart pieces
 rm -f pieces pieces.c nopieces nopieces.c pieces_c
 
 # together: 16 млн поисков в dict на 4 млн ключей, по 8 за раз
@@ -108,6 +124,7 @@ echo "== together  (ответ: $(./together))"
 echo "   Tachbit together:     $(best ./together) с"
 echo "   Tachbit без together: $(best ./notogether) с"
 echo "   C (та же таблица):    $(best ./together_c) с"
+smart together
 rm -f together together.c notogether notogether.c together_c
 
 # background: три работы (простые числа на отрезках), две из них в фоне
@@ -118,6 +135,7 @@ echo "== background  (ответ: $(./background))"
 echo "   Tachbit background:     $(best ./background) с"
 echo "   Tachbit по очереди:     $(best ./nobackground) с"
 echo "   C (по очереди):         $(best ./background_c) с"
+smart background
 rm -f background background.c nobackground nobackground.c background_c
 
 # заказ наперёд: data[x] по плану idx, 16 млн случайных номеров, 3 раза
@@ -128,6 +146,7 @@ echo "== prefetch  (ответ: $(./prefetch))"
 echo "   Tachbit с заказом наперёд: $(best ./prefetch) с"
 echo "   Tachbit без него:          $(best ./noprefetch) с"
 echo "   C (обычный цикл):          $(best ./prefetch_c) с"
+smart prefetch
 rm -f prefetch prefetch.c noprefetch noprefetch.c prefetch_c
 
 # горячие и холодные качества: 5 млн obj, сумма balance 20 раз
@@ -174,6 +193,7 @@ echo "== append on all cores  (ответ: $(./append_cores))"
 echo "   Tachbit (все ядра):  $(best ./append_cores) с"
 echo "   Tachbit (одно ядро): $(best ./noappend_cores) с"
 echo "   C (одно ядро):       $(best ./append_cores_c) с"
+smart append_cores
 rm -f append_cores append_cores.c noappend_cores noappend_cores.c append_cores_c
 
 # память цикла без temp: компилятор сам отдаёт память каждого шага (наружу уходит только число)
@@ -182,6 +202,7 @@ cc -O2 -o automem_c automem_pure.c || exit 1
 echo "== automem  (ответ: $(./automem))"
 echo "   Tachbit:          $(best ./automem) с, память $(mem ./automem) МБ"
 echo "   C (malloc/free):  $(best ./automem_c) с, память $(mem ./automem_c) МБ"
+smart automem
 rm -f automem automem.c automem_c
 
 # арена функции: функцию зовут 3 млн раз из цикла, который сохраняет наружу (у шага арены нет)
@@ -190,4 +211,5 @@ cc -O2 -o funcmem_c funcmem_pure.c || exit 1
 echo "== funcmem  (ответ: $(./funcmem))"
 echo "   Tachbit:          $(best ./funcmem) с, память $(mem ./funcmem) МБ"
 echo "   C (malloc/free):  $(best ./funcmem_c) с, память $(mem ./funcmem_c) МБ"
+smart funcmem
 rm -f funcmem funcmem.c funcmem_c
