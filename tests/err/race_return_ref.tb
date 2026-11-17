@@ -1,0 +1,8 @@
+func first(a: list list int) gives r: list int
+    return a[0]
+func main()
+    m = [[1, 2], [3, 4]]
+    count i from 0 to 1 on all cores
+        r = first(m)
+        r.add(1)
+    print(len(m))

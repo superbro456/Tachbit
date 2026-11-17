@@ -1,0 +1,6 @@
+func main()
+    m = [[1, 2], [3, 4]]
+    count i from 0 to 1 on all cores
+        row = m[i]
+        row.add(1)
+    print(len(m))

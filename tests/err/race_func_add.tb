@@ -1,0 +1,8 @@
+func push(a: list int, x: int)
+    a.add(x)
+
+func main()
+    xs = list int
+    count i from 0 to 99999 on all cores
+        push(xs, i)
+    print(len(xs))

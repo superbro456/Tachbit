@@ -1,0 +1,7 @@
+shared total = int 0
+func bump()
+    total += 1
+func main()
+    count i from 0 to 999 on all cores
+        bump()
+    print(total)

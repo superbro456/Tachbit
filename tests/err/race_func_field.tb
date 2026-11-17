@@ -1,0 +1,9 @@
+obj P
+    n: int
+func bump(p: P)
+    p.n += 1
+func main()
+    p = P(n: 0)
+    count i from 0 to 99999 on all cores
+        bump(p)
+    print(p.n)

@@ -1,0 +1,12 @@
+shared total = int 0
+func work(n: int)
+    count i from 1 to n
+        if i % 7 != 100
+            total += 1
+        wait_ms(0)
+func main()
+    a = background work(200000)
+    b = background work(200000)
+    a.wait
+    b.wait
+    print(total)

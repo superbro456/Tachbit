@@ -90,6 +90,12 @@ obj Var
     is_shared: bool
     // by vec: как копится (+= или -=)
     op: text
+    // «цвет»: номер+1 переменной, из которой взят этот список/obj (ys = xs, u = users[i]); 0 — свой
+    src1: int
+    // номер+1 параметра функции (0 — не параметр)
+    pno: int
+    // через эту переменную уже меняли данные (a.add, a[i] = ..., a.n += 1)
+    changed: bool
 
 // состояние всего компилятора
 obj Comp
@@ -145,6 +151,25 @@ obj Comp
     acc_func: list int
     acc_loop: list bool
     call_from: list int
+    // защита потоков: какие параметры функции меняются ("номер_функции#номер_параметра"),
+    // кто кому передаёт свой параметр, и вызовы из on all cores с данными снаружи
+    mut_keys: list text
+    e_from: list text
+    e_to: list text
+    pc_keys: list text
+    pc_lines: list int
+    pc_names: list text
+    pc_files: list text
+    // общие shared: кто их меняет (функция, под замком ли), и какие функции идут параллельно
+    call_par: list bool
+    last_call: int
+    bg_funcs: list int
+    together_depth: int
+    gw_func: list int
+    gw_lock: list bool
+    gw_line: list int
+    gw_name: list text
+    gw_file: list text
     call_to: list int
     call_loop: list bool
     // текстовые переменные текущей функции, в которые дописывают на месте (s += x)

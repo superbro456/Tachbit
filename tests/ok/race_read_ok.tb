@@ -1,0 +1,13 @@
+func total(a: list int) gives r: int
+    s = 0
+    each x in a
+        s += x
+    return s
+func main()
+    xs = [1, 2, 3]
+    sums = list int
+    count i from 0 to 9 on all cores
+        s = total(xs)
+        mine = list int
+        mine.add(s)
+    print(total(xs))

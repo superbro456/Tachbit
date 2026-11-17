@@ -1,0 +1,8 @@
+obj P
+    n: int
+func main()
+    ps = [P(n: 1), P(n: 2)]
+    count i from 0 to 1 on all cores
+        each p in ps
+            p.n += 1
+    print(ps[0].n)

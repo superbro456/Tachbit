@@ -1,0 +1,10 @@
+func inner(b: list int)
+    b.add(1)
+func outer(a: list int)
+    t = a
+    inner(t)
+func main()
+    xs = list int
+    count i from 0 to 9 on all cores
+        outer(xs)
+    print(len(xs))

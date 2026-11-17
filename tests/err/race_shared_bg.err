@@ -1,0 +1,1 @@
+race_shared_bg.tb, строка 5: эту shared меняет функция, которая идёт параллельно (background, on all cores или together): меняй её под замком  lock имя: total

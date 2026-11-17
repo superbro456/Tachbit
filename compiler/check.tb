@@ -329,8 +329,137 @@ func temp_keep_out(c: Comp, line: int, name: text)
     error_at(c, line, "из temp наружу можно сохранить только int, dec или bool: текст, списки и obj удалятся в конце блока", name)
 
 func no_outside_change(c: Comp, n: Node)
-    if outside_par(c, root_var(c, n))
-        error_at(c, n.line, "внутри " + loop_word(c) + " нельзя менять списки и obj снаружи цикла (свои, созданные внутри, — можно)", "")
+    note_change(c, n)
+
+// ---------- «своё» и «чужое» (защита потоков) ----------
+// Как цеховой инструмент и личный: всё, что создано снаружи on all cores, — цеховое,
+// его можно только читать. «Цвет» идёт за данными: ys = xs, u = users[i], each u in users
+// — тоже цеховое. И функции: если функция меняет полученный список или obj (сама или
+// через другие функции), отдавать ей цеховое внутри on all cores нельзя.
+
+// список, dict или obj: их можно менять (текст менять нельзя)
+func is_ref(t: int)
+    return t > 4
+
+// откуда данные у переменной: ys = xs → xs (иначе она сама)
+func origin(c: Comp, v: int) gives r: int
+    if v >= 0 and c.vars[v].src1 > 0
+        return c.vars[v].src1 - 1
+    return v
+
+// переменная, через которую значение n может вести к тем же спискам/obj (или -1)
+func src_of(c: Comp, n: Node) gives r: int
+    if not is_ref(n.ty) and n.kind != "arg"
+        return -1
+    if n.kind == "name"
+        v = find_var(c, n.name)
+        if v >= 0
+            return origin(c, v)
+        return -1
+    if n.kind == "index" or n.kind == "field"
+        return src_of(c, n.kids[0])
+    each kid in n.kids
+        s = src_of(c, kid)
+        if s >= 0
+            return s
+    return -1
+
+// параметр функции o меняют: запомнить «функция#параметр»
+func mark_param(c: Comp, o: int)
+    if o < 0 or c.vars[o].pno == 0 or c.current < 0
+        return
+    key = "f" + c.current + "#" + (c.vars[o].pno - 1)
+    each k in c.mut_keys
+        if k == key
+            return
+    c.mut_keys.add(key)
+
+func outside_change_error(c: Comp, line: int)
+    error_at(c, line, "внутри " + loop_word(c) + " нельзя менять списки и obj снаружи цикла и то, что из них взято (свои, созданные внутри, — можно)", "")
+
+// данные меняют через место n: a.add(...), a[i] = ..., a.n += 1, link на a[i]
+func note_change(c: Comp, n: Node)
+    r = root_var(c, n)
+    if r < 0
+        return
+    c.vars[r].changed = true
+    o = origin(c, r)
+    if outside_par(c, r) or outside_par(c, o)
+        outside_change_error(c, n.line)
+    mark_param(c, o)
+
+// переменная v (список/obj) теперь ведёт к данным переменной s
+func set_src(c: Comp, v: int, s: int, line: int)
+    if s < 0 or s >= v
+        // s заведена позже v (во внутреннем блоке): это свои новые данные, «цвета» нет
+        c.vars[v].src1 = 0
+        return
+    if c.vars[v].changed
+        // через v уже меняли (например, в прошлом шаге цикла) — значит, будут менять и s
+        if outside_par(c, s)
+            outside_change_error(c, line)
+        mark_param(c, s)
+    c.vars[v].src1 = s + 1
+
+// после всей проверки: функции, которые меняют параметр (и через другие функции),
+// и вызовы из on all cores, которые отдают им данные снаружи
+func check_par_calls(c: Comp)
+    more = true
+    repeat while more
+        more = false
+        count j from 0 to len(c.e_from) - 1
+            if text_in(c.mut_keys, c.e_to[j]) and not text_in(c.mut_keys, c.e_from[j])
+                c.mut_keys.add(c.e_from[j])
+                more = true
+    count j from 0 to len(c.pc_keys) - 1
+        if text_in(c.mut_keys, c.pc_keys[j])
+            c.file_name = c.pc_files[j]
+            error_at(c, c.pc_lines[j], "внутри on all cores эта функция меняет полученный список или obj, а он снаружи цикла: собери свой список или obj внутри цикла и передай его", c.pc_names[j])
+
+// запись в общую shared-переменную номер r: запомнить, где и под замком ли
+func note_global_write(c: Comp, r: int, line: int)
+    if r < 0 or r >= c.n_globals or c.current < 0
+        return
+    c.gw_func.add(c.current)
+    c.gw_lock.add(c.lock_depth > 0)
+    c.gw_line.add(line)
+    c.gw_name.add(c.vars[r].name)
+    c.gw_file.add(c.file_name)
+
+// shared, которую меняет функция, идущая параллельно (background, on all cores, together,
+// и всё, что они зовут), везде меняется только под lock: иначе два += теряют друг друга
+func check_global_writes(c: Comp)
+    conc = list bool
+    count i from 1 to len(c.funcs)
+        conc.add(false)
+    each f in c.bg_funcs
+        conc[f] = true
+    count j from 0 to len(c.call_to) - 1
+        if c.call_par[j]
+            conc[c.call_to[j]] = true
+    more = true
+    repeat while more
+        more = false
+        count j from 0 to len(c.call_to) - 1
+            if c.call_from[j] >= 0 and conc[c.call_from[j]] and not conc[c.call_to[j]]
+                conc[c.call_to[j]] = true
+                more = true
+    count j from 0 to len(c.gw_func) - 1
+        if c.gw_lock[j]
+            skip
+        busy = false
+        count k from 0 to len(c.gw_func) - 1
+            if c.gw_name[k] == c.gw_name[j] and conc[c.gw_func[k]]
+                busy = true
+        if busy
+            c.file_name = c.gw_file[j]
+            error_at(c, c.gw_line[j], "эту shared меняет функция, которая идёт параллельно (background, on all cores или together): меняй её под замком  lock имя", c.gw_name[j])
+
+func text_in(xs: list text, x: text)
+    each s in xs
+        if s == x
+            return true
+    return false
 
 // ---------- выражения ----------
 
@@ -544,6 +673,7 @@ func check_builtin(c: Comp, n: Node) gives r: int
         return 3
     if name == "sort"
         builtin_args(c, n, "s", "sort(список int, dec или text)")
+        note_change(c, n.kids[0].kids[0])
         return 0
     if name == "run"
         builtin_args(c, n, "t", "run(\"команда терминала\")  →  код выхода int")
@@ -737,9 +867,22 @@ func check_user_call(c: Comp, n: Node, fi: int) gives r: int
                 error_at(c, value.line, "этот ярлык уже был другого типа", type_name(c, p.ty))
         else if not fits(p.ty, t)
             error_at(c, value.line, "параметр ждёт другой тип", p.name)
+        else if is_ref(t)
+            s = src_of(c, value)
+            if s >= 0
+                key = "f" + fi + "#" + i
+                if c.vars[s].pno > 0 and c.current >= 0
+                    c.e_from.add("f" + c.current + "#" + (c.vars[s].pno - 1))
+                    c.e_to.add(key)
+                if outside_par(c, s)
+                    c.pc_keys.add(key)
+                    c.pc_lines.add(value.line)
+                    c.pc_names.add(n.name)
+                    c.pc_files.add(c.file_name)
         n.kids[i].ty = p.ty
     c.call_from.add(c.current)
     c.call_to.add(fi)
+    c.call_par.add(c.par_base >= 0 or c.par_vec or c.together_depth > 0)
     c.call_loop.add(c.loop_depth > 0)
     if f.state == 0
         // проверяем вызванную функцию сейчас, чтобы узнать, что она возвращает
@@ -784,6 +927,7 @@ func check_user_call(c: Comp, n: Node, fi: int) gives r: int
         c.depth = saved_depth
     if f.node.ty < 0
         error_at(c, n.line, "функция вызывает сама себя раньше первого return со значением: поставь простой return выше", n.name)
+    c.last_call = fi
     return f.node.ty
 
 // money.total(...)  —  вызов функции из модуля по имени модуля
@@ -1082,6 +1226,8 @@ func check_assign(c: Comp, n: Node)
         n.ty = type
         add_var(c, n.name, type, n.is_const, false, n.line)
         c.vars[len(c.vars) - 1].is_shared = n.is_shared
+        if t >= 0 and is_ref(type)
+            set_src(c, len(c.vars) - 1, src_of(c, n.kids[0]), n.line)
         return
     if outside_temp(c, v) and not is_plain(c.vars[v].type)
         temp_keep_out(c, n.line, n.name)
@@ -1093,11 +1239,14 @@ func check_assign(c: Comp, n: Node)
         error_at(c, n.line, "внутри " + loop_word(c) + " нельзя менять переменную снаружи: сделай её shared и меняй через += или -=", n.name)
     if n.is_const or declared >= 0
         error_at(c, n.line, "переменная уже есть: тип и const пишутся только в первый раз", n.name)
+    note_global_write(c, v, n.line)
     if c.vars[v].is_const
         error_at(c, n.line, "это const или переменная цикла, её нельзя менять", n.name)
     if not fits(c.vars[v].type, t)
         error_at(c, n.line, "переменная другого типа", type_name(c, c.vars[v].type))
     n.is_link = c.vars[v].is_link
+    if is_ref(t)
+        set_src(c, v, src_of(c, n.kids[0]), n.line)
     n.ty = c.vars[v].type
 
 func check_set(c: Comp, n: Node)
@@ -1131,6 +1280,9 @@ func check_set(c: Comp, n: Node)
             error_at(c, n.line, "внутри " + loop_word(c) + " нельзя менять переменную снаружи: сделай её shared и меняй через += или -=", target.name)
         if op != "+=" and op != "-="
             error_at(c, n.line, "shared внутри on all cores меняется только через += или -=", target.name)
+    if target.kind != "name"
+        note_change(c, target)
+    note_global_write(c, r, n.line)
     if r >= 0 and r < c.n_globals and (c.par_base >= 0 or c.par_vec) and c.lock_depth == 0
         error_at(c, n.line, "общую shared-переменную внутри " + loop_word(c) + " меняют под замком: lock имя", target.name)
     t = check_value(c, n.kids[1])
@@ -1179,16 +1331,21 @@ func check_multi(c: Comp, n: Node)
         if v < 0
             name.creates = true
             add_var(c, name.name, out, false, false, name.line)
+            if is_ref(out)
+                set_src(c, len(c.vars) - 1, src_of(c, value), name.line)
         else
             if outside_par(c, v)
                 error_at(c, name.line, "внутри " + loop_word(c) + " нельзя менять переменную снаружи: сделай её shared и меняй через += или -=", name.name)
             if outside_temp(c, v) and not is_plain(c.vars[v].type)
                 temp_keep_out(c, name.line, name.name)
+            note_global_write(c, v, name.line)
             if c.vars[v].is_const
                 error_at(c, name.line, "это const или переменная цикла, её нельзя менять", name.name)
             if not fits(c.vars[v].type, out)
                 error_at(c, name.line, "переменная другого типа", type_name(c, c.vars[v].type))
             name.is_link = c.vars[v].is_link
+            if is_ref(out)
+                set_src(c, v, src_of(c, value), name.line)
         name.ty = out
 
 func check_return(c: Comp, n: Node)
@@ -1250,6 +1407,8 @@ func check_statement(c: Comp, n: Node)
         else
             open_scope(c)
             add_var(c, n.name, elem, true, false, n.line)
+            if is_ref(elem) and not n.is_par
+                set_src(c, len(c.vars) - 1, src_of(c, n.kids[0]), n.line)
             c.loops.add(n)
             check_loop_body(c, n, n.kids[1])
             gone = c.loops.pop()
@@ -1345,7 +1504,10 @@ func check_background(c: Comp, n: Node) gives r: int
     if call.kind == "call" and is_builtin(call.name)
         error_at(c, n.line, "background запускает свою функцию: a = background load(name)", call.name)
     call.creates = true
+    c.last_call = -1
     t = check_expr(c, call)
+    if c.last_call >= 0
+        c.bg_funcs.add(c.last_call)
     if call.kind != "call" or not call.has_ref or call.ref.kind != "func"
         error_at(c, n.line, "background запускает свою функцию: a = background load(name)", "")
     f = call.ref
@@ -1376,7 +1538,9 @@ func check_together(c: Comp, n: Node)
             if uses_name(s.kids[0], w)
                 error_at(c, s.line, "строки в together не должны зависеть друг от друга, а здесь нужна", w)
         names.add(s.name)
+        c.together_depth += 1
         check_statement(c, s)
+        c.together_depth -= 1
 
 // встречается ли имя name где-то в выражении n
 func uses_name(n: Node, name: text)
@@ -1566,8 +1730,10 @@ func check_func(c: Comp, fi: int)
     open_scope(c)
     params = f.node.kids[0]
     outputs = f.node.kids[2]
-    each p in params.kids
+    count pi from 0 to len(params.kids) - 1
+        p = params.kids[pi]
         add_var(c, p.name, p.ty, false, p.is_link, p.line)
+        c.vars[len(c.vars) - 1].pno = pi + 1
     each o in outputs.kids
         same_param = find_var(c, o.name)
         if same_param >= 0
@@ -1750,4 +1916,6 @@ modpub func check(c: Comp, program: Node)
             c.file_name = f.node.file
             error_at(c, f.node.line, "функция с link ни разу не вызвана, поэтому тип ярлыка неизвестен", f.name)
     check_piece_leaks(c)
+    check_par_calls(c)
+    check_global_writes(c)
     mark_hot_fields(c)
