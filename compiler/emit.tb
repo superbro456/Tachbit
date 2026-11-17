@@ -1909,11 +1909,22 @@ func emit_statement(c: Comp, n: Node, depth: int)
         put(c, "{\n")
         indent(c, depth + 1)
         put(c, "extern int tb_lk_" + n.name + "; unsigned long tb_lf" + id + " = tb_lock_take(&tb_lk_" + n.name + ");\n")
+        c.lock_ids.add(id)
         emit_block(c, n.kids[0], depth + 1)
-        indent(c, depth + 1)
-        put(c, "tb_lock_give(&tb_lk_" + n.name + ", tb_lf" + id + ");\n")
+        gone_id = c.lock_ids.pop()
+        freed = false
+        each s in n.kids[0].kids
+            if s.kind == "unlock"
+                freed = true
+        if not freed
+            indent(c, depth + 1)
+            put(c, "tb_lock_give(&tb_lk_" + n.name + ", tb_lf" + id + ");\n")
         indent(c, depth)
         put(c, "}\n")
+    else if k == "unlock"
+        // unlock имя: отпустить замок здесь, а не в конце блока
+        indent(c, depth)
+        put(c, "tb_lock_give(&tb_lk_" + n.name + ", tb_lf" + c.lock_ids[len(c.lock_ids) - 1] + ");\n")
     else if k == "temp"
         c.label += 1
         id = "" + c.label

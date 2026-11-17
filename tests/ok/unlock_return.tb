@@ -1,0 +1,11 @@
+// 0.9: замки, unlock, стек
+func f() gives r: int
+    lock m
+        v = 5
+        unlock m
+        return v
+    return 0
+func main()
+    print(f())
+    lock m
+        print("снова")

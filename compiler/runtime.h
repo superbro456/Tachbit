@@ -729,13 +729,19 @@ TB_COLD static void tb_crash(int line, const char *msg) {
 // на своём маленьком стеке (sigaltstack), потому что основной уже кончился.
 #include <signal.h>
 #include <sys/resource.h>
-static char *tb_main_sp;
+// у каждого потока своё: где начинается его стек и сколько в нём места
+static _Thread_local char *tb_main_sp;
+static _Thread_local long long tb_stack_lim;
+#define TB_THREAD_STACK (8LL << 20)
 static void tb_on_segv(int sig, siginfo_t *si, void *u) {
     (void)sig; (void)u;
     char *a = (char *)si->si_addr;
-    long long lim = 8LL << 20;
-    struct rlimit rl;
-    if (getrlimit(RLIMIT_STACK, &rl) == 0 && rl.rlim_cur != RLIM_INFINITY) lim = (long long)rl.rlim_cur;
+    long long lim = tb_stack_lim;
+    if (lim == 0) {
+        lim = 8LL << 20;
+        struct rlimit rl;
+        if (getrlimit(RLIMIT_STACK, &rl) == 0 && rl.rlim_cur != RLIM_INFINITY) lim = (long long)rl.rlim_cur;
+    }
     const char *m;
     if (tb_main_sp && a <= tb_main_sp + 65536 && a >= tb_main_sp - lim - (1 << 20))
         m = "стек переполнен: функция зовёт себя слишком глубоко (рекурсия без конца?)\n";
@@ -743,6 +749,40 @@ static void tb_on_segv(int sig, siginfo_t *si, void *u) {
         m = "программа упала: ошибка памяти. Это ошибка Tachbit, а не твоя: пришли, пожалуйста, эту программу\n";
     if (write(2, m, strlen(m)) < 0) _exit(1);
     _exit(1);
+}
+// свой маленький стек для сообщения: у главного потока — постоянный, у остальных — из malloc
+static void tb_guard_thread(char *here, long long lim) {
+    stack_t ss;
+    ss.ss_sp = malloc(65536); ss.ss_size = 65536; ss.ss_flags = 0;
+    if (ss.ss_sp) sigaltstack(&ss, 0);
+    tb_main_sp = here;
+    tb_stack_lim = lim;
+}
+// поток background или ядра: сначала ставим защиту стека, потом сама работа
+typedef struct { void *(*run)(void *); void *arg; } tb_tramp;
+static void *tb_tramp_run(void *p) {
+    tb_tramp t = *(tb_tramp *)p;
+    free(p);
+    char here;
+    tb_guard_thread(&here, TB_THREAD_STACK);
+    void *r = t.run(t.arg);
+    stack_t ss, old;
+    ss.ss_sp = 0; ss.ss_size = 0; ss.ss_flags = SS_DISABLE;
+    if (sigaltstack(&ss, &old) == 0 && old.ss_sp) free(old.ss_sp);
+    return r;
+}
+// поток с 8 МБ стека (на Mac по умолчанию всего 512 КБ) и с понятным сообщением при переполнении
+static int tb_thread_create(pthread_t *th, void *(*run)(void *), void *arg) {
+    tb_tramp *t = malloc(sizeof(tb_tramp));
+    if (!t) return -1;
+    t->run = run; t->arg = arg;
+    pthread_attr_t at;
+    pthread_attr_init(&at);
+    pthread_attr_setstacksize(&at, (size_t)TB_THREAD_STACK);
+    int r = pthread_create(th, &at, tb_tramp_run, t);
+    pthread_attr_destroy(&at);
+    if (r != 0) free(t);
+    return r;
 }
 static void tb_guard_init(void) {
     static char alt[65536];
@@ -1577,7 +1617,7 @@ static void *tb_obj_mem(long long n) {
 typedef struct { pthread_t th; int done; void *res; } tb_task;
 static void tb_task_start(tb_task *t, void *(*run)(void *), void *arg) {
     t->done = 0;
-    if (pthread_create(&t->th, 0, run, arg) != 0) tb_crash(0, "не получилось запустить background");
+    if (tb_thread_create(&t->th, run, arg) != 0) tb_crash(0, "не получилось запустить background");
 }
 // a.wait: дождаться потока (один раз) и отдать адрес ответа
 static void *tb_wait(tb_task *t) {
@@ -1623,7 +1663,11 @@ static void tb_par_run(void *(*work)(void *), void *job, long long total) {
     if (n < 1) n = 1;
     pthread_t t[256];
     for (int i = 1; i < n; i++) {
+#ifdef TB_BARE
         if (pthread_create(&t[i], 0, work, job) != 0) tb_crash(0, "не получилось запустить ядро");
+#else
+        if (tb_thread_create(&t[i], work, job) != 0) tb_crash(0, "не получилось запустить ядро");
+#endif
     }
     work(job);
     for (int i = 1; i < n; i++) pthread_join(t[i], 0);

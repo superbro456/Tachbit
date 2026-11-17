@@ -1,0 +1,1 @@
+unlock_then_change.tb, строка 6: эту shared меняет функция, которая идёт параллельно (background или on all cores): меняй её под замком  lock имя: total

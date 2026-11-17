@@ -502,10 +502,46 @@ func check_lock_calls(c: Comp)
             if name != "" and find(c.lc_held[j], "," + name + ",") >= 0
                 c.file_name = c.lc_file[j]
                 error_at(c, c.lc_line[j], "функцию зовут из-под lock " + name + ", а она сама берёт этот замок: ждала бы сама себя вечно", c.lc_name[j])
+    // порядок замков: под замком h функция берёт замок l → ребро h>l
+    count j from 0 to len(c.lc_func) - 1
+        each name in split(has[c.lc_func[j]], ",")
+            if name == ""
+                skip
+            each h in split(c.lc_held[j], ",")
+                if h != "" and h != name
+                    c.lo_edge.add(h + ">" + name)
+                    c.lo_line.add(c.lc_line[j])
+                    c.lo_file.add(c.lc_file[j])
+    check_lock_order(c)
     count j from 0 to len(c.lr_keys) - 1
         if text_in(c.mut_keys, c.lr_keys[j])
             c.file_name = c.lr_files[j]
             error_at(c, c.lr_lines[j], "эта функция меняет список, а на его элемент смотрит живой ярлык: если список вырастет, ярлык поведёт в пустоту", c.lr_names[j])
+
+// замки берут в одном порядке: если где-то a, а внутри b, то нигде нельзя b, а внутри a
+// (и по кругу через третий замок): две работы взяли бы по одному и ждали друг друга вечно
+func check_lock_order(c: Comp)
+    reach = list text
+    each e in c.lo_edge
+        if not text_in(reach, e)
+            reach.add(e)
+    more = true
+    repeat while more
+        more = false
+        count i from 0 to len(reach) - 1
+            ab = split(reach[i], ">")
+            count j from 0 to len(c.lo_edge) - 1
+                bc = split(c.lo_edge[j], ">")
+                if ab[1] == bc[0]
+                    e = ab[0] + ">" + bc[1]
+                    if not text_in(reach, e)
+                        reach.add(e)
+                        more = true
+    count j from 0 to len(c.lo_edge) - 1
+        ab = split(c.lo_edge[j], ">")
+        if text_in(reach, ab[1] + ">" + ab[0])
+            c.file_name = c.lo_file[j]
+            error_at(c, c.lo_line[j], "замки " + ab[0] + " и " + ab[1] + " берут в разном порядке: где-то " + ab[0] + " потом " + ab[1] + ", а где-то наоборот — две работы могут ждать друг друга вечно. Бери их везде в одном порядке", "")
 
 func text_in(xs: list text, x: text)
     each s in xs
@@ -975,6 +1011,12 @@ func check_user_call(c: Comp, n: Node, fi: int) gives r: int
         saved_held = c.held
         fresh_held = list text
         c.held = fresh_held
+        saved_lkd = c.lk_depths
+        fresh_lkd = list int
+        c.lk_depths = fresh_lkd
+        saved_lkf = c.lk_freed
+        fresh_lkf = list bool
+        c.lk_freed = fresh_lkf
         saved_busy = c.each_busy
         fresh_busy = list int
         c.each_busy = fresh_busy
@@ -991,6 +1033,8 @@ func check_user_call(c: Comp, n: Node, fi: int) gives r: int
         c.piece_depth = saved_pieces
         c.loops = saved_loop_stack
         c.held = saved_held
+        c.lk_depths = saved_lkd
+        c.lk_freed = saved_lkf
         c.each_busy = saved_busy
         c.par_base = saved_par
         c.temp_base = saved_temp
@@ -1539,14 +1583,37 @@ func check_statement(c: Comp, n: Node)
         if c.current >= 0
             c.lk_func.add(c.current)
             c.lk_name.add(n.name)
+        each h in c.held
+            if h != ""
+                c.lo_edge.add(h + ">" + n.name)
+                c.lo_line.add(n.line)
+                c.lo_file.add(c.file_name)
         c.held.add(n.name)
+        c.lk_depths.add(c.depth + 1)
+        c.lk_freed.add(false)
         saved_lock_loops = c.lock_loops
         c.lock_loops = c.loop_depth
         c.lock_depth += 1
         check_block(c, n.kids[0])
-        c.lock_depth -= 1
+        freed = c.lk_freed.pop()
+        if not freed
+            c.lock_depth -= 1
+        gone_depth = c.lk_depths.pop()
         gone_lock = c.held.pop()
         c.lock_loops = saved_lock_loops
+    else if k == "unlock"
+        last = len(c.held) - 1
+        if last < 0 or text_in(c.held, n.name) == false
+            error_at(c, n.line, "unlock пишется внутри своего блока  lock имя", n.name)
+        if c.held[last] != n.name
+            error_at(c, n.line, "сначала отпускают внутренний замок: unlock " + c.held[last], n.name)
+        if c.lk_freed[last]
+            error_at(c, n.line, "этот замок уже отпущен выше", n.name)
+        if c.depth != c.lk_depths[last]
+            error_at(c, n.line, "unlock пишется прямо в блоке lock, не внутри if и циклов: так всегда ясно, взят замок или нет", n.name)
+        c.lk_freed[last] = true
+        c.held[last] = ""
+        c.lock_depth -= 1
     else if k == "skip" or k == "stop"
         if c.lock_depth > 0 and c.loop_depth == c.lock_loops
             error_at(c, n.line, "skip и stop внутри lock работают только для циклов внутри lock: иначе замок останется закрытым", "")

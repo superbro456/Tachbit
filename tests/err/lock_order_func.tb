@@ -1,0 +1,16 @@
+// 0.9: замки, unlock, стек
+shared x = int 0
+func inner()
+    lock a
+        x += 1
+func one()
+    lock a
+        lock b
+            x += 1
+func two()
+    lock b
+        inner()
+func main()
+    one()
+    two()
+    print(x)

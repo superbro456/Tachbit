@@ -36,7 +36,7 @@
     "keywords": {
       "patterns": [
         { "match": "\\b(if|else|each|in|count|from|to|repeat|times|while|skip|stop|return|gives|fail|try)\\b", "name": "keyword.control.tachbit" },
-        { "match": "\\b(on\\s+all\\s+cores|by\\s+vec|by|shared|temp|together|background|danger|lock|on\\s+(keyboard|timer|interrupt))\\b", "name": "keyword.other.speed.tachbit" },
+        { "match": "\\b(on\\s+all\\s+cores|by\\s+vec|by|shared|temp|together|background|danger|lock|unlock|on\\s+(keyboard|timer|interrupt))\\b", "name": "keyword.other.speed.tachbit" },
         { "match": "\\.(wait)\\b", "captures": { "1": { "name": "keyword.other.speed.tachbit" } } },
         { "match": "\\b(and|or|not)\\b", "name": "keyword.operator.word.tachbit" },
         { "match": "\\b(int|dec|text|bool|list|dict)\\b", "name": "storage.type.tachbit" },

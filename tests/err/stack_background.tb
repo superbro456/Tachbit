@@ -1,0 +1,11 @@
+// 0.9: замки, unlock, стек
+func deep(n: int, xs: list int) gives r: int
+    if n == 0
+        return len(xs)
+    ys = [n]
+    return deep(n - 1, ys) + 1
+func work(n: int) gives r: int
+    return deep(n, [1])
+func main()
+    a = background work(100000000)
+    print(a.wait)

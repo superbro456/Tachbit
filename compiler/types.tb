@@ -177,6 +177,15 @@ obj Comp
     lc_line: list int
     lc_file: list text
     lc_name: list text
+    // порядок замков: «взят a, внутри берут b» → ребро a>b (строка, файл)
+    lo_edge: list text
+    lo_line: list int
+    lo_file: list text
+    // unlock: на какой глубине тело текущего lock и отпущен ли он уже
+    lk_depths: list int
+    lk_freed: list bool
+    // при выводе C: номера взятых замков (для unlock)
+    lock_ids: list text
     // вызовы, которые отдают список, на элемент которого смотрит живой ярлык
     lr_keys: list text
     lr_lines: list int

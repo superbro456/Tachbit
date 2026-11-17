@@ -1,0 +1,19 @@
+// 0.9: замки, unlock, стек
+shared total = int 0
+func work(n: int) gives r: int
+    count i from 1 to n
+        lock m
+            total += 1
+            unlock m
+            s = i * 2
+    got = 0
+    lock m
+        got = total
+        unlock m
+    return got
+func main()
+    a = background work(100000)
+    b = background work(100000)
+    x = a.wait + b.wait
+    lock m
+        print(total)

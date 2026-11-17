@@ -1,0 +1,5 @@
+// 0.9: замки, unlock, стек
+func main()
+    lock m
+        if true
+            unlock m
