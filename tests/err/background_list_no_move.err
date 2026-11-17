@@ -1,0 +1,1 @@
+background_list_no_move.tb, строка 6: в background функция получает только int, dec, bool, text и channel (а список — через move: f(move xs)): списки и obj могли бы меняться сразу из двух мест: xs

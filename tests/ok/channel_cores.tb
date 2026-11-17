@@ -1,0 +1,13 @@
+// 1.0: каналы и move
+func main()
+    ch = channel int
+    count i from 1 to 1000 on all cores
+        if i % 10 == 0
+            ch.send(i)
+    ch.close()
+    s = 0
+    n = 0
+    each x in ch
+        s += x
+        n += 1
+    print(n, s)

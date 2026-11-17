@@ -76,7 +76,7 @@ func expect_newline(c: Comp)
     next(c)
 
 func at_type_word(c: Comp)
-    return is_cmd(c, "int") or is_cmd(c, "dec") or is_cmd(c, "text") or is_cmd(c, "bool") or is_cmd(c, "list") or is_cmd(c, "dict")
+    return is_cmd(c, "int") or is_cmd(c, "dec") or is_cmd(c, "text") or is_cmd(c, "bool") or is_cmd(c, "list") or is_cmd(c, "dict") or is_cmd(c, "channel")
 
 // int / dec / text / bool / list int / list list text / User
 func parse_type(c: Comp) gives result: Node
@@ -99,6 +99,10 @@ func parse_type(c: Comp) gives result: Node
         if t.name == "list"
             if not at_type_word(c) and now(c).kind != "name"
                 error_at(c, line_now(c), "после list напиши, что в нём лежит: list int, list text ...", "")
+            add_kid(t, parse_type(c))
+        if t.name == "channel"
+            if not at_type_word(c)
+                error_at(c, line_now(c), "после channel напиши, что по нему идёт: channel int, channel text ...", "")
             add_kid(t, parse_type(c))
         return t
     if now(c).kind == "name"
@@ -127,6 +131,11 @@ func parse_call(c: Comp, name: text, line: int) gives result: Node
         if now(c).kind == "name" and ahead_is_sign(c, ":")
             arg.name = now(c).word
             next(c)
+            next(c)
+        if now(c).kind == "name" and now(c).word == "move" and ahead(c).kind == "name"
+            // background f(move xs): отдать список целиком, без копии
+            // (move — не занятое слово: есть ещё встроенная move("a", "b") для файлов)
+            arg.moved = true
             next(c)
         add_kid(arg, parse_expr(c))
         add_kid(call, arg)

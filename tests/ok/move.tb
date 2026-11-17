@@ -1,0 +1,22 @@
+// 1.0: каналы и move
+func total(xs: list int) gives r: int
+    s = 0
+    each x in xs
+        s += x
+    xs.add(1)
+    return s
+func main()
+    data = list int
+    count i from 1 to 1000000
+        data.add(i)
+    a = background total(move data)
+    jobs = list int
+    count k from 1 to 3
+        part = list int
+        count i from 1 to 10
+            part.add(i * k)
+        t = background total(move part)
+        jobs.add(t.wait)
+    print(a.wait, jobs)
+    data = [5]
+    print(data)

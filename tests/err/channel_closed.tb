@@ -1,0 +1,5 @@
+// 1.0: каналы и move
+func main()
+    ch = channel int
+    ch.close()
+    print(ch.receive())

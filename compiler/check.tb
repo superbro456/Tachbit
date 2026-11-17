@@ -41,6 +41,10 @@ func task_of(c: Comp, elem: int)
     nothing = Node(kind: "missing")
     return make_type_key(c, "task", -1, elem, nothing, false, nothing, false)
 
+func chan_of(c: Comp, elem: int)
+    nothing = Node(kind: "missing")
+    return make_type_key(c, "channel", -1, elem, nothing, false, nothing, false)
+
 func dict_of(c: Comp, key: int, value: int)
     nothing = Node(kind: "missing")
     return make_type_key(c, "dict", key, value, nothing, false, nothing, false)
@@ -74,6 +78,8 @@ modpub func type_name(c: Comp, t: int) gives r: text
         return "ничего"
     if ty.kind == "task"
         return "номерок background"
+    if ty.kind == "channel"
+        return "channel " + type_name(c, ty.elem)
     return ty.kind
 
 func is_number(t: int)
@@ -229,6 +235,11 @@ func resolve_type(c: Comp, t: Node) gives r: int
         return 3
     if t.name == "list"
         return list_of(c, resolve_type(c, t.kids[0]))
+    if t.name == "channel"
+        elem = resolve_type(c, t.kids[0])
+        if not is_scalar(elem)
+            error_at(c, t.line, "по каналу пока идут только int, dec, bool и text", "")
+        return chan_of(c, elem)
     if t.name == "dict"
         key = resolve_type(c, t.kids[0])
         value = resolve_type(c, t.kids[1])
@@ -266,7 +277,7 @@ func add_var(c: Comp, name: text, type: int, is_const: bool, is_link: bool, line
     name_is_free(c, name, line)
     if len(c.vars) == 2000
         error_at(c, line, "слишком много переменных", "")
-    c.vars.add(Var(name: name, type: type, is_const: is_const, is_link: is_link, depth: c.depth))
+    c.vars.add(Var(name: name, type: type, is_const: is_const, is_link: is_link, depth: c.depth, loop_d: c.loop_depth))
 
 func cut_vars(c: Comp, count_left: int)
     repeat while len(c.vars) > count_left
@@ -330,6 +341,39 @@ func temp_keep_out(c: Comp, line: int, name: text)
 
 func no_outside_change(c: Comp, n: Node)
     note_change(c, n)
+
+// значение кладут куда-то на хранение: список, на который оно ведёт, теперь не только у своей переменной
+func note_escape(c: Comp, value: Node)
+    if not is_ref(value.ty)
+        return
+    s = src_of(c, value)
+    if s >= 0
+        c.vars[s].escaped = true
+        if c.vars[s].pno > 0 and c.current >= 0
+            key = "f" + c.current + "#" + (c.vars[s].pno - 1)
+            if not text_in(c.keep_keys, key)
+                c.keep_keys.add(key)
+
+// background f(move xs): xs уходит в фон целиком, у main его больше нет
+func check_move(c: Comp, value: Node, p: Node)
+    if value.kind != "name"
+        error_at(c, value.line, "через move отдают переменную целиком: move xs", "")
+    v = find_var(c, value.name)
+    var = c.vars[v]
+    t = var.type
+    ok = (is_list(c, t) and is_scalar(c.types[t].elem)) or (is_dict(c, t) and is_scalar(c.types[t].elem))
+    if not ok
+        error_at(c, value.line, "через move пока отдают список или dict из int, dec, bool или text: obj внутри могли бы быть видны ещё откуда-то", value.name)
+    if var.is_link or var.pno > 0 or v < c.n_globals
+        error_at(c, value.line, "через move отдают только свою переменную, созданную в этой функции (не параметр и не ярлык)", value.name)
+    if var.src1 > 0 or var.escaped
+        error_at(c, value.line, "этот список виден ещё откуда-то (второе имя или лежит в другом списке/obj): move отдал бы его сразу двоим", value.name)
+    count w from c.var_base to len(c.vars) - 1
+        if w != v and (c.vars[w].src1 == v + 1 or c.vars[w].link_root1 == v + 1)
+            error_at(c, value.line, "у этого списка есть второе имя: " + c.vars[w].name + " — move отдал бы его сразу двоим", value.name)
+    if var.loop_d < c.loop_depth
+        error_at(c, value.line, "в цикле через move отдают только список, созданный в этом же шаге цикла: иначе на следующем шаге его уже нет", value.name)
+    c.vars[v].moved = true
 
 // ---------- «своё» и «чужое» (защита потоков) ----------
 // Как цеховой инструмент и личный: всё, что создано снаружи on all cores, — цеховое,
@@ -612,8 +656,10 @@ func check_list(c: Comp, n: Node) gives r: int
     if len(n.kids) == 0
         error_at(c, n.line, "пустой список пишется с типом: x = list int", "")
     elem = check_value(c, n.kids[0])
+    note_escape(c, n.kids[0])
     count i from 1 to len(n.kids) - 1
         t = check_value(c, n.kids[i])
+        note_escape(c, n.kids[i])
         if fits(elem, t)
             skip
         if elem == 1 and t == 2
@@ -906,6 +952,7 @@ func check_new_obj(c: Comp, n: Node, o: Node) gives r: int
             skip
         value = n.kids[i].kids[0]
         t = check_value(c, value)
+        note_escape(c, value)
         if not fits(o.kids[i].ty, t)
             error_at(c, value.line, "качество другого типа", o.kids[i].name)
         n.kids[i].ty = o.kids[i].ty
@@ -1048,6 +1095,11 @@ func check_user_call(c: Comp, n: Node, fi: int) gives r: int
         c.depth = saved_depth
     if f.node.ty < 0
         error_at(c, n.line, "функция вызывает сама себя раньше первого return со значением: поставь простой return выше", n.name)
+    // функция хранит полученный список: он теперь виден не только у своей переменной
+    count i from 0 to len(n.kids) - 1
+        value = n.kids[i].kids[0]
+        if is_ref(value.ty) and text_in(c.keep_keys, "f" + fi + "#" + i)
+            note_escape(c, value)
     c.last_call = fi
     return f.node.ty
 
@@ -1068,6 +1120,29 @@ func check_module_call(c: Comp, n: Node) gives r: int
         rest.add(n.kids[i])
     n.kids = rest
     return check_user_call(c, n, f)
+
+// канал: ch.send(x), ch.receive(), ch.close()
+func check_chan_method(c: Comp, n: Node, t: int) gives r: int
+    args = len(n.kids) - 1
+    elem = c.types[t].elem
+    if n.name == "send"
+        if args != 1
+            error_at(c, n.line, ".send кладёт ровно одно значение", "")
+        v = check_value(c, n.kids[1].kids[0])
+        if not fits(elem, v)
+            error_at(c, n.line, "по этому каналу идёт другой тип", type_name(c, elem))
+        n.kids[1].ty = elem
+        return 0
+    if n.name == "receive" or n.name == "close"
+        if args != 0
+            error_at(c, n.line, "пишется без значений", n.name)
+        if n.name == "receive"
+            if c.lock_depth > 0
+                error_at(c, n.line, "внутри lock receive() нельзя: пока ждёшь, замок держат все остальные", "")
+            return elem
+        return 0
+    error_at(c, n.line, "у канала есть .send(x), .receive() и .close()", n.name)
+    return -1
 
 func check_dict_method(c: Comp, n: Node, t: int) gives r: int
     args = len(n.kids) - 1
@@ -1114,6 +1189,8 @@ func check_method(c: Comp, n: Node) gives r: int
         return 0
     if is_dict(c, t)
         return check_dict_method(c, n, t)
+    if kind_of(c, t) == "channel"
+        return check_chan_method(c, n, t)
     if not is_list(c, t)
         error_at(c, n.line, "у этого значения нет методов: они есть у списков (.add .pop) и dict (.has .remove .keys .values)", n.name)
     elem = c.types[t].elem
@@ -1121,6 +1198,7 @@ func check_method(c: Comp, n: Node) gives r: int
         if args != 1
             error_at(c, n.line, ".add кладёт ровно одно значение", "")
         v = check_value(c, n.kids[1].kids[0])
+        note_escape(c, n.kids[1].kids[0])
         if not fits(elem, v)
             error_at(c, n.line, "в этот список кладут другой тип", type_name(c, elem))
         n.kids[1].ty = elem
@@ -1146,6 +1224,7 @@ func check_dict(c: Comp, n: Node) gives r: int
         if check_value(c, n.kids[i]) != key
             error_at(c, n.kids[i].line, "все ключи одного типа", type_name(c, key))
         v = check_value(c, n.kids[i + 1])
+        note_escape(c, n.kids[i + 1])
         if not fits(value, v)
             if value == 1 and v == 2
                 value = 2
@@ -1194,6 +1273,8 @@ func check_expr(c: Comp, n: Node) gives r: int
             if find_obj(c, n.name) >= 0
                 error_at(c, n.line, "чтобы создать obj, нужны скобки", n.name + "(...)")
             error_at(c, n.line, "нет такой переменной", n.name)
+        if c.vars[v].moved
+            error_at(c, n.line, "этот список уже отдан в background через move: им больше пользоваться нельзя (можно дать ему новое значение: xs = [1, 2])", n.name)
         if outside_temp(c, v) and not temp_can_see(c, c.vars[v].type)
             error_at(c, n.line, "внутри temp не видно списков, dict и obj снаружи (кроме списков чисел): создай данные внутри temp или передай числа", n.name)
         if outside_par(c, v)
@@ -1367,6 +1448,8 @@ func check_assign(c: Comp, n: Node)
     if not fits(c.vars[v].type, t)
         error_at(c, n.line, "переменная другого типа", type_name(c, c.vars[v].type))
     n.is_link = c.vars[v].is_link
+    c.vars[v].moved = false
+    c.vars[v].escaped = false
     if is_ref(t)
         set_src(c, v, src_of(c, n.kids[0]), n.line)
     n.ty = c.vars[v].type
@@ -1410,6 +1493,8 @@ func check_set(c: Comp, n: Node)
     if r >= 0 and r < c.n_globals and (c.par_base >= 0 or c.par_vec) and c.lock_depth == 0
         error_at(c, n.line, "общую shared-переменную внутри " + loop_word(c) + " меняют под замком: lock имя", target.name)
     t = check_value(c, n.kids[1])
+    if target.kind != "name"
+        note_escape(c, n.kids[1])
     n.ty = to_ty
     if op == "="
         if not fits(to_ty, t)
@@ -1524,8 +1609,14 @@ func check_statement(c: Comp, n: Node)
             elem = c.types[t].elem
         else if is_dict(c, t)
             elem = c.types[t].key
+        else if kind_of(c, t) == "channel"
+            elem = c.types[t].elem
+            if n.is_par or n.by_vec or n.by_piece
+                error_at(c, n.line, "по каналу each идёт просто: each x in ch (без on all cores, by vec и by N)", "")
+            if c.lock_depth > 0
+                error_at(c, n.line, "внутри lock each по каналу нельзя: пока ждёшь, замок держат все остальные", "")
         else if t != 4
-            error_at(c, n.line, "each ходит по списку, по ключам dict или по буквам текста", "")
+            error_at(c, n.line, "each ходит по списку, по ключам dict, по каналу или по буквам текста", "")
         if n.is_par and not is_list(c, t)
             error_at(c, n.line, "on all cores ходит по списку (или count from ... to ...)", "")
         if n.by_vec and not (is_list(c, t) and is_number(c.types[t].elem))
@@ -1678,9 +1769,13 @@ func check_background(c: Comp, n: Node) gives r: int
         error_at(c, n.line, "функция с fail в background пока нельзя: пусть она отдаёт текст ошибки обычным выходом", f.name)
     if len(f.kids[2].kids) > 1
         error_at(c, n.line, "в background функция с несколькими выходами пока нельзя", f.name)
-    each p in f.kids[0].kids
-        if p.is_link or not (is_plain(p.ty) or p.ty == 4)
-            error_at(c, n.line, "в background функция получает только int, dec, bool и text: списки и obj могли бы меняться сразу из двух мест", p.name)
+    count pi from 0 to len(f.kids[0].kids) - 1
+        p = f.kids[0].kids[pi]
+        arg = call.kids[pi]
+        if arg.moved
+            check_move(c, arg.kids[0], p)
+        else if p.is_link or not (is_plain(p.ty) or p.ty == 4 or kind_of(c, p.ty) == "channel")
+            error_at(c, n.line, "в background функция получает только int, dec, bool, text и channel (а список — через move: f(move xs)): списки и obj могли бы меняться сразу из двух мест", p.name)
     if t < 0
         t = 0
     return task_of(c, t)

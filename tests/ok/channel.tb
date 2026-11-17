@@ -1,0 +1,25 @@
+// 1.0: каналы и move
+func producer(out: channel int, lo: int, hi: int)
+    count i from lo to hi
+        out.send(i)
+
+func words(out: channel text)
+    each w in ["раз", "два", "три"]
+        out.send(w + "!")
+    out.close()
+
+func main()
+    nums = channel int
+    a = background producer(nums, 1, 50000)
+    b = background producer(nums, 50001, 100000)
+    total = 0
+    count k from 1 to 100000
+        total += nums.receive()
+    print(total)
+    a.wait
+    b.wait
+    ws = channel text
+    w = background words(ws)
+    each x in ws
+        print(x)
+    print(ws)

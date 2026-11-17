@@ -44,6 +44,8 @@ func c_type(c: Comp, t: int)
         return "tb_r_" + fname(c.types[t].func_node)
     if k == "task"
         return "tb_task *"
+    if k == "channel"
+        return "tb_chan *"
     return "void"
 
 func indent(c: Comp, depth: int)
@@ -70,6 +72,11 @@ func emit_default(c: Comp, t: int)
         put(c, "tb_bits_new()")
     else if k == "list"
         put(c, "tb_list_new(sizeof(" + c_type(c, c.types[t].elem) + "))")
+    else if k == "channel"
+        is_text = "0"
+        if c.types[t].elem == 4
+            is_text = "1"
+        put(c, "tb_chan_new(sizeof(" + c_type(c, c.types[t].elem) + "), " + is_text + ")")
     else if k == "dict"
         is_text = "0"
         if kind_of(c, c.types[t].key) == "text"
@@ -292,6 +299,23 @@ func emit_dict(c: Comp, n: Node)
 // .pop()  и методы dict; .add пишется отдельной строкой (emit_statement)
 func emit_method(c: Comp, n: Node)
     base = n.kids[0]
+    if kind_of(c, base.ty) == "channel"
+        elem = c.types[base.ty].elem
+        if n.name == "send"
+            put(c, "tb_chan_send(")
+            emit_expr(c, base)
+            put(c, ", &(" + c_type(c, elem) + "){")
+            emit_as(c, n.kids[1].kids[0], elem)
+            put(c, "}, " + n.line + ")")
+        else if n.name == "receive"
+            put(c, "TB_CH_RECV(" + c_type(c, elem) + ", ")
+            emit_expr(c, base)
+            put(c, ", " + n.line + ")")
+        else
+            put(c, "tb_chan_close(")
+            emit_expr(c, base)
+            put(c, ")")
+        return
     if n.name == "clear"
         if kind_of(c, base.ty) == "dict"
             put(c, "tb_dclear(")
@@ -1008,6 +1032,27 @@ func emit_each(c: Comp, n: Node, depth: int)
     t = n.kids[0].ty
     k = kind_of(c, t)
     elem_ty = -1
+    if k == "channel"
+        // each x in ch: берём, пока канал не закрыт и не пуст
+        elem = c_type(c, c.types[t].elem)
+        indent(c, depth)
+        put(c, "{\n")
+        indent(c, depth + 1)
+        put(c, "tb_chan * tb_l" + id + " = ")
+        emit_expr(c, n.kids[0])
+        put(c, ";\n")
+        indent(c, depth + 1)
+        put(c, "for (;;) {\n")
+        indent(c, depth + 2)
+        put(c, elem + " v_" + n.name + ";\n")
+        indent(c, depth + 2)
+        put(c, "if (!tb_chan_take(tb_l" + id + ", &v_" + n.name + ")) break;\n")
+        emit_loop_body(c, n.kids[1], depth + 2)
+        indent(c, depth + 1)
+        put(c, "}\n")
+        indent(c, depth)
+        put(c, "}\n")
+        return
     indent(c, depth)
     put(c, "{\n")
     indent(c, depth + 1)
@@ -2418,6 +2463,9 @@ func emit_show(c: Comp, t: Type)
         return
     if k == "task"
         put(c, "static void tb_show_" + t.id + "(tb_task *x) { (void)x; tb_ps(\"<background>\"); }\n")
+        return
+    if k == "channel"
+        put(c, "static void tb_show_" + t.id + "(tb_chan *x) { (void)x; tb_ps(\"<channel>\"); }\n")
         return
     put(c, "static void tb_show_" + t.id + "(" + c_type(c, t.id) + " x) {\n")
     if k == "int"

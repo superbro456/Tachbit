@@ -1725,6 +1725,95 @@ static inline unsigned long tb_lock_take(int *l) {
 static inline void tb_lock_give(int *l, unsigned long f) { (void)f; __atomic_store_n(l, 0, __ATOMIC_RELEASE); }
 #endif
 
+// ---------- канал: очередь между потоками (channel int / text ...) ----------
+// send кладёт в конец (очередь растёт, отправитель не ждёт), receive берёт из начала
+// и ждёт, пока что-то придёт. close: больше не пишут; each по каналу кончается,
+// когда он закрыт и пуст. Текст копируется: отправитель может удалить свою память.
+typedef struct {
+#ifdef TB_BARE
+    int lk;
+#else
+    pthread_mutex_t m; pthread_cond_t cv;
+#endif
+    char *buf; long long cap, head, len, size; int text, closed;
+} tb_chan;
+static tb_chan *tb_chan_new(long long size, int text) {
+    tb_chan *ch = malloc(sizeof(tb_chan));
+    if (!ch) tb_crash(0, "не хватило памяти");
+    memset(ch, 0, sizeof(tb_chan));
+#ifndef TB_BARE
+    pthread_mutex_init(&ch->m, 0); pthread_cond_init(&ch->cv, 0);
+#endif
+    ch->size = size; ch->text = text; ch->cap = 16;
+    ch->buf = malloc(ch->cap * size);
+    if (!ch->buf) tb_crash(0, "не хватило памяти");
+    return ch;
+}
+#ifdef TB_BARE
+#define TB_CH_LOCK(ch) unsigned long tb_chf = tb_lock_take(&(ch)->lk)
+#define TB_CH_UNLOCK(ch) tb_lock_give(&(ch)->lk, tb_chf)
+#else
+#define TB_CH_LOCK(ch) pthread_mutex_lock(&(ch)->m)
+#define TB_CH_UNLOCK(ch) pthread_mutex_unlock(&(ch)->m)
+#endif
+static void tb_chan_send(tb_chan *ch, const void *v, int line) {
+    char tmp[16];
+    const void *src = v;
+    if (ch->text) {
+        const char *t = *(const char * const *)v;
+        size_t n = strlen(t) + 1;
+        char *copy = malloc(n);
+        if (!copy) tb_crash(line, "не хватило памяти");
+        memcpy(copy, t, n);
+        memcpy(tmp, &copy, sizeof copy);
+        src = tmp;
+    }
+    TB_CH_LOCK(ch);
+    if (ch->closed) { TB_CH_UNLOCK(ch); tb_crash(line, "канал уже закрыт: в него больше не пишут"); }
+    if (ch->len == ch->cap) {
+        char *nb = malloc(ch->cap * 2 * ch->size);
+        if (!nb) { TB_CH_UNLOCK(ch); tb_crash(line, "не хватило памяти"); }
+        for (long long i = 0; i < ch->len; i++)
+            memcpy(nb + i * ch->size, ch->buf + ((ch->head + i) % ch->cap) * ch->size, ch->size);
+        free(ch->buf); ch->buf = nb; ch->head = 0; ch->cap *= 2;
+    }
+    memcpy(ch->buf + ((ch->head + ch->len) % ch->cap) * ch->size, src, ch->size);
+    ch->len++;
+#ifndef TB_BARE
+    pthread_cond_signal(&ch->cv);
+#endif
+    TB_CH_UNLOCK(ch);
+}
+// взять следующее значение; 0 — канал закрыт и пуст
+static int tb_chan_take(tb_chan *ch, void *out) {
+#ifdef TB_BARE
+    for (;;) {
+        TB_CH_LOCK(ch);
+        if (ch->len > 0 || ch->closed) break;
+        TB_CH_UNLOCK(ch);
+        tb_yield();
+    }
+#else
+    TB_CH_LOCK(ch);
+    while (ch->len == 0 && !ch->closed) pthread_cond_wait(&ch->cv, &ch->m);
+#endif
+    if (ch->len == 0) { TB_CH_UNLOCK(ch); return 0; }
+    memcpy(out, ch->buf + ch->head * ch->size, ch->size);
+    ch->head = (ch->head + 1) % ch->cap;
+    ch->len--;
+    TB_CH_UNLOCK(ch);
+    return 1;
+}
+static void tb_chan_close(tb_chan *ch) {
+    TB_CH_LOCK(ch);
+    ch->closed = 1;
+#ifndef TB_BARE
+    pthread_cond_broadcast(&ch->cv);
+#endif
+    TB_CH_UNLOCK(ch);
+}
+#define TB_CH_RECV(T, ch, line) ({ T tb_cv; if (!tb_chan_take((ch), &tb_cv)) tb_crash((line), "канал закрыт и пуст: receive() нечего взять"); tb_cv; })
+
 // ---------- окно и рисование (только если программа рисует) ----------
 #if defined(TB_GFX) && !defined(TB_BARE)
 static const unsigned char tb_font[161][16] = {

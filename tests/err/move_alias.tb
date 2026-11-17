@@ -1,0 +1,7 @@
+// 1.0: каналы и move
+func total(xs: list int) gives r: int
+    return len(xs)
+func main()
+    data = [1, 2]
+    other = data
+    a = background total(move data)

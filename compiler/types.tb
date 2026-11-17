@@ -55,6 +55,8 @@ obj Node
     caps: list Var
     // func ... on keyboard / on timer / on interrupt N: номер прерывания (0 — обычная функция)
     irq: int
+    // background f(move xs): аргумент отдаётся целиком
+    moved: bool
 
 // тип языка; хранится один раз, номер типа = место в списке Comp.types
 // kind = unknown / none / int / dec / bool / text / list / obj / multi / dict
@@ -96,6 +98,12 @@ obj Var
     pno: int
     // через эту переменную уже меняли данные (a.add, a[i] = ..., a.n += 1)
     changed: bool
+    // список положили куда-то ещё (в другой список, obj, функцию, которая его хранит): move нельзя
+    escaped: bool
+    // отдан через move: больше им пользоваться нельзя (пока не дадут новое значение)
+    moved: bool
+    // на какой глубине циклов заведена переменная
+    loop_d: int
     // ярлык на элемент списка/dict (e: link xs[0]): номер+1 переменной xs — её нельзя растить, пока ярлык жив
     link_root1: int
 
@@ -156,6 +164,8 @@ obj Comp
     // защита потоков: какие параметры функции меняются ("номер_функции#номер_параметра"),
     // кто кому передаёт свой параметр, и вызовы из on all cores с данными снаружи
     mut_keys: list text
+    // параметры, которые функция где-то хранит (кладёт в список, obj, отдаёт хранящей функции)
+    keep_keys: list text
     e_from: list text
     e_to: list text
     pc_keys: list text
