@@ -759,6 +759,8 @@ static void tb_guard_thread(char *here, long long lim) {
     tb_stack_lim = lim;
 }
 // поток background или ядра: сначала ставим защиту стека, потом сама работа
+// сколько потоков background / ядер работает сейчас: уборка памяти ждёт, пока их нет
+static int tb_gthreads = 0;
 typedef struct { void *(*run)(void *); void *arg; } tb_tramp;
 static void *tb_tramp_run(void *p) {
     tb_tramp t = *(tb_tramp *)p;
@@ -766,6 +768,7 @@ static void *tb_tramp_run(void *p) {
     char here;
     tb_guard_thread(&here, TB_THREAD_STACK);
     void *r = t.run(t.arg);
+    __atomic_sub_fetch(&tb_gthreads, 1, __ATOMIC_RELEASE);
     stack_t ss, old;
     ss.ss_sp = 0; ss.ss_size = 0; ss.ss_flags = SS_DISABLE;
     if (sigaltstack(&ss, &old) == 0 && old.ss_sp) free(old.ss_sp);
@@ -779,9 +782,10 @@ static int tb_thread_create(pthread_t *th, void *(*run)(void *), void *arg) {
     pthread_attr_t at;
     pthread_attr_init(&at);
     pthread_attr_setstacksize(&at, (size_t)TB_THREAD_STACK);
+    __atomic_add_fetch(&tb_gthreads, 1, __ATOMIC_ACQ_REL);
     int r = pthread_create(th, &at, tb_tramp_run, t);
     pthread_attr_destroy(&at);
-    if (r != 0) free(t);
+    if (r != 0) { free(t); __atomic_sub_fetch(&tb_gthreads, 1, __ATOMIC_RELEASE); }
     return r;
 }
 static void tb_guard_init(void) {
@@ -874,30 +878,486 @@ static inline void tb_temp_end(tb_mark m) {
     tb_temp_depth -= 1;
     tb_lc_clear();
 }
-static void *tb_mem(long long n) {
-    if (tb_temp_depth > 0) return tb_temp_alloc(n);
+// ---------- уборка памяти: сборщик мусора ----------
+// Шаги циклов, функции и temp уже отдают память сами (своя временная память).
+// А то, что живёт дольше (obj, списки, dict, тексты), раньше жило до конца программы.
+// Теперь иногда (когда набралось много новой памяти) программа делает обход:
+//   1) смотрит, что видно из переменных: стек, общие (shared) переменные, временная память;
+//   2) от них идёт по всему, на что они указывают, и помечает это «нужно»;
+//   3) всё не помеченное — мусор, его место отдаётся под новые значения.
+// Обход идёт, только когда работает один поток: пока идут background или on all cores, ждём.
+// TB_GC=0 — выключить уборку (для проверки), TB_GC_STRESS=N — обход на каждом N-м выделении,
+// TB_GC_STATS=1 — печатать каждый обход.
+#ifdef TB_BARE
+static void *tb_gc_alloc(long long n) {
     void *p = malloc(n > 0 ? n : 1);
     if (p == 0) tb_crash(0, "не хватило памяти");
     return p;
 }
+static void tb_gc_free(void *p) { free(p); }
+#define tb_gc_alloc_np tb_gc_alloc
+static void *tb_gc_realloc(void *p, long long old_n, long long new_n) {
+    (void)old_n;
+    p = realloc(p, new_n > 0 ? new_n : 1);
+    if (p == 0) tb_crash(0, "не хватило памяти");
+    return p;
+}
+#define tb_gc_root(p, n) ((void)(p), (void)(n))
+#else
+#include <setjmp.h>
+#define TB_GSH 16
+#define TB_GPG (1LL << TB_GSH)
+#define TB_GNC 37
+#define TB_GBIG 32768
+// размеры мелких блоков: страница 64 КБ делится на блоки одного размера (шаг 8 байт у мелких — плотно, как подряд)
+static const long long tb_gsz[TB_GNC] = {16, 24, 32, 40, 48, 56, 64, 72, 80, 96, 112, 128, 160, 192, 224, 256,
+    320, 384, 448, 512, 640, 768, 1024, 1280, 1536, 2048, 2560, 3072, 4096, 5120, 6144, 8192, 10240, 12288,
+    16384, 21840, 32768};
+typedef struct tb_gpage {
+    char *start;
+    long long bsize, nblocks;      // мелкие: размер блока и сколько их
+    long long nbytes, cap;         // большой блок: сколько занято и сколько взято
+    unsigned long long inv;        // 2^32 / bsize (вверх): номер блока умножением, без деления
+    int large, cls, in_avail, np;  // np: внутри нет адресов (числа, тексты) — обход туда не смотрит
+    unsigned char *fl;             // по байту на блок: 1 — занят, 2 — нужен (найден при обходе)
+    unsigned char lfl;             // то же для большого блока
+    void *free; long long nfree, bump;   // bump: блоки с этого номера ещё ни разу не брали (там нули)
+    struct tb_gpage *next, *prev, *anext;
+} tb_gpage;
+typedef struct { char *p; long long n; } tb_grange;
+static unsigned char tb_gcls[TB_GBIG / 8 + 1];
+static tb_gpage *tb_gall = 0, *tb_glarge = 0, *tb_gavail[2][TB_GNC];
+// адрес → страница: таблица в два шага (биты 47..32, потом 31..16)
+static tb_gpage **tb_gdir[1 << 16];
+static uintptr_t tb_glo = ~(uintptr_t)0, tb_ghi = 0;
+static long long tb_gsince = 0, tb_glive = 0, tb_gnext = 8LL << 20, tb_gstress = 0, tb_gcount = 0, tb_gruns = 0;
+static int tb_gready = 0, tb_goff = 0, tb_gstats = 0;
+static char *tb_gtop = 0;
+static pthread_mutex_t tb_glock = PTHREAD_MUTEX_INITIALIZER;
+static tb_grange *tb_groots = 0, *tb_gstk = 0;
+static long long tb_gnroots = 0, tb_gcaproots = 0, tb_gsn = 0, tb_gscap = 0;
+
+static void tb_gsetup(void) {
+    int c = 0;
+    for (long long i = 0; i <= TB_GBIG / 8; i++) {
+        while (tb_gsz[c] < i * 8) c++;
+        tb_gcls[i] = (unsigned char)c;
+    }
+    tb_gready = 1;
+}
+static inline tb_gpage *tb_gmap_get(uintptr_t a) {
+    if (a >> 48) return 0;
+    tb_gpage **l2 = tb_gdir[a >> 32];
+    return l2 ? l2[(a >> TB_GSH) & 0xFFFF] : 0;
+}
+static void tb_gmap_put(uintptr_t a, tb_gpage *pg) {
+    tb_gpage ***d = &tb_gdir[a >> 32];
+    if (!*d) {
+        *d = calloc(1 << 16, sizeof(tb_gpage *));
+        if (!*d) tb_crash(0, "не хватило памяти");
+    }
+    (*d)[(a >> TB_GSH) & 0xFFFF] = pg;
+}
+static void tb_gmap_add(tb_gpage *pg, long long size) {
+    for (long long o = 0; o < size; o += TB_GPG) tb_gmap_put((uintptr_t)pg->start + o, pg);
+    if ((uintptr_t)pg->start < tb_glo) tb_glo = (uintptr_t)pg->start;
+    if ((uintptr_t)pg->start + size > tb_ghi) tb_ghi = (uintptr_t)pg->start + size;
+}
+static void tb_gmap_remove(tb_gpage *pg, long long size) {
+    for (long long o = 0; o < size; o += TB_GPG) tb_gmap_put((uintptr_t)pg->start + o, 0);
+}
+// память у системы: mmap всегда отдаёт нули и выровнено по 64 КБ (лишнее по краям отдаём назад)
+#include <sys/mman.h>
+#ifdef __linux__
+#ifndef MREMAP_MAYMOVE
+#define MREMAP_MAYMOVE 1
+#endif
+#ifndef MREMAP_FIXED
+#define MREMAP_FIXED 2
+#endif
+extern void *mremap(void *old, size_t old_size, size_t new_size, int flags, ...);
+#endif
+static char *tb_gsys(long long size) {
+    size_t tot = (size_t)size + (size_t)TB_GPG;
+    char *m = mmap(0, tot, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+    if (m == MAP_FAILED) tb_crash(0, "не хватило памяти");
+    uintptr_t a = ((uintptr_t)m + TB_GPG - 1) & ~(uintptr_t)(TB_GPG - 1);
+    if (a > (uintptr_t)m) munmap(m, a - (uintptr_t)m);
+    size_t tail = (uintptr_t)m + tot - (a + (size_t)size);
+    if (tail) munmap((char *)a + size, tail);
+    return (char *)a;
+}
+// страницы по 64 КБ берём у системы пачкой по 4 МБ; пустые страницы возвращаются в запас
+static char *tb_gfresh = 0, *tb_gfresh_end = 0;
+static void *tb_gspare = 0;
+static char *tb_gpage_mem(void) {
+    if (tb_gspare) { void *p = tb_gspare; tb_gspare = *(void **)p; *(void **)p = 0; return p; }
+    if (tb_gfresh == tb_gfresh_end) { tb_gfresh = tb_gsys(64 * TB_GPG); tb_gfresh_end = tb_gfresh + 64 * TB_GPG; }
+    char *p = tb_gfresh;
+    tb_gfresh += TB_GPG;
+    return p;
+}
+static tb_gpage *tb_gnewpage(int cls, int np) {
+    tb_gpage *pg = calloc(1, sizeof(tb_gpage));
+    if (!pg) tb_crash(0, "не хватило памяти");
+    pg->start = tb_gpage_mem();
+    pg->cls = cls; pg->np = np; pg->bsize = tb_gsz[cls]; pg->nblocks = TB_GPG / pg->bsize;
+    pg->inv = ((1ULL << 32) + pg->bsize - 1) / pg->bsize;
+    pg->fl = calloc(pg->nblocks, 1);
+    if (!pg->fl) tb_crash(0, "не хватило памяти");
+    pg->free = 0; pg->bump = 0;
+    pg->nfree = pg->nblocks;
+    pg->next = tb_gall; tb_gall = pg;
+    tb_gmap_add(pg, TB_GPG);
+    pg->anext = tb_gavail[np][cls]; tb_gavail[np][cls] = pg; pg->in_avail = 1;
+    return pg;
+}
+#define TB_GIDX(pg, off) ((long long)(((unsigned long long)(off) * (pg)->inv) >> 32))
+// блок, внутрь которого указывает адрес a (или 0, если это не наша занятая память)
+static inline char *tb_gblock(uintptr_t a, tb_gpage **out) {
+    if (a < tb_glo || a >= tb_ghi) return 0;
+    tb_gpage *pg = tb_gmap_get(a);
+    if (!pg) return 0;
+    if (pg->large) {
+        if (a >= (uintptr_t)pg->start + (uintptr_t)pg->nbytes) return 0;
+        *out = pg;
+        return pg->start;
+    }
+    long long i = TB_GIDX(pg, a - (uintptr_t)pg->start);
+    if (i >= pg->nblocks || !(pg->fl[i] & 1)) return 0;
+    *out = pg;
+    return pg->start + i * pg->bsize;
+}
+static void tb_gc_collect(void);
+static void *tb_galloc_locked(long long n, int np) {
+    if (!tb_gready) tb_gsetup();
+    if (n <= 0) n = 1;
+    // +1 байт: адрес «сразу за концом» (так иногда считает C) всё ещё внутри блока
+    if (n >= 64) n += 1;
+    if (TB_RARE(tb_gsince >= tb_gnext || tb_gstress) && !tb_goff && tb_gtop &&
+        __atomic_load_n(&tb_gthreads, __ATOMIC_ACQUIRE) == 0 &&
+        (tb_gsince >= tb_gnext || (tb_gstress && ++tb_gcount % tb_gstress == 0)))
+        tb_gc_collect();
+    if (n <= TB_GBIG) {
+        int cls = tb_gcls[(n + 7) >> 3];
+        tb_gpage *pg = tb_gavail[np][cls];
+        if (TB_RARE(!pg)) pg = tb_gnewpage(cls, np);
+        void **b;
+        if (pg->free) {
+            b = pg->free;
+            pg->free = *b;
+            *b = 0;
+            pg->fl[TB_GIDX(pg, (char *)b - pg->start)] = 1;
+        } else {
+            b = (void **)(pg->start + pg->bump * pg->bsize);
+            pg->fl[pg->bump++] = 1;
+        }
+        if (--pg->nfree == 0) { tb_gavail[np][cls] = pg->anext; pg->in_avail = 0; }
+        tb_gsince += pg->bsize;
+        return b;
+    }
+    long long cap = (n + TB_GPG - 1) & ~(TB_GPG - 1);
+    tb_gpage *pg = calloc(1, sizeof(tb_gpage));
+    if (!pg) tb_crash(0, "не хватило памяти");
+    pg->start = tb_gsys(cap);
+    pg->large = 1; pg->np = np; pg->nbytes = n; pg->cap = cap; pg->lfl = 1;
+    pg->next = tb_glarge; if (tb_glarge) tb_glarge->prev = pg; tb_glarge = pg;
+    tb_gmap_add(pg, cap);
+    tb_gsince += cap;
+    return pg->start;
+}
+static void tb_gfree_locked(void *p) {
+    tb_gpage *pg = 0;
+    char *b = tb_gblock((uintptr_t)p, &pg);
+    if (!b || b != (char *)p) return;   // не наша память (например, текст из кода) — не трогаем
+    if (pg->large) {
+        if (pg->prev) pg->prev->next = pg->next; else tb_glarge = pg->next;
+        if (pg->next) pg->next->prev = pg->prev;
+        tb_gmap_remove(pg, pg->cap);
+        munmap(pg->start, pg->cap);
+        free(pg);
+        return;
+    }
+    memset(b, 0, pg->bsize);
+    pg->fl[TB_GIDX(pg, b - pg->start)] = 0;
+    *(void **)b = pg->free; pg->free = b; pg->nfree++;
+    if (!pg->in_avail) { pg->anext = tb_gavail[pg->np][pg->cls]; tb_gavail[pg->np][pg->cls] = pg; pg->in_avail = 1; }
+}
+static inline int tb_gneed_lock(void) { return __atomic_load_n(&tb_gthreads, __ATOMIC_ACQUIRE) > 0; }
+static inline void *tb_gc_alloc2(long long n, int np) {
+    if (TB_RARE(tb_gneed_lock())) {
+        pthread_mutex_lock(&tb_glock);
+        void *p = tb_galloc_locked(n, np);
+        pthread_mutex_unlock(&tb_glock);
+        return p;
+    }
+    return tb_galloc_locked(n, np);
+}
+static void *tb_gc_alloc(long long n) { return tb_gc_alloc2(n, 0); }
+// память без адресов внутри (числа, тексты): уборка не читает её содержимое
+static void *tb_gc_alloc_np(long long n) { return tb_gc_alloc2(n, 1); }
+static void tb_gc_free(void *p) {
+    if (!p) return;
+    int lk = tb_gneed_lock();
+    if (lk) pthread_mutex_lock(&tb_glock);
+    tb_gfree_locked(p);
+    if (lk) pthread_mutex_unlock(&tb_glock);
+}
+// вырастить блок: если места хватает — тот же блок, иначе новый, старый отдаём
+static void *tb_gc_realloc(void *p, long long old_n, long long new_n) {
+    int lk = tb_gneed_lock();
+    if (lk) pthread_mutex_lock(&tb_glock);
+    tb_gpage *pg = 0;
+    char *b = p ? tb_gblock((uintptr_t)p, &pg) : 0;
+    int own = b != 0 && b == (char *)p;
+    long long want = new_n >= 64 ? new_n + 1 : (new_n > 0 ? new_n : 1);
+    if (own && pg->large && want <= pg->cap) {
+        if (want > pg->nbytes) pg->nbytes = want;
+        if (lk) pthread_mutex_unlock(&tb_glock);
+        return p;
+    }
+    if (own && !pg->large && want <= pg->bsize) {
+        if (lk) pthread_mutex_unlock(&tb_glock);
+        return p;
+    }
+#ifdef __linux__
+    // большой блок растёт без копирования: система переносит его страницы на новое место
+    if (own && pg->large) {
+        long long cap = (want + TB_GPG - 1) & ~(TB_GPG - 1);
+        if (cap < 2 * pg->cap) cap = 2 * pg->cap;
+        char *dst = tb_gsys(cap);
+        void *r = mremap(pg->start, (size_t)pg->cap, (size_t)cap, MREMAP_MAYMOVE | MREMAP_FIXED, dst);
+        if (r != MAP_FAILED) {
+            tb_gmap_remove(pg, pg->cap);
+            pg->start = (char *)r; pg->cap = cap; pg->nbytes = want;
+            tb_gmap_add(pg, cap);
+            tb_gsince += cap / 2;
+            if (lk) pthread_mutex_unlock(&tb_glock);
+            return r;
+        }
+        munmap(dst, cap);
+    }
+#endif
+    long long keep = old_n < new_n ? old_n : new_n;
+    if (own) { long long room = pg->large ? pg->nbytes : pg->bsize; if (keep > room) keep = room; }
+    void *q = tb_galloc_locked(new_n, own ? pg->np : 0);
+    if (keep > 0 && p) memcpy(q, p, keep);
+    if (own) tb_gfree_locked(p);
+    if (lk) pthread_mutex_unlock(&tb_glock);
+    return q;
+}
+// место, где программа хранит значения вне стека (общие переменные): обход смотрит и туда
+static void tb_gc_root(void *p, long long n) {
+    if (tb_gnroots == tb_gcaproots) {
+        tb_gcaproots = tb_gcaproots * 2 + 16;
+        tb_groots = realloc(tb_groots, sizeof(tb_grange) * tb_gcaproots);
+        if (!tb_groots) tb_crash(0, "не хватило памяти");
+    }
+    tb_groots[tb_gnroots].p = (char *)p;
+    tb_groots[tb_gnroots].n = n;
+    tb_gnroots++;
+}
+// последняя страница обхода: соседние адреса обычно ведут на ту же страницу — без поиска по таблице
+static tb_gpage *tb_glast[16];
+static inline void tb_gmark(uintptr_t a) {
+    tb_gpage *pg = tb_glast[(a >> TB_GSH) & 15];
+    char *b;
+    unsigned char *f;
+    if (pg && a - (uintptr_t)pg->start < (uintptr_t)TB_GPG) {
+        long long i = TB_GIDX(pg, a - (uintptr_t)pg->start);
+        if (i >= pg->nblocks || !(pg->fl[i] & 1)) return;
+        b = pg->start + i * pg->bsize;
+        f = &pg->fl[i];
+    } else {
+        if (a < tb_glo || a >= tb_ghi) return;
+        b = tb_gblock(a, &pg);
+        if (!b) return;
+        if (pg->large) f = &pg->lfl;
+        else { f = &pg->fl[TB_GIDX(pg, b - pg->start)]; tb_glast[(a >> TB_GSH) & 15] = pg; }
+    }
+    if (*f & 2) return;
+    *f |= 2;
+    if (pg->np) return;
+    if (tb_gsn == tb_gscap) {
+        tb_gscap = tb_gscap * 2 + 1024;
+        tb_gstk = realloc(tb_gstk, sizeof(tb_grange) * tb_gscap);
+        if (!tb_gstk) tb_crash(0, "не хватило памяти для уборки");
+    }
+    tb_gstk[tb_gsn].p = b;
+    tb_gstk[tb_gsn].n = pg->large ? pg->nbytes : pg->bsize;
+    tb_gsn++;
+    __builtin_prefetch(b);
+}
+static void tb_gscan(const char *lo, const char *hi) {
+    uintptr_t p = ((uintptr_t)lo + 7) & ~(uintptr_t)7;
+    for (; p + 8 <= (uintptr_t)hi; p += 8) tb_gmark(*(const uintptr_t *)p);
+}
+// большой блок читаем кусками по 4 КБ: остаток кладём обратно, а найденное в куске
+// обходим сразу — так очередь остаётся маленькой (а не миллионы записей)
+static void tb_gdrain(void) {
+    while (tb_gsn > 0) {
+        tb_grange r = tb_gstk[--tb_gsn];
+        if (r.n > 4096) {
+            tb_gstk[tb_gsn].p = r.p + 4096;
+            tb_gstk[tb_gsn].n = r.n - 4096;
+            tb_gsn++;
+            r.n = 4096;
+        }
+        tb_gscan(r.p, r.p + r.n);
+    }
+}
+__attribute__((noinline)) static void tb_gscan_stack(void) {
+    volatile char here = 0;
+    tb_gscan((const char *)&here, tb_gtop);
+}
+__attribute__((noinline)) static void tb_gc_run(void) {
+    memset(tb_glast, 0, sizeof tb_glast);
+    // регистры процессора — на стек: в них тоже могут быть нужные адреса
+    __builtin_unwind_init();
+    jmp_buf jb;
+    setjmp(jb);
+    tb_gscan((const char *)&jb, (const char *)&jb + sizeof jb);
+    tb_gscan_stack();
+    tb_gdrain();
+    for (long long i = 0; i < tb_gnroots; i++) { tb_gscan(tb_groots[i].p, tb_groots[i].p + tb_groots[i].n); tb_gdrain(); }
+    for (int i = 0; i < tb_nchunks; i++) {
+        // временная память может быть большой: тоже кусками
+        for (long long o = 0; o < tb_chunks[i].used; o += 4096) {
+            long long e = o + 4096 < tb_chunks[i].used ? o + 4096 : tb_chunks[i].used;
+            tb_gscan(tb_chunks[i].mem + o, tb_chunks[i].mem + e);
+            tb_gdrain();
+        }
+    }
+    tb_gdrain();
+    memset(tb_glast, 0, sizeof tb_glast);
+}
+static double tb_gnow(void) { struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts); return ts.tv_sec * 1e3 + ts.tv_nsec / 1e6; }
+static void tb_gc_collect(void) {
+    tb_gruns++;
+    double t0 = tb_gstats ? tb_gnow() : 0;
+    tb_gc_run();
+    double t1 = tb_gstats ? tb_gnow() : 0;
+    // всё не помеченное — мусор
+    long long live = 0;
+    int keep_empty[TB_GNC];
+    for (int c = 0; c < TB_GNC; c++) { tb_gavail[0][c] = 0; tb_gavail[1][c] = 0; keep_empty[c] = 2; }
+    tb_gpage **pp = &tb_gall;
+    while (*pp) {
+        tb_gpage *pg = *pp;
+        long long used = 0;
+        pg->free = 0; pg->nfree = pg->nblocks - pg->bump;
+        long long i = pg->bump - 1;
+        // быстрый путь: 8 подряд занятых и нужных блоков — просто снимаем отметки
+        long long full = 0;
+        for (long long k = 0; k + 8 <= pg->bump; k += 8) {
+            unsigned long long w;
+            memcpy(&w, pg->fl + k, 8);
+            if (w != 0x0303030303030303ULL) break;
+            w = 0x0101010101010101ULL;
+            memcpy(pg->fl + k, &w, 8);
+            full = k + 8;
+        }
+        used += full;
+        for (; i >= full; i--) {
+            char *b = pg->start + i * pg->bsize;
+            if (pg->fl[i] == 3) { pg->fl[i] = 1; used++; continue; }
+            if (pg->fl[i] & 1) memset(b, 0, pg->bsize);
+            pg->fl[i] = 0;
+            *(void **)b = pg->free; pg->free = b; pg->nfree++;
+        }
+        if (used == 0 && keep_empty[pg->cls] == 0) {
+            *pp = pg->next;
+            tb_gmap_remove(pg, TB_GPG);
+            // страница — в запас, чистой (в свободных блоках лежали ссылки на соседей)
+            memset(pg->start, 0, pg->bump * pg->bsize);
+            *(void **)pg->start = tb_gspare; tb_gspare = pg->start;
+            free(pg->fl); free(pg);
+            continue;
+        }
+        if (used == 0) keep_empty[pg->cls]--;
+        live += used * pg->bsize;
+        pg->in_avail = pg->nfree > 0;
+        if (pg->in_avail) { pg->anext = tb_gavail[pg->np][pg->cls]; tb_gavail[pg->np][pg->cls] = pg; }
+        pp = &pg->next;
+    }
+    tb_gpage *pg = tb_glarge;
+    while (pg) {
+        tb_gpage *nx = pg->next;
+        if (!(pg->lfl & 2)) {
+            if (pg->prev) pg->prev->next = pg->next; else tb_glarge = pg->next;
+            if (pg->next) pg->next->prev = pg->prev;
+            tb_gmap_remove(pg, pg->cap);
+            munmap(pg->start, pg->cap);
+            free(pg);
+        } else {
+            pg->lfl = 1;
+            live += pg->cap;
+        }
+        pg = nx;
+    }
+    tb_lc_clear();   // длины текстов по адресу: адрес мог достаться новому тексту
+    long long before = tb_glive + tb_gsince;
+    tb_glive = live;
+    tb_gsince = 0;
+    // следующий обход — когда новой памяти станет вдвое больше нужной
+    // если мусора почти не нашлось (программа копит данные), следующий обход — ещё позже
+    long long k = live * 4 > before * 3 ? 4 : 2;
+    tb_gnext = k * live > (8LL << 20) ? k * live : (8LL << 20);
+    if (tb_gstats) fprintf(stderr, "[уборка %lld: нужно %lld МБ, было %lld МБ, обход %.1f мс, чистка %.1f мс]\n",
+        tb_gruns, live >> 20, before >> 20, t1 - t0, tb_gnow() - t1);
+}
+// начало программы: top — адрес в кадре main, выше всех кадров программы
+// main программы зовём через этот шаг (не встраивается): её переменные точно ниже tb_top
+__attribute__((noinline)) static void tb_call_main(void (*f)(void)) {
+    void (*volatile g)(void) = f;
+    g();
+}
+static void tb_gc_init(void *top) {
+    tb_gtop = (char *)top;
+    const char *e = getenv("TB_GC");
+    if (e && e[0] == '0') tb_goff = 1;
+    e = getenv("TB_GC_STATS");
+    if (e && e[0] == '1') tb_gstats = 1;
+    e = getenv("TB_GC_STRESS");
+    if (e) tb_gstress = atoll(e);
+}
+#endif
+static void *tb_mem(long long n) {
+    if (tb_temp_depth > 0) return tb_temp_alloc(n);
+    return tb_gc_alloc(n);
+}
+// то же для памяти без адресов внутри: текст, числа
+static void *tb_mem_np(long long n) {
+    if (tb_temp_depth > 0) return tb_temp_alloc(n);
+    return tb_gc_alloc_np(n);
+}
+#define tb_tmem tb_mem_np
 // вырасти кусок: временный текущей области растёт там же, обычный — через realloc.
 // Кусок из внешней области (список создан снаружи, растёт внутри temp или шага цикла)
 // переезжает в обычную память: внутренняя область скоро отдаётся, а список живёт дольше.
 static void *tb_resize(void *p, long long old_n, long long new_n) {
     tb_lc_clear();
     if (tb_nchunks > 0 && tb_in_temp(p)) {
-        void *q = tb_in_cur_temp(p) ? tb_temp_alloc(new_n) : malloc(new_n > 0 ? new_n : 1);
-        if (q == 0) tb_crash(0, "не хватило памяти");
+        void *q = tb_in_cur_temp(p) ? tb_temp_alloc(new_n) : tb_gc_alloc(new_n);
         memcpy(q, p, old_n);
         return q;
     }
-    p = realloc(p, new_n > 0 ? new_n : 1);
-    if (p == 0) tb_crash(0, "не хватило памяти");
-    return p;
+    return tb_gc_realloc(p, old_n, new_n);
 }
 static tb_list *tb_list_new(long long size) {
     tb_list *l = tb_mem(sizeof(tb_list));
     l->len = 0; l->cap = 4; l->size = size; l->data = tb_mem(size * 4);
+    return l;
+}
+static tb_list *tb_list_new_np(long long size) {
+    tb_list *l = tb_mem(sizeof(tb_list));
+    l->len = 0; l->cap = 4; l->size = size; l->data = tb_mem_np(size * 4);
+    return l;
+}
+static tb_list *tb_list_from_np(long long n, long long size, const void *src) {
+    tb_list *l = tb_mem(sizeof(tb_list));
+    l->len = n; l->cap = n; l->size = size; l->data = tb_mem_np(size * n);
+    memcpy(l->data, src, size * n);
     return l;
 }
 static tb_list *tb_list_from(long long n, long long size, const void *src) {
@@ -933,14 +1393,14 @@ static void *tb_pop(tb_list *l, int line) {
 // тот же tb_list: len и cap — в битах, size = 0, data — слова по 64 бита
 static tb_list *tb_bits_new(void) {
     tb_list *l = tb_mem(sizeof(tb_list));
-    l->len = 0; l->cap = 64; l->size = 0; l->data = tb_mem(8);
+    l->len = 0; l->cap = 64; l->size = 0; l->data = tb_mem_np(8);
     memset(l->data, 0, 8);
     return l;
 }
 static tb_list *tb_bits_from(long long n, const unsigned char *src) {
     tb_list *l = tb_mem(sizeof(tb_list));
     long long words = (n + 63) / 64 + (n == 0);
-    l->len = n; l->cap = words * 64; l->size = 0; l->data = tb_mem(words * 8);
+    l->len = n; l->cap = words * 64; l->size = 0; l->data = tb_mem_np(words * 8);
     memset(l->data, 0, words * 8);
     unsigned long long *w = (unsigned long long *)l->data;
     for (long long i = 0; i < n; i++) if (src[i]) w[i >> 6] |= 1ULL << (i & 63);
@@ -1018,13 +1478,13 @@ static void *tb_nn(void *p, int line) {
 }
 static const char *tb_cat(const char *a, const char *b) {
     size_t la = strlen(a), lb = strlen(b);
-    char *s = tb_mem(la + lb + 1);
+    char *s = tb_tmem(la + lb + 1);
     memcpy(s, a, la);
     memcpy(s + la, b, lb + 1);
     return s;
 }
-static const char *tb_itos(long long x) { char *s = tb_mem(32); snprintf(s, 32, "%lld", x); return s; }
-static const char *tb_dtos(double x) { char *s = tb_mem(40); snprintf(s, 40, "%g", x); return s; }
+static const char *tb_itos(long long x) { char *s = tb_tmem(32); snprintf(s, 32, "%lld", x); return s; }
+static const char *tb_dtos(double x) { char *s = tb_tmem(40); snprintf(s, 40, "%g", x); return s; }
 static const char *tb_btos(int x) { return x ? "true" : "false"; }
 // текст из одного байта: 256 готовых строк, без выделения памяти на каждую букву
 // таблица постоянная: компилятор C видит, что второй байт всегда 0, и  ch == ","  становится одним сравнением байта
@@ -1096,7 +1556,7 @@ static void tb_app_n(const char **p, long long *rl, long long *rc, const char *b
         long long la = (long long)strlen(s);
         long long cap = 2 * (la + lb) + 1;
         if (cap < 64) cap = 64;
-        char *r = tb_mem(cap);
+        char *r = tb_tmem(cap);
         memcpy(r, s, la);
         memcpy(r + la, b, lb);
         r[la + lb] = 0;
@@ -1118,7 +1578,7 @@ static void tb_app_n(const char **p, long long *rl, long long *rc, const char *b
 static const char *tb_cut(const char *s, long long from, long long to, int line) {
     long long n = (long long)strlen(s);
     if (from < 0 || to >= n || from > to + 1) tb_crash(line, "cut: номера за пределами текста");
-    char *r = tb_mem(to - from + 2);
+    char *r = tb_tmem(to - from + 2);
     memcpy(r, s + from, to - from + 1);
     r[to - from + 1] = 0;
     return r;
@@ -1147,12 +1607,12 @@ TB_COLD static void tb_die(const char *msg) {
 
 // ---------- текст ----------
 static const char *tb_upper(const char *s) {
-    size_t n = strlen(s); char *r = tb_mem(n + 1);
+    size_t n = strlen(s); char *r = tb_tmem(n + 1);
     for (size_t i = 0; i <= n; i++) r[i] = (s[i] >= 'a' && s[i] <= 'z') ? s[i] - 32 : s[i];
     return r;
 }
 static const char *tb_lower(const char *s) {
-    size_t n = strlen(s); char *r = tb_mem(n + 1);
+    size_t n = strlen(s); char *r = tb_tmem(n + 1);
     for (size_t i = 0; i <= n; i++) r[i] = (s[i] >= 'A' && s[i] <= 'Z') ? s[i] + 32 : s[i];
     return r;
 }
@@ -1161,7 +1621,7 @@ static const char *tb_trim(const char *s) {
     size_t a = 0, b = strlen(s);
     while (a < b && tb_space(s[a])) a++;
     while (b > a && tb_space(s[b - 1])) b--;
-    char *r = tb_mem(b - a + 1); memcpy(r, s + a, b - a); r[b - a] = 0;
+    char *r = tb_tmem(b - a + 1); memcpy(r, s + a, b - a); r[b - a] = 0;
     return r;
 }
 static long long tb_find(const char *s, const char *part) {
@@ -1177,7 +1637,7 @@ static const char *tb_replace(const char *s, const char *from, const char *to, i
     size_t lf = strlen(from), lt = strlen(to), count = 0;
     if (lf == 0) tb_crash(line, "replace: что заменять — пустой текст");
     for (const char *p = strstr(s, from); p; p = strstr(p + lf, from)) count++;
-    char *r = tb_mem(strlen(s) + count * lt + 1), *w = r;
+    char *r = tb_tmem(strlen(s) + count * lt + 1), *w = r;
     const char *p = s, *q;
     while ((q = strstr(p, from)) != 0) {
         memcpy(w, p, q - p); w += q - p;
@@ -1195,7 +1655,7 @@ static tb_list *tb_split(const char *s, const char *sep, int line) {
     while (1) {
         q = strstr(p, sep);
         size_t n = q ? (size_t)(q - p) : strlen(p);
-        char *part = tb_mem(n + 1); memcpy(part, p, n); part[n] = 0;
+        char *part = tb_tmem(n + 1); memcpy(part, p, n); part[n] = 0;
         *(const char **)tb_grow(l) = part;
         if (!q) break;
         p = q + ls;
@@ -1205,7 +1665,7 @@ static tb_list *tb_split(const char *s, const char *sep, int line) {
 static const char *tb_join(tb_list *l, const char *sep) {
     size_t n = 0, ls = strlen(sep);
     for (long long i = 0; i < l->len; i++) n += strlen(((const char **)l->data)[i]) + ls;
-    char *r = tb_mem(n + 1), *w = r;
+    char *r = tb_tmem(n + 1), *w = r;
     for (long long i = 0; i < l->len; i++) {
         const char *part = ((const char **)l->data)[i];
         if (i > 0) { memcpy(w, sep, ls); w += ls; }
@@ -1236,7 +1696,7 @@ static const char *tb_read_file(const char *path) {
     FILE *f = fopen(path, "rb");
     if (f == 0) { tb_err = tb_cat("не могу открыть файл: ", path); return ""; }
     size_t cap = 4096, n = 0, got;
-    char *buf = tb_mem(cap);
+    char *buf = tb_tmem(cap);
     while ((got = fread(buf + n, 1, cap - n - 1, f)) > 0) {
         n += got;
         if (n + 1 == cap) { buf = tb_resize(buf, cap, cap * 2); cap *= 2; }
@@ -1254,7 +1714,7 @@ static void tb_write_file(const char *path, const char *s) {
 static const char *tb_input(void) {
     fflush(stdout);
     size_t cap = 256, n = 0;
-    char *buf = tb_mem(cap);
+    char *buf = tb_tmem(cap);
     int c;
     while ((c = getchar()) != EOF && c != '\n') {
         if (n + 1 == cap) { buf = tb_resize(buf, cap, cap * 2); cap *= 2; }
@@ -1301,10 +1761,10 @@ static tb_list *tb_list_dir(const char *path) {
     while ((e = readdir(d)) != 0) {
         if (strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0) continue;
         size_t n = strlen(e->d_name);
-        char *full = tb_mem(lp + n + 2);
+        char *full = tb_tmem(lp + n + 2);
         memcpy(full, path, lp); full[lp] = '/'; memcpy(full + lp + 1, e->d_name, n + 1);
         int dir = tb_is_folder(full);
-        char *name = tb_mem(n + 2);
+        char *name = tb_tmem(n + 2);
         memcpy(name, e->d_name, n);
         if (dir) name[n++] = '/';
         name[n] = 0;
@@ -1340,7 +1800,7 @@ static const char *tb_date_now(void) {
     time_t t = time(0);
     struct tm tmv;
     localtime_r(&t, &tmv);
-    char *s = tb_mem(32);
+    char *s = tb_tmem(32);
     strftime(s, 32, "%Y-%m-%d %H:%M:%S", &tmv);
     return s;
 }
@@ -1365,7 +1825,7 @@ static const char *tb_http_get(const char *url) {
     free(cmd);
     if (p == 0) { tb_err = "не могу запустить curl"; return ""; }
     size_t cap = 4096, len = 0, got;
-    char *buf = tb_mem(cap);
+    char *buf = tb_tmem(cap);
     while ((got = fread(buf + len, 1, cap - len - 1, p)) > 0) {
         len += got;
         if (len + 1 == cap) { buf = tb_resize(buf, cap, cap * 2); cap *= 2; }
@@ -1414,7 +1874,7 @@ static int tb_js_hex(const char *p) {
 static const char *tb_js_str(const char *p) {
     const char *e = tb_js_skip(p);
     if (!e) return 0;
-    char *out = tb_mem(e - p + 1), *o = out;
+    char *out = tb_tmem(e - p + 1), *o = out;
     p++;
     while (*p != '"') {
         if (*p != '\\') { *o++ = *p++; continue; }
@@ -1497,7 +1957,7 @@ static const char *tb_json_get(const char *js, const char *path) {
     {
         const char *e = tb_js_skip(p);
         if (!e) goto bad;
-        char *out = tb_mem(e - p + 1);
+        char *out = tb_tmem(e - p + 1);
         memcpy(out, p, e - p);
         out[e - p] = 0;
         return out;
@@ -1509,7 +1969,7 @@ bad:
 // текст → строка JSON в кавычках: "a\"b"
 static const char *tb_json_text(const char *s) {
     size_t n = strlen(s);
-    char *out = tb_mem(n * 6 + 3), *o = out;
+    char *out = tb_tmem(n * 6 + 3), *o = out;
     *o++ = '"';
     for (const unsigned char *p = (const unsigned char *)s; *p; p++) {
         if (*p == '"' || *p == '\\') { *o++ = '\\'; *o++ = (char)*p; }
@@ -1564,7 +2024,7 @@ static tb_list *tb_copy(tb_list *l) {
     if (l->size == 0) {
         tb_list *r = tb_mem(sizeof(tb_list));
         long long bytes = l->cap / 8;
-        r->len = l->len; r->cap = l->cap; r->size = 0; r->data = tb_mem(bytes);
+        r->len = l->len; r->cap = l->cap; r->size = 0; r->data = tb_mem_np(bytes);
         memcpy(r->data, l->data, bytes);
         return r;
     }
@@ -1616,15 +2076,15 @@ static inline long long tb_dfind(tb_dict *d, const void *k) {
 }
 // память для таблиц dict — там же, где лежат его ключи (временная или обычная)
 static void *tb_dalloc(tb_dict *d, void *old, long long bytes) {
-    if (old && !(tb_nchunks > 0 && tb_in_temp(old))) free(old);
-    void *p = tb_in_cur_temp(d->keys->data) ? tb_temp_alloc(bytes) : malloc(bytes);
+    if (old && !(tb_nchunks > 0 && tb_in_temp(old))) tb_gc_free(old);
+    void *p = tb_in_cur_temp(d->keys->data) ? tb_temp_alloc(bytes) : tb_gc_alloc_np(bytes);
     if (!p) tb_crash(0, "не хватило памяти");
     return p;
 }
 static void tb_dreindex(tb_dict *d, long long nslots) {
     d->mode = 0;
     if (d->pos) {
-        if (!(tb_nchunks > 0 && tb_in_temp(d->pos))) free(d->pos);
+        if (!(tb_nchunks > 0 && tb_in_temp(d->pos))) tb_gc_free(d->pos);
         d->pos = 0; d->npos = 0;
     }
     d->nslots = nslots;
@@ -1649,7 +2109,7 @@ static void tb_dto_pos(tb_dict *d, long long npos) {
     memset(p, 0, npos * sizeof(long long));
     const long long *ks = (const long long *)d->keys->data;
     for (long long at = 0; at < d->keys->len; at++) p[ks[at] - d->base] = at + 1;
-    if (d->pos && !(tb_nchunks > 0 && tb_in_temp(d->pos))) free(d->pos);
+    if (d->pos && !(tb_nchunks > 0 && tb_in_temp(d->pos))) tb_gc_free(d->pos);
     d->pos = p;
     d->npos = npos;
     d->mode = 2;
@@ -1657,7 +2117,7 @@ static void tb_dto_pos(tb_dict *d, long long npos) {
 static tb_dict *tb_dict_new(int text, long long vsize) {
     tb_dict *d = tb_mem(sizeof(tb_dict));
     d->text = text;
-    d->keys = tb_list_new(text ? sizeof(const char *) : sizeof(long long));
+    d->keys = text ? tb_list_new(sizeof(const char *)) : tb_list_new_np(sizeof(long long));
     d->vals = tb_list_new(vsize);
     d->slots = 0; d->pos = 0; d->npos = 0; d->base = 0;
     if (text) tb_dreindex(d, 8);
@@ -1669,10 +2129,10 @@ static tb_dict *tb_dict_new(int text, long long vsize) {
 static void tb_lclear(tb_list *l, int line) {
     if (l->cap < 0) tb_crash(line, ".clear() нельзя, пока по списку идёт each ... by N");
     int temp = tb_nchunks > 0 && tb_in_temp(l->data);
-    if (!temp) free(l->data);
+    if (!temp) tb_gc_free(l->data);
     long long cap = l->size == 0 ? 64 : 4;
     long long bytes = l->size == 0 ? 8 : l->size * 4;
-    l->data = tb_in_cur_temp(l->data) ? tb_temp_alloc(bytes) : malloc(bytes);
+    l->data = tb_in_cur_temp(l->data) ? tb_temp_alloc(bytes) : tb_gc_alloc(bytes);
     if (l->data == 0) tb_crash(line, "не хватило памяти");
     memset(l->data, 0, bytes);
     l->len = 0; l->cap = cap;
@@ -1680,8 +2140,8 @@ static void tb_lclear(tb_list *l, int line) {
 static void tb_dclear(tb_dict *d, int line) {
     tb_lclear(d->keys, line);
     tb_lclear(d->vals, line);
-    if (d->pos && !(tb_nchunks > 0 && tb_in_temp(d->pos))) free(d->pos);
-    if (d->slots && !(tb_nchunks > 0 && tb_in_temp(d->slots))) free(d->slots);
+    if (d->pos && !(tb_nchunks > 0 && tb_in_temp(d->pos))) tb_gc_free(d->pos);
+    if (d->slots && !(tb_nchunks > 0 && tb_in_temp(d->slots))) tb_gc_free(d->slots);
     d->slots = 0; d->pos = 0; d->npos = 0; d->base = 0;
     if (d->text) tb_dreindex(d, 8);
     else { d->mode = 1; d->nslots = 0; }
@@ -1764,43 +2224,28 @@ static inline void tb_dpre2(tb_dict *d, unsigned long long i) {
 static inline void tb_lpre(tb_list *l, long long i) {
     __builtin_prefetch(l->data + i * l->size);
 }
-// ---------- холодные качества obj: своя память, подряд, отдельно от горячих ----------
+// ---------- холодные качества obj: своя память, отдельно от горячих ----------
 static void *tb_cold_mem(long long n) {
     if (tb_temp_depth > 0) return tb_mem(n);
-    static _Thread_local char *p = 0;
-    static _Thread_local long long left = 0;
-    n = (n + 15) & ~15LL;
-    if (left < n) {
-        long long size = n > 65536 ? n : 65536;
-        p = malloc(size);
-        if (!p) tb_crash(0, "не хватило памяти");
-        left = size;
-    }
-    void *r = p;
-    p += n;
-    left -= n;
+    void *r = tb_gc_alloc(n);
     memset(r, 0, n);
     return r;
 }
-// ---------- obj: память пачкой ----------
-// obj никогда не отдают по одному (нет free), поэтому их не надо брать через malloc
-// поштучно: берём кусок на тысячи объектов и раздаём подряд. Быстрее, и соседние
-// объекты лежат рядом в памяти. Внутри temp и шага цикла — как раньше, из временной памяти.
+static void *tb_cold_mem_np(long long n) {
+    if (tb_temp_depth > 0) return tb_mem(n);
+    void *r = tb_gc_alloc_np(n);
+    memset(r, 0, n);
+    return r;
+}
+// ---------- obj: память ----------
+// Внутри temp и шага цикла — из временной памяти, иначе — из памяти с уборкой.
 static void *tb_obj_mem(long long n) {
     if (tb_temp_depth > 0) return tb_mem(n);
-    static _Thread_local char *p = 0;
-    static _Thread_local long long left = 0;
-    n = (n + 7) & ~7LL;
-    if (left < n) {
-        long long size = n > (1LL << 20) ? n : (1LL << 20);
-        p = malloc(size);
-        if (!p) tb_crash(0, "не хватило памяти");
-        left = size;
-    }
-    void *r = p;
-    p += n;
-    left -= n;
-    return r;
+    return tb_gc_alloc(n);
+}
+static void *tb_obj_mem_np(long long n) {
+    if (tb_temp_depth > 0) return tb_mem(n);
+    return tb_gc_alloc_np(n);
 }
 // ---------- background: работа в своём потоке ----------
 #ifndef TB_BARE
@@ -1928,14 +2373,14 @@ typedef struct {
     char *buf; long long cap, head, len, size; int text, closed;
 } tb_chan;
 static tb_chan *tb_chan_new(long long size, int text) {
-    tb_chan *ch = malloc(sizeof(tb_chan));
+    tb_chan *ch = tb_gc_alloc(sizeof(tb_chan));
     if (!ch) tb_crash(0, "не хватило памяти");
     memset(ch, 0, sizeof(tb_chan));
 #ifndef TB_BARE
     pthread_mutex_init(&ch->m, 0); pthread_cond_init(&ch->cv, 0);
 #endif
     ch->size = size; ch->text = text; ch->cap = 16;
-    ch->buf = malloc(ch->cap * size);
+    ch->buf = tb_gc_alloc(ch->cap * size);
     if (!ch->buf) tb_crash(0, "не хватило памяти");
     return ch;
 }
@@ -1952,7 +2397,7 @@ static void tb_chan_send(tb_chan *ch, const void *v, int line) {
     if (ch->text) {
         const char *t = *(const char * const *)v;
         size_t n = strlen(t) + 1;
-        char *copy = malloc(n);
+        char *copy = tb_gc_alloc(n);
         if (!copy) tb_crash(line, "не хватило памяти");
         memcpy(copy, t, n);
         memcpy(tmp, &copy, sizeof copy);
@@ -1961,11 +2406,11 @@ static void tb_chan_send(tb_chan *ch, const void *v, int line) {
     TB_CH_LOCK(ch);
     if (ch->closed) { TB_CH_UNLOCK(ch); tb_crash(line, "канал уже закрыт: в него больше не пишут"); }
     if (ch->len == ch->cap) {
-        char *nb = malloc(ch->cap * 2 * ch->size);
+        char *nb = tb_gc_alloc(ch->cap * 2 * ch->size);
         if (!nb) { TB_CH_UNLOCK(ch); tb_crash(line, "не хватило памяти"); }
         for (long long i = 0; i < ch->len; i++)
             memcpy(nb + i * ch->size, ch->buf + ((ch->head + i) % ch->cap) * ch->size, ch->size);
-        free(ch->buf); ch->buf = nb; ch->head = 0; ch->cap *= 2;
+        tb_gc_free(ch->buf); ch->buf = nb; ch->head = 0; ch->cap *= 2;
     }
     memcpy(ch->buf + ((ch->head + ch->len) % ch->cap) * ch->size, src, ch->size);
     ch->len++;

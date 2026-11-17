@@ -3,7 +3,10 @@ func deep(n: int, xs: list int) gives r: int
     if n == 0
         return len(xs)
     ys = [n]
-    return deep(n - 1, ys) + 1
+    // не хвостовой вызов: C не может превратить его в цикл
+    if deep(n - 1, ys) > n
+        return 1
+    return 2
 func work(n: int) gives r: int
     return deep(n, [1])
 func main()

@@ -5,7 +5,7 @@
   </picture>
 </p>
 
-# Tachbit 1.0
+# Tachbit 1.1
 
 **Write complex programs in a clear language and get a real, fast program, not a prototype.**
 
@@ -89,7 +89,7 @@ Checked before the program runs:
 - `background` takes only plain values, channels, or a list handed over with `move` (no second name, not stored anywhere, not used afterwards);
 - removing keys from a dict while `each` walks it is an error.
 
-Not caught yet (honest list): integer overflow wraps silently; the same object placed twice in a list under `each ... on all cores`; interrupt handlers vs. main code in the no-OS mode; nothing at all inside `danger` (by design). Long-lived objects and lists are not freed before the program ends (loop steps, functions and `temp` are freed automatically) — this is the next big task.
+Not caught yet (honest list): integer overflow wraps silently; the same object placed twice in a list under `each ... on all cores`; interrupt handlers vs. main code in the no-OS mode; nothing at all inside `danger` (by design). Memory is managed for you: loop steps, functions and `temp` free their memory right away, and since 1.1 a garbage collector frees long-lived objects, lists, dicts and texts nobody uses any more (`TB_GC_STATS=1` prints each collection).
 
 ## Speed
 

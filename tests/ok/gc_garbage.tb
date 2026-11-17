@@ -1,0 +1,21 @@
+// 1.1: уборка памяти — значения уходят из цикла в dict и заменяются, старые становятся мусором
+obj Order
+    id: int
+    client: text
+    items: list int
+
+func make(i: int) gives o: Order
+    o = Order(id: i, client: "клиент " + i, items: [i, i + 1, i + 2])
+    return o
+
+func main()
+    last = dict int Order
+    sum = 0
+    count i from 1 to 300000
+        o = make(i)
+        last[i % 100] = o
+        sum += len(o.items) + len(o.client)
+    total = 0
+    count k from 0 to 99
+        total += last[k].items[0]
+    print(sum, len(last), total, last[7].client)

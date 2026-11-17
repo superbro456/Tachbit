@@ -72,6 +72,9 @@ func emit_default(c: Comp, t: int)
         put(c, "(" + c_type(c, t) + "){0, 0}")
     else if k == "list" and is_bits(c, t)
         put(c, "tb_bits_new()")
+    else if k == "list" and is_plain_ty(c, c.types[t].elem)
+        // числа: внутри нет адресов, уборка памяти туда не смотрит
+        put(c, "tb_list_new_np(sizeof(" + c_type(c, c.types[t].elem) + "))")
     else if k == "list"
         put(c, "tb_list_new(sizeof(" + c_type(c, c.types[t].elem) + "))")
     else if k == "channel"
@@ -372,6 +375,8 @@ func emit_list(c: Comp, n: Node)
         put(c, "tb_colsfrom_" + cols_name(c, n.ty) + "(" + len(n.kids) + ", (" + elem + "[]){")
     else if is_bits(c, n.ty)
         put(c, "tb_bits_from(" + len(n.kids) + ", (unsigned char[]){")
+    else if is_plain_ty(c, elem_ty)
+        put(c, "tb_list_from_np(" + len(n.kids) + ", sizeof(" + elem + "), (" + elem + "[]){")
     else
         put(c, "tb_list_from(" + len(n.kids) + ", sizeof(" + elem + "), (" + elem + "[]){")
     count i from 0 to len(n.kids) - 1
@@ -416,7 +421,7 @@ func emit_concat(c: Comp, n: Node)
             total = total + " + "
         total = total + v + "n"
     r = "tb_c" + id + "r"
-    put(c, "char *" + r + " = tb_mem(" + total + " + 1), *" + r + "w = " + r + "; ")
+    put(c, "char *" + r + " = tb_tmem(" + total + " + 1), *" + r + "w = " + r + "; ")
     count i from 0 to len(parts) - 1
         v = "tb_c" + id + "_" + i
         put(c, "memcpy(" + r + "w, " + v + ", " + v + "n); " + r + "w += " + v + "n; ")
@@ -1140,7 +1145,7 @@ func emit_pieces(c: Comp, n: Node, depth: int)
     put(c, "}\n")
 
 // a = background f(x, y):
-//   tb_bgN(x, y) кладёт значения в свою коробку (malloc) и запускает поток,
+//   tb_bgN(x, y) кладёт значения в свою коробку (память с уборкой) и запускает поток,
 //   поток зовёт f и кладёт ответ в ту же коробку; a.wait ждёт поток и берёт ответ
 func emit_background(c: Comp, n: Node)
     c.label += 1
@@ -1176,7 +1181,7 @@ func emit_background(c: Comp, n: Node)
         put(c, c_type(c, params.kids[i].ty) + " a" + i)
     if len(params.kids) == 0
         put(c, "void")
-    put(c, ") {\n    tb_bgjob" + id + " *tb_j = malloc(sizeof(tb_bgjob" + id + "));\n")
+    put(c, ") {\n    tb_bgjob" + id + " *tb_j = tb_gc_alloc(sizeof(tb_bgjob" + id + "));\n")
     put(c, "    if (tb_j == 0) tb_crash(0, \"не хватило памяти\");\n")
     count i from 0 to len(params.kids) - 1
         put(c, "    tb_j->a" + i + " = a" + i + ";\n")
@@ -2623,7 +2628,10 @@ func emit_cols_helpers(c: Comp, o: Node)
     put(c, "static " + cols + " *tb_cols_new_" + nm + "(void) {\n")
     put(c, "    " + cols + " *l = tb_mem(sizeof(" + cols + "));\n    l->len = 0; l->cap = 4;\n")
     each f in o.kids
-        put(c, "    l->q_" + f.name + " = tb_mem(sizeof(" + c_type(c, f.ty) + ") * 4);\n")
+        mem = "tb_mem"
+        if is_plain_ty(c, f.ty)
+            mem = "tb_mem_np"
+        put(c, "    l->q_" + f.name + " = " + mem + "(sizeof(" + c_type(c, f.ty) + ") * 4);\n")
     put(c, "    return l;\n}\n")
     put(c, "static void tb_colgrow_" + nm + "(" + cols + " *l) {\n")
     put(c, "    if (l->len < l->cap) return;\n    l->cap *= 2;\n")
@@ -2689,9 +2697,24 @@ func emit_constructor(c: Comp, o: Node)
             put(c, ", ")
         put(c, c_type(c, o.kids[i].ty) + " a" + i)
     put(c, ") {\n")
-    put(c, "    tb_o_" + o.name + " *o = tb_obj_mem(sizeof(tb_o_" + o.name + "));\n")
+    // obj только из чисел: внутри нет адресов, уборка памяти туда не смотрит
+    plain = not has_cold(o)
+    each f in o.kids
+        if not is_plain_ty(c, f.ty)
+            plain = false
+    mem = "tb_obj_mem"
+    if plain
+        mem = "tb_obj_mem_np"
+    put(c, "    tb_o_" + o.name + " *o = " + mem + "(sizeof(tb_o_" + o.name + "));\n")
     if has_cold(o)
-        put(c, "    o->tb_cold = tb_cold_mem(sizeof(struct tb_c_" + o.name + "));\n")
+        cold_plain = true
+        each f in o.kids
+            if f.is_cold and not is_plain_ty(c, f.ty)
+                cold_plain = false
+        cmem = "tb_cold_mem"
+        if cold_plain
+            cmem = "tb_cold_mem_np"
+        put(c, "    o->tb_cold = " + cmem + "(sizeof(struct tb_c_" + o.name + "));\n")
     count i from 0 to len(o.kids) - 1
         put(c, "    o" + field_path(o, o.kids[i].name) + " = a" + i + ";\n")
     put(c, "    return o;\n}\n")
@@ -2700,7 +2723,7 @@ modpub func emit_c(c: Comp, program: Node)
     fresh = list text
     c.out = fresh
     c.label = 0
-    put(c, "// Сделано компилятором Tachbit 1.0. Не правь руками: правь файл .tb\n")
+    put(c, "// Сделано компилятором Tachbit 1.1. Не правь руками: правь файл .tb\n")
     if c.bare
         put(c, "#define TB_BARE 1\n")
     if c.gfx
@@ -2774,7 +2797,16 @@ modpub func emit_c(c: Comp, program: Node)
         put(c, "    " + fname(main_func) + "();\n}\n")
         return
     put(c, "\nint main(int argc, char **argv) {\n")
+    // tb_top — в кадре main: все кадры программы ниже него, уборка памяти смотрит стек до него
+    put(c, "    char tb_top = 0;\n")
     put(c, "    tb_guard_init();\n")
+    put(c, "    tb_gc_init((void *)&tb_top);\n")
+    each g in c.globals
+        put(c, "    tb_gc_root((void *)&v_" + g.name + ", sizeof v_" + g.name + ");\n")
+    count i from 1 to len(c.temp_types) - 1
+        put(c, "    tb_gc_root((void *)&tb_t" + i + ", sizeof tb_t" + i + ");\n")
+    put(c, "    tb_gc_root((void *)&tb_args, sizeof tb_args);\n")
+    put(c, "    tb_gc_root((void *)&tb_err, sizeof tb_err);\n")
     put(c, "    tb_args = tb_list_new(sizeof(const char *));\n")
     put(c, "    for (int i = 1; i < argc; i++) *(const char **)tb_grow(tb_args) = argv[i];\n")
-    put(c, "    " + fname(main_func) + "();\n    return 0;\n}\n")
+    put(c, "    tb_call_main(" + fname(main_func) + ");\n    return 0;\n}\n")
