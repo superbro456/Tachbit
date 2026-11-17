@@ -1787,10 +1787,11 @@ static void tb_chan_send(tb_chan *ch, const void *v, int line) {
 // взять следующее значение; 0 — канал закрыт и пуст
 static int tb_chan_take(tb_chan *ch, void *out) {
 #ifdef TB_BARE
+    unsigned long tb_chf;
     for (;;) {
-        TB_CH_LOCK(ch);
+        tb_chf = tb_lock_take(&ch->lk);
         if (ch->len > 0 || ch->closed) break;
-        TB_CH_UNLOCK(ch);
+        tb_lock_give(&ch->lk, tb_chf);
         tb_yield();
     }
 #else
