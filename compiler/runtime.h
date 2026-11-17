@@ -699,6 +699,174 @@ __asm__(".text\n.global _start\n_start:\n  movl $tb_stack + 1048576, %esp\n  pus
 #include <strings.h>
 #include <sys/stat.h>
 #include <time.h>
+// память с выравниванием (для сборщика мусора и др.): на Windows нет posix_memalign
+static inline void *tb_aligned_alloc(size_t align, size_t n) {
+#ifdef _WIN32
+    return _aligned_malloc(n, align);
+#else
+    void *p = 0;
+    return posix_memalign(&p, align, n) == 0 ? p : 0;
+#endif
+}
+static inline void tb_aligned_free(void *p) {
+#ifdef _WIN32
+    _aligned_free(p);
+#else
+    free(p);
+#endif
+}
+#ifdef _WIN32
+// ---------- Windows (MinGW-w64: gcc или clang) ----------
+// Пути, слова запуска и переменные окружения в Tachbit — UTF-8. Windows для
+// «узких» функций (fopen, mkdir, getenv...) берёт кодовую страницу ANSI, и русские
+// имена ломаются. Поэтому здесь свои обёртки через «широкие» функции (_wfopen...),
+// а имена POSIX ниже подменяются на них — код библиотеки остаётся одним на все системы.
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <shellapi.h>
+#include <io.h>
+#include <fcntl.h>
+#include <direct.h>
+#include <malloc.h>
+static wchar_t *tb_wide(const char *s) {
+    int n = MultiByteToWideChar(CP_UTF8, 0, s, -1, 0, 0);
+    wchar_t *w = malloc((size_t)(n > 0 ? n : 1) * sizeof(wchar_t));
+    if (!w) return 0;
+    if (n <= 0) w[0] = 0; else MultiByteToWideChar(CP_UTF8, 0, s, -1, w, n);
+    return w;
+}
+static char *tb_narrow(const wchar_t *w) {
+    int n = WideCharToMultiByte(CP_UTF8, 0, w, -1, 0, 0, 0, 0);
+    char *s = malloc((size_t)(n > 0 ? n : 1));
+    if (!s) return 0;
+    if (n <= 0) s[0] = 0; else WideCharToMultiByte(CP_UTF8, 0, w, -1, s, n, 0, 0);
+    return s;
+}
+static FILE *tb_win_fopen(const char *path, const char *mode) {
+    wchar_t *p = tb_wide(path), *m = tb_wide(mode);
+    FILE *f = p && m ? _wfopen(p, m) : 0;
+    free(p); free(m);
+    return f;
+}
+static int tb_win_stat(const char *path, struct stat *st) {
+    wchar_t *p = tb_wide(path);
+    if (!p) return -1;
+    // «папка/» с косой чертой в конце _wstat не находит
+    size_t n = wcslen(p);
+    while (n > 1 && (p[n - 1] == L'/' || p[n - 1] == L'\\') && p[n - 2] != L':') p[--n] = 0;
+    struct _stat64 s;
+    int r = _wstat64(p, &s);
+    free(p);
+    if (r != 0) return r;
+    memset(st, 0, sizeof *st);
+    st->st_mode = s.st_mode;
+    st->st_size = (_off_t)s.st_size;
+    st->st_mtime = (time_t)s.st_mtime;
+    return 0;
+}
+static int tb_win_mkdir(const char *path) { wchar_t *p = tb_wide(path); int r = p ? _wmkdir(p) : -1; free(p); return r; }
+static int tb_win_rmdir(const char *path) { wchar_t *p = tb_wide(path); int r = p ? _wrmdir(p) : -1; free(p); return r; }
+static int tb_win_unlink(const char *path) { wchar_t *p = tb_wide(path); int r = p ? _wunlink(p) : -1; free(p); return r; }
+// как в POSIX: файл на месте назначения заменяется (обычный rename на Windows так не умеет)
+static int tb_win_rename(const char *from, const char *to) {
+    wchar_t *a = tb_wide(from), *b = tb_wide(to);
+    int ok = a && b && MoveFileExW(a, b, MOVEFILE_REPLACE_EXISTING);
+    DWORD e = ok ? 0 : GetLastError();
+    free(a); free(b);
+    if (ok) return 0;
+    errno = e == ERROR_NOT_SAME_DEVICE ? EXDEV : e == ERROR_ACCESS_DENIED ? EACCES : ENOENT;
+    return -1;
+}
+// getenv в UTF-8; ответ живёт до конца программы (их мало и они короткие).
+// HOME на Windows обычно нет: тогда это USERPROFILE (C:\Users\имя)
+static char *tb_win_getenv(const char *name) {
+    wchar_t *n = tb_wide(name);
+    const wchar_t *v = n ? _wgetenv(n) : 0;
+    if (!v && strcmp(name, "HOME") == 0) v = _wgetenv(L"USERPROFILE");
+    free(n);
+    return v ? tb_narrow(v) : 0;
+}
+// cmd.exe /c убирает первую и последнюю кавычку, если кавычек больше двух:
+// поэтому команда целиком берётся ещё в одни кавычки
+static wchar_t *tb_win_cmd(const char *command) {
+    size_t n = strlen(command);
+    char *q = malloc(n + 3);
+    if (!q) return 0;
+    q[0] = '"'; memcpy(q + 1, command, n); q[n + 1] = '"'; q[n + 2] = 0;
+    wchar_t *w = tb_wide(q);
+    free(q);
+    return w;
+}
+static int tb_win_system(const char *command) {
+    wchar_t *c = tb_win_cmd(command);
+    int r = c ? _wsystem(c) : -1;
+    free(c);
+    return r;
+}
+static FILE *tb_win_popen(const char *command, const char *mode) {
+    wchar_t *c = tb_win_cmd(command), *m = tb_wide(mode);
+    FILE *f = c && m ? _wpopen(c, m) : 0;
+    free(c); free(m);
+    return f;
+}
+// папка: _wopendir / _wreaddir, имена — в UTF-8
+struct tb_win_dirent { char d_name[MAX_PATH * 4]; };
+typedef struct { _WDIR *d; struct tb_win_dirent e; } tb_win_dir;
+static tb_win_dir *tb_win_opendir(const char *path) {
+    wchar_t *p = tb_wide(path);
+    _WDIR *d = p ? _wopendir(p) : 0;
+    free(p);
+    if (!d) return 0;
+    tb_win_dir *r = calloc(1, sizeof *r);
+    if (!r) { _wclosedir(d); return 0; }
+    r->d = d;
+    return r;
+}
+static struct tb_win_dirent *tb_win_readdir(tb_win_dir *d) {
+    struct _wdirent *e = _wreaddir(d->d);
+    if (!e) return 0;
+    if (WideCharToMultiByte(CP_UTF8, 0, e->d_name, -1, d->e.d_name, sizeof d->e.d_name, 0, 0) <= 0) d->e.d_name[0] = 0;
+    return &d->e;
+}
+static int tb_win_closedir(tb_win_dir *d) { _wclosedir(d->d); free(d); return 0; }
+// цвет в консоли — только если удалось включить ESC-последовательности (Windows 10+)
+static int tb_win_vt = 0;
+static int tb_win_isatty(int fd) { return tb_win_vt && _isatty(fd); }
+// число ядер
+#ifndef _SC_NPROCESSORS_ONLN
+#define _SC_NPROCESSORS_ONLN 84
+#endif
+static long tb_win_sysconf(int what) {
+    (void)what;
+    SYSTEM_INFO si;
+    GetSystemInfo(&si);
+    return (long)si.dwNumberOfProcessors;
+}
+#define fopen(p, m) tb_win_fopen(p, m)
+#define stat(p, s) tb_win_stat(p, s)
+#define mkdir(p, mode) tb_win_mkdir(p)
+#define rmdir(p) tb_win_rmdir(p)
+#define unlink(p) tb_win_unlink(p)
+#define rename(a, b) tb_win_rename(a, b)
+#define getenv(n) tb_win_getenv(n)
+#undef popen
+#undef pclose
+#define popen(c, m) tb_win_popen(c, m)
+#define pclose(f) _pclose(f)
+#define DIR tb_win_dir
+#define dirent tb_win_dirent
+#define opendir(p) tb_win_opendir(p)
+#define readdir(d) tb_win_readdir(d)
+#define closedir(d) tb_win_closedir(d)
+#define isatty(fd) tb_win_isatty(fd)
+#define sysconf(x) tb_win_sysconf(x)
+#define localtime_r(t, r) (localtime_s((r), (t)) == 0 ? (r) : 0)
+#endif
 #endif
 
 // подсказки для clang / gcc: ошибка бывает редко, а tb_crash не возвращается
@@ -727,12 +895,31 @@ TB_COLD static void tb_crash(int line, const char *msg) {
 // ---------- падение по памяти: понятное сообщение вместо «Segmentation fault» ----------
 // Чаще всего это стек: функция зовёт себя слишком глубоко. Обработчик работает
 // на своём маленьком стеке (sigaltstack), потому что основной уже кончился.
+#ifndef _WIN32
 #include <signal.h>
 #include <sys/resource.h>
+#else
+// На Windows нет сигналов и sigaltstack: переполнение стека ловит обработчик
+// исключений (tb_guard_init ниже), а место для него в конце стека даёт
+// SetThreadStackGuarantee. Этот sigaltstack только помнит память потока,
+// чтобы tb_tramp_run мог её отдать, и просит у Windows запас стека.
+typedef struct { void *ss_sp; size_t ss_size; int ss_flags; } stack_t;
+#define SS_DISABLE 4
+static _Thread_local void *tb_win_alt;
+static int sigaltstack(const stack_t *ss, stack_t *old) {
+    if (old) { old->ss_sp = tb_win_alt; old->ss_size = 0; old->ss_flags = 0; }
+    if (ss) {
+        tb_win_alt = (ss->ss_flags & SS_DISABLE) ? 0 : ss->ss_sp;
+        if (!(ss->ss_flags & SS_DISABLE)) { ULONG g = 65536; SetThreadStackGuarantee(&g); }
+    }
+    return 0;
+}
+#endif
 // у каждого потока своё: где начинается его стек и сколько в нём места
 static _Thread_local char *tb_main_sp;
 static _Thread_local long long tb_stack_lim;
 #define TB_THREAD_STACK (8LL << 20)
+#ifndef _WIN32
 static void tb_on_segv(int sig, siginfo_t *si, void *u) {
     (void)sig; (void)u;
     char *a = (char *)si->si_addr;
@@ -750,6 +937,7 @@ static void tb_on_segv(int sig, siginfo_t *si, void *u) {
     if (write(2, m, strlen(m)) < 0) _exit(1);
     _exit(1);
 }
+#endif
 // свой маленький стек для сообщения: у главного потока — постоянный, у остальных — из malloc
 static void tb_guard_thread(char *here, long long lim) {
     stack_t ss;
@@ -796,6 +984,64 @@ static int tb_thread_create(pthread_t *th, void *(*run)(void *), void *arg) {
     if (r != 0) { free(t); __atomic_sub_fetch(&tb_gthreads, 1, __ATOMIC_RELEASE); }
     return r;
 }
+#ifdef _WIN32
+static void tb_win_fatal(const char *m) {
+    DWORD w;
+    WriteFile(GetStdHandle(STD_ERROR_HANDLE), m, (DWORD)strlen(m), &w, 0);
+    TerminateProcess(GetCurrentProcess(), 1);   // как _exit(1): без уборки, она может упасть ещё раз
+}
+#define TB_WIN_STACK_MSG "стек переполнен: функция зовёт себя слишком глубоко (рекурсия без конца?)\n"
+// переполнение стека — сразу (это никогда не «нормальное» исключение)
+static LONG CALLBACK tb_win_overflow(EXCEPTION_POINTERS *e) {
+    if (e->ExceptionRecord->ExceptionCode == EXCEPTION_STACK_OVERFLOW) tb_win_fatal(TB_WIN_STACK_MSG);
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+// остальные падения — только если их никто не поймал
+static LONG WINAPI tb_win_crashed(EXCEPTION_POINTERS *e) {
+    DWORD c = e->ExceptionRecord->ExceptionCode;
+    if (c == EXCEPTION_STACK_OVERFLOW) tb_win_fatal(TB_WIN_STACK_MSG);
+    if (c == EXCEPTION_ACCESS_VIOLATION || c == EXCEPTION_IN_PAGE_ERROR || c == EXCEPTION_GUARD_PAGE) {
+        char *a = e->ExceptionRecord->NumberParameters >= 2 ? (char *)e->ExceptionRecord->ExceptionInformation[1] : 0;
+        long long lim = tb_stack_lim ? tb_stack_lim : 8LL << 20;
+        if (tb_main_sp && a <= tb_main_sp + 65536 && a >= tb_main_sp - lim - (1 << 20)) tb_win_fatal(TB_WIN_STACK_MSG);
+        tb_win_fatal("программа упала: ошибка памяти. Это ошибка Tachbit, а не твоя: пришли, пожалуйста, эту программу\n");
+    }
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+// начало программы на Windows: русский текст в консоли, цвета, слова запуска в UTF-8,
+// понятное сообщение при переполнении стека
+static void tb_win_init(int *argc, char ***argv) {
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
+    // \n остаётся \n (как на Linux и Mac): одинаковый вывод в файл и в трубу
+    _setmode(_fileno(stdout), _O_BINARY);
+    _setmode(_fileno(stderr), _O_BINARY);
+    DWORD mode;
+    HANDLE out = GetStdHandle(STD_OUTPUT_HANDLE), err = GetStdHandle(STD_ERROR_HANDLE);
+    if (GetConsoleMode(out, &mode)) SetConsoleMode(out, mode | 0x0004);   // ENABLE_VIRTUAL_TERMINAL_PROCESSING
+    if (GetConsoleMode(err, &mode) && SetConsoleMode(err, mode | 0x0004)) tb_win_vt = 1;
+    int n = 0;
+    wchar_t **wa = CommandLineToArgvW(GetCommandLineW(), &n);
+    if (wa && n > 0) {
+        char **a = malloc(sizeof(char *) * (size_t)(n + 1));
+        if (a) {
+            for (int i = 0; i < n; i++) a[i] = tb_narrow(wa[i]);
+            a[n] = 0;
+            *argc = n; *argv = a;
+        }
+        LocalFree(wa);
+    }
+    AddVectoredExceptionHandler(1, tb_win_overflow);
+    SetUnhandledExceptionFilter(tb_win_crashed);
+    SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
+    ULONG g = 65536;
+    SetThreadStackGuarantee(&g);
+    char here;
+    tb_main_sp = &here;
+}
+// main() зовёт tb_guard_init(): на Windows ей нужны ещё argc и argv из main
+#define tb_guard_init() tb_win_init(&argc, &argv)
+#else
 static void tb_guard_init(void) {
     static char alt[65536];
     stack_t ss;
@@ -810,6 +1056,7 @@ static void tb_guard_init(void) {
     char here;
     tb_main_sp = &here;
 }
+#endif
 #endif
 // ---------- temp: временная память ----------
 // Внутри блока temp память берётся из больших кусков подряд (быстро, без malloc),
@@ -975,6 +1222,16 @@ static void tb_gmap_remove(tb_gpage *pg, long long size) {
     for (long long o = 0; o < size; o += TB_GPG) tb_gmap_put((uintptr_t)pg->start + o, 0);
 }
 // память у системы: mmap всегда отдаёт нули и выровнено по 64 КБ (лишнее по краям отдаём назад)
+#ifdef _WIN32
+// Windows: VirtualAlloc тоже даёт нули, и адрес у него всегда кратен 64 КБ — обрезать нечего.
+// munmap здесь зовётся только для целого куска из tb_gsys — это VirtualFree(MEM_RELEASE).
+static char *tb_gsys(long long size) {
+    char *m = VirtualAlloc(0, (SIZE_T)size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    if (!m) tb_crash(0, "не хватило памяти");
+    return m;
+}
+#define munmap(p, n) (VirtualFree((p), 0, MEM_RELEASE) ? 0 : -1)
+#else
 #include <sys/mman.h>
 #ifdef __linux__
 #ifndef MREMAP_MAYMOVE
@@ -995,6 +1252,7 @@ static char *tb_gsys(long long size) {
     if (tail) munmap((char *)a + size, tail);
     return (char *)a;
 }
+#endif
 // страницы по 64 КБ берём у системы пачкой по 4 МБ; пустые страницы возвращаются в запас
 static char *tb_gfresh = 0, *tb_gfresh_end = 0;
 static void *tb_gspare = 0;
@@ -1753,9 +2011,15 @@ static const char *tb_input(void) {
 static tb_list *tb_args;
 static long long tb_run(const char *command) {
     fflush(stdout);
+#ifdef _WIN32
+    // на Windows команду выполняет cmd.exe, а system сразу отдаёт код выхода
+    fflush(stderr);
+    return tb_win_system(command);
+#else
     int code = system(command);
     if (code == -1) return -1;
     return code == 0 ? 0 : (code > 255 ? code / 256 : code);
+#endif
 }
 static void tb_exit(long long code) { fflush(stdout); exit((int)code); }
 static int tb_file_exists(const char *path) {
@@ -1840,6 +2104,18 @@ static const char *tb_http_get(const char *url) {
     size_t n = strlen(url);
     char *cmd = malloc(n * 4 + 80);
     if (!cmd) { tb_err = "не хватило памяти"; return ""; }
+#ifdef _WIN32
+    // curl.exe есть в Windows 10 и новее; адрес — в двойных кавычках для cmd.exe,
+    // (внутри кавычек & | < > ^ для cmd — простые знаки), а " внутри адреса — как %22
+    size_t k = (size_t)sprintf(cmd, "curl.exe -fsSL --max-time 30 \"");
+    for (size_t i = 0; i < n; i++) {
+        unsigned char ch = (unsigned char)url[i];
+        if (ch == '"' || ch < 32) { sprintf(cmd + k, "%%%02X", ch); k += 3; }
+        else cmd[k++] = url[i];
+    }
+    strcpy(cmd + k, "\" 2>NUL");
+    FILE *p = popen(cmd, "rb");
+#else
     size_t k = (size_t)sprintf(cmd, "curl -fsSL --max-time 30 '");
     for (size_t i = 0; i < n; i++) {
         if (url[i] == '\'') { memcpy(cmd + k, "'\\''", 4); k += 4; }
@@ -1847,6 +2123,7 @@ static const char *tb_http_get(const char *url) {
     }
     strcpy(cmd + k, "' 2>/dev/null");
     FILE *p = popen(cmd, "r");
+#endif
     free(cmd);
     if (p == 0) { tb_err = "не могу запустить curl"; return ""; }
     size_t cap = 4096, len = 0, got;
@@ -2817,6 +3094,74 @@ static void tb_gfx_events(void) {
         }
         TB_MSG1(void, tb_nsapp, "sendEvent:", id, ev);
     }
+}
+#elif defined(_WIN32)
+// окно на Windows: обычное окно Win32, кадр рисует GDI (StretchDIBits), нужна -lgdi32
+static HWND tb_hwnd = 0;
+static BITMAPINFO tb_bmi;
+static int tb_win_key(WPARAM v) {
+    if ((v >= 'A' && v <= 'Z') || (v >= '0' && v <= '9')) return (int)v;
+    switch (v) {
+    case VK_RETURN: return TB_K_ENTER; case VK_ESCAPE: return TB_K_ESC; case VK_SPACE: return TB_K_SPACE;
+    case VK_BACK: return TB_K_BACK; case VK_TAB: return TB_K_TAB; case VK_UP: return TB_K_UP;
+    case VK_DOWN: return TB_K_DOWN; case VK_LEFT: return TB_K_LEFT; case VK_RIGHT: return TB_K_RIGHT;
+    case VK_SHIFT: case VK_LSHIFT: case VK_RSHIFT: return TB_K_SHIFT;
+    }
+    return 0;
+}
+static void tb_win_blit(HDC dc) {
+    StretchDIBits(dc, 0, 0, tb_gw, tb_gh, 0, 0, tb_gw, tb_gh, tb_px, &tb_bmi, DIB_RGB_COLORS, SRCCOPY);
+}
+static LRESULT CALLBACK tb_win_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
+    switch (msg) {
+    case WM_CLOSE: tb_gclosed = 1; return 0;   // окно закроет сама программа: window_alive() вернёт false
+    case WM_KEYDOWN: case WM_SYSKEYDOWN: case WM_KEYUP: case WM_SYSKEYUP: {
+        int k = tb_win_key(wp);
+        if (k) tb_keys[k] = msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN;
+        if (wp != VK_F4) return 0;   // Alt+F4 пусть закрывает окно
+        break;
+    }
+    case WM_MOUSEMOVE: tb_mx = (short)LOWORD(lp); tb_my = (short)HIWORD(lp); return 0;
+    case WM_LBUTTONDOWN: tb_mdown = 1; tb_mx = (short)LOWORD(lp); tb_my = (short)HIWORD(lp); SetCapture(h); return 0;
+    case WM_LBUTTONUP: tb_mdown = 0; tb_mx = (short)LOWORD(lp); tb_my = (short)HIWORD(lp); ReleaseCapture(); return 0;
+    case WM_KILLFOCUS: memset(tb_keys, 0, sizeof tb_keys); return 0;
+    case WM_PAINT: { PAINTSTRUCT ps; HDC dc = BeginPaint(h, &ps); if (tb_px) tb_win_blit(dc); EndPaint(h, &ps); return 0; }
+    }
+    return DefWindowProcW(h, msg, wp, lp);
+}
+static int tb_gfx_open(const char *title) {
+    HINSTANCE inst = GetModuleHandleW(0);
+    WNDCLASSW wc;
+    memset(&wc, 0, sizeof wc);
+    wc.lpfnWndProc = tb_win_proc;
+    wc.hInstance = inst;
+    wc.hCursor = LoadCursor(0, IDC_ARROW);
+    wc.lpszClassName = L"TachbitWindow";
+    RegisterClassW(&wc);
+    DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+    RECT r = { 0, 0, tb_gw, tb_gh };
+    AdjustWindowRect(&r, style, FALSE);
+    wchar_t *wt = tb_wide(title);
+    tb_hwnd = CreateWindowExW(0, L"TachbitWindow", wt ? wt : L"Tachbit", style, CW_USEDEFAULT, CW_USEDEFAULT,
+        r.right - r.left, r.bottom - r.top, 0, 0, inst, 0);
+    free(wt);
+    if (!tb_hwnd) return 0;
+    memset(&tb_bmi, 0, sizeof tb_bmi);
+    tb_bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    tb_bmi.bmiHeader.biWidth = tb_gw;
+    tb_bmi.bmiHeader.biHeight = -tb_gh;   // строки сверху вниз, как в tb_px
+    tb_bmi.bmiHeader.biPlanes = 1;
+    tb_bmi.bmiHeader.biBitCount = 32;     // 0x00RRGGBB — ровно формат tb_px
+    tb_bmi.bmiHeader.biCompression = BI_RGB;
+    ShowWindow(tb_hwnd, SW_SHOW);
+    SetForegroundWindow(tb_hwnd);
+    return 1;
+}
+static void tb_gfx_events(void) {
+    HDC dc = GetDC(tb_hwnd);
+    if (dc) { tb_win_blit(dc); ReleaseDC(tb_hwnd, dc); }
+    MSG m;
+    while (PeekMessageW(&m, 0, 0, 0, PM_REMOVE)) { TranslateMessage(&m); DispatchMessageW(&m); }
 }
 #else
 #include <X11/Xlib.h>
