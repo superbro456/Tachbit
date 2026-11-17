@@ -2,7 +2,7 @@
   "name": "tachbit",
   "displayName": "Tachbit",
   "description": "Язык Tachbit: цвета, темы Tachbit Dark/Light, запуск по F5 и ошибки прямо в коде",
-  "version": "0.7.1",
+  "version": "0.9.0",
   "publisher": "tachbit",
   "engines": {
     "vscode": "^1.75.0"
