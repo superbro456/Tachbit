@@ -1,0 +1,38 @@
+// link в функциях, которые идут через LLVM
+obj Acc
+    total: int
+    note: text
+
+func bump(link x, step: int)
+    x += step
+
+func tag(link s)
+    s = s + "!"
+
+func skip_two(link i)
+    i += 1
+
+func main()
+    n = 1
+    bump(n, 5)
+    bump(n, step: 10)
+    a = Acc(total: 3, note: "ok")
+    bump(a.total, 7)
+    tag(a.note)
+    xs = [1, 2, 3]
+    bump(xs[1], 40)
+    w = "привет"
+    tag(w)
+    print(n, a.total, a.note, xs, w)
+    k = 0
+    seen = 0
+    count i from 0 to 9
+        seen += xs[i % 3]
+        k += 1
+    j = 0
+    steps = 0
+    repeat while j < 10
+        skip_two(j)
+        j += 1
+        steps += 1
+    print(seen, k, steps)

@@ -26,6 +26,8 @@ obj LLGen
     decls: list text
     // память функции (как tb_fa / tb_fm в C): "" — своей области нет
     fa: text
+    // параметры-ярлыки (link): их значение — по адресу из параметра
+    links: list text
 
 // имя функции: то же, что у вывода C
 func ll_fname(f: Node)
@@ -219,6 +221,11 @@ func ll_global_ok(c: Comp, name: text, t: int)
     k = kind_of(c, t)
     return k == "int" or k == "dec"
 
+// ярлык (link) на число или текст: в LLVM — указатель на саму переменную того, кто позвал
+func ll_link_ok(c: Comp, t: int)
+    k = kind_of(c, t)
+    return k == "int" or k == "dec" or k == "enum" or k == "text"
+
 func ll_is_global(c: Comp, name: text)
     each g in c.globals
         if g.name == name
@@ -322,7 +329,9 @@ func ll_expr_ok(c: Comp, n: Node, names: list text)
     if k == "string"
         return ll_str_ok(n.value)
     if k == "name"
-        return not n.is_link and (ll_val(c, n.ty) or ll_box(c, n.ty)) and ll_global_ok(c, n.name, n.ty)
+        if n.is_link
+            return ll_link_ok(c, n.ty)
+        return (ll_val(c, n.ty) or ll_box(c, n.ty)) and ll_global_ok(c, n.name, n.ty)
     if k == "list" or k == "dict"
         return ll_box_ok(c, n, names)
     if k == "call" and n.has_ref and n.ref.kind == "obj"
@@ -420,16 +429,45 @@ func ll_expr_ok(c: Comp, n: Node, names: list text)
         // звать можно любую функцию Tachbit с таким же простым видом: свою из LLVM или из C
         if not n.has_ref or n.ref.kind != "func" or not ll_head_ok(c, n.ref)
             return false
-        each a in n.kids
+        params = n.ref.kids[0]
+        count i from 0 to len(n.kids) - 1
+            a = n.kids[i]
             if a.kind == "missing" or len(a.kids) == 0
                 return false
-            if ll_box(c, a.kids[0].ty)
+            if i < len(params.kids) and params.kids[i].is_link
+                // f(x) с link: отдаём адрес x — имя, качество obj или xs[i]
+                v = a.kids[0]
+                if v.ty != params.kids[i].ty
+                    return false
+                if v.kind == "name"
+                    if not (ll_expr_ok(c, v, names) and ll_global_ok(c, v.name, v.ty))
+                        return false
+                else if v.kind == "field"
+                    if not ll_field_ok(c, v)
+                        return false
+                else if v.kind == "index"
+                    if not (ll_list_name_ok(c, v.kids[0]) and ll_expr_ok(c, v, names))
+                        return false
+                else
+                    return false
+            else if ll_box(c, a.kids[0].ty)
                 if not ll_box_ok(c, a.kids[0], names)
                     return false
             else if not ll_expr_ok(c, a.kids[0], names)
                 return false
         return true
     return false
+
+// тип параметра при вызове: у link — адрес
+func ll_pty(c: Comp, p: Node)
+    if p.is_link
+        return "ptr"
+    return ll_ty(c, p.ty)
+
+func ll_pext(c: Comp, p: Node)
+    if p.is_link
+        return ""
+    return ll_ext(c, p.ty)
 
 // все части цепочки a + b + (c + d) у текста: по порядку слева направо
 func ll_concat_parts(c: Comp, n: Node) gives parts: list Node
@@ -457,7 +495,9 @@ func ll_block_ok(c: Comp, b: Node, names: list text)
 func ll_stmt_ok(c: Comp, n: Node, names: list text)
     k = n.kind
     if k == "assign"
-        if n.is_link or not ll_global_ok(c, n.name, n.ty)
+        if n.is_link and not ll_link_ok(c, n.ty)
+            return false
+        if not ll_global_ok(c, n.name, n.ty)
             return false
         if ll_box(c, n.ty)
             // xs = list int (пустой), xs = [1, 2], b = Ball(...), ys = xs
@@ -503,7 +543,7 @@ func ll_stmt_ok(c: Comp, n: Node, names: list text)
             if t.kind == "field"
                 if not ll_field_ok(c, t)
                     return false
-            else if t.kind != "name" or t.is_link or ll_is_global(c, t.name)
+            else if t.kind != "name" or (t.is_link and not ll_link_ok(c, t.ty)) or ll_is_global(c, t.name)
                 return false
             if op == "+=" and not (ll_val(c, n.kids[1].ty) and kind_of(c, n.kids[1].ty) != "enum")
                 return false
@@ -514,7 +554,7 @@ func ll_stmt_ok(c: Comp, n: Node, names: list text)
         else if t.kind == "field"
             if not ll_field_ok(c, t)
                 return false
-        else if t.kind != "name" or t.is_link or not ll_global_ok(c, t.name, t.ty)
+        else if t.kind != "name" or (t.is_link and not ll_link_ok(c, t.ty)) or not ll_global_ok(c, t.name, t.ty)
             return false
         if not (op == "=" or op == "+=" or op == "-=" or op == "*=" or op == "/=")
             return false
@@ -572,7 +612,10 @@ func ll_head_ok(c: Comp, f: Node)
     if not (kind_of(c, f.ty) == "none" or ll_val(c, f.ty) or ll_box(c, f.ty))
         return false
     each p in f.kids[0].kids
-        if p.is_link or not (ll_val(c, p.ty) or ll_box(c, p.ty))
+        if p.is_link
+            if not ll_link_ok(c, p.ty)
+                return false
+        else if not (ll_val(c, p.ty) or ll_box(c, p.ty))
             return false
     return true
 
@@ -653,6 +696,9 @@ func ll_new(g: LLGen, prefix: text)
 
 // место переменной в памяти функции (LLVM сам превратит его в регистр)
 func ll_slot(g: LLGen, c: Comp, name: text, t: int)
+    if ll_has(g.links, name)
+        // link-параметр: его «место» — адрес переменной того, кто позвал
+        return "%\"p." + name + "\""
     if ll_is_global(c, name)
         gs = "@\"v_" + name + "\""
         ll_need(g, gs + " = external hidden global " + ll_ty(c, t) + "\n")
@@ -690,12 +736,21 @@ func ll_call(g: LLGen, c: Comp, n: Node)
     count i from 0 to len(n.kids) - 1
         p = params.kids[i]
         arg = n.kids[i].kids[0]
-        v = ll_expr(g, c, arg)
-        if kind_of(c, p.ty) == "dec"
-            v = ll_to_dec(g, c, v, arg.ty)
+        v = ""
+        if p.is_link
+            if arg.kind == "name"
+                v = ll_slot(g, c, arg.name, arg.ty)
+            else if arg.kind == "field"
+                v = ll_field_ptr(g, c, arg)
+            else
+                v = ll_elem_ptr(g, c, arg)
+        else
+            v = ll_expr(g, c, arg)
+            if kind_of(c, p.ty) == "dec"
+                v = ll_to_dec(g, c, v, arg.ty)
         if i > 0
             args = args + ", "
-        args = args + ll_ty(c, p.ty) + " " + ll_ext(c, p.ty) + v
+        args = args + ll_pty(c, p) + " " + ll_pext(c, p) + v
     callee = ll_ext(c, f.ty) + ll_ty(c, f.ty) + " @\"" + ll_fname(f) + "\"(" + args + ")"
     if kind_of(c, f.ty) == "none"
         ll_put(g, "call " + callee)
@@ -1260,6 +1315,11 @@ func ll_bld_scan(c: Comp, n: Node, cand: list text, bad: list text)
     k = n.kind
     if k == "each" or k == "count"
         bad.add(n.name)
+    if k == "call" and n.has_ref and n.ref.kind == "func"
+        params = n.ref.kids[0]
+        count i from 0 to len(n.kids) - 1
+            if i < len(params.kids) and params.kids[i].is_link
+                ll_bld_bad_all(n.kids[i], bad)
     if k == "assign"
         if n.is_link
             bad.add(n.name)
@@ -1276,6 +1336,9 @@ func ll_bld_scan(c: Comp, n: Node, cand: list text, bad: list text)
 func ll_find_blds(g: LLGen, c: Comp, f: Node)
     cand = list text
     bad = list text
+    each p in f.kids[0].kids
+        if p.is_link
+            bad.add(p.name)
     ll_bld_scan(c, f.kids[1], cand, bad)
     each name in cand
         if not ll_has(bad, name) and not ll_has(g.blds, name)
@@ -1604,6 +1667,12 @@ func ll_fast_collect(c: Comp, n: Node, var: text, keys: list text, nodes: list N
 func ll_assigns(n: Node, name: text)
     if (n.kind == "assign" and n.name == name) or (n.kind == "set" and n.kids[0].kind == "name" and n.kids[0].name == name)
         return true
+    if n.kind == "call" and n.has_ref and n.ref.kind == "func"
+        // f(i) с link: функция может поменять i
+        params = n.ref.kids[0]
+        count i from 0 to len(n.kids) - 1
+            if i < len(params.kids) and params.kids[i].is_link and len(n.kids[i].kids) > 0 and n.kids[i].kids[0].kind == "name" and n.kids[i].kids[0].name == name
+                return true
     each kid in n.kids
         if ll_assigns(kid, name)
             return true
@@ -2019,11 +2088,14 @@ func ll_func(c: Comp, f: Node, all: list text, decls: list text)
         p = params.kids[i]
         if i > 0
             head = head + ", "
-        head = head + ll_ty(c, p.ty) + " " + ll_ext(c, p.ty) + "%\"p." + p.name + "\""
+        head = head + ll_pty(c, p) + " " + ll_pext(c, p) + "%\"p." + p.name + "\""
     head = head + ") #0 {\n"
     each p in params.kids
-        slot = ll_slot(g, c, p.name, p.ty)
-        g.out.add("  store " + ll_ty(c, p.ty) + " %\"p." + p.name + "\", ptr " + slot + "\n")
+        if p.is_link
+            g.links.add(p.name)
+        else
+            slot = ll_slot(g, c, p.name, p.ty)
+            g.out.add("  store " + ll_ty(c, p.ty) + " %\"p." + p.name + "\", ptr " + slot + "\n")
     ll_find_blds(g, c, f)
     if func_arena_ok(c, f)
         // всё, что функция создаёт, — во временной области; отдаётся при каждом return
@@ -2081,7 +2153,7 @@ modpub func emit_ll(c: Comp, program: Node, target: text, cpu: text)
             each p in top.kids[0].kids
                 if ps != ""
                     ps = ps + ", "
-                ps = ps + ll_ty(c, p.ty) + " " + ll_ext(c, p.ty)
+                ps = ps + ll_pty(c, p) + " " + ll_pext(c, p)
             all.add("declare " + ll_ext(c, top.ty) + ll_ty(c, top.ty) + " @\"" + ll_fname(top) + "\"(" + ps + ")\n")
     // библиотека Tachbit (runtime.h): с TB_LL её функции видны отсюда
     all.add("declare void @tb_x_ps(ptr)\ndeclare ptr @tb_x_itos(i64)\ndeclare ptr @tb_x_dtos(double)\ndeclare ptr @tb_x_btos(i32)\n")
