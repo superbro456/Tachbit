@@ -868,7 +868,7 @@ func emit_par(c: Comp, n: Node, depth: int)
         else
             put(c, "    " + c_type(c, v.type) + " v_" + v.name + ";\n")
     put(c, "} tb_job" + id + ";\n")
-    put(c, "static void *tb_work" + id + "(void *tb_arg) {\n")
+    put(c, "TB_API void *tb_work" + id + "(void *tb_arg) {\n")
     put(c, "    tb_job" + id + " *tb_j = tb_arg;\n")
     has_shared = false
     // shared text: у каждого ядра свой текст с запасом, += дописывает в его конец
@@ -1187,7 +1187,7 @@ func emit_background(c: Comp, n: Node)
     count i from 0 to len(params.kids) - 1
         put(c, "    " + c_type(c, params.kids[i].ty) + " a" + i + ";\n")
     put(c, "} tb_bgjob" + id + ";\n")
-    put(c, "static void *tb_bgrun" + id + "(void *tb_arg) {\n    tb_bgjob" + id + " *tb_j = tb_arg;\n    ")
+    put(c, "TB_API void *tb_bgrun" + id + "(void *tb_arg) {\n    tb_bgjob" + id + " *tb_j = tb_arg;\n    ")
     if rt != 0
         put(c, "tb_j->tb_r = ")
     put(c, fname(f) + "(")
@@ -1196,7 +1196,7 @@ func emit_background(c: Comp, n: Node)
             put(c, ", ")
         put(c, "tb_j->a" + i)
     put(c, ");\n    return 0;\n}\n")
-    put(c, "static tb_task *tb_bg" + id + "(")
+    put(c, "TB_API tb_task *tb_bg" + id + "(")
     count i from 0 to len(params.kids) - 1
         if i > 0
             put(c, ", ")
@@ -2165,7 +2165,7 @@ func emit_signature(c: Comp, f: Node)
         // тело этой функции в файле .ll (--llvm): здесь только имя, без static
         put(c, c_type(c, f.ty) + " " + fname(f) + "(")
     else
-        put(c, "static " + c_type(c, f.ty) + " " + fname(f) + "(")
+        put(c, "TB_API " + c_type(c, f.ty) + " " + fname(f) + "(")
     if len(params.kids) == 0
         put(c, "void")
     count i from 0 to len(params.kids) - 1
@@ -2550,19 +2550,19 @@ func emit_show(c: Comp, t: Type)
     if k == "none" or k == "multi" or k == "unknown"
         return
     if k == "task"
-        put(c, "static void tb_show_" + t.id + "(tb_task *x) { (void)x; tb_ps(\"<background>\"); }\n")
+        put(c, "TB_API void tb_show_" + t.id + "(tb_task *x) { (void)x; tb_ps(\"<background>\"); }\n")
         return
     if k == "channel"
-        put(c, "static void tb_show_" + t.id + "(tb_chan *x) { (void)x; tb_ps(\"<channel>\"); }\n")
+        put(c, "TB_API void tb_show_" + t.id + "(tb_chan *x) { (void)x; tb_ps(\"<channel>\"); }\n")
         return
     if k == "enum"
         // печать варианта enum — его имя
-        put(c, "static void tb_show_" + t.id + "(long long x) {\n    static const char *names[] = {")
+        put(c, "TB_API void tb_show_" + t.id + "(long long x) {\n    static const char *names[] = {")
         each v in t.obj_node.kids
             put(c, "\"" + v.name + "\", ")
         put(c, "0};\n    tb_ps(names[x]);\n}\n")
         return
-    put(c, "static void tb_show_" + t.id + "(" + c_type(c, t.id) + " x) {\n")
+    put(c, "TB_API void tb_show_" + t.id + "(" + c_type(c, t.id) + " x) {\n")
     if k == "int"
         put(c, "    printf(\"%lld\", x);\n")
     else if k == "dec"
@@ -2662,7 +2662,7 @@ func emit_cols_helpers(c: Comp, o: Node)
     nm = o.name
     cols = "tb_cols_" + nm
     row = "tb_row_" + nm
-    put(c, "static " + cols + " *tb_cols_new_" + nm + "(void) {\n")
+    put(c, "TB_API " + cols + " *tb_cols_new_" + nm + "(void) {\n")
     put(c, "    " + cols + " *l = tb_mem(sizeof(" + cols + "));\n    l->len = 0; l->cap = 4;\n")
     each f in o.kids
         mem = "tb_mem"
@@ -2670,21 +2670,21 @@ func emit_cols_helpers(c: Comp, o: Node)
             mem = "tb_mem_np"
         put(c, "    l->q_" + f.name + " = " + mem + "(sizeof(" + c_type(c, f.ty) + ") * 4);\n")
     put(c, "    return l;\n}\n")
-    put(c, "static void tb_colgrow_" + nm + "(" + cols + " *l) {\n")
+    put(c, "TB_API void tb_colgrow_" + nm + "(" + cols + " *l) {\n")
     put(c, "    if (l->len < l->cap) return;\n    l->cap *= 2;\n")
     each f in o.kids
         ft = c_type(c, f.ty)
         put(c, "    l->q_" + f.name + " = tb_resize(l->q_" + f.name + ", sizeof(" + ft + ") * (l->cap / 2), sizeof(" + ft + ") * l->cap);\n")
     put(c, "}\n")
-    put(c, "static " + row + " tb_colat_" + nm + "(" + cols + " *l, long long i, int line) {\n")
+    put(c, "TB_API " + row + " tb_colat_" + nm + "(" + cols + " *l, long long i, int line) {\n")
     put(c, "    if (TB_RARE((unsigned long long)i >= (unsigned long long)((" + cols + " *)tb_nn(l, line))->len)) tb_crash(line, \"номер за пределами списка\");\n")
     put(c, "    return (" + row + "){l, i};\n}\n")
     each f in o.kids
         ft = c_type(c, f.ty)
-        put(c, "static inline " + ft + " *tb_colf_" + nm + "_" + f.name + "(" + row + " r, int line) {\n")
+        put(c, "TB_INL " + ft + " *tb_colf_" + nm + "_" + f.name + "(" + row + " r, int line) {\n")
         put(c, "    if (TB_RARE(r.c == 0)) tb_crash(line, \"объект пустой: его ещё не создали\");\n")
         put(c, "    return &r.c->q_" + f.name + "[r.i];\n}\n")
-    put(c, "static void tb_coladd_" + nm + "(" + cols + " *l, " + row + " r, int line) {\n")
+    put(c, "TB_API void tb_coladd_" + nm + "(" + cols + " *l, " + row + " r, int line) {\n")
     put(c, "    if (TB_RARE(r.c == 0)) tb_crash(line, \"объект пустой: его ещё не создали\");\n")
     count i from 0 to len(o.kids) - 1
         put(c, "    " + c_type(c, o.kids[i].ty) + " a" + i + " = r.c->q_" + o.kids[i].name + "[r.i];\n")
@@ -2692,25 +2692,25 @@ func emit_cols_helpers(c: Comp, o: Node)
     count i from 0 to len(o.kids) - 1
         put(c, "    l->q_" + o.kids[i].name + "[l->len] = a" + i + ";\n")
     put(c, "    l->len += 1;\n}\n")
-    put(c, "static void tb_colpush_" + nm + "(" + cols + " *l")
+    put(c, "TB_API void tb_colpush_" + nm + "(" + cols + " *l")
     count i from 0 to len(o.kids) - 1
         put(c, ", " + c_type(c, o.kids[i].ty) + " a" + i)
     put(c, ", int line) {\n    tb_colgrow_" + nm + "(tb_nn(l, line));\n")
     count i from 0 to len(o.kids) - 1
         put(c, "    l->q_" + o.kids[i].name + "[l->len] = a" + i + ";\n")
     put(c, "    l->len += 1;\n}\n")
-    put(c, "static void tb_colset_" + nm + "(" + cols + " *l, long long i, " + row + " r, int line) {\n")
+    put(c, "TB_API void tb_colset_" + nm + "(" + cols + " *l, long long i, " + row + " r, int line) {\n")
     put(c, "    tb_colat_" + nm + "(l, i, line);\n")
     put(c, "    if (TB_RARE(r.c == 0)) tb_crash(line, \"объект пустой: его ещё не создали\");\n")
     each f in o.kids
         put(c, "    l->q_" + f.name + "[i] = r.c->q_" + f.name + "[r.i];\n")
     put(c, "}\n")
-    put(c, "static " + cols + " *tb_colsfrom_" + nm + "(long long n, " + row + " *rows) {\n")
+    put(c, "TB_API " + cols + " *tb_colsfrom_" + nm + "(long long n, " + row + " *rows) {\n")
     put(c, "    " + cols + " *l = tb_cols_new_" + nm + "();\n")
     put(c, "    for (long long i = 0; i < n; i++) tb_coladd_" + nm + "(l, rows[i], 0);\n")
     put(c, "    return l;\n}\n")
     // одна новая строка: список колонок из одного элемента
-    put(c, "static " + row + " tb_new_" + nm + "(")
+    put(c, "TB_API " + row + " tb_new_" + nm + "(")
     if len(o.kids) == 0
         put(c, "void")
     count i from 0 to len(o.kids) - 1
@@ -2726,7 +2726,7 @@ func emit_constructor(c: Comp, o: Node)
     if o.by_cols
         emit_cols_helpers(c, o)
         return
-    put(c, "static tb_o_" + o.name + " *tb_new_" + o.name + "(")
+    put(c, "TB_API tb_o_" + o.name + " *tb_new_" + o.name + "(")
     if len(o.kids) == 0
         put(c, "void")
     count i from 0 to len(o.kids) - 1
@@ -2765,13 +2765,15 @@ modpub func emit_c(c: Comp, program: Node)
         put(c, "#define TB_BARE 1\n")
     if c.gfx
         put(c, "#define TB_GFX 1\n")
+    if c.ll
+        put(c, "#define TB_LL 1\n")
     put(c, runtime_text())
     // shared снаружи функций; в ядре volatile: их меняют прерывания и задачи
     each g in c.globals
         if c.bare
-            put(c, "static volatile " + c_type(c, g.ty) + " v_" + g.name + " = ")
+            put(c, "TB_API volatile " + c_type(c, g.ty) + " v_" + g.name + " = ")
         else
-            put(c, "static " + c_type(c, g.ty) + " v_" + g.name + " = ")
+            put(c, "TB_API " + c_type(c, g.ty) + " v_" + g.name + " = ")
         emit_as(c, g.kids[0], g.ty)
         put(c, ";\n")
 
@@ -2799,9 +2801,9 @@ modpub func emit_c(c: Comp, program: Node)
     each t in c.types
         k = t.kind
         if k != "none" and k != "multi" and k != "unknown"
-            put(c, "static void tb_show_" + t.id + "(" + c_type(c, t.id) + " x);\n")
+            put(c, "TB_API void tb_show_" + t.id + "(" + c_type(c, t.id) + " x);\n")
     count i from 1 to len(c.temp_types) - 1
-        put(c, "static _Thread_local " + c_type(c, c.temp_types[i]) + " tb_t" + i + ";   // для  f() or запасное\n")
+        put(c, "TB_API _Thread_local " + c_type(c, c.temp_types[i]) + " tb_t" + i + ";   // для  f() or запасное\n")
     each top in program.kids
         if top.kind == "obj"
             emit_constructor(c, top)

@@ -1,3 +1,11 @@
+// --llvm: функции библиотеки видны из файла .ll (без static), LTO всё равно встраивает их
+#ifdef TB_LL
+#define TB_API __attribute__((visibility("hidden")))
+#define TB_INL __attribute__((visibility("hidden")))
+#else
+#define TB_API static
+#define TB_INL static inline
+#endif
 // Библиотека, которую Tachbit кладёт в начало каждой программы на C.
 // Это обычный C. Компилятор на Tachbit встраивает этот текст через runtime_text.tb,
 // который делает tools/embed_runtime.py. Поменял этот файл — запусти:
@@ -23,21 +31,21 @@ typedef int pthread_mutex_t;
 #define pthread_mutex_unlock(m) ((void)(m))
 #define _SC_NPROCESSORS_ONLN 0
 
-static inline void tb_outb(unsigned short port, unsigned char v) { __asm__ volatile("outb %0, %1" : : "a"(v), "Nd"(port)); }
-static inline unsigned char tb_inb(unsigned short port) { unsigned char v; __asm__ volatile("inb %1, %0" : "=a"(v) : "Nd"(port)); return v; }
-static inline void tb_outw(unsigned short port, unsigned short v) { __asm__ volatile("outw %0, %1" : : "a"(v), "Nd"(port)); }
-static inline unsigned short tb_inw(unsigned short port) { unsigned short v; __asm__ volatile("inw %1, %0" : "=a"(v) : "Nd"(port)); return v; }
-static inline void tb_outl(unsigned short port, unsigned int v) { __asm__ volatile("outl %0, %1" : : "a"(v), "Nd"(port)); }
-static inline unsigned int tb_inl(unsigned short port) { unsigned int v; __asm__ volatile("inl %1, %0" : "=a"(v) : "Nd"(port)); return v; }
+TB_INL void tb_outb(unsigned short port, unsigned char v) { __asm__ volatile("outb %0, %1" : : "a"(v), "Nd"(port)); }
+TB_INL unsigned char tb_inb(unsigned short port) { unsigned char v; __asm__ volatile("inb %1, %0" : "=a"(v) : "Nd"(port)); return v; }
+TB_INL void tb_outw(unsigned short port, unsigned short v) { __asm__ volatile("outw %0, %1" : : "a"(v), "Nd"(port)); }
+TB_INL unsigned short tb_inw(unsigned short port) { unsigned short v; __asm__ volatile("inw %1, %0" : "=a"(v) : "Nd"(port)); return v; }
+TB_INL void tb_outl(unsigned short port, unsigned int v) { __asm__ volatile("outl %0, %1" : : "a"(v), "Nd"(port)); }
+TB_INL unsigned int tb_inl(unsigned short port) { unsigned int v; __asm__ volatile("inl %1, %0" : "=a"(v) : "Nd"(port)); return v; }
 // выключить прерывания на время короткого дела и вернуть, как было
-static inline uint32_t tb_irq_save(void) { uint32_t f; __asm__ volatile("pushfl\npopl %0\ncli" : "=r"(f) : : "memory"); return f; }
-static inline void tb_irq_restore(uint32_t f) { __asm__ volatile("pushl %0\npopfl" : : "r"(f) : "memory", "cc"); }
+TB_INL uint32_t tb_irq_save(void) { uint32_t f; __asm__ volatile("pushfl\npopl %0\ncli" : "=r"(f) : : "memory"); return f; }
+TB_INL void tb_irq_restore(uint32_t f) { __asm__ volatile("pushl %0\npopfl" : : "r"(f) : "memory", "cc"); }
 
 // экран 80×25: байт буквы и байт цвета; русские буквы рисуем своим шрифтом (см. tb_vga_font)
-static volatile unsigned short *const tb_vga = (volatile unsigned short *)0xB8000;
-static int tb_vrow = 0, tb_vcol = 0;
-static unsigned char tb_vcolor = 0x0A;   // светло-зелёный на чёрном
-static void tb_vga_put(unsigned char ch) {
+TB_API volatile unsigned short *const tb_vga = (volatile unsigned short *)0xB8000;
+TB_API int tb_vrow = 0, tb_vcol = 0;
+TB_API unsigned char tb_vcolor = 0x0A;   // светло-зелёный на чёрном
+TB_API void tb_vga_put(unsigned char ch) {
     if (ch == '\n') { tb_vcol = 0; tb_vrow++; }
     else if (ch == '\b') { if (tb_vcol > 0) tb_vcol--; tb_vga[tb_vrow * 80 + tb_vcol] = (unsigned short)(tb_vcolor << 8 | ' '); }
     else {
@@ -51,7 +59,7 @@ static void tb_vga_put(unsigned char ch) {
     }
 }
 // русские буквы: свои картинки 8×16 кладём в шрифт VGA на места 128..193
-static const unsigned char tb_cyr_font[66][16] = {
+TB_API const unsigned char tb_cyr_font[66][16] = {
     {0x00, 0x00, 0x1c, 0x1c, 0x3c, 0x34, 0x36, 0x66, 0x7e, 0x63, 0x63, 0xc3, 0x00, 0x00, 0x00, 0x00},
     {0x00, 0x00, 0x7f, 0x60, 0x60, 0x60, 0x7e, 0x67, 0x63, 0x63, 0x67, 0x7e, 0x00, 0x00, 0x00, 0x00},
     {0x00, 0x00, 0x7e, 0x66, 0x67, 0x66, 0x7e, 0x66, 0x63, 0x63, 0x67, 0x7e, 0x00, 0x00, 0x00, 0x00},
@@ -119,7 +127,7 @@ static const unsigned char tb_cyr_font[66][16] = {
     {0x6c, 0x00, 0x7f, 0x60, 0x60, 0x60, 0x7e, 0x60, 0x60, 0x60, 0x60, 0x7f, 0x00, 0x00, 0x00, 0x00},
     {0x00, 0x00, 0x6c, 0x00, 0x3c, 0x66, 0x63, 0x7f, 0x60, 0x60, 0x71, 0x3e, 0x00, 0x00, 0x00, 0x00},
 };
-static void tb_vga_font(void) {
+TB_API void tb_vga_font(void) {
     tb_outw(0x3C4, 0x0402); tb_outw(0x3C4, 0x0704);   // пишем в слой шрифта
     tb_outw(0x3CE, 0x0204); tb_outw(0x3CE, 0x0005); tb_outw(0x3CE, 0x0406);
     volatile unsigned char *font = (volatile unsigned char *)0xA0000;
@@ -128,8 +136,8 @@ static void tb_vga_font(void) {
     tb_outw(0x3C4, 0x0302); tb_outw(0x3C4, 0x0304);   // обратно в текстовый режим
     tb_outw(0x3CE, 0x0004); tb_outw(0x3CE, 0x1005); tb_outw(0x3CE, 0x0E06);
 }
-static unsigned char tb_utf_lead = 0;
-static void tb_putc(char c) {
+TB_API unsigned char tb_utf_lead = 0;
+TB_API void tb_putc(char c) {
     unsigned char ch = (unsigned char)c;
     while ((tb_inb(0x3F8 + 5) & 0x20) == 0) {}
     tb_outb(0x3F8, ch);   // в порт — как есть (UTF-8)
@@ -144,7 +152,7 @@ static void tb_putc(char c) {
     else if (cp == 0x451) tb_vga_put(128 + 65);
     else tb_vga_put('?');
 }
-static int fputs(const char *s, FILE *f) {
+TB_API int fputs(const char *s, FILE *f) {
     uint32_t fl = tb_irq_save();
     unsigned char was = tb_vcolor;
     if (f == stderr) tb_vcolor = 0x0C;   // ошибки — красным
@@ -153,9 +161,9 @@ static int fputs(const char *s, FILE *f) {
     tb_irq_restore(fl);
     return 0;
 }
-static int fflush(FILE *f) { (void)f; return 0; }
-static int isatty(int fd) { (void)fd; return 0; }
-static char *getenv(const char *n) { (void)n; return 0; }
+TB_API int fflush(FILE *f) { (void)f; return 0; }
+TB_API int isatty(int fd) { (void)fd; return 0; }
+TB_API char *getenv(const char *n) { (void)n; return 0; }
 
 // выход: QEMU с -device isa-debug-exit закрывается, без него процессор просто спит
 __attribute__((noreturn)) static void exit(int code) {
@@ -166,11 +174,11 @@ __attribute__((noreturn)) static void exit(int code) {
 // память: запас 64 МБ. Куски по размерам 16, 32, 64, ... байт; отданный кусок
 // кладётся в корзину своего размера и выдаётся снова. Последний кусок отдаётся сразу.
 #define TB_HEAP (64 << 20)
-static unsigned char tb_heap[TB_HEAP] __attribute__((aligned(16), section(".tbheap")));
-static size_t tb_heap_top = 0;
-static void *tb_bins[32];
-static int tb_cls(size_t n) { int k = 4; while (k < 31 && ((size_t)1 << k) < n) k++; return k; }
-static void *tb_malloc0(size_t n) {
+TB_API unsigned char tb_heap[TB_HEAP] __attribute__((aligned(16), section(".tbheap")));
+TB_API size_t tb_heap_top = 0;
+TB_API void *tb_bins[32];
+TB_API int tb_cls(size_t n) { int k = 4; while (k < 31 && ((size_t)1 << k) < n) k++; return k; }
+TB_API void *tb_malloc0(size_t n) {
     int k = tb_cls(n);
     if (tb_bins[k]) { void *p = tb_bins[k]; tb_bins[k] = *(void **)p; return p; }
     size_t need = ((size_t)1 << k) + 16;
@@ -180,7 +188,7 @@ static void *tb_malloc0(size_t n) {
     tb_heap_top += need;
     return h + 16;
 }
-static void tb_free0(void *p) {
+TB_API void tb_free0(void *p) {
     if (p == 0) return;
     unsigned char *h = (unsigned char *)p - 16;
     int k = (int)*(size_t *)h;
@@ -189,8 +197,8 @@ static void tb_free0(void *p) {
     tb_bins[k] = p;
 }
 // задачи и прерывания тоже берут память: на время выдачи прерывания выключены
-static void *malloc(size_t n) { uint32_t f = tb_irq_save(); void *p = tb_malloc0(n); tb_irq_restore(f); return p; }
-static void free(void *p) { uint32_t f = tb_irq_save(); tb_free0(p); tb_irq_restore(f); }
+TB_API void *malloc(size_t n) { uint32_t f = tb_irq_save(); void *p = tb_malloc0(n); tb_irq_restore(f); return p; }
+TB_API void free(void *p) { uint32_t f = tb_irq_save(); tb_free0(p); tb_irq_restore(f); }
 void *memcpy(void *d, const void *s, size_t n) {
     void *r = d;
     __asm__ volatile("rep movsb" : "+D"(d), "+S"(s), "+c"(n) : : "memory");
@@ -212,7 +220,7 @@ int memcmp(const void *x, const void *y, size_t n) {
     for (; n; n--, a++, b++) if (*a != *b) return *a - *b;
     return 0;
 }
-static void *tb_realloc0(void *p, size_t n) {
+TB_API void *tb_realloc0(void *p, size_t n) {
     if (p == 0) return malloc(n);
     unsigned char *h = (unsigned char *)p - 16;
     int k = (int)*(size_t *)h;
@@ -232,7 +240,7 @@ static void *tb_realloc0(void *p, size_t n) {
     if (q) { memcpy(q, p, cap); free(p); }
     return q;
 }
-static void *realloc(void *p, size_t n) { uint32_t f = tb_irq_save(); void *q = tb_realloc0(p, n); tb_irq_restore(f); return q; }
+TB_API void *realloc(void *p, size_t n) { uint32_t f = tb_irq_save(); void *q = tb_realloc0(p, n); tb_irq_restore(f); return q; }
 // одно ядро: «атомарное» сложение 64-битного числа — с выключенными на миг прерываниями
 unsigned long long __atomic_fetch_add_8(volatile void *p, unsigned long long v, int order) {
     (void)order;
@@ -244,21 +252,21 @@ unsigned long long __atomic_fetch_add_8(volatile void *p, unsigned long long v, 
 }
 size_t strlen(const char *s) { const char *p = s; while (*p) p++; return (size_t)(p - s); }
 int strcmp(const char *a, const char *b) { while (*a && *a == *b) { a++; b++; } return (unsigned char)*a - (unsigned char)*b; }
-static int strncmp(const char *a, const char *b, size_t n) {
+TB_API int strncmp(const char *a, const char *b, size_t n) {
     for (; n; n--, a++, b++) { if (*a != *b || !*a) return (unsigned char)*a - (unsigned char)*b; }
     return 0;
 }
-static char *strcpy(char *d, const char *s) { char *r = d; while ((*d++ = *s++)) {} return r; }
-static char *strstr(const char *h, const char *n) {
+TB_API char *strcpy(char *d, const char *s) { char *r = d; while ((*d++ = *s++)) {} return r; }
+TB_API char *strstr(const char *h, const char *n) {
     size_t ln = strlen(n);
     if (ln == 0) return (char *)h;
     for (; *h; h++) if (*h == *n && strncmp(h, n, ln) == 0) return (char *)h;
     return 0;
 }
-static long atol(const char *s) { long r = 0; while (*s >= '0' && *s <= '9') r = r * 10 + (*s++ - '0'); return r; }
-static double sqrt(double x) { double r; __asm__("fsqrt" : "=t"(r) : "0"(x)); return r; }
-static double fabs(double x) { return x < 0 ? -x : x; }
-static double strtod(const char *s, char **end) {
+TB_API long atol(const char *s) { long r = 0; while (*s >= '0' && *s <= '9') r = r * 10 + (*s++ - '0'); return r; }
+TB_API double sqrt(double x) { double r; __asm__("fsqrt" : "=t"(r) : "0"(x)); return r; }
+TB_API double fabs(double x) { return x < 0 ? -x : x; }
+TB_API double strtod(const char *s, char **end) {
     double r = 0, sign = 1, scale = 1;
     if (*s == '-') { sign = -1; s++; } else if (*s == '+') s++;
     while (*s >= '0' && *s <= '9') r = r * 10 + (*s++ - '0');
@@ -296,7 +304,7 @@ long long __moddi3(long long a, long long b) {
     return a < 0 ? -(long long)r : (long long)r;
 }
 // маленький printf: %lld %ld %d %s %c %g (дробь — до 6 знаков после точки)
-static int tb_vfmt(char *out, size_t cap, const char *f, va_list ap) {
+TB_API int tb_vfmt(char *out, size_t cap, const char *f, va_list ap) {
     size_t n = 0;
 #define TB_O(ch) do { if (n + 1 < cap) out[n] = (ch); n++; } while (0)
     for (; *f; f++) {
@@ -341,11 +349,11 @@ static int tb_vfmt(char *out, size_t cap, const char *f, va_list ap) {
 #undef TB_O
     return (int)n;
 }
-static int snprintf(char *out, size_t cap, const char *f, ...) { va_list ap; va_start(ap, f); int n = tb_vfmt(out, cap, f, ap); va_end(ap); return n; }
-static int printf(const char *f, ...) { char b[512]; va_list ap; va_start(ap, f); int n = tb_vfmt(b, sizeof b, f, ap); va_end(ap); fputs(b, stdout); return n; }
-static int fprintf(FILE *o, const char *f, ...) { char b[512]; va_list ap; va_start(ap, f); int n = tb_vfmt(b, sizeof b, f, ap); va_end(ap); fputs(b, o); return n; }
+TB_API int snprintf(char *out, size_t cap, const char *f, ...) { va_list ap; va_start(ap, f); int n = tb_vfmt(out, cap, f, ap); va_end(ap); return n; }
+TB_API int printf(const char *f, ...) { char b[512]; va_list ap; va_start(ap, f); int n = tb_vfmt(b, sizeof b, f, ap); va_end(ap); fputs(b, stdout); return n; }
+TB_API int fprintf(FILE *o, const char *f, ...) { char b[512]; va_list ap; va_start(ap, f); int n = tb_vfmt(b, sizeof b, f, ap); va_end(ap); fputs(b, o); return n; }
 // сортировка вставками (списки в ядре маленькие)
-static void qsort(void *base, size_t n, size_t size, int (*cmp)(const void *, const void *)) {
+TB_API void qsort(void *base, size_t n, size_t size, int (*cmp)(const void *, const void *)) {
     unsigned char *a = base, tmp[64];
     if (size > sizeof tmp) return;
     for (size_t i = 1; i < n; i++) {
@@ -356,21 +364,21 @@ static void qsort(void *base, size_t n, size_t size, int (*cmp)(const void *, co
     }
 }
 // файлов, ввода и команд нет
-static FILE *fopen(const char *p, const char *m) { (void)p; (void)m; return 0; }
-static int fclose(FILE *f) { (void)f; return 0; }
-static size_t fread(void *b, size_t s, size_t n, FILE *f) { (void)b; (void)s; (void)n; (void)f; return 0; }
-static int getchar(void) { return EOF; }
-static int system(const char *c) { (void)c; return -1; }
+TB_API FILE *fopen(const char *p, const char *m) { (void)p; (void)m; return 0; }
+TB_API int fclose(FILE *f) { (void)f; return 0; }
+TB_API size_t fread(void *b, size_t s, size_t n, FILE *f) { (void)b; (void)s; (void)n; (void)f; return 0; }
+TB_API int getchar(void) { return EOF; }
+TB_API int system(const char *c) { (void)c; return -1; }
 // ---------- ядро: прерывания, таймер, клавиатура, задачи, страницы памяти ----------
 // on all cores здесь выполняется на одном ядре по очереди (как и было),
 // а background — настоящая задача: таймер переключает задачи каждые 10 мс.
-static long sysconf(int n) { (void)n; return 1; }
-static int pthread_create(pthread_t *t, void *a, void *(*run)(void *), void *arg) { (void)t; (void)a; run(arg); return 0; }
-static int pthread_join(pthread_t t, void **r) { (void)t; (void)r; return 0; }
+TB_API long sysconf(int n) { (void)n; return 1; }
+TB_API int pthread_create(pthread_t *t, void *a, void *(*run)(void *), void *arg) { (void)t; (void)a; run(arg); return 0; }
+TB_API int pthread_join(pthread_t t, void **r) { (void)t; (void)r; return 0; }
 
 // адреса из файла сборки (link.ld): где код, где кончается нижняя память, где куча
 extern char tb_code_start[], tb_code_end[], tb_tls_start[], tb_tls_end[], tb_heap_area[], tb_kernel_end[];
-static unsigned char tb_stack[1 << 20] __attribute__((aligned(4096), used));
+TB_API unsigned char tb_stack[1 << 20] __attribute__((aligned(4096), used));
 void tb_kmain(void);
 
 // авария ядра: красным на экран и в порт, потом стоп
@@ -383,16 +391,16 @@ __attribute__((noreturn)) static void tb_panic(const char *what, uint32_t a, uin
 }
 
 // --- таблица сегментов: всё плоское, от 0 до 4 ГБ ---
-static uint64_t tb_gdt[5] = {0, 0x00CF9A000000FFFFULL, 0x00CF92000000FFFFULL, 0, 0};
+TB_API uint64_t tb_gdt[5] = {0, 0x00CF9A000000FFFFULL, 0x00CF92000000FFFFULL, 0, 0};
 // двойная ошибка (например, стек упёрся в сторожа и обработчику некуда класть) идёт
 // через отдельную «задачу процессора» со своим стеком — так ядро успевает сказать, что случилось
-static uint32_t tb_tss_main[26], tb_tss_df[26];
-static unsigned char tb_df_stack[8192] __attribute__((aligned(16)));
-static uint64_t tb_tss_desc(uint32_t base) {
+TB_API uint32_t tb_tss_main[26], tb_tss_df[26];
+TB_API unsigned char tb_df_stack[8192] __attribute__((aligned(16)));
+TB_API uint64_t tb_tss_desc(uint32_t base) {
     return 103ull | ((uint64_t)(base & 0xFFFFFFu) << 16) | (0x89ull << 40) | ((uint64_t)(base >> 24) << 56);
 }
-static uint64_t tb_idt[256];
-static struct __attribute__((packed)) { uint16_t lim; uint32_t base; } tb_gdtr, tb_idtr;
+TB_API uint64_t tb_idt[256];
+TB_API struct __attribute__((packed)) { uint16_t lim; uint32_t base; } tb_gdtr, tb_idtr;
 
 // 49 входов: 0..31 ошибки процессора, 32..47 железо (таймер, клавиатура ...), 48 — «уступить ход»
 extern char tb_isr_base[];
@@ -412,29 +420,29 @@ typedef struct {
     void *(*run)(void *); void *arg; tb_task *t;
     unsigned char tls[TB_TLS_MAX]; unsigned char fpu[108];
 } tb_kslot;
-static tb_kslot tb_slots[TB_NTASK];          // 0 — main
-static unsigned char tb_tstacks[TB_NTASK][TB_TSTACK] __attribute__((aligned(4096)));
-static int tb_cur = 0, tb_nlive = 1, tb_slice = 10, tb_in_irq = 0;
-static unsigned char tb_tls_zero[TB_TLS_MAX], tb_fpu_init[108];
-static unsigned char tb_irq_tls[TB_TLS_MAX];
-static volatile uint64_t tb_ms = 0;
-static void (*tb_irq_fn[16])(void);
-static uint16_t tb_pic_mask = 0xFFFF;
-static uint32_t tb_tls_size(void) { return (uint32_t)(tb_tls_end - tb_tls_start); }
+TB_API tb_kslot tb_slots[TB_NTASK];          // 0 — main
+TB_API unsigned char tb_tstacks[TB_NTASK][TB_TSTACK] __attribute__((aligned(4096)));
+TB_API int tb_cur = 0, tb_nlive = 1, tb_slice = 10, tb_in_irq = 0;
+TB_API unsigned char tb_tls_zero[TB_TLS_MAX], tb_fpu_init[108];
+TB_API unsigned char tb_irq_tls[TB_TLS_MAX];
+TB_API volatile uint64_t tb_ms = 0;
+TB_API void (*tb_irq_fn[16])(void);
+TB_API uint16_t tb_pic_mask = 0xFFFF;
+TB_API uint32_t tb_tls_size(void) { return (uint32_t)(tb_tls_end - tb_tls_start); }
 
-static void tb_pic_apply(void) { tb_outb(0x21, (unsigned char)tb_pic_mask); tb_outb(0xA1, (unsigned char)(tb_pic_mask >> 8)); }
-static void tb_irq_set(int v, void (*fn)(void)) {
+TB_API void tb_pic_apply(void) { tb_outb(0x21, (unsigned char)tb_pic_mask); tb_outb(0xA1, (unsigned char)(tb_pic_mask >> 8)); }
+TB_API void tb_irq_set(int v, void (*fn)(void)) {
     tb_irq_fn[v - 32] = fn;
     tb_pic_mask &= (uint16_t)~(1u << (v - 32));
     if (v >= 40) tb_pic_mask &= (uint16_t)~(1u << 2);
     tb_pic_apply();
 }
-static void tb_irq_on(void) { __asm__ volatile("sti" ::: "memory"); }
-static void tb_irq_off(void) { __asm__ volatile("cli" ::: "memory"); }
-static void tb_yield(void) { if (!tb_in_irq) __asm__ volatile("int $48" ::: "memory"); }
+TB_API void tb_irq_on(void) { __asm__ volatile("sti" ::: "memory"); }
+TB_API void tb_irq_off(void) { __asm__ volatile("cli" ::: "memory"); }
+TB_API void tb_yield(void) { if (!tb_in_irq) __asm__ volatile("int $48" ::: "memory"); }
 
 // переключение задач: сохранить «переменные потока» и дроби текущей, взять следующей
-static uint32_t tb_schedule(uint32_t esp) {
+TB_API uint32_t tb_schedule(uint32_t esp) {
     if (tb_nlive <= 1 && !tb_slots[tb_cur].done) return esp;
     int n = tb_cur;
     for (int k = 1; k <= TB_NTASK; k++) {
@@ -453,7 +461,7 @@ static uint32_t tb_schedule(uint32_t esp) {
     tb_slice = 10;
     return tb_slots[n].esp;
 }
-static void tb_task_entry(void) {
+TB_API void tb_task_entry(void) {
     tb_kslot *s = &tb_slots[tb_cur];
     s->run(s->arg);
     __asm__ volatile("cli");
@@ -461,7 +469,7 @@ static void tb_task_entry(void) {
     s->done = 1;
     for (;;) __asm__ volatile("int $48");
 }
-static void tb_task_start(tb_task *t, void *(*run)(void *), void *arg) {
+TB_API void tb_task_start(tb_task *t, void *(*run)(void *), void *arg) {
     uint32_t f = tb_irq_save();
     int i = 1;
     while (i < TB_NTASK && tb_slots[i].used) i++;
@@ -480,15 +488,15 @@ static void tb_task_start(tb_task *t, void *(*run)(void *), void *arg) {
     tb_irq_restore(f);
 }
 // a.wait: пока задача работает, отдаём ход другим
-static void *tb_wait(tb_task *t) {
+TB_API void *tb_wait(tb_task *t) {
     if (tb_in_irq && !t->done) tb_panic("wait внутри прерывания нельзя", 0, 0);
     while (!t->done) tb_yield();
     return t->res;
 }
 
 // --- время ---
-static long long tb_uptime_ms(void) { uint32_t f = tb_irq_save(); uint64_t v = tb_ms; tb_irq_restore(f); return (long long)v; }
-static void tb_wait_ms(long long n) {
+TB_API long long tb_uptime_ms(void) { uint32_t f = tb_irq_save(); uint64_t v = tb_ms; tb_irq_restore(f); return (long long)v; }
+TB_API void tb_wait_ms(long long n) {
     if (tb_in_irq) tb_panic("wait_ms внутри прерывания нельзя: прерывание должно быть коротким", 0, 0);
     long long end = tb_uptime_ms() + n;
     while (tb_uptime_ms() < end) {
@@ -498,7 +506,7 @@ static void tb_wait_ms(long long n) {
 }
 
 // --- клавиатура: буквы копятся в очереди, read_key() берёт по одной ---
-static const char tb_kmap[2][58] = {
+TB_API const char tb_kmap[2][58] = {
     {0, 27, '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', '\b', '\t',
      'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']', '\n', 0,
      'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', '\'', '`', 0, '\\',
@@ -507,11 +515,11 @@ static const char tb_kmap[2][58] = {
      'Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P', '{', '}', '\n', 0,
      'A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', ':', '"', '~', 0, '|',
      'Z', 'X', 'C', 'V', 'B', 'N', 'M', '<', '>', '?', 0, '*', 0, ' '}};
-static char tb_keys[256];
-static volatile unsigned char tb_khead = 0, tb_ktail = 0;
-static int tb_kshift = 0;
-static char tb_ktext[256][2];
-static void tb_key_irq(void) {
+TB_API char tb_keys[256];
+TB_API volatile unsigned char tb_khead = 0, tb_ktail = 0;
+TB_API int tb_kshift = 0;
+TB_API char tb_ktext[256][2];
+TB_API void tb_key_irq(void) {
     unsigned char sc = tb_inb(0x60);
     if (sc == 0x2A || sc == 0x36) { tb_kshift = 1; return; }
     if (sc == 0xAA || sc == 0xB6) { tb_kshift = 0; return; }
@@ -521,7 +529,7 @@ static void tb_key_irq(void) {
     tb_keys[tb_khead] = ch;
     tb_khead = (unsigned char)(tb_khead + 1);
 }
-static const char *tb_read_key(void) {
+TB_API const char *tb_read_key(void) {
     uint32_t f = tb_irq_save();
     const char *r = "";
     if (tb_ktail != tb_khead) { r = tb_ktext[(unsigned char)tb_keys[tb_ktail]]; tb_ktail = (unsigned char)(tb_ktail + 1); }
@@ -531,17 +539,17 @@ static const char *tb_read_key(void) {
 
 // --- страницы памяти: адрес 0 и код защищены, у стеков — пустая страница-сторож ---
 #define TB_LOW_TABLES 8
-static uint32_t tb_pd[1024] __attribute__((aligned(4096)));
-static uint32_t tb_pt[TB_LOW_TABLES][1024] __attribute__((aligned(4096)));
-static uint32_t tb_ram_end = 0, tb_pg_next = 0, tb_pg_free = 0;
-static void tb_unmap(uint32_t a) { tb_pt[a >> 22][(a >> 12) & 1023] = 0; }
-static int tb_is_guard(uint32_t a) {
+TB_API uint32_t tb_pd[1024] __attribute__((aligned(4096)));
+TB_API uint32_t tb_pt[TB_LOW_TABLES][1024] __attribute__((aligned(4096)));
+TB_API uint32_t tb_ram_end = 0, tb_pg_next = 0, tb_pg_free = 0;
+TB_API void tb_unmap(uint32_t a) { tb_pt[a >> 22][(a >> 12) & 1023] = 0; }
+TB_API int tb_is_guard(uint32_t a) {
     if (a >= (uint32_t)tb_stack && a < (uint32_t)tb_stack + 4096) return 1;
     for (int i = 1; i < TB_NTASK; i++)
         if (a >= (uint32_t)tb_tstacks[i] && a < (uint32_t)tb_tstacks[i] + 4096) return 1;
     return 0;
 }
-static void tb_paging_init(void) {
+TB_API void tb_paging_init(void) {
     uint32_t low = (uint32_t)tb_heap_area;
     if (low > TB_LOW_TABLES * 0x400000u) tb_panic("ядро слишком большое для нижних страниц", low, 0);
     if (tb_ram_end < (uint32_t)tb_kernel_end + 0x400000u) tb_panic("мало памяти: запусти qemu с -m 256", tb_ram_end, (uint32_t)tb_kernel_end);
@@ -561,7 +569,7 @@ static void tb_paging_init(void) {
                      "movl %%cr0, %%eax\norl $0x80010000, %%eax\nmovl %%eax, %%cr0\n" : : "r"(tb_pd) : "eax", "memory");
     tb_pg_next = (uint32_t)tb_kernel_end;
 }
-static long long tb_page_new(void) {
+TB_API long long tb_page_new(void) {
     uint32_t f = tb_irq_save(), p = 0;
     if (tb_pg_free) { p = tb_pg_free; tb_pg_free = *(uint32_t *)p; }
     else if (tb_pg_next + 4096 <= tb_ram_end) { p = tb_pg_next; tb_pg_next += 4096; }
@@ -570,7 +578,7 @@ static long long tb_page_new(void) {
     memset((void *)p, 0, 4096);
     return p;
 }
-static void tb_page_free(long long a) {
+TB_API void tb_page_free(long long a) {
     uint32_t p = (uint32_t)a;
     if ((p & 4095) || p < (uint32_t)tb_kernel_end || p >= tb_pg_next) tb_panic("page_free: это не страница из page_new", p, 0);
     uint32_t f = tb_irq_save();
@@ -580,10 +588,10 @@ static void tb_page_free(long long a) {
 }
 
 // --- ошибки процессора ---
-static const char *tb_fault_name[32] = {"деление на ноль", "отладка", "NMI", "точка останова", "переполнение",
+TB_API const char *tb_fault_name[32] = {"деление на ноль", "отладка", "NMI", "точка останова", "переполнение",
     "выход за границы", "неизвестная команда", "нет FPU", "двойная ошибка", "", "плохой TSS", "нет сегмента",
     "ошибка стека", "нарушение защиты", "ошибка страницы", "", "ошибка дробей", "выравнивание", "проверка железа", "ошибка SIMD"};
-static void tb_fault(uint32_t v, uint32_t *f) {
+TB_API void tb_fault(uint32_t v, uint32_t *f) {
     uint32_t eip = f[10];
     if (v == 14) {
         uint32_t a;
@@ -633,7 +641,7 @@ __attribute__((used)) static uint32_t tb_isr(uint32_t *f) {
 
 // загрузка: заголовок multiboot (флаг 2: «скажи, сколько памяти»), свой стек, потом tb_kstart
 __attribute__((section(".multiboot"), used, aligned(4)))
-static const unsigned int tb_multiboot[3] = {0x1BADB002u, 2u, (unsigned int)-(0x1BADB002 + 2)};
+TB_API const unsigned int tb_multiboot[3] = {0x1BADB002u, 2u, (unsigned int)-(0x1BADB002 + 2)};
 __attribute__((used)) static void tb_kstart(uint32_t magic, uint32_t *mbi) {
     __asm__ volatile("fninit");
     __asm__ volatile("fnsave %0\nfninit" : "=m"(tb_fpu_init));
@@ -700,7 +708,7 @@ __asm__(".text\n.global _start\n_start:\n  movl $tb_stack + 1048576, %esp\n  pus
 #include <sys/stat.h>
 #include <time.h>
 // память с выравниванием (для сборщика мусора и др.): на Windows нет posix_memalign
-static inline void *tb_aligned_alloc(size_t align, size_t n) {
+TB_INL void *tb_aligned_alloc(size_t align, size_t n) {
 #ifdef _WIN32
     return _aligned_malloc(n, align);
 #else
@@ -708,7 +716,7 @@ static inline void *tb_aligned_alloc(size_t align, size_t n) {
     return posix_memalign(&p, align, n) == 0 ? p : 0;
 #endif
 }
-static inline void tb_aligned_free(void *p) {
+TB_INL void tb_aligned_free(void *p) {
 #ifdef _WIN32
     _aligned_free(p);
 #else
@@ -733,27 +741,27 @@ static inline void tb_aligned_free(void *p) {
 #include <fcntl.h>
 #include <direct.h>
 #include <malloc.h>
-static wchar_t *tb_wide(const char *s) {
+TB_API wchar_t *tb_wide(const char *s) {
     int n = MultiByteToWideChar(CP_UTF8, 0, s, -1, 0, 0);
     wchar_t *w = malloc((size_t)(n > 0 ? n : 1) * sizeof(wchar_t));
     if (!w) return 0;
     if (n <= 0) w[0] = 0; else MultiByteToWideChar(CP_UTF8, 0, s, -1, w, n);
     return w;
 }
-static char *tb_narrow(const wchar_t *w) {
+TB_API char *tb_narrow(const wchar_t *w) {
     int n = WideCharToMultiByte(CP_UTF8, 0, w, -1, 0, 0, 0, 0);
     char *s = malloc((size_t)(n > 0 ? n : 1));
     if (!s) return 0;
     if (n <= 0) s[0] = 0; else WideCharToMultiByte(CP_UTF8, 0, w, -1, s, n, 0, 0);
     return s;
 }
-static FILE *tb_win_fopen(const char *path, const char *mode) {
+TB_API FILE *tb_win_fopen(const char *path, const char *mode) {
     wchar_t *p = tb_wide(path), *m = tb_wide(mode);
     FILE *f = p && m ? _wfopen(p, m) : 0;
     free(p); free(m);
     return f;
 }
-static int tb_win_stat(const char *path, struct stat *st) {
+TB_API int tb_win_stat(const char *path, struct stat *st) {
     wchar_t *p = tb_wide(path);
     if (!p) return -1;
     // «папка/» с косой чертой в конце _wstat не находит
@@ -769,11 +777,11 @@ static int tb_win_stat(const char *path, struct stat *st) {
     st->st_mtime = (time_t)s.st_mtime;
     return 0;
 }
-static int tb_win_mkdir(const char *path) { wchar_t *p = tb_wide(path); int r = p ? _wmkdir(p) : -1; free(p); return r; }
-static int tb_win_rmdir(const char *path) { wchar_t *p = tb_wide(path); int r = p ? _wrmdir(p) : -1; free(p); return r; }
-static int tb_win_unlink(const char *path) { wchar_t *p = tb_wide(path); int r = p ? _wunlink(p) : -1; free(p); return r; }
+TB_API int tb_win_mkdir(const char *path) { wchar_t *p = tb_wide(path); int r = p ? _wmkdir(p) : -1; free(p); return r; }
+TB_API int tb_win_rmdir(const char *path) { wchar_t *p = tb_wide(path); int r = p ? _wrmdir(p) : -1; free(p); return r; }
+TB_API int tb_win_unlink(const char *path) { wchar_t *p = tb_wide(path); int r = p ? _wunlink(p) : -1; free(p); return r; }
 // как в POSIX: файл на месте назначения заменяется (обычный rename на Windows так не умеет)
-static int tb_win_rename(const char *from, const char *to) {
+TB_API int tb_win_rename(const char *from, const char *to) {
     wchar_t *a = tb_wide(from), *b = tb_wide(to);
     int ok = a && b && MoveFileExW(a, b, MOVEFILE_REPLACE_EXISTING);
     DWORD e = ok ? 0 : GetLastError();
@@ -784,7 +792,7 @@ static int tb_win_rename(const char *from, const char *to) {
 }
 // getenv в UTF-8; ответ живёт до конца программы (их мало и они короткие).
 // HOME на Windows обычно нет: тогда это USERPROFILE (C:\Users\имя)
-static char *tb_win_getenv(const char *name) {
+TB_API char *tb_win_getenv(const char *name) {
     wchar_t *n = tb_wide(name);
     const wchar_t *v = n ? _wgetenv(n) : 0;
     if (!v && strcmp(name, "HOME") == 0) v = _wgetenv(L"USERPROFILE");
@@ -793,7 +801,7 @@ static char *tb_win_getenv(const char *name) {
 }
 // cmd.exe /c убирает первую и последнюю кавычку, если кавычек больше двух:
 // поэтому команда целиком берётся ещё в одни кавычки
-static wchar_t *tb_win_cmd(const char *command) {
+TB_API wchar_t *tb_win_cmd(const char *command) {
     size_t n = strlen(command);
     char *q = malloc(n + 3);
     if (!q) return 0;
@@ -802,13 +810,13 @@ static wchar_t *tb_win_cmd(const char *command) {
     free(q);
     return w;
 }
-static int tb_win_system(const char *command) {
+TB_API int tb_win_system(const char *command) {
     wchar_t *c = tb_win_cmd(command);
     int r = c ? _wsystem(c) : -1;
     free(c);
     return r;
 }
-static FILE *tb_win_popen(const char *command, const char *mode) {
+TB_API FILE *tb_win_popen(const char *command, const char *mode) {
     wchar_t *c = tb_win_cmd(command), *m = tb_wide(mode);
     FILE *f = c && m ? _wpopen(c, m) : 0;
     free(c); free(m);
@@ -817,7 +825,7 @@ static FILE *tb_win_popen(const char *command, const char *mode) {
 // папка: _wopendir / _wreaddir, имена — в UTF-8
 struct tb_win_dirent { char d_name[MAX_PATH * 4]; };
 typedef struct { _WDIR *d; struct tb_win_dirent e; } tb_win_dir;
-static tb_win_dir *tb_win_opendir(const char *path) {
+TB_API tb_win_dir *tb_win_opendir(const char *path) {
     wchar_t *p = tb_wide(path);
     _WDIR *d = p ? _wopendir(p) : 0;
     free(p);
@@ -827,21 +835,21 @@ static tb_win_dir *tb_win_opendir(const char *path) {
     r->d = d;
     return r;
 }
-static struct tb_win_dirent *tb_win_readdir(tb_win_dir *d) {
+TB_API struct tb_win_dirent *tb_win_readdir(tb_win_dir *d) {
     struct _wdirent *e = _wreaddir(d->d);
     if (!e) return 0;
     if (WideCharToMultiByte(CP_UTF8, 0, e->d_name, -1, d->e.d_name, sizeof d->e.d_name, 0, 0) <= 0) d->e.d_name[0] = 0;
     return &d->e;
 }
-static int tb_win_closedir(tb_win_dir *d) { _wclosedir(d->d); free(d); return 0; }
+TB_API int tb_win_closedir(tb_win_dir *d) { _wclosedir(d->d); free(d); return 0; }
 // цвет в консоли — только если удалось включить ESC-последовательности (Windows 10+)
-static int tb_win_vt = 0;
-static int tb_win_isatty(int fd) { return tb_win_vt && _isatty(fd); }
+TB_API int tb_win_vt = 0;
+TB_API int tb_win_isatty(int fd) { return tb_win_vt && _isatty(fd); }
 // число ядер
 #ifndef _SC_NPROCESSORS_ONLN
 #define _SC_NPROCESSORS_ONLN 84
 #endif
-static long tb_win_sysconf(int what) {
+TB_API long tb_win_sysconf(int what) {
     (void)what;
     SYSTEM_INFO si;
     GetSystemInfo(&si);
@@ -881,7 +889,7 @@ static long tb_win_sysconf(int what) {
 // список: кусок памяти, len элементов по size байт, место на cap
 typedef struct { char *data; long long len; long long cap; long long size; } tb_list;
 
-TB_COLD static void tb_crash(int line, const char *msg) {
+TB_COLD TB_API void tb_crash(int line, const char *msg) {
     fflush(stdout);
     // в терминале — красным (если не задан NO_COLOR)
     int color = isatty(2) && getenv("NO_COLOR") == 0;
@@ -905,8 +913,8 @@ TB_COLD static void tb_crash(int line, const char *msg) {
 // чтобы tb_tramp_run мог её отдать, и просит у Windows запас стека.
 typedef struct { void *ss_sp; size_t ss_size; int ss_flags; } stack_t;
 #define SS_DISABLE 4
-static _Thread_local void *tb_win_alt;
-static int sigaltstack(const stack_t *ss, stack_t *old) {
+TB_API _Thread_local void *tb_win_alt;
+TB_API int sigaltstack(const stack_t *ss, stack_t *old) {
     if (old) { old->ss_sp = tb_win_alt; old->ss_size = 0; old->ss_flags = 0; }
     if (ss) {
         tb_win_alt = (ss->ss_flags & SS_DISABLE) ? 0 : ss->ss_sp;
@@ -916,11 +924,11 @@ static int sigaltstack(const stack_t *ss, stack_t *old) {
 }
 #endif
 // у каждого потока своё: где начинается его стек и сколько в нём места
-static _Thread_local char *tb_main_sp;
-static _Thread_local long long tb_stack_lim;
+TB_API _Thread_local char *tb_main_sp;
+TB_API _Thread_local long long tb_stack_lim;
 #define TB_THREAD_STACK (8LL << 20)
 #ifndef _WIN32
-static void tb_on_segv(int sig, siginfo_t *si, void *u) {
+TB_API void tb_on_segv(int sig, siginfo_t *si, void *u) {
     (void)sig; (void)u;
     char *a = (char *)si->si_addr;
     long long lim = tb_stack_lim;
@@ -939,7 +947,7 @@ static void tb_on_segv(int sig, siginfo_t *si, void *u) {
 }
 #endif
 // свой маленький стек для сообщения: у главного потока — постоянный, у остальных — из malloc
-static void tb_guard_thread(char *here, long long lim) {
+TB_API void tb_guard_thread(char *here, long long lim) {
     stack_t ss;
     ss.ss_sp = malloc(65536); ss.ss_size = 65536; ss.ss_flags = 0;
     if (ss.ss_sp) sigaltstack(&ss, 0);
@@ -948,7 +956,7 @@ static void tb_guard_thread(char *here, long long lim) {
 }
 // поток background или ядра: сначала ставим защиту стека, потом сама работа
 // сколько потоков background / ядер работает сейчас: уборка памяти ждёт, пока их нет
-static int tb_gthreads = 0;
+TB_API int tb_gthreads = 0;
 // короткое ожидание без сна (подсказка процессору)
 #if defined(__x86_64__) || defined(__i386__)
 #define __builtin_ia32_pause_or_yield() __builtin_ia32_pause()
@@ -958,7 +966,7 @@ static int tb_gthreads = 0;
 #define __builtin_ia32_pause_or_yield() ((void)0)
 #endif
 typedef struct { void *(*run)(void *); void *arg; } tb_tramp;
-static void *tb_tramp_run(void *p) {
+TB_API void *tb_tramp_run(void *p) {
     tb_tramp t = *(tb_tramp *)p;
     free(p);
     char here;
@@ -971,7 +979,7 @@ static void *tb_tramp_run(void *p) {
     return r;
 }
 // поток с 8 МБ стека (на Mac по умолчанию всего 512 КБ) и с понятным сообщением при переполнении
-static int tb_thread_create(pthread_t *th, void *(*run)(void *), void *arg) {
+TB_API int tb_thread_create(pthread_t *th, void *(*run)(void *), void *arg) {
     tb_tramp *t = malloc(sizeof(tb_tramp));
     if (!t) return -1;
     t->run = run; t->arg = arg;
@@ -985,19 +993,19 @@ static int tb_thread_create(pthread_t *th, void *(*run)(void *), void *arg) {
     return r;
 }
 #ifdef _WIN32
-static void tb_win_fatal(const char *m) {
+TB_API void tb_win_fatal(const char *m) {
     DWORD w;
     WriteFile(GetStdHandle(STD_ERROR_HANDLE), m, (DWORD)strlen(m), &w, 0);
     TerminateProcess(GetCurrentProcess(), 1);   // как _exit(1): без уборки, она может упасть ещё раз
 }
 #define TB_WIN_STACK_MSG "стек переполнен: функция зовёт себя слишком глубоко (рекурсия без конца?)\n"
 // переполнение стека — сразу (это никогда не «нормальное» исключение)
-static LONG CALLBACK tb_win_overflow(EXCEPTION_POINTERS *e) {
+TB_API LONG CALLBACK tb_win_overflow(EXCEPTION_POINTERS *e) {
     if (e->ExceptionRecord->ExceptionCode == EXCEPTION_STACK_OVERFLOW) tb_win_fatal(TB_WIN_STACK_MSG);
     return EXCEPTION_CONTINUE_SEARCH;
 }
 // остальные падения — только если их никто не поймал
-static LONG WINAPI tb_win_crashed(EXCEPTION_POINTERS *e) {
+TB_API LONG WINAPI tb_win_crashed(EXCEPTION_POINTERS *e) {
     DWORD c = e->ExceptionRecord->ExceptionCode;
     if (c == EXCEPTION_STACK_OVERFLOW) tb_win_fatal(TB_WIN_STACK_MSG);
     if (c == EXCEPTION_ACCESS_VIOLATION || c == EXCEPTION_IN_PAGE_ERROR || c == EXCEPTION_GUARD_PAGE) {
@@ -1010,7 +1018,7 @@ static LONG WINAPI tb_win_crashed(EXCEPTION_POINTERS *e) {
 }
 // начало программы на Windows: русский текст в консоли, цвета, слова запуска в UTF-8,
 // понятное сообщение при переполнении стека
-static void tb_win_init(int *argc, char ***argv) {
+TB_API void tb_win_init(int *argc, char ***argv) {
     SetConsoleOutputCP(CP_UTF8);
     SetConsoleCP(CP_UTF8);
     // \n остаётся \n (как на Linux и Mac): одинаковый вывод в файл и в трубу
@@ -1042,7 +1050,7 @@ static void tb_win_init(int *argc, char ***argv) {
 // main() зовёт tb_guard_init(): на Windows ей нужны ещё argc и argv из main
 #define tb_guard_init() tb_win_init(&argc, &argv)
 #else
-static void tb_guard_init(void) {
+TB_API void tb_guard_init(void) {
     static char alt[65536];
     stack_t ss;
     ss.ss_sp = alt; ss.ss_size = sizeof alt; ss.ss_flags = 0;
@@ -1063,15 +1071,15 @@ static void tb_guard_init(void) {
 // а в конце блока все куски отдаются разом. У каждого ядра свои куски.
 typedef struct { char *mem; long long size, used; } tb_chunk;
 typedef struct { int n; long long used; } tb_mark;
-static _Thread_local tb_chunk *tb_chunks = 0;
-static _Thread_local int tb_nchunks = 0, tb_capchunks = 0, tb_temp_depth = 0;
-static int tb_in_temp(const void *p) {
+TB_API _Thread_local tb_chunk *tb_chunks = 0;
+TB_API _Thread_local int tb_nchunks = 0, tb_capchunks = 0, tb_temp_depth = 0;
+TB_API int tb_in_temp(const void *p) {
     for (int i = tb_nchunks - 1; i >= 0; i--) {
         if ((const char *)p >= tb_chunks[i].mem && (const char *)p < tb_chunks[i].mem + tb_chunks[i].size) return 1;
     }
     return 0;
 }
-static void *tb_temp_alloc(long long n) {
+TB_API void *tb_temp_alloc(long long n) {
     n = n > 0 ? (n + 15) & ~15LL : 16;
     tb_chunk *c = tb_nchunks > 0 ? &tb_chunks[tb_nchunks - 1] : 0;
     if (c == 0 || c->used + n > c->size) {
@@ -1093,9 +1101,9 @@ static void *tb_temp_alloc(long long n) {
     return p;
 }
 // метки открытых temp (и арен шага / функции): самая последняя — текущая область
-static _Thread_local tb_mark *tb_marks = 0;
-static _Thread_local int tb_capmarks = 0;
-static inline tb_mark tb_temp_begin(void) {
+TB_API _Thread_local tb_mark *tb_marks = 0;
+TB_API _Thread_local int tb_capmarks = 0;
+TB_INL tb_mark tb_temp_begin(void) {
     tb_mark m = {tb_nchunks, tb_nchunks > 0 ? tb_chunks[tb_nchunks - 1].used : 0};
     if (tb_temp_depth == tb_capmarks) {
         tb_capmarks = tb_capmarks * 2 + 16;
@@ -1107,7 +1115,7 @@ static inline tb_mark tb_temp_begin(void) {
     return m;
 }
 // p во временной памяти текущей (самой внутренней) области, а не во внешней
-static int tb_in_cur_temp(const void *p) {
+TB_API int tb_in_cur_temp(const void *p) {
     if (tb_temp_depth == 0) return 0;
     tb_mark t = tb_marks[tb_temp_depth - 1];
     for (int i = tb_nchunks - 1; i >= 0; i--) {
@@ -1118,11 +1126,11 @@ static int tb_in_cur_temp(const void *p) {
     return 0;
 }
 // длина последних текстов: s[i] в цикле не пересчитывает strlen каждый раз
-static _Thread_local const char *tb_lc_p[2];
-static _Thread_local long long tb_lc_n[2];
-static _Thread_local int tb_lc_next;
-static inline void tb_lc_clear(void) { tb_lc_p[0] = 0; tb_lc_p[1] = 0; }
-static inline void tb_temp_end(tb_mark m) {
+TB_API _Thread_local const char *tb_lc_p[2];
+TB_API _Thread_local long long tb_lc_n[2];
+TB_API _Thread_local int tb_lc_next;
+TB_INL void tb_lc_clear(void) { tb_lc_p[0] = 0; tb_lc_p[1] = 0; }
+TB_INL void tb_temp_end(tb_mark m) {
     // первый кусок оставляем пустым: следующий temp возьмёт его без malloc
     while (tb_nchunks > m.n && tb_nchunks > 1) {
         tb_nchunks -= 1;
@@ -1144,14 +1152,14 @@ static inline void tb_temp_end(tb_mark m) {
 // TB_GC=0 — выключить уборку (для проверки), TB_GC_STRESS=N — обход на каждом N-м выделении,
 // TB_GC_STATS=1 — печатать каждый обход.
 #ifdef TB_BARE
-static void *tb_gc_alloc(long long n) {
+TB_API void *tb_gc_alloc(long long n) {
     void *p = malloc(n > 0 ? n : 1);
     if (p == 0) tb_crash(0, "не хватило памяти");
     return p;
 }
-static void tb_gc_free(void *p) { free(p); }
+TB_API void tb_gc_free(void *p) { free(p); }
 #define tb_gc_alloc_np tb_gc_alloc
-static void *tb_gc_realloc(void *p, long long old_n, long long new_n) {
+TB_API void *tb_gc_realloc(void *p, long long old_n, long long new_n) {
     (void)old_n;
     p = realloc(p, new_n > 0 ? new_n : 1);
     if (p == 0) tb_crash(0, "не хватило памяти");
@@ -1165,7 +1173,7 @@ static void *tb_gc_realloc(void *p, long long old_n, long long new_n) {
 #define TB_GNC 37
 #define TB_GBIG 32768
 // размеры мелких блоков: страница 64 КБ делится на блоки одного размера (шаг 8 байт у мелких — плотно, как подряд)
-static const long long tb_gsz[TB_GNC] = {16, 24, 32, 40, 48, 56, 64, 72, 80, 96, 112, 128, 160, 192, 224, 256,
+TB_API const long long tb_gsz[TB_GNC] = {16, 24, 32, 40, 48, 56, 64, 72, 80, 96, 112, 128, 160, 192, 224, 256,
     320, 384, 448, 512, 640, 768, 1024, 1280, 1536, 2048, 2560, 3072, 4096, 5120, 6144, 8192, 10240, 12288,
     16384, 21840, 32768};
 typedef struct tb_gpage {
@@ -1180,19 +1188,19 @@ typedef struct tb_gpage {
     struct tb_gpage *next, *prev, *anext;
 } tb_gpage;
 typedef struct { char *p; long long n; } tb_grange;
-static unsigned char tb_gcls[TB_GBIG / 8 + 1];
-static tb_gpage *tb_gall = 0, *tb_glarge = 0, *tb_gavail[2][TB_GNC];
+TB_API unsigned char tb_gcls[TB_GBIG / 8 + 1];
+TB_API tb_gpage *tb_gall = 0, *tb_glarge = 0, *tb_gavail[2][TB_GNC];
 // адрес → страница: таблица в два шага (биты 47..32, потом 31..16)
-static tb_gpage **tb_gdir[1 << 16];
-static uintptr_t tb_glo = ~(uintptr_t)0, tb_ghi = 0;
-static long long tb_gsince = 0, tb_glive = 0, tb_gnext = 8LL << 20, tb_gstress = 0, tb_gcount = 0, tb_gruns = 0;
-static int tb_gready = 0, tb_goff = 0, tb_gstats = 0;
-static char *tb_gtop = 0;
-static pthread_mutex_t tb_glock = PTHREAD_MUTEX_INITIALIZER;
-static tb_grange *tb_groots = 0;
-static long long tb_gnroots = 0, tb_gcaproots = 0;
+TB_API tb_gpage **tb_gdir[1 << 16];
+TB_API uintptr_t tb_glo = ~(uintptr_t)0, tb_ghi = 0;
+TB_API long long tb_gsince = 0, tb_glive = 0, tb_gnext = 8LL << 20, tb_gstress = 0, tb_gcount = 0, tb_gruns = 0;
+TB_API int tb_gready = 0, tb_goff = 0, tb_gstats = 0;
+TB_API char *tb_gtop = 0;
+TB_API pthread_mutex_t tb_glock = PTHREAD_MUTEX_INITIALIZER;
+TB_API tb_grange *tb_groots = 0;
+TB_API long long tb_gnroots = 0, tb_gcaproots = 0;
 
-static void tb_gsetup(void) {
+TB_API void tb_gsetup(void) {
     int c = 0;
     for (long long i = 0; i <= TB_GBIG / 8; i++) {
         while (tb_gsz[c] < i * 8) c++;
@@ -1200,12 +1208,12 @@ static void tb_gsetup(void) {
     }
     tb_gready = 1;
 }
-static inline tb_gpage *tb_gmap_get(uintptr_t a) {
+TB_INL tb_gpage *tb_gmap_get(uintptr_t a) {
     if (a >> 48) return 0;
     tb_gpage **l2 = tb_gdir[a >> 32];
     return l2 ? l2[(a >> TB_GSH) & 0xFFFF] : 0;
 }
-static void tb_gmap_put(uintptr_t a, tb_gpage *pg) {
+TB_API void tb_gmap_put(uintptr_t a, tb_gpage *pg) {
     tb_gpage ***d = &tb_gdir[a >> 32];
     if (!*d) {
         *d = calloc(1 << 16, sizeof(tb_gpage *));
@@ -1213,19 +1221,19 @@ static void tb_gmap_put(uintptr_t a, tb_gpage *pg) {
     }
     (*d)[(a >> TB_GSH) & 0xFFFF] = pg;
 }
-static void tb_gmap_add(tb_gpage *pg, long long size) {
+TB_API void tb_gmap_add(tb_gpage *pg, long long size) {
     for (long long o = 0; o < size; o += TB_GPG) tb_gmap_put((uintptr_t)pg->start + o, pg);
     if ((uintptr_t)pg->start < tb_glo) tb_glo = (uintptr_t)pg->start;
     if ((uintptr_t)pg->start + size > tb_ghi) tb_ghi = (uintptr_t)pg->start + size;
 }
-static void tb_gmap_remove(tb_gpage *pg, long long size) {
+TB_API void tb_gmap_remove(tb_gpage *pg, long long size) {
     for (long long o = 0; o < size; o += TB_GPG) tb_gmap_put((uintptr_t)pg->start + o, 0);
 }
 // память у системы: mmap всегда отдаёт нули и выровнено по 64 КБ (лишнее по краям отдаём назад)
 #ifdef _WIN32
 // Windows: VirtualAlloc тоже даёт нули, и адрес у него всегда кратен 64 КБ — обрезать нечего.
 // munmap здесь зовётся только для целого куска из tb_gsys — это VirtualFree(MEM_RELEASE).
-static char *tb_gsys(long long size) {
+TB_API char *tb_gsys(long long size) {
     char *m = VirtualAlloc(0, (SIZE_T)size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     if (!m) tb_crash(0, "не хватило памяти");
     return m;
@@ -1242,7 +1250,7 @@ static char *tb_gsys(long long size) {
 #endif
 extern void *mremap(void *old, size_t old_size, size_t new_size, int flags, ...);
 #endif
-static char *tb_gsys(long long size) {
+TB_API char *tb_gsys(long long size) {
     size_t tot = (size_t)size + (size_t)TB_GPG;
     char *m = mmap(0, tot, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
     if (m == MAP_FAILED) tb_crash(0, "не хватило памяти");
@@ -1254,16 +1262,16 @@ static char *tb_gsys(long long size) {
 }
 #endif
 // страницы по 64 КБ берём у системы пачкой по 4 МБ; пустые страницы возвращаются в запас
-static char *tb_gfresh = 0, *tb_gfresh_end = 0;
-static void *tb_gspare = 0;
-static char *tb_gpage_mem(void) {
+TB_API char *tb_gfresh = 0, *tb_gfresh_end = 0;
+TB_API void *tb_gspare = 0;
+TB_API char *tb_gpage_mem(void) {
     if (tb_gspare) { void *p = tb_gspare; tb_gspare = *(void **)p; *(void **)p = 0; return p; }
     if (tb_gfresh == tb_gfresh_end) { tb_gfresh = tb_gsys(64 * TB_GPG); tb_gfresh_end = tb_gfresh + 64 * TB_GPG; }
     char *p = tb_gfresh;
     tb_gfresh += TB_GPG;
     return p;
 }
-static tb_gpage *tb_gnewpage(int cls, int np) {
+TB_API tb_gpage *tb_gnewpage(int cls, int np) {
     tb_gpage *pg = calloc(1, sizeof(tb_gpage));
     if (!pg) tb_crash(0, "не хватило памяти");
     pg->start = tb_gpage_mem();
@@ -1280,7 +1288,7 @@ static tb_gpage *tb_gnewpage(int cls, int np) {
 }
 #define TB_GIDX(pg, off) ((long long)(((unsigned long long)(off) * (pg)->inv) >> 32))
 // блок, внутрь которого указывает адрес a (или 0, если это не наша занятая память)
-static inline char *tb_gblock(uintptr_t a, tb_gpage **out) {
+TB_INL char *tb_gblock(uintptr_t a, tb_gpage **out) {
     if (a < tb_glo || a >= tb_ghi) return 0;
     tb_gpage *pg = tb_gmap_get(a);
     if (!pg) return 0;
@@ -1294,8 +1302,8 @@ static inline char *tb_gblock(uintptr_t a, tb_gpage **out) {
     *out = pg;
     return pg->start + i * pg->bsize;
 }
-static void tb_gc_collect(void);
-static void *tb_galloc_locked(long long n, int np) {
+TB_API void tb_gc_collect(void);
+TB_API void *tb_galloc_locked(long long n, int np) {
     if (!tb_gready) tb_gsetup();
     if (n <= 0) n = 1;
     // +1 байт: адрес «сразу за концом» (так иногда считает C) всё ещё внутри блока
@@ -1332,7 +1340,7 @@ static void *tb_galloc_locked(long long n, int np) {
     tb_gsince += cap;
     return pg->start;
 }
-static void tb_gfree_locked(void *p) {
+TB_API void tb_gfree_locked(void *p) {
     tb_gpage *pg = 0;
     char *b = tb_gblock((uintptr_t)p, &pg);
     if (!b || b != (char *)p) return;   // не наша память (например, текст из кода) — не трогаем
@@ -1349,8 +1357,8 @@ static void tb_gfree_locked(void *p) {
     *(void **)b = pg->free; pg->free = b; pg->nfree++;
     if (!pg->in_avail) { pg->anext = tb_gavail[pg->np][pg->cls]; tb_gavail[pg->np][pg->cls] = pg; pg->in_avail = 1; }
 }
-static inline int tb_gneed_lock(void) { return __atomic_load_n(&tb_gthreads, __ATOMIC_ACQUIRE) > 0; }
-static inline void *tb_gc_alloc2(long long n, int np) {
+TB_INL int tb_gneed_lock(void) { return __atomic_load_n(&tb_gthreads, __ATOMIC_ACQUIRE) > 0; }
+TB_INL void *tb_gc_alloc2(long long n, int np) {
     if (TB_RARE(tb_gneed_lock())) {
         pthread_mutex_lock(&tb_glock);
         void *p = tb_galloc_locked(n, np);
@@ -1359,10 +1367,10 @@ static inline void *tb_gc_alloc2(long long n, int np) {
     }
     return tb_galloc_locked(n, np);
 }
-static void *tb_gc_alloc(long long n) { return tb_gc_alloc2(n, 0); }
+TB_API void *tb_gc_alloc(long long n) { return tb_gc_alloc2(n, 0); }
 // память без адресов внутри (числа, тексты): уборка не читает её содержимое
-static void *tb_gc_alloc_np(long long n) { return tb_gc_alloc2(n, 1); }
-static void tb_gc_free(void *p) {
+TB_API void *tb_gc_alloc_np(long long n) { return tb_gc_alloc2(n, 1); }
+TB_API void tb_gc_free(void *p) {
     if (!p) return;
     int lk = tb_gneed_lock();
     if (lk) pthread_mutex_lock(&tb_glock);
@@ -1370,7 +1378,7 @@ static void tb_gc_free(void *p) {
     if (lk) pthread_mutex_unlock(&tb_glock);
 }
 // вырастить блок: если места хватает — тот же блок, иначе новый, старый отдаём
-static void *tb_gc_realloc(void *p, long long old_n, long long new_n) {
+TB_API void *tb_gc_realloc(void *p, long long old_n, long long new_n) {
     int lk = tb_gneed_lock();
     if (lk) pthread_mutex_lock(&tb_glock);
     tb_gpage *pg = 0;
@@ -1413,7 +1421,7 @@ static void *tb_gc_realloc(void *p, long long old_n, long long new_n) {
     return q;
 }
 // место, где программа хранит значения вне стека (общие переменные): обход смотрит и туда
-static void tb_gc_root(void *p, long long n) {
+TB_API void tb_gc_root(void *p, long long n) {
     if (tb_gnroots == tb_gcaproots) {
         tb_gcaproots = tb_gcaproots * 2 + 16;
         tb_groots = realloc(tb_groots, sizeof(tb_grange) * tb_gcaproots);
@@ -1425,9 +1433,9 @@ static void tb_gc_root(void *p, long long n) {
 }
 // очередь обхода
 typedef struct { tb_grange *a; long long n, cap; } tb_gms;
-static _Thread_local tb_gms *tb_gcur = 0;
-static tb_gms tb_gmain_q = {0, 0, 0};
-static inline void tb_gpush(tb_gms *q, char *p, long long n) {
+TB_API _Thread_local tb_gms *tb_gcur = 0;
+TB_API tb_gms tb_gmain_q = {0, 0, 0};
+TB_INL void tb_gpush(tb_gms *q, char *p, long long n) {
     if (TB_RARE(q->n == q->cap)) {
         q->cap = q->cap * 2 + 1024;
         q->a = realloc(q->a, sizeof(tb_grange) * q->cap);
@@ -1438,8 +1446,8 @@ static inline void tb_gpush(tb_gms *q, char *p, long long n) {
     q->n++;
 }
 // последние страницы обхода: соседние адреса обычно ведут на ту же страницу — без поиска по таблице
-static _Thread_local tb_gpage *tb_glast[16];
-static inline void tb_gmark(uintptr_t a) {
+TB_API _Thread_local tb_gpage *tb_glast[16];
+TB_INL void tb_gmark(uintptr_t a) {
     tb_gpage *pg = tb_glast[(a >> TB_GSH) & 15];
     char *b;
     unsigned char *f;
@@ -1461,13 +1469,13 @@ static inline void tb_gmark(uintptr_t a) {
     tb_gpush(tb_gcur, b, pg->large ? pg->nbytes : pg->bsize);
     __builtin_prefetch(b);
 }
-static void tb_gscan(const char *lo, const char *hi) {
+TB_API void tb_gscan(const char *lo, const char *hi) {
     uintptr_t p = ((uintptr_t)lo + 7) & ~(uintptr_t)7;
     for (; p + 8 <= (uintptr_t)hi; p += 8) tb_gmark(*(const uintptr_t *)p);
 }
 // одна запись очереди: большой блок читаем кусками по 4 КБ, остаток кладём обратно,
 // а найденное в куске обходим сразу — так очередь остаётся маленькой
-static inline void tb_gstep(tb_gms *q) {
+TB_INL void tb_gstep(tb_gms *q) {
     tb_grange r = q->a[--q->n];
     if (r.n > 4096) {
         q->a[q->n].p = r.p + 4096;
@@ -1477,15 +1485,15 @@ static inline void tb_gstep(tb_gms *q) {
     }
     tb_gscan(r.p, r.p + r.n);
 }
-static void tb_gdrain(void) {
+TB_API void tb_gdrain(void) {
     tb_gms *q = tb_gcur;
     while (q->n > 0) tb_gstep(q);
 }
-__attribute__((noinline)) static void tb_gscan_stack(void) {
+__attribute__((noinline)) TB_API void tb_gscan_stack(void) {
     volatile char here = 0;
     tb_gscan((const char *)&here, tb_gtop);
 }
-__attribute__((noinline)) static void tb_gc_run(void) {
+__attribute__((noinline)) TB_API void tb_gc_run(void) {
     memset(tb_glast, 0, sizeof tb_glast);
     tb_gcur = &tb_gmain_q;
     // регистры процессора — на стек: в них тоже могут быть нужные адреса
@@ -1507,8 +1515,8 @@ __attribute__((noinline)) static void tb_gc_run(void) {
     tb_gdrain();
     memset(tb_glast, 0, sizeof tb_glast);
 }
-static double tb_gnow(void) { struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts); return ts.tv_sec * 1e3 + ts.tv_nsec / 1e6; }
-static void tb_gc_collect(void) {
+TB_API double tb_gnow(void) { struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts); return ts.tv_sec * 1e3 + ts.tv_nsec / 1e6; }
+TB_API void tb_gc_collect(void) {
     tb_gruns++;
     double t0 = tb_gstats ? tb_gnow() : 0;
     tb_gc_run();
@@ -1591,11 +1599,11 @@ static void tb_gc_collect(void) {
 }
 // начало программы: top — адрес в кадре main, выше всех кадров программы
 // main программы зовём через этот шаг (не встраивается): её переменные точно ниже tb_top
-__attribute__((noinline)) static void tb_call_main(void (*f)(void)) {
+__attribute__((noinline)) TB_API void tb_call_main(void (*f)(void)) {
     void (*volatile g)(void) = f;
     g();
 }
-static void tb_gc_init(void *top) {
+TB_API void tb_gc_init(void *top) {
     tb_gtop = (char *)top;
     const char *e = getenv("TB_GC");
     if (e && e[0] == '0') tb_goff = 1;
@@ -1605,12 +1613,12 @@ static void tb_gc_init(void *top) {
     if (e) tb_gstress = atoll(e);
 }
 #endif
-static void *tb_mem(long long n) {
+TB_API void *tb_mem(long long n) {
     if (tb_temp_depth > 0) return tb_temp_alloc(n);
     return tb_gc_alloc(n);
 }
 // то же для памяти без адресов внутри: текст, числа
-static void *tb_mem_np(long long n) {
+TB_API void *tb_mem_np(long long n) {
     if (tb_temp_depth > 0) return tb_temp_alloc(n);
     return tb_gc_alloc_np(n);
 }
@@ -1618,7 +1626,7 @@ static void *tb_mem_np(long long n) {
 // вырасти кусок: временный текущей области растёт там же, обычный — через realloc.
 // Кусок из внешней области (список создан снаружи, растёт внутри temp или шага цикла)
 // переезжает в обычную память: внутренняя область скоро отдаётся, а список живёт дольше.
-static void *tb_resize(void *p, long long old_n, long long new_n) {
+TB_API void *tb_resize(void *p, long long old_n, long long new_n) {
     tb_lc_clear();
     if (tb_nchunks > 0 && tb_in_temp(p)) {
         void *q = tb_in_cur_temp(p) ? tb_temp_alloc(new_n) : tb_gc_alloc(new_n);
@@ -1627,35 +1635,35 @@ static void *tb_resize(void *p, long long old_n, long long new_n) {
     }
     return tb_gc_realloc(p, old_n, new_n);
 }
-static tb_list *tb_list_new(long long size) {
+TB_API tb_list *tb_list_new(long long size) {
     tb_list *l = tb_mem(sizeof(tb_list));
     l->len = 0; l->cap = 4; l->size = size; l->data = tb_mem(size * 4);
     return l;
 }
-static tb_list *tb_list_new_np(long long size) {
+TB_API tb_list *tb_list_new_np(long long size) {
     tb_list *l = tb_mem(sizeof(tb_list));
     l->len = 0; l->cap = 4; l->size = size; l->data = tb_mem_np(size * 4);
     return l;
 }
-static tb_list *tb_list_from_np(long long n, long long size, const void *src) {
+TB_API tb_list *tb_list_from_np(long long n, long long size, const void *src) {
     tb_list *l = tb_mem(sizeof(tb_list));
     l->len = n; l->cap = n; l->size = size; l->data = tb_mem_np(size * n);
     memcpy(l->data, src, size * n);
     return l;
 }
-static tb_list *tb_list_from(long long n, long long size, const void *src) {
+TB_API tb_list *tb_list_from(long long n, long long size, const void *src) {
     tb_list *l = tb_mem(sizeof(tb_list));
     l->len = n; l->cap = n; l->size = size; l->data = tb_mem(size * n);
     memcpy(l->data, src, size * n);
     return l;
 }
 // size передаётся как sizeof(T): после встраивания C знает его заранее
-static inline void *tb_at(tb_list *l, long long i, long long size, int line) {
+TB_INL void *tb_at(tb_list *l, long long i, long long size, int line) {
     // одно сравнение вместо двух: отрицательный номер как unsigned становится огромным
     if (TB_RARE((unsigned long long)i >= (unsigned long long)l->len)) tb_crash(line, "номер за пределами списка");
     return l->data + i * size;
 }
-static inline void *tb_grow(tb_list *l) {
+TB_INL void *tb_grow(tb_list *l) {
     // cap < 0: это кусок (each piece in data by N) или список, который сейчас режут на куски
     if (TB_RARE(l->len >= l->cap)) {
         if (l->cap < 0) tb_crash(0, "список нельзя растить, пока по нему идёт each ... by N (и сам кусок растить нельзя)");
@@ -1667,20 +1675,20 @@ static inline void *tb_grow(tb_list *l) {
     l->len += 1;
     return l->data + (l->len - 1) * l->size;
 }
-static void *tb_pop(tb_list *l, int line) {
+TB_API void *tb_pop(tb_list *l, int line) {
     if (l->len == 0) tb_crash(line, ".pop() у пустого списка");
     l->len -= 1;
     return l->data + l->len * l->size;
 }
 // ---------- list bool: по одному биту на элемент (в 8 раз меньше памяти) ----------
 // тот же tb_list: len и cap — в битах, size = 0, data — слова по 64 бита
-static tb_list *tb_bits_new(void) {
+TB_API tb_list *tb_bits_new(void) {
     tb_list *l = tb_mem(sizeof(tb_list));
     l->len = 0; l->cap = 64; l->size = 0; l->data = tb_mem_np(8);
     memset(l->data, 0, 8);
     return l;
 }
-static tb_list *tb_bits_from(long long n, const unsigned char *src) {
+TB_API tb_list *tb_bits_from(long long n, const unsigned char *src) {
     tb_list *l = tb_mem(sizeof(tb_list));
     long long words = (n + 63) / 64 + (n == 0);
     l->len = n; l->cap = words * 64; l->size = 0; l->data = tb_mem_np(words * 8);
@@ -1691,16 +1699,16 @@ static tb_list *tb_bits_from(long long n, const unsigned char *src) {
 }
 // бит без проверки номера (для each — номер всегда внутри)
 #define TB_BIT(l, i) ((_Bool)((((unsigned long long *)(l)->data)[(i) >> 6] >> ((i) & 63)) & 1))
-static inline _Bool tb_bget(tb_list *l, long long i, int line) {
+TB_INL _Bool tb_bget(tb_list *l, long long i, int line) {
     if (TB_RARE((unsigned long long)i >= (unsigned long long)l->len)) tb_crash(line, "номер за пределами списка");
     return TB_BIT(l, i);
 }
-static inline void tb_bset(tb_list *l, long long i, _Bool v, int line) {
+TB_INL void tb_bset(tb_list *l, long long i, _Bool v, int line) {
     if (TB_RARE((unsigned long long)i >= (unsigned long long)l->len)) tb_crash(line, "номер за пределами списка");
     unsigned long long *w = (unsigned long long *)l->data + (i >> 6), m = 1ULL << (i & 63);
     *w = v ? (*w | m) : (*w & ~m);
 }
-static inline void tb_badd(tb_list *l, _Bool v) {
+TB_INL void tb_badd(tb_list *l, _Bool v) {
     if (TB_RARE(l->len >= l->cap)) {
         if (l->cap < 0) tb_crash(0, "список нельзя растить, пока по нему идёт each ... by N (и сам кусок растить нельзя)");
         long long old = l->cap / 8;
@@ -1712,13 +1720,13 @@ static inline void tb_badd(tb_list *l, _Bool v) {
     unsigned long long *w = (unsigned long long *)l->data + (i >> 6), m = 1ULL << (i & 63);
     *w = v ? (*w | m) : (*w & ~m);
 }
-static inline _Bool tb_bpop(tb_list *l, int line) {
+TB_INL _Bool tb_bpop(tb_list *l, int line) {
     if (l->len == 0) tb_crash(line, ".pop() у пустого списка");
     l->len -= 1;
     return TB_BIT(l, l->len);
 }
 // N одинаковых битов в конец (repeat N times: flags.add(true))
-static void tb_bfill(tb_list *l, long long n, _Bool v) {
+TB_API void tb_bfill(tb_list *l, long long n, _Bool v) {
     if (n <= 0) return;
     if (l->cap < 0) tb_crash(0, "список нельзя растить, пока по нему идёт each ... by N (и сам кусок растить нельзя)");
     long long need = l->len + n;
@@ -1737,9 +1745,9 @@ static void tb_bfill(tb_list *l, long long n, _Bool v) {
     l->len = need;
 }
 // значения dict bool лежат байтами — в list bool их надо переложить в биты
-static tb_list *tb_bits_of_bytes(tb_list *b) { return tb_bits_from(b->len, (const unsigned char *)b->data); }
+TB_API tb_list *tb_bits_of_bytes(tb_list *b) { return tb_bits_from(b->len, (const unsigned char *)b->data); }
 // N одинаковых элементов в конец (repeat N times: nums.add(0))
-static void tb_fill(tb_list *l, long long n, const void *v) {
+TB_API void tb_fill(tb_list *l, long long n, const void *v) {
     if (n <= 0) return;
     if (l->len + n > l->cap) {
         if (l->cap < 0) tb_crash(0, "список нельзя растить, пока по нему идёт each ... by N (и сам кусок растить нельзя)");
@@ -1755,23 +1763,23 @@ static void tb_fill(tb_list *l, long long n, const void *v) {
     else for (long long i = 0; i < n; i++) memcpy(p + i * l->size, v, l->size);
     l->len += n;
 }
-static void *tb_nn(void *p, int line) {
+TB_API void *tb_nn(void *p, int line) {
     if (p == 0) tb_crash(line, "obj пустой: его ещё не создали");
     return p;
 }
-static const char *tb_cat(const char *a, const char *b) {
+TB_API const char *tb_cat(const char *a, const char *b) {
     size_t la = strlen(a), lb = strlen(b);
     char *s = tb_tmem(la + lb + 1);
     memcpy(s, a, la);
     memcpy(s + la, b, lb + 1);
     return s;
 }
-static const char *tb_itos(long long x) { char *s = tb_tmem(32); snprintf(s, 32, "%lld", x); return s; }
-static const char *tb_dtos(double x) { char *s = tb_tmem(40); snprintf(s, 40, "%g", x); return s; }
-static const char *tb_btos(int x) { return x ? "true" : "false"; }
+TB_API const char *tb_itos(long long x) { char *s = tb_tmem(32); snprintf(s, 32, "%lld", x); return s; }
+TB_API const char *tb_dtos(double x) { char *s = tb_tmem(40); snprintf(s, 40, "%g", x); return s; }
+TB_API const char *tb_btos(int x) { return x ? "true" : "false"; }
 // текст из одного байта: 256 готовых строк, без выделения памяти на каждую букву
 // таблица постоянная: компилятор C видит, что второй байт всегда 0, и  ch == ","  становится одним сравнением байта
-static const char tb_chars[512] = {
+TB_API const char tb_chars[512] = {
     0,0,1,0,2,0,3,0,4,0,5,0,6,0,7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,
     16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,
     32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0,47,0,
@@ -1789,8 +1797,8 @@ static const char tb_chars[512] = {
     224,0,225,0,226,0,227,0,228,0,229,0,230,0,231,0,232,0,233,0,234,0,235,0,236,0,237,0,238,0,239,0,
     240,0,241,0,242,0,243,0,244,0,245,0,246,0,247,0,248,0,249,0,250,0,251,0,252,0,253,0,254,0,255,0,
 };
-static inline const char *tb_chr(long long c) { return tb_chars + 2 * (unsigned char)c; }
-static inline long long tb_tlen(const char *s) {
+TB_INL const char *tb_chr(long long c) { return tb_chars + 2 * (unsigned char)c; }
+TB_INL long long tb_tlen(const char *s) {
     if (tb_lc_p[0] == s) return tb_lc_n[0];
     if (tb_lc_p[1] == s) return tb_lc_n[1];
     long long n = (long long)strlen(s);
@@ -1798,7 +1806,7 @@ static inline long long tb_tlen(const char *s) {
     return n;
 }
 // n — длина, если компилятор её знает (текст, в который дописывают), иначе -1
-static inline const char *tb_char_at(const char *s, long long i, long long n, int line) {
+TB_INL const char *tb_char_at(const char *s, long long i, long long n, int line) {
     if (n < 0) n = tb_tlen(s);
     if (i < 0 || i >= n) tb_crash(line, "номер за пределами текста");
     return tb_chr((unsigned char)s[i]);
@@ -1806,9 +1814,9 @@ static inline const char *tb_char_at(const char *s, long long i, long long n, in
 // s += b: дописать в конец своей памяти s, а не собирать третий текст из двух.
 // *rl — длина s в своей памяти (-1: своей памяти нет, s могли сохранить где-то ещё — сначала копия),
 // *rc — сколько там места.
-static void tb_app_n(const char **p, long long *rl, long long *rc, const char *b, long long lb);
+TB_API void tb_app_n(const char **p, long long *rl, long long *rc, const char *b, long long lb);
 // число цифрами в конец буфера d[24]: вернёт начало цифр, длину — в *n
-static inline const char *tb_digits(long long x, char *d, long long *n) {
+TB_INL const char *tb_digits(long long x, char *d, long long *n) {
     unsigned long long u = x < 0 ? 0ULL - (unsigned long long)x : (unsigned long long)x;
     char *p = d + 24;
     do { *--p = (char)('0' + u % 10); u /= 10; } while (u);
@@ -1816,24 +1824,24 @@ static inline const char *tb_digits(long long x, char *d, long long *n) {
     *n = d + 24 - p;
     return p;
 }
-static inline void tb_app(const char **p, long long *rl, long long *rc, const char *b) {
+TB_INL void tb_app(const char **p, long long *rl, long long *rc, const char *b) {
     tb_app_n(p, rl, rc, b, (long long)strlen(b));
 }
 // дописать число: цифры пишутся прямо в конец, без отдельного текста
-static inline void tb_app_i(const char **p, long long *rl, long long *rc, long long x) {
+TB_INL void tb_app_i(const char **p, long long *rl, long long *rc, long long x) {
     char d[24]; int n = 0;
     unsigned long long u = x < 0 ? 0ULL - (unsigned long long)x : (unsigned long long)x;
     do { d[23 - n++] = (char)('0' + u % 10); u /= 10; } while (u);
     if (x < 0) d[23 - n++] = '-';
     tb_app_n(p, rl, rc, d + 24 - n, n);
 }
-static void tb_app_n(const char **p, long long *rl, long long *rc, const char *b, long long lb);
+TB_API void tb_app_n(const char **p, long long *rl, long long *rc, const char *b, long long lb);
 // ядро отдаёт свой кусок в общий текст: если общий ещё пустой — забирает память куска целиком, без копии
-static void tb_app_take(const char **p, long long *rl, long long *rc, const char *b, long long brl, long long brc) {
+TB_API void tb_app_take(const char **p, long long *rl, long long *rc, const char *b, long long brl, long long brc) {
     if (*rl < 0 && (*p)[0] == 0 && brl >= 0) { *p = b; *rl = brl; *rc = brc; return; }
     tb_app_n(p, rl, rc, b, brl >= 0 ? brl : (long long)strlen(b));
 }
-static void tb_app_n(const char **p, long long *rl, long long *rc, const char *b, long long lb) {
+TB_API void tb_app_n(const char **p, long long *rl, long long *rc, const char *b, long long lb) {
     char *s = (char *)*p;
     if (*rl < 0) {
         long long la = (long long)strlen(s);
@@ -1858,7 +1866,7 @@ static void tb_app_n(const char **p, long long *rl, long long *rc, const char *b
     *rl += lb;
     s[*rl] = 0;
 }
-static const char *tb_cut(const char *s, long long from, long long to, int line) {
+TB_API const char *tb_cut(const char *s, long long from, long long to, int line) {
     long long n = (long long)strlen(s);
     if (from < 0 || to >= n || from > to + 1) tb_crash(line, "cut: номера за пределами текста");
     char *r = tb_tmem(to - from + 2);
@@ -1866,57 +1874,57 @@ static const char *tb_cut(const char *s, long long from, long long to, int line)
     r[to - from + 1] = 0;
     return r;
 }
-static long long tb_code(const char *s, int line) {
+TB_API long long tb_code(const char *s, int line) {
     if (s[0] == 0) tb_crash(line, "code: текст пустой");
     return (unsigned char)s[0];
 }
-static long long tb_div(long long a, long long b, int line) { if (b == 0) tb_crash(line, "деление на ноль"); return a / b; }
-static long long tb_mod(long long a, long long b, int line) { if (b == 0) tb_crash(line, "остаток от деления на ноль"); return a % b; }
-static long long tb_round(double x) { return (long long)(x < 0 ? x - 0.5 : x + 0.5); }
-static void tb_ps(const char *s) { fputs(s, stdout); }
+TB_API long long tb_div(long long a, long long b, int line) { if (b == 0) tb_crash(line, "деление на ноль"); return a / b; }
+TB_API long long tb_mod(long long a, long long b, int line) { if (b == 0) tb_crash(line, "остаток от деления на ноль"); return a % b; }
+TB_API long long tb_round(double x) { return (long long)(x < 0 ? x - 0.5 : x + 0.5); }
+TB_API void tb_ps(const char *s) { fputs(s, stdout); }
 
 
 
 // ---------- ошибки fail / try / or / else err ----------
 // Функция, которая сломалась, кладёт текст ошибки в tb_err и сразу выходит.
 // Тот, кто её вызвал, смотрит в tb_err.
-static _Thread_local const char *tb_err = 0;   // у каждого ядра своя
+TB_API _Thread_local const char *tb_err = 0;   // у каждого ядра своя
 
-TB_COLD static void tb_die(const char *msg) {
+TB_COLD TB_API void tb_die(const char *msg) {
     fflush(stdout);
     fprintf(stderr, "ошибка: %s\n", msg);
     exit(1);
 }
 
 // ---------- текст ----------
-static const char *tb_upper(const char *s) {
+TB_API const char *tb_upper(const char *s) {
     size_t n = strlen(s); char *r = tb_tmem(n + 1);
     for (size_t i = 0; i <= n; i++) r[i] = (s[i] >= 'a' && s[i] <= 'z') ? s[i] - 32 : s[i];
     return r;
 }
-static const char *tb_lower(const char *s) {
+TB_API const char *tb_lower(const char *s) {
     size_t n = strlen(s); char *r = tb_tmem(n + 1);
     for (size_t i = 0; i <= n; i++) r[i] = (s[i] >= 'A' && s[i] <= 'Z') ? s[i] + 32 : s[i];
     return r;
 }
-static int tb_space(char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r'; }
-static const char *tb_trim(const char *s) {
+TB_API int tb_space(char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r'; }
+TB_API const char *tb_trim(const char *s) {
     size_t a = 0, b = strlen(s);
     while (a < b && tb_space(s[a])) a++;
     while (b > a && tb_space(s[b - 1])) b--;
     char *r = tb_tmem(b - a + 1); memcpy(r, s + a, b - a); r[b - a] = 0;
     return r;
 }
-static long long tb_find(const char *s, const char *part) {
+TB_API long long tb_find(const char *s, const char *part) {
     const char *p = strstr(s, part);
     return p ? (long long)(p - s) : -1;
 }
-static int tb_starts(const char *s, const char *p) { return strncmp(s, p, strlen(p)) == 0; }
-static int tb_ends(const char *s, const char *p) {
+TB_API int tb_starts(const char *s, const char *p) { return strncmp(s, p, strlen(p)) == 0; }
+TB_API int tb_ends(const char *s, const char *p) {
     size_t a = strlen(s), b = strlen(p);
     return b <= a && strcmp(s + a - b, p) == 0;
 }
-static const char *tb_replace(const char *s, const char *from, const char *to, int line) {
+TB_API const char *tb_replace(const char *s, const char *from, const char *to, int line) {
     size_t lf = strlen(from), lt = strlen(to), count = 0;
     if (lf == 0) tb_crash(line, "replace: что заменять — пустой текст");
     for (const char *p = strstr(s, from); p; p = strstr(p + lf, from)) count++;
@@ -1930,7 +1938,7 @@ static const char *tb_replace(const char *s, const char *from, const char *to, i
     strcpy(w, p);
     return r;
 }
-static tb_list *tb_split(const char *s, const char *sep, int line) {
+TB_API tb_list *tb_split(const char *s, const char *sep, int line) {
     size_t ls = strlen(sep);
     if (ls == 0) tb_crash(line, "split: разделитель — пустой текст");
     tb_list *l = tb_list_new(sizeof(const char *));
@@ -1945,7 +1953,7 @@ static tb_list *tb_split(const char *s, const char *sep, int line) {
     }
     return l;
 }
-static const char *tb_join(tb_list *l, const char *sep) {
+TB_API const char *tb_join(tb_list *l, const char *sep) {
     size_t n = 0, ls = strlen(sep);
     for (long long i = 0; i < l->len; i++) n += strlen(((const char **)l->data)[i]) + ls;
     char *r = tb_tmem(n + 1), *w = r;
@@ -1957,7 +1965,7 @@ static const char *tb_join(tb_list *l, const char *sep) {
     *w = 0;
     return r;
 }
-static long long tb_to_int(const char *s) {
+TB_API long long tb_to_int(const char *s) {
     long long v = 0; int i = 0, minus = 0;
     if (s[0] == '-') { minus = 1; i = 1; }
     if (s[i] == 0) { tb_err = tb_cat("это не число: ", s); return 0; }
@@ -1967,7 +1975,7 @@ static long long tb_to_int(const char *s) {
     }
     return minus ? -v : v;
 }
-static double tb_to_dec(const char *s) {
+TB_API double tb_to_dec(const char *s) {
     char *end = 0;
     double v = strtod(s, &end);
     if (s[0] == 0 || *end != 0) { tb_err = tb_cat("это не дробное число: ", s); return 0; }
@@ -1975,7 +1983,7 @@ static double tb_to_dec(const char *s) {
 }
 
 // ---------- файлы, ввод, слова запуска ----------
-static const char *tb_read_file(const char *path) {
+TB_API const char *tb_read_file(const char *path) {
     FILE *f = fopen(path, "rb");
     if (f == 0) { tb_err = tb_cat("не могу открыть файл: ", path); return ""; }
     size_t cap = 4096, n = 0, got;
@@ -1988,13 +1996,13 @@ static const char *tb_read_file(const char *path) {
     buf[n] = 0;
     return buf;
 }
-static void tb_write_file(const char *path, const char *s) {
+TB_API void tb_write_file(const char *path, const char *s) {
     FILE *f = fopen(path, "wb");
     if (f == 0) { tb_err = tb_cat("не могу записать файл: ", path); return; }
     fputs(s, f);
     fclose(f);
 }
-static const char *tb_input(void) {
+TB_API const char *tb_input(void) {
     fflush(stdout);
     size_t cap = 256, n = 0;
     char *buf = tb_tmem(cap);
@@ -2008,8 +2016,8 @@ static const char *tb_input(void) {
     buf[n] = 0;
     return buf;
 }
-static tb_list *tb_args;
-static long long tb_run(const char *command) {
+TB_API tb_list *tb_args;
+TB_API long long tb_run(const char *command) {
     fflush(stdout);
 #ifdef _WIN32
     // на Windows команду выполняет cmd.exe, а system сразу отдаёт код выхода
@@ -2021,8 +2029,8 @@ static long long tb_run(const char *command) {
     return code == 0 ? 0 : (code > 255 ? code / 256 : code);
 #endif
 }
-static void tb_exit(long long code) { fflush(stdout); exit((int)code); }
-static int tb_file_exists(const char *path) {
+TB_API void tb_exit(long long code) { fflush(stdout); exit((int)code); }
+TB_API int tb_file_exists(const char *path) {
     FILE *f = fopen(path, "rb");
     if (f == 0) return 0;
     fclose(f);
@@ -2030,18 +2038,18 @@ static int tb_file_exists(const char *path) {
 }
 // ---------- папки (в ядре без ОС их нет) ----------
 #ifndef TB_BARE
-static int tb_name_cmp(const void *a, const void *b) {
+TB_API int tb_name_cmp(const void *a, const void *b) {
     const char *x = *(const char * const *)a, *y = *(const char * const *)b;
     size_t lx = strlen(x), ly = strlen(y);
     int dx = lx > 0 && x[lx - 1] == '/', dy = ly > 0 && y[ly - 1] == '/';
     if (dx != dy) return dy - dx;          // папки первыми
     return strcasecmp(x, y);
 }
-static int tb_is_folder(const char *path) {
+TB_API int tb_is_folder(const char *path) {
     struct stat st;
     return stat(path, &st) == 0 && S_ISDIR(st.st_mode);
 }
-static tb_list *tb_list_dir(const char *path) {
+TB_API tb_list *tb_list_dir(const char *path) {
     tb_list *l = tb_list_new(sizeof(const char *));
     DIR *d = opendir(path);
     if (d == 0) { tb_err = tb_cat("не могу открыть папку: ", path); return l; }
@@ -2063,29 +2071,29 @@ static tb_list *tb_list_dir(const char *path) {
     if (l->len > 1) qsort(l->data, l->len, sizeof(const char *), tb_name_cmp);
     return l;
 }
-static void tb_make_folder(const char *path) {
+TB_API void tb_make_folder(const char *path) {
     if (mkdir(path, 0755) != 0) tb_err = tb_cat(errno == EEXIST ? "уже есть: " : "не могу создать папку: ", path);
 }
-static void tb_move(const char *from, const char *to) {
+TB_API void tb_move(const char *from, const char *to) {
     if (rename(from, to) != 0) tb_err = tb_cat(errno == EXDEV ? "нельзя переместить на другой диск: " : "не могу переместить: ", from);
 }
-static void tb_remove(const char *path) {
+TB_API void tb_remove(const char *path) {
     int r = tb_is_folder(path) ? rmdir(path) : unlink(path);
     if (r != 0) tb_err = tb_cat(errno == ENOTEMPTY || errno == EEXIST ? "папка не пустая: " : "не могу удалить: ", path);
 }
-static const char *tb_env(const char *name) {
+TB_API const char *tb_env(const char *name) {
     const char *v = getenv(name);
     return v ? v : "";
 }
-static long long tb_file_size(const char *path) {
+TB_API long long tb_file_size(const char *path) {
     struct stat st;
     if (stat(path, &st) != 0) return -1;
     return (long long)st.st_size;
 }
 
 // ---------- время и дата ----------
-static long long tb_unix_time(void) { return (long long)time(0); }
-static const char *tb_date_now(void) {
+TB_API long long tb_unix_time(void) { return (long long)time(0); }
+TB_API const char *tb_date_now(void) {
     time_t t = time(0);
     struct tm tmv;
     localtime_r(&t, &tmv);
@@ -2095,7 +2103,7 @@ static const char *tb_date_now(void) {
 }
 
 // ---------- http_get: страница из интернета через curl (есть на Mac и почти на любом Linux) ----------
-static const char *tb_http_get(const char *url) {
+TB_API const char *tb_http_get(const char *url) {
     if (strncmp(url, "http://", 7) != 0 && strncmp(url, "https://", 8) != 0) {
         tb_err = tb_cat("адрес должен начинаться с http:// или https://: ", url);
         return "";
@@ -2138,9 +2146,9 @@ static const char *tb_http_get(const char *url) {
 }
 
 // ---------- JSON: json_get(текст, "users.0.name") и json_text(текст) ----------
-static const char *tb_js_ws(const char *p) { while (*p == ' ' || *p == '\n' || *p == '\r' || *p == '\t') p++; return p; }
+TB_API const char *tb_js_ws(const char *p) { while (*p == ' ' || *p == '\n' || *p == '\r' || *p == '\t') p++; return p; }
 // пропустить одно значение; адрес после него или 0, если JSON сломан
-static const char *tb_js_skip(const char *p) {
+TB_API const char *tb_js_skip(const char *p) {
     p = tb_js_ws(p);
     if (*p == '"') {
         p++;
@@ -2161,7 +2169,7 @@ static const char *tb_js_skip(const char *p) {
     while (*p && *p != ',' && *p != '}' && *p != ']' && *p != ' ' && *p != '\n' && *p != '\r' && *p != '\t') p++;
     return p == s ? 0 : p;
 }
-static int tb_js_hex(const char *p) {
+TB_API int tb_js_hex(const char *p) {
     int v = 0;
     for (int i = 0; i < 4; i++) {
         char ch = p[i]; v <<= 4;
@@ -2173,7 +2181,7 @@ static int tb_js_hex(const char *p) {
     return v;
 }
 // строка JSON (p смотрит на ") → обычный текст
-static const char *tb_js_str(const char *p) {
+TB_API const char *tb_js_str(const char *p) {
     const char *e = tb_js_skip(p);
     if (!e) return 0;
     char *out = tb_tmem(e - p + 1), *o = out;
@@ -2202,7 +2210,7 @@ static const char *tb_js_str(const char *p) {
     *o = 0;
     return out;
 }
-static const char *tb_json_get(const char *js, const char *path) {
+TB_API const char *tb_json_get(const char *js, const char *path) {
     const char *p = tb_js_ws(js), *seg = path;
     while (*seg) {
         char key[256];
@@ -2269,7 +2277,7 @@ bad:
     return "";
 }
 // текст → строка JSON в кавычках: "a\"b"
-static const char *tb_json_text(const char *s) {
+TB_API const char *tb_json_text(const char *s) {
     size_t n = strlen(s);
     char *out = tb_tmem(n * 6 + 3), *o = out;
     *o++ = '"';
@@ -2286,19 +2294,19 @@ static const char *tb_json_text(const char *s) {
     return out;
 }
 // ---------- время и случайные числа ----------
-static long long tb_time_ms(void) {
+TB_API long long tb_time_ms(void) {
     struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
     return (long long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
 }
-static void tb_wait_ms(long long n) { fflush(stdout); if (n > 0) usleep((useconds_t)(n * 1000)); }
-static unsigned long long tb_rand_state = 0;
+TB_API void tb_wait_ms(long long n) { fflush(stdout); if (n > 0) usleep((useconds_t)(n * 1000)); }
+TB_API unsigned long long tb_rand_state = 0;
 // цвет из красного, зелёного и синего (0..255) — одно число 0xRRGGBB
-static long long tb_rgb(long long r, long long g, long long b) {
+TB_API long long tb_rgb(long long r, long long g, long long b) {
     r = r < 0 ? 0 : r > 255 ? 255 : r; g = g < 0 ? 0 : g > 255 ? 255 : g; b = b < 0 ? 0 : b > 255 ? 255 : b;
     return (r << 16) | (g << 8) | b;
 }
 // случайное целое от a до b (оба входят)
-static long long tb_random(long long a, long long b) {
+TB_API long long tb_random(long long a, long long b) {
     if (tb_rand_state == 0) {
         struct timespec ts; clock_gettime(CLOCK_REALTIME, &ts);
         tb_rand_state = ((unsigned long long)ts.tv_nsec << 20) ^ (unsigned long long)ts.tv_sec ^ 0x9E3779B97F4A7C15ULL;
@@ -2311,18 +2319,18 @@ static long long tb_random(long long a, long long b) {
 #endif
 
 // ---------- числа ----------
-static long long tb_absi(long long x) { return x < 0 ? -x : x; }
-static long long tb_mini(long long a, long long b) { return a < b ? a : b; }
-static long long tb_maxi(long long a, long long b) { return a > b ? a : b; }
-static double tb_mind(double a, double b) { return a < b ? a : b; }
-static double tb_maxd(double a, double b) { return a > b ? a : b; }
-static double tb_sqrt(double x, int line) { if (x < 0) tb_crash(line, "sqrt: корень из отрицательного числа"); return sqrt(x); }
+TB_API long long tb_absi(long long x) { return x < 0 ? -x : x; }
+TB_API long long tb_mini(long long a, long long b) { return a < b ? a : b; }
+TB_API long long tb_maxi(long long a, long long b) { return a > b ? a : b; }
+TB_API double tb_mind(double a, double b) { return a < b ? a : b; }
+TB_API double tb_maxd(double a, double b) { return a > b ? a : b; }
+TB_API double tb_sqrt(double x, int line) { if (x < 0) tb_crash(line, "sqrt: корень из отрицательного числа"); return sqrt(x); }
 
 // ---------- sort ----------
-static int tb_cmp_int(const void *a, const void *b) { long long x = *(const long long *)a, y = *(const long long *)b; return (x > y) - (x < y); }
-static int tb_cmp_dec(const void *a, const void *b) { double x = *(const double *)a, y = *(const double *)b; return (x > y) - (x < y); }
-static int tb_cmp_text(const void *a, const void *b) { return strcmp(*(const char * const *)a, *(const char * const *)b); }
-static tb_list *tb_copy(tb_list *l) {
+TB_API int tb_cmp_int(const void *a, const void *b) { long long x = *(const long long *)a, y = *(const long long *)b; return (x > y) - (x < y); }
+TB_API int tb_cmp_dec(const void *a, const void *b) { double x = *(const double *)a, y = *(const double *)b; return (x > y) - (x < y); }
+TB_API int tb_cmp_text(const void *a, const void *b) { return strcmp(*(const char * const *)a, *(const char * const *)b); }
+TB_API tb_list *tb_copy(tb_list *l) {
     if (l->size == 0) {
         tb_list *r = tb_mem(sizeof(tb_list));
         long long bytes = l->cap / 8;
@@ -2332,7 +2340,7 @@ static tb_list *tb_copy(tb_list *l) {
     }
     return tb_list_from(l->len, l->size, l->data);
 }
-static void tb_sort_list(tb_list *l, int (*cmp)(const void *, const void *)) { qsort(l->data, l->len, l->size, cmp); }
+TB_API void tb_sort_list(tb_list *l, int (*cmp)(const void *, const void *)) { qsort(l->data, l->len, l->size, cmp); }
 
 // ---------- dict: ключи и значения лежат в двух списках по порядку добавления,
 // а найти номер по ключу можно тремя способами (mode):
@@ -2347,7 +2355,7 @@ typedef struct {
 // ячейка таблицы: номер ключа + 1 (младшие 40 бит) и метка из старших битов хеша
 #define TB_DAT ((1LL << 40) - 1)
 #define TB_DTAG(h) ((long long)(((h) >> 40) << 40) & ~TB_DAT & 0x7FFFFFFFFFFFFFFFLL)
-static unsigned long long tb_hash(tb_dict *d, const void *k) {
+TB_API unsigned long long tb_hash(tb_dict *d, const void *k) {
     unsigned long long h = 1469598103934665603ULL;
     if (d->text) {
         for (const unsigned char *p = *(const unsigned char * const *)k; *p; p++) { h ^= *p; h *= 1099511628211ULL; }
@@ -2358,11 +2366,11 @@ static unsigned long long tb_hash(tb_dict *d, const void *k) {
     }
     return h;
 }
-static int tb_keq(tb_dict *d, const void *a, const void *b) {
+TB_API int tb_keq(tb_dict *d, const void *a, const void *b) {
     if (d->text) return strcmp(*(const char * const *)a, *(const char * const *)b) == 0;
     return *(const long long *)a == *(const long long *)b;
 }
-static inline long long tb_dfind(tb_dict *d, const void *k) {
+TB_INL long long tb_dfind(tb_dict *d, const void *k) {
     if (d->mode == 1) {
         unsigned long long at = (unsigned long long)(*(const long long *)k - d->base);
         return at < (unsigned long long)d->keys->len ? (long long)at : -1;
@@ -2385,13 +2393,13 @@ static inline long long tb_dfind(tb_dict *d, const void *k) {
     return -1;
 }
 // память для таблиц dict — там же, где лежат его ключи (временная или обычная)
-static void *tb_dalloc(tb_dict *d, void *old, long long bytes) {
+TB_API void *tb_dalloc(tb_dict *d, void *old, long long bytes) {
     if (old && !(tb_nchunks > 0 && tb_in_temp(old))) tb_gc_free(old);
     void *p = tb_in_cur_temp(d->keys->data) ? tb_temp_alloc(bytes) : tb_gc_alloc_np(bytes);
     if (!p) tb_crash(0, "не хватило памяти");
     return p;
 }
-static void tb_dreindex(tb_dict *d, long long nslots) {
+TB_API void tb_dreindex(tb_dict *d, long long nslots) {
     d->mode = 0;
     if (d->pos) {
         if (!(tb_nchunks > 0 && tb_in_temp(d->pos))) tb_gc_free(d->pos);
@@ -2408,13 +2416,13 @@ static void tb_dreindex(tb_dict *d, long long nslots) {
     }
 }
 // перейти на таблицу с хешем (ключ ушёл далеко от остальных или его удалили)
-static void tb_dto_hash(tb_dict *d) {
+TB_API void tb_dto_hash(tb_dict *d) {
     long long n = 8;
     while (n < d->keys->len * 2 + 2) n *= 2;
     tb_dreindex(d, n);
 }
 // mode 2: таблица pos на ключи base .. base+npos-1
-static void tb_dto_pos(tb_dict *d, long long npos) {
+TB_API void tb_dto_pos(tb_dict *d, long long npos) {
     long long *p = tb_dalloc(d, 0, npos * sizeof(long long));
     memset(p, 0, npos * sizeof(long long));
     const long long *ks = (const long long *)d->keys->data;
@@ -2424,7 +2432,7 @@ static void tb_dto_pos(tb_dict *d, long long npos) {
     d->npos = npos;
     d->mode = 2;
 }
-static tb_dict *tb_dict_new(int text, long long vsize) {
+TB_API tb_dict *tb_dict_new(int text, long long vsize) {
     tb_dict *d = tb_mem(sizeof(tb_dict));
     d->text = text;
     d->keys = text ? tb_list_new(sizeof(const char *)) : tb_list_new_np(sizeof(long long));
@@ -2436,7 +2444,7 @@ static tb_dict *tb_dict_new(int text, long long vsize) {
 }
 // .clear(): список снова пустой; свой кусок памяти отдаётся (если он не временный).
 // Тексты и obj внутри не удаляются: на них могут смотреть другие переменные.
-static void tb_lclear(tb_list *l, int line) {
+TB_API void tb_lclear(tb_list *l, int line) {
     if (l->cap < 0) tb_crash(line, ".clear() нельзя, пока по списку идёт each ... by N");
     int temp = tb_nchunks > 0 && tb_in_temp(l->data);
     if (!temp) tb_gc_free(l->data);
@@ -2447,7 +2455,7 @@ static void tb_lclear(tb_list *l, int line) {
     memset(l->data, 0, bytes);
     l->len = 0; l->cap = cap;
 }
-static void tb_dclear(tb_dict *d, int line) {
+TB_API void tb_dclear(tb_dict *d, int line) {
     tb_lclear(d->keys, line);
     tb_lclear(d->vals, line);
     if (d->pos && !(tb_nchunks > 0 && tb_in_temp(d->pos))) tb_gc_free(d->pos);
@@ -2457,7 +2465,7 @@ static void tb_dclear(tb_dict *d, int line) {
     else { d->mode = 1; d->nslots = 0; }
 }
 // новый ключ int k: можно ли остаться без поиска (mode 1 или 2)
-static void tb_dplace_int(tb_dict *d, long long k) {
+TB_API void tb_dplace_int(tb_dict *d, long long k) {
     long long n = d->keys->len;          // уже вместе с новым ключом
     if (d->mode == 1) {
         if (n == 1) { d->base = k; return; }
@@ -2478,7 +2486,7 @@ static void tb_dplace_int(tb_dict *d, long long k) {
     }
 }
 // место под значение ключа k; если ключа нет — добавить со значением *def
-static void *tb_dput(tb_dict *d, const void *k, const void *def) {
+TB_API void *tb_dput(tb_dict *d, const void *k, const void *def) {
     long long at = tb_dfind(d, k);
     if (at >= 0) return d->vals->data + at * d->vals->size;
     memcpy(tb_grow(d->keys), k, d->keys->size);
@@ -2497,7 +2505,7 @@ static void *tb_dput(tb_dict *d, const void *k, const void *def) {
     }
     return v;
 }
-static void *tb_dget(tb_dict *d, const void *k, int line) {
+TB_API void *tb_dget(tb_dict *d, const void *k, int line) {
     long long at = tb_dfind(d, k);
     if (TB_RARE(at < 0)) {
         if (d->text) tb_crash(line, tb_cat("в dict нет ключа: ", *(const char * const *)k));
@@ -2506,7 +2514,7 @@ static void *tb_dget(tb_dict *d, const void *k, int line) {
     return d->vals->data + at * d->vals->size;
 }
 // together: шаг 1 — просим память принести место ключа заранее
-static inline unsigned long long tb_dpre1(tb_dict *d, const void *k) {
+TB_INL unsigned long long tb_dpre1(tb_dict *d, const void *k) {
     if (d->mode == 1) {
         unsigned long long at = (unsigned long long)(*(const long long *)k - d->base);
         if (at < (unsigned long long)d->vals->len) __builtin_prefetch(d->vals->data + at * d->vals->size);
@@ -2522,7 +2530,7 @@ static inline unsigned long long tb_dpre1(tb_dict *d, const void *k) {
     return i;
 }
 // шаг 2 — место приехало: просим принести ключ и значение
-static inline void tb_dpre2(tb_dict *d, unsigned long long i) {
+TB_INL void tb_dpre2(tb_dict *d, unsigned long long i) {
     if (i == ~0ULL || d->mode == 1) return;
     long long s = d->mode == 2 ? d->pos[i] : (d->slots[i] & TB_DAT);
     if (s != 0) {
@@ -2531,17 +2539,17 @@ static inline void tb_dpre2(tb_dict *d, unsigned long long i) {
     }
 }
 // элемент списка заранее (prefetch за пределами списка ничего не ломает)
-static inline void tb_lpre(tb_list *l, long long i) {
+TB_INL void tb_lpre(tb_list *l, long long i) {
     __builtin_prefetch(l->data + i * l->size);
 }
 // ---------- холодные качества obj: своя память, отдельно от горячих ----------
-static void *tb_cold_mem(long long n) {
+TB_API void *tb_cold_mem(long long n) {
     if (tb_temp_depth > 0) return tb_mem(n);
     void *r = tb_gc_alloc(n);
     memset(r, 0, n);
     return r;
 }
-static void *tb_cold_mem_np(long long n) {
+TB_API void *tb_cold_mem_np(long long n) {
     if (tb_temp_depth > 0) return tb_mem(n);
     void *r = tb_gc_alloc_np(n);
     memset(r, 0, n);
@@ -2549,29 +2557,29 @@ static void *tb_cold_mem_np(long long n) {
 }
 // ---------- obj: память ----------
 // Внутри temp и шага цикла — из временной памяти, иначе — из памяти с уборкой.
-static void *tb_obj_mem(long long n) {
+TB_API void *tb_obj_mem(long long n) {
     if (tb_temp_depth > 0) return tb_mem(n);
     return tb_gc_alloc(n);
 }
-static void *tb_obj_mem_np(long long n) {
+TB_API void *tb_obj_mem_np(long long n) {
     if (tb_temp_depth > 0) return tb_mem(n);
     return tb_gc_alloc_np(n);
 }
 // ---------- background: работа в своём потоке ----------
 #ifndef TB_BARE
 typedef struct { pthread_t th; int done; void *res; } tb_task;
-static void tb_task_start(tb_task *t, void *(*run)(void *), void *arg) {
+TB_API void tb_task_start(tb_task *t, void *(*run)(void *), void *arg) {
     t->done = 0;
     if (tb_thread_create(&t->th, run, arg) != 0) tb_crash(0, "не получилось запустить background");
 }
 // a.wait: дождаться потока (один раз) и отдать адрес ответа
-static void *tb_wait(tb_task *t) {
+TB_API void *tb_wait(tb_task *t) {
     if (!t->done) { pthread_join(t->th, 0); t->done = 1; }
     return t->res;
 }
 #endif
-static int tb_dhas(tb_dict *d, const void *k) { return tb_dfind(d, k) >= 0; }
-static void tb_dremove(tb_dict *d, const void *k) {
+TB_API int tb_dhas(tb_dict *d, const void *k) { return tb_dfind(d, k) >= 0; }
+TB_API void tb_dremove(tb_dict *d, const void *k) {
     long long at = tb_dfind(d, k);
     if (at < 0) return;
     if (d->mode != 0) tb_dto_hash(d);
@@ -2583,7 +2591,7 @@ static void tb_dremove(tb_dict *d, const void *k) {
     d->vals->len -= 1;
     tb_dreindex(d, d->nslots);
 }
-static tb_dict *tb_dict_from(int text, long long vsize, long long n, const void *keys, const void *vals) {
+TB_API tb_dict *tb_dict_from(int text, long long vsize, long long n, const void *keys, const void *vals) {
     tb_dict *d = tb_dict_new(text, vsize);
     long long ksize = d->keys->size;
     for (long long i = 0; i < n; i++) {
@@ -2596,14 +2604,14 @@ static tb_dict *tb_dict_from(int text, long long vsize, long long n, const void 
 // Работа делится на куски; каждое ядро берёт следующий свободный кусок,
 // пока они не кончатся (так ядра не простаивают, если куски разные по тяжести).
 // shared: каждое ядро копит своё на «листке», потом один раз добавляет под замком.
-static pthread_mutex_t tb_par_lock = PTHREAD_MUTEX_INITIALIZER;
-static int tb_cores(void) {
+TB_API pthread_mutex_t tb_par_lock = PTHREAD_MUTEX_INITIALIZER;
+TB_API int tb_cores(void) {
     const char *want = getenv("TB_CORES");   // TB_CORES=1 — проверить на одном ядре
     long n = want != 0 ? atol(want) : sysconf(_SC_NPROCESSORS_ONLN);
     return n < 1 ? 1 : (n > 256 ? 256 : (int)n);
 }
 #ifdef TB_BARE
-static void tb_par_run(void *(*work)(void *), void *job, long long total) {
+TB_API void tb_par_run(void *(*work)(void *), void *job, long long total) {
     int n = tb_cores();
     if (n > total) n = (int)total;
     if (n < 1) n = 1;
@@ -2616,14 +2624,14 @@ static void tb_par_run(void *(*work)(void *), void *job, long long total) {
 #else
 // Готовые потоки: создаются один раз (при первом on all cores) и ждут работу.
 // Раньше каждый цикл на ядрах создавал и закрывал потоки — для коротких циклов это было дольше самой работы.
-static pthread_mutex_t tb_pool_m = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t tb_pool_go = PTHREAD_COND_INITIALIZER, tb_pool_end = PTHREAD_COND_INITIALIZER;
-static int tb_pool_n = 0, tb_pool_want = 0, tb_pool_busy = 0;
-static volatile long long tb_pool_gen = 0;
-static volatile int tb_pool_left = 0;
-static void *(*tb_pool_work)(void *) = 0;
-static void *tb_pool_job = 0;
-static void *tb_pool_loop(void *arg) {
+TB_API pthread_mutex_t tb_pool_m = PTHREAD_MUTEX_INITIALIZER;
+TB_API pthread_cond_t tb_pool_go = PTHREAD_COND_INITIALIZER, tb_pool_end = PTHREAD_COND_INITIALIZER;
+TB_API int tb_pool_n = 0, tb_pool_want = 0, tb_pool_busy = 0;
+TB_API volatile long long tb_pool_gen = 0;
+TB_API volatile int tb_pool_left = 0;
+TB_API void *(*tb_pool_work)(void *) = 0;
+TB_API void *tb_pool_job = 0;
+TB_API void *tb_pool_loop(void *arg) {
     int me = (int)(long long)arg;
     // поток пула не считается «работающим», пока ждёт: уборка памяти может идти
     __atomic_sub_fetch(&tb_gthreads, 1, __ATOMIC_RELEASE);
@@ -2650,7 +2658,7 @@ static void *tb_pool_loop(void *arg) {
     }
     return 0;
 }
-static void tb_par_run(void *(*work)(void *), void *job, long long total) {
+TB_API void tb_par_run(void *(*work)(void *), void *job, long long total) {
     int n = tb_cores();
     if (n > total) n = (int)total;
     if (n < 1) n = 1;
@@ -2688,46 +2696,46 @@ static void tb_par_run(void *(*work)(void *), void *job, long long total) {
     __atomic_store_n(&tb_pool_busy, 0, __ATOMIC_RELEASE);
 }
 #endif
-static long long tb_par_step(long long total) {
+TB_API long long tb_par_step(long long total) {
     long long s = total / ((long long)tb_cores() * 16);
     return s < 1 ? 1 : s;
 }
 
 // ---------- биты, адреса, порты, замки (danger и lock) ----------
-static inline long long tb_band(long long a, long long b) { return a & b; }
-static inline long long tb_bor(long long a, long long b) { return a | b; }
-static inline long long tb_bxor(long long a, long long b) { return a ^ b; }
-static inline long long tb_bnot(long long a) { return ~a; }
-static inline long long tb_shl(long long a, long long n) { return (long long)((unsigned long long)a << (n & 63)); }
-static inline long long tb_shr(long long a, long long n) { return (long long)((unsigned long long)a >> (n & 63)); }
+TB_INL long long tb_band(long long a, long long b) { return a & b; }
+TB_INL long long tb_bor(long long a, long long b) { return a | b; }
+TB_INL long long tb_bxor(long long a, long long b) { return a ^ b; }
+TB_INL long long tb_bnot(long long a) { return ~a; }
+TB_INL long long tb_shl(long long a, long long n) { return (long long)((unsigned long long)a << (n & 63)); }
+TB_INL long long tb_shr(long long a, long long n) { return (long long)((unsigned long long)a >> (n & 63)); }
 // чтение и запись по адресу: volatile — компилятор C не выкинет и не переставит их
-static inline long long tb_rd8(long long a) { return *(volatile uint8_t *)(uintptr_t)a; }
-static inline long long tb_rd16(long long a) { return *(volatile uint16_t *)(uintptr_t)a; }
-static inline long long tb_rd32(long long a) { return *(volatile uint32_t *)(uintptr_t)a; }
-static inline long long tb_rd64(long long a) { return (long long)*(volatile uint64_t *)(uintptr_t)a; }
-static inline void tb_wr8(long long a, long long v) { *(volatile uint8_t *)(uintptr_t)a = (uint8_t)v; }
-static inline void tb_wr16(long long a, long long v) { *(volatile uint16_t *)(uintptr_t)a = (uint16_t)v; }
-static inline void tb_wr32(long long a, long long v) { *(volatile uint32_t *)(uintptr_t)a = (uint32_t)v; }
-static inline void tb_wr64(long long a, long long v) { *(volatile uint64_t *)(uintptr_t)a = (uint64_t)v; }
-static inline long long tb_addr_of(tb_list *l) { return (long long)(uintptr_t)l->data; }
+TB_INL long long tb_rd8(long long a) { return *(volatile uint8_t *)(uintptr_t)a; }
+TB_INL long long tb_rd16(long long a) { return *(volatile uint16_t *)(uintptr_t)a; }
+TB_INL long long tb_rd32(long long a) { return *(volatile uint32_t *)(uintptr_t)a; }
+TB_INL long long tb_rd64(long long a) { return (long long)*(volatile uint64_t *)(uintptr_t)a; }
+TB_INL void tb_wr8(long long a, long long v) { *(volatile uint8_t *)(uintptr_t)a = (uint8_t)v; }
+TB_INL void tb_wr16(long long a, long long v) { *(volatile uint16_t *)(uintptr_t)a = (uint16_t)v; }
+TB_INL void tb_wr32(long long a, long long v) { *(volatile uint32_t *)(uintptr_t)a = (uint32_t)v; }
+TB_INL void tb_wr64(long long a, long long v) { *(volatile uint64_t *)(uintptr_t)a = (uint64_t)v; }
+TB_INL long long tb_addr_of(tb_list *l) { return (long long)(uintptr_t)l->data; }
 #ifdef TB_BARE
-static inline long long tb_pin8(long long p) { return tb_inb((unsigned short)p); }
-static inline long long tb_pin16(long long p) { return tb_inw((unsigned short)p); }
-static inline long long tb_pin32(long long p) { return tb_inl((unsigned short)p); }
-static inline void tb_pout8(long long p, long long v) { tb_outb((unsigned short)p, (unsigned char)v); }
-static inline void tb_pout16(long long p, long long v) { tb_outw((unsigned short)p, (unsigned short)v); }
-static inline void tb_pout32(long long p, long long v) { tb_outl((unsigned short)p, (unsigned int)v); }
+TB_INL long long tb_pin8(long long p) { return tb_inb((unsigned short)p); }
+TB_INL long long tb_pin16(long long p) { return tb_inw((unsigned short)p); }
+TB_INL long long tb_pin32(long long p) { return tb_inl((unsigned short)p); }
+TB_INL void tb_pout8(long long p, long long v) { tb_outb((unsigned short)p, (unsigned char)v); }
+TB_INL void tb_pout16(long long p, long long v) { tb_outw((unsigned short)p, (unsigned short)v); }
+TB_INL void tb_pout32(long long p, long long v) { tb_outl((unsigned short)p, (unsigned int)v); }
 // замок в ядре: одна команда xchg + прерывания выключены, пока замок у нас
 // (так прерывание не застрянет на замке, который держит прерванная задача)
-static inline unsigned long tb_lock_take(int *l) {
+TB_INL unsigned long tb_lock_take(int *l) {
     uint32_t f = tb_irq_save();
     while (__atomic_exchange_n(l, 1, __ATOMIC_ACQUIRE)) { tb_irq_restore(f); tb_yield(); f = tb_irq_save(); }
     return f;
 }
-static inline void tb_lock_give(int *l, unsigned long f) { __atomic_store_n(l, 0, __ATOMIC_RELEASE); tb_irq_restore((uint32_t)f); }
+TB_INL void tb_lock_give(int *l, unsigned long f) { __atomic_store_n(l, 0, __ATOMIC_RELEASE); tb_irq_restore((uint32_t)f); }
 #else
 // замок в программе: атомарный обмен; занято — сначала коротко ждём, потом уступаем ядро
-static inline unsigned long tb_lock_take(int *l) {
+TB_INL unsigned long tb_lock_take(int *l) {
     while (__atomic_exchange_n(l, 1, __ATOMIC_ACQUIRE)) {
         for (int i = 0; __atomic_load_n(l, __ATOMIC_RELAXED); i++) {
             if (i >= 64) sched_yield();
@@ -2738,7 +2746,7 @@ static inline unsigned long tb_lock_take(int *l) {
     }
     return 0;
 }
-static inline void tb_lock_give(int *l, unsigned long f) { (void)f; __atomic_store_n(l, 0, __ATOMIC_RELEASE); }
+TB_INL void tb_lock_give(int *l, unsigned long f) { (void)f; __atomic_store_n(l, 0, __ATOMIC_RELEASE); }
 #endif
 
 // ---------- канал: очередь между потоками (channel int / text ...) ----------
@@ -2753,7 +2761,7 @@ typedef struct {
 #endif
     char *buf; long long cap, head, len, size; int text, closed;
 } tb_chan;
-static tb_chan *tb_chan_new(long long size, int text) {
+TB_API tb_chan *tb_chan_new(long long size, int text) {
     tb_chan *ch = tb_gc_alloc(sizeof(tb_chan));
     if (!ch) tb_crash(0, "не хватило памяти");
     memset(ch, 0, sizeof(tb_chan));
@@ -2772,7 +2780,7 @@ static tb_chan *tb_chan_new(long long size, int text) {
 #define TB_CH_LOCK(ch) pthread_mutex_lock(&(ch)->m)
 #define TB_CH_UNLOCK(ch) pthread_mutex_unlock(&(ch)->m)
 #endif
-static void tb_chan_send(tb_chan *ch, const void *v, int line) {
+TB_API void tb_chan_send(tb_chan *ch, const void *v, int line) {
     char tmp[16];
     const void *src = v;
     if (ch->text) {
@@ -2801,7 +2809,7 @@ static void tb_chan_send(tb_chan *ch, const void *v, int line) {
     TB_CH_UNLOCK(ch);
 }
 // взять следующее значение; 0 — канал закрыт и пуст
-static int tb_chan_take(tb_chan *ch, void *out) {
+TB_API int tb_chan_take(tb_chan *ch, void *out) {
 #ifdef TB_BARE
     unsigned long tb_chf;
     for (;;) {
@@ -2821,7 +2829,7 @@ static int tb_chan_take(tb_chan *ch, void *out) {
     TB_CH_UNLOCK(ch);
     return 1;
 }
-static void tb_chan_close(tb_chan *ch) {
+TB_API void tb_chan_close(tb_chan *ch) {
     TB_CH_LOCK(ch);
     ch->closed = 1;
 #ifndef TB_BARE
@@ -2833,7 +2841,7 @@ static void tb_chan_close(tb_chan *ch) {
 
 // ---------- окно и рисование (только если программа рисует) ----------
 #if defined(TB_GFX) && !defined(TB_BARE)
-static const unsigned char tb_font[161][16] = {
+TB_API const unsigned char tb_font[161][16] = {
 {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00},
 {0x00,0x00,0x00,0x00,0x00,0x18,0x18,0x18,0x18,0x18,0x18,0x00,0x18,0x18,0x00,0x00},
 {0x00,0x00,0x00,0x00,0x00,0x64,0x64,0x64,0x64,0x00,0x00,0x00,0x00,0x00,0x00,0x00},
@@ -2996,10 +3004,10 @@ static const unsigned char tb_font[161][16] = {
 {0x00,0x00,0x34,0x34,0x00,0x7e,0x60,0x60,0x60,0x7e,0x60,0x60,0x60,0x7e,0x00,0x00},
 {0x00,0x00,0x00,0x00,0x34,0x34,0x00,0x3c,0x66,0x66,0x7e,0x60,0x62,0x3c,0x00,0x00}
 };
-static uint32_t *tb_px = 0;
-static int tb_gw = 0, tb_gh = 0, tb_gclosed = 0, tb_mx = 0, tb_my = 0, tb_mdown = 0;
-static unsigned char tb_keys[256];
-static long long tb_last_frame = 0;
+TB_API uint32_t *tb_px = 0;
+TB_API int tb_gw = 0, tb_gh = 0, tb_gclosed = 0, tb_mx = 0, tb_my = 0, tb_mdown = 0;
+TB_API unsigned char tb_keys[256];
+TB_API long long tb_last_frame = 0;
 // клавиши: буквы и цифры — свой код ASCII (A..Z, 0..9), остальные:
 enum { TB_K_ENTER = 10, TB_K_ESC = 27, TB_K_SPACE = 32, TB_K_BACK = 8, TB_K_TAB = 9,
        TB_K_UP = 17, TB_K_DOWN = 18, TB_K_RIGHT = 19, TB_K_LEFT = 20, TB_K_SHIFT = 21 };
@@ -3010,8 +3018,8 @@ enum { TB_K_ENTER = 10, TB_K_ESC = 27, TB_K_SPACE = 32, TB_K_BACK = 8, TB_K_TAB 
 #define TB_MSG(R, o, s) ((R(*)(id, SEL))objc_msgSend)((id)(o), sel_getUid(s))
 #define TB_MSG1(R, o, s, A, a) ((R(*)(id, SEL, A))objc_msgSend)((id)(o), sel_getUid(s), a)
 #define TB_CLS(n) ((id)objc_getClass(n))
-static id tb_nsapp = 0, tb_wnd = 0;
-static const unsigned char tb_mac_keys[128] = {
+TB_API id tb_nsapp = 0, tb_wnd = 0;
+TB_API const unsigned char tb_mac_keys[128] = {
     [0]='A',[1]='S',[2]='D',[3]='F',[4]='H',[5]='G',[6]='Z',[7]='X',[8]='C',[9]='V',[11]='B',[12]='Q',[13]='W',
     [14]='E',[15]='R',[16]='Y',[17]='T',[18]='1',[19]='2',[20]='3',[21]='4',[22]='6',[23]='5',[25]='9',[26]='7',
     [28]='8',[29]='0',[31]='O',[32]='U',[34]='I',[35]='P',[36]=TB_K_ENTER,[37]='L',[38]='J',[40]='K',[45]='N',
@@ -3022,12 +3030,12 @@ static const unsigned char tb_mac_keys[128] = {
 // CGBitmapContextCreateImage делал копию при записи: каждая новая точка в кадре
 // стоила копии страницы памяти. Теперь три своих буфера по кругу: кадр копируется
 // одним memcpy, а картинка смотрит прямо в буфер, без копий внутри системы.
-static CGColorSpaceRef tb_cgspace = 0;
-static uint32_t *tb_pres[3];
-static int tb_pres_i = 0;
-static id tb_layer = 0;
-static BOOL tb_nswnd_close(id v, SEL s, id w) { (void)v; (void)s; (void)w; tb_gclosed = 1; return YES; }
-static int tb_gfx_open(const char *title) {
+TB_API CGColorSpaceRef tb_cgspace = 0;
+TB_API uint32_t *tb_pres[3];
+TB_API int tb_pres_i = 0;
+TB_API id tb_layer = 0;
+TB_API BOOL tb_nswnd_close(id v, SEL s, id w) { (void)v; (void)s; (void)w; tb_gclosed = 1; return YES; }
+TB_API int tb_gfx_open(const char *title) {
     tb_nsapp = TB_MSG(id, TB_CLS("NSApplication"), "sharedApplication");
     TB_MSG1(void, tb_nsapp, "setActivationPolicy:", long, 0);
     tb_wnd = ((id(*)(id, SEL, CGRect, unsigned long, unsigned long, BOOL))objc_msgSend)(
@@ -3059,7 +3067,7 @@ static int tb_gfx_open(const char *title) {
     TB_MSG1(void, tb_nsapp, "activateIgnoringOtherApps:", BOOL, YES);
     return 1;
 }
-static void tb_gfx_events(void) {
+TB_API void tb_gfx_events(void) {
     size_t bytes = (size_t)tb_gw * tb_gh * 4;
     uint32_t *buf = tb_pres[tb_pres_i];
     tb_pres_i = (tb_pres_i + 1) % 3;
@@ -3097,9 +3105,9 @@ static void tb_gfx_events(void) {
 }
 #elif defined(_WIN32)
 // окно на Windows: обычное окно Win32, кадр рисует GDI (StretchDIBits), нужна -lgdi32
-static HWND tb_hwnd = 0;
-static BITMAPINFO tb_bmi;
-static int tb_win_key(WPARAM v) {
+TB_API HWND tb_hwnd = 0;
+TB_API BITMAPINFO tb_bmi;
+TB_API int tb_win_key(WPARAM v) {
     if ((v >= 'A' && v <= 'Z') || (v >= '0' && v <= '9')) return (int)v;
     switch (v) {
     case VK_RETURN: return TB_K_ENTER; case VK_ESCAPE: return TB_K_ESC; case VK_SPACE: return TB_K_SPACE;
@@ -3109,10 +3117,10 @@ static int tb_win_key(WPARAM v) {
     }
     return 0;
 }
-static void tb_win_blit(HDC dc) {
+TB_API void tb_win_blit(HDC dc) {
     StretchDIBits(dc, 0, 0, tb_gw, tb_gh, 0, 0, tb_gw, tb_gh, tb_px, &tb_bmi, DIB_RGB_COLORS, SRCCOPY);
 }
-static LRESULT CALLBACK tb_win_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
+TB_API LRESULT CALLBACK tb_win_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
     case WM_CLOSE: tb_gclosed = 1; return 0;   // окно закроет сама программа: window_alive() вернёт false
     case WM_KEYDOWN: case WM_SYSKEYDOWN: case WM_KEYUP: case WM_SYSKEYUP: {
@@ -3129,7 +3137,7 @@ static LRESULT CALLBACK tb_win_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     }
     return DefWindowProcW(h, msg, wp, lp);
 }
-static int tb_gfx_open(const char *title) {
+TB_API int tb_gfx_open(const char *title) {
     HINSTANCE inst = GetModuleHandleW(0);
     WNDCLASSW wc;
     memset(&wc, 0, sizeof wc);
@@ -3157,7 +3165,7 @@ static int tb_gfx_open(const char *title) {
     SetForegroundWindow(tb_hwnd);
     return 1;
 }
-static void tb_gfx_events(void) {
+TB_API void tb_gfx_events(void) {
     HDC dc = GetDC(tb_hwnd);
     if (dc) { tb_win_blit(dc); ReleaseDC(tb_hwnd, dc); }
     MSG m;
@@ -3168,12 +3176,12 @@ static void tb_gfx_events(void) {
 #include <X11/Xutil.h>
 #include <X11/keysym.h>
 #include <X11/XKBlib.h>
-static Display *tb_dpy = 0;
-static Window tb_xw;
-static GC tb_xgc;
-static XImage *tb_ximg = 0;
-static Atom tb_wm_del;
-static int tb_gfx_open(const char *title) {
+TB_API Display *tb_dpy = 0;
+TB_API Window tb_xw;
+TB_API GC tb_xgc;
+TB_API XImage *tb_ximg = 0;
+TB_API Atom tb_wm_del;
+TB_API int tb_gfx_open(const char *title) {
     tb_dpy = XOpenDisplay(0);
     if (!tb_dpy) return 0;
     int scr = DefaultScreen(tb_dpy);
@@ -3188,7 +3196,7 @@ static int tb_gfx_open(const char *title) {
     tb_ximg = XCreateImage(tb_dpy, DefaultVisual(tb_dpy, scr), 24, ZPixmap, 0, (char *)tb_px, tb_gw, tb_gh, 32, 0);
     return 1;
 }
-static int tb_x_key(KeySym s) {
+TB_API int tb_x_key(KeySym s) {
     if (s >= XK_a && s <= XK_z) return 'A' + (int)(s - XK_a);
     if (s >= XK_A && s <= XK_Z) return 'A' + (int)(s - XK_A);
     if (s >= XK_0 && s <= XK_9) return '0' + (int)(s - XK_0);
@@ -3200,7 +3208,7 @@ static int tb_x_key(KeySym s) {
     }
     return 0;
 }
-static void tb_gfx_events(void) {
+TB_API void tb_gfx_events(void) {
     XPutImage(tb_dpy, tb_xw, tb_xgc, tb_ximg, 0, 0, 0, 0, tb_gw, tb_gh);
     while (XPending(tb_dpy)) {
         XEvent e; XNextEvent(tb_dpy, &e);
@@ -3216,7 +3224,7 @@ static void tb_gfx_events(void) {
     XFlush(tb_dpy);
 }
 #endif
-static void tb_window_open(long long w, long long h, const char *title) {
+TB_API void tb_window_open(long long w, long long h, const char *title) {
     if (tb_px) { tb_err = "окно уже открыто"; return; }
     if (w < 1 || h < 1 || w > 8192 || h > 8192) { tb_err = "размер окна от 1 до 8192"; return; }
     tb_gw = (int)w; tb_gh = (int)h;
@@ -3225,7 +3233,7 @@ static void tb_window_open(long long w, long long h, const char *title) {
     tb_last_frame = tb_time_ms();
 }
 // показать кадр, принять клавиши и мышь, держать 60 кадров в секунду; false — окно закрыли
-static int tb_window_alive(void) {
+TB_API int tb_window_alive(void) {
     if (!tb_px || tb_gclosed) return 0;
     tb_gfx_events();
     // TB_FPS_FREE=1 — без ограничения 60 кадров (для замеров скорости)
@@ -3236,21 +3244,21 @@ static int tb_window_alive(void) {
     tb_last_frame = tb_time_ms();
     return !tb_gclosed;
 }
-static inline void tb_put(long long x, long long y, long long c) {
+TB_INL void tb_put(long long x, long long y, long long c) {
     if (tb_px && x >= 0 && y >= 0 && x < tb_gw && y < tb_gh) tb_px[y * tb_gw + x] = (uint32_t)c;
 }
-static void tb_clear_window(long long c) { if (tb_px) for (long long i = 0; i < (long long)tb_gw * tb_gh; i++) tb_px[i] = (uint32_t)c; }
-static void tb_draw_pixel(long long x, long long y, long long c) { tb_put(x, y, c); }
-static void tb_draw_rect(long long x, long long y, long long w, long long h, long long c) {
+TB_API void tb_clear_window(long long c) { if (tb_px) for (long long i = 0; i < (long long)tb_gw * tb_gh; i++) tb_px[i] = (uint32_t)c; }
+TB_API void tb_draw_pixel(long long x, long long y, long long c) { tb_put(x, y, c); }
+TB_API void tb_draw_rect(long long x, long long y, long long w, long long h, long long c) {
     if (!tb_px) return;
     long long x0 = x < 0 ? 0 : x, y0 = y < 0 ? 0 : y, x1 = x + w > tb_gw ? tb_gw : x + w, y1 = y + h > tb_gh ? tb_gh : y + h;
     for (long long j = y0; j < y1; j++) for (long long i = x0; i < x1; i++) tb_px[j * tb_gw + i] = (uint32_t)c;
 }
-static void tb_draw_circle(long long cx, long long cy, long long r, long long c) {
+TB_API void tb_draw_circle(long long cx, long long cy, long long r, long long c) {
     for (long long j = -r; j <= r; j++) for (long long i = -r; i <= r; i++)
         if (i * i + j * j <= r * r + r) tb_put(cx + i, cy + j, c);
 }
-static void tb_draw_line(long long x0, long long y0, long long x1, long long y1, long long c) {
+TB_API void tb_draw_line(long long x0, long long y0, long long x1, long long y1, long long c) {
     long long dx = x1 > x0 ? x1 - x0 : x0 - x1, dy = y1 > y0 ? y0 - y1 : y1 - y0;
     long long sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1, e = dx + dy;
     while (1) {
@@ -3262,7 +3270,7 @@ static void tb_draw_line(long long x0, long long y0, long long x1, long long y1,
     }
 }
 // текст: буква 8×16, size — во сколько раз крупнее
-static void tb_draw_text(long long x, long long y, const char *s, long long size, long long c) {
+TB_API void tb_draw_text(long long x, long long y, const char *s, long long size, long long c) {
     if (size < 1) size = 1;
     const unsigned char *p = (const unsigned char *)s;
     long long cx = x;
@@ -3290,7 +3298,7 @@ static void tb_draw_text(long long x, long long y, const char *s, long long size
         cx += 8 * size;
     }
 }
-static int tb_key_down(const char *name) {
+TB_API int tb_key_down(const char *name) {
     static const struct { const char *n; int k; } names[] = {
         {"left", TB_K_LEFT}, {"right", TB_K_RIGHT}, {"up", TB_K_UP}, {"down", TB_K_DOWN}, {"space", TB_K_SPACE},
         {"enter", TB_K_ENTER}, {"escape", TB_K_ESC}, {"backspace", TB_K_BACK}, {"tab", TB_K_TAB}, {"shift", TB_K_SHIFT} };
@@ -3302,7 +3310,7 @@ static int tb_key_down(const char *name) {
     }
     return 0;
 }
-static long long tb_mouse_x(void) { return tb_mx; }
-static long long tb_mouse_y(void) { return tb_my; }
-static int tb_mouse_down(void) { return tb_mdown; }
+TB_API long long tb_mouse_x(void) { return tb_mx; }
+TB_API long long tb_mouse_y(void) { return tb_my; }
+TB_API int tb_mouse_down(void) { return tb_mdown; }
 #endif
