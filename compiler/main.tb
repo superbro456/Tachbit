@@ -184,6 +184,94 @@ func ll_probe(exe: text, native: bool) gives target: text, cpu: text
     remove(probe + ".ll") else err
         ignored = err
 
+// где лежат opt, llc и llvm-link: TB_LLVM, llvm-config, brew (Mac), PATH; "" — нигде
+func llvm_bin(tmp: text) gives d: text
+    probe = "d=\"${TB_LLVM:-}\"; ok() { [ -n \"$1\" ] && [ -x \"$1/opt\" ] && [ -x \"$1/llc\" ] && [ -x \"$1/llvm-link\" ]; }; "
+    probe += "ok \"$d\" || d=$(llvm-config --bindir 2> /dev/null); "
+    probe += "ok \"$d\" || d=/opt/homebrew/opt/llvm/bin; ok \"$d\" || d=/usr/local/opt/llvm/bin; "
+    probe += "ok \"$d\" || d=$(dirname \"$(command -v opt 2> /dev/null)\" 2> /dev/null); "
+    probe += "ok \"$d\" && echo \"$d\" > " + quote(tmp)
+    if run(probe) != 0
+        return
+    d = trim(read_file(tmp) or "")
+    remove(tmp) else err
+        ignored = err
+
+// простое число-отпечаток текста (какой версии библиотека лежит в запасе)
+func text_hash(s: text) gives h: int
+    h = 5381
+    each ch in s
+        h = (h * 33 + code(ch)) % 2147483647
+
+// библиотека runtime.h, заранее переведённая в LLVM (.bc), и её цель (процессор, система).
+// Делается один раз на версию библиотеки (clang переводит C — так же, как готовят libc)
+// и лежит в ~/.cache/tachbit; дальше программы собираются без clang
+func llvm_lib(bin: text, gfx: bool, native: bool) gives lib: text, target: text, cpu: text
+    dir = env("HOME") + "/.cache/tachbit"
+    src = runtime_text()
+    kind = "o"
+    flags = " -DTB_LL"
+    if gfx
+        kind = "g"
+        flags += " -DTB_GFX"
+    if native
+        kind += "n"
+        flags += " -march=native"
+    base = dir + "/rt-" + text_hash(src) + "-" + len(src) + "-" + kind
+    lib = base + ".bc"
+    tpath = base + ".target"
+    if not file_exists(lib) or not file_exists(tpath)
+        if run("mkdir -p " + quote(dir)) != 0
+            lib = ""
+            return
+        write_file(base + ".c", src) else err
+            lib = ""
+            return
+        cl = "c=" + quote(bin + "/clang") + "; [ -x \"$c\" ] || c=clang; "
+        cmd = cl + "\"$c\" -O2 -w -c -emit-llvm" + flags + " -x c " + quote(base + ".c") + " -o " + quote(base + ".tmp.bc") + " 2> /dev/null"
+        cmd += " && " + quote(bin + "/llvm-dis") + " " + quote(base + ".tmp.bc") + " -o - | grep -E '^target |^attributes #0 ' > " + quote(base + ".tmp.target")
+        cmd += " && mv " + quote(base + ".tmp.target") + " " + quote(tpath) + " && mv " + quote(base + ".tmp.bc") + " " + quote(lib)
+        ok = run(cmd) == 0
+        remove(base + ".c") else err
+            ignored = err
+        if not ok
+            lib = ""
+            return
+    target, cpu = ll_probe_parse(read_file(tpath) or "")
+
+// вся программа в .ll: llvm-link (+ библиотека .bc) → opt → llc → готовая программа.
+// false — что-то не вышло (нет LLVM, старая версия ...): тогда собираем как раньше, через clang
+func build_pure(c: Comp, program: Node, exe: text, native: bool) gives ok: bool
+    bin = llvm_bin(exe + ".llvmbin")
+    if bin == ""
+        return false
+    lib, target, cpu = llvm_lib(bin, c.gfx, native)
+    if lib == ""
+        return false
+    ll_path = exe + ".ll"
+    write_file(ll_path, emit_ll(c, program, target, cpu)) else err
+        return false
+    bc = exe + ".bc"
+    ofile = exe + ".o"
+    log = exe + ".llvm.log"
+    cmd = quote(bin + "/llvm-link") + " " + quote(ll_path) + " " + quote(lib) + " -o " + quote(bc)
+    // internalize: снаружи видна только main — opt встраивает библиотеку и выбрасывает лишнее
+    cmd += " && " + quote(bin + "/opt") + " -passes='internalize,default<O2>' -internalize-public-api-list=main " + quote(bc) + " -o " + quote(bc)
+    cmd += " && " + quote(bin + "/llc") + " -O2 -filetype=obj -relocation-model=pic " + quote(bc) + " -o " + quote(ofile)
+    // склеить с системными библиотеками: обычный линкер системы (через cc)
+    cmd += " && ${CC:-cc} -o " + quote(exe) + " " + quote(ofile) + " -lm -lpthread"
+    if c.gfx
+        cmd += " $( [ \"$(uname)\" = Darwin ] && echo '-framework Cocoa -framework CoreGraphics -framework QuartzCore -lobjc' || echo '-lX11' )"
+    ok = run(cmd + " 2> " + quote(log)) == 0
+    if not ok and env("TB_PURE_WHY") != ""
+        print("без clang не вышло, смотри " + log)
+    each f in [bc, ofile]
+        remove(f) else err
+            ignored = err
+    if ok
+        remove(log) else err
+            ignored = err
+
 // LLVM по умолчанию: не Windows, clang есть, CC пустой или clang
 func ll_default() gives r: bool
     if on_windows()
@@ -200,6 +288,12 @@ func build(c: Comp, path: text, exe: text, native: bool)
     if c.ll
         ll_pick(c, program)
     emit_c(c, program)
+    // вся программа на LLVM: собираем без clang (llvm-link, opt, llc), если есть инструменты LLVM
+    if c.ll and not on_windows() and env("TB_CLANG") == "" and ll_pure_ok(c, program)
+        c.ll_pure = true
+        if build_pure(c, program, exe, native)
+            return 0
+        c.ll_pure = false
     write_file(c_path, join(c.out, "")) else err
         print("не могу записать файл: " + c_path)
         return 1

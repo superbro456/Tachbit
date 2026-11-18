@@ -250,25 +250,6 @@ func emit_builtin(c: Comp, n: Node)
         i += 3
     put(c, "/* неизвестная встроенная " + name + " */0")
 
-// --llvm: файл .ll зовёт библиотеку через эти обёртки (сама библиотека — static,
-// так clang лучше её встраивает); LTO встраивает обёртки в код из .ll
-func ll_exports()
-    x = list text
-    x.add("#define TB_X(r, n, p, a) r tb_x_##n p { return tb_##n a; }\n#define TB_XV(n, p, a) void tb_x_##n p { tb_##n a; }\n")
-    x.add("TB_XV(ps, (const char *s), (s))\nTB_X(const char *, itos, (long long v), (v))\nTB_X(const char *, dtos, (double v), (v))\nTB_X(const char *, btos, (int v), (v))\n")
-    x.add("TB_X(const char *, digits, (long long v, char *d, long long *n), (v, d, n))\nTB_X(void *, mem_np, (long long n), (n))\nTB_X(long long, tlen, (const char *s), (s))\n")
-    x.add("TB_X(const char *, char_at, (const char *s, long long i, long long n, int line), (s, i, n, line))\nTB_X(const char *, cat, (const char *a, const char *b), (a, b))\n")
-    x.add("TB_XV(app, (const char **p, long long *rl, long long *rc, const char *b), (p, rl, rc, b))\nTB_XV(app_i, (const char **p, long long *rl, long long *rc, long long v), (p, rl, rc, v))\n")
-    x.add("TB_XV(app_n, (const char **p, long long *rl, long long *rc, const char *b, long long n), (p, rl, rc, b, n))\n")
-    x.add("TB_XV(temp_begin_p, (tb_mark *m), (m))\nTB_XV(temp_end_p, (tb_mark *m), (m))\nTB_X(int, fa_begin, (tb_mark *m), (m))\nTB_XV(fa_end, (int fa, tb_mark *m), (fa, m))\n")
-    x.add("TB_X(void *, grow, (tb_list *l), (l))\nTB_X(void *, pop, (tb_list *l, int line), (l, line))\nTB_XV(lclear, (tb_list *l, int line), (l, line))\n")
-    x.add("TB_X(tb_list *, list_new_np, (long long n), (n))\nTB_X(tb_list *, list_new, (long long n), (n))\nTB_X(tb_list *, list_from_np, (long long n, long long s, const void *p), (n, s, p))\nTB_X(tb_list *, list_from, (long long n, long long s, const void *p), (n, s, p))\n")
-    x.add("TB_X(tb_dict *, dict_new, (int t, long long v), (t, v))\nTB_X(tb_dict *, dict_from, (int t, long long v, long long n, const void *k, const void *vs), (t, v, n, k, vs))\n")
-    x.add("TB_X(void *, dget, (tb_dict *d, const void *k, int line), (d, k, line))\nTB_X(void *, dput, (tb_dict *d, const void *k, const void *def), (d, k, def))\nTB_X(int, dhas, (tb_dict *d, const void *k), (d, k))\n")
-    x.add("TB_XV(dremove, (tb_dict *d, const void *k), (d, k))\nTB_XV(dclear, (tb_dict *d, int line), (d, line))\nTB_X(long long, dlen, (tb_dict *d), (d))\nTB_X(tb_list *, dkeys_copy, (tb_dict *d), (d))\nTB_X(tb_list *, dvals_copy, (tb_dict *d), (d))\n")
-    x.add("TB_XV(die, (const char *m), (m))\nTB_X(const char *, chr, (long long c), (c))\nTB_X(tb_list *, bits_of_bytes, (tb_list *b), (b))\nTB_XV(app_take, (const char **p, long long *rl, long long *rc, const char *b, long long brl, long long brc), (p, rl, rc, b, brl, brc))\nTB_X(unsigned long long, dpre1, (tb_dict *d, const void *k), (d, k))\nTB_XV(dpre2, (tb_dict *d, unsigned long long i), (d, i))\nTB_XV(lpre, (tb_list *l, long long i), (l, i))\nTB_X(unsigned long, lock_take, (int *l), (l))\nTB_XV(lock_give, (int *l, unsigned long f), (l, f))\nTB_X(tb_chan *, chan_new, (long long size, int text), (size, text))\nTB_XV(chan_send, (tb_chan *ch, const void *v, int line), (ch, v, line))\nTB_X(int, chan_take, (tb_chan *ch, void *out), (ch, out))\nTB_XV(chan_close, (tb_chan *ch), (ch))\nTB_XV(par_run, (void *(*w)(void *), void *j, long long t), (w, j, t))\nTB_X(long long, par_step, (long long t), (t))\nvoid tb_x_par_lock(void) { pthread_mutex_lock(&tb_par_lock); }\nvoid tb_x_par_unlock(void) { pthread_mutex_unlock(&tb_par_lock); }\nTB_X(_Bool, bget, (tb_list *l, long long i, int line), (l, i, line))\nTB_XV(bset, (tb_list *l, long long i, _Bool v, int line), (l, i, v, line))\nTB_XV(badd, (tb_list *l, _Bool v), (l, v))\nTB_X(_Bool, bpop, (tb_list *l, int line), (l, line))\nTB_X(tb_list *, bits_new, (void), ())\nTB_X(tb_list *, bits_from, (long long n, const unsigned char *s), (n, s))\nconst char **tb_x_errp(void) { return &tb_err; }\n")
-    return join(x, "")
-
 // in_ll: тело в .ll (f__ll), а C-шная f(...) собирает выходы в структуру;
 // иначе тело в C, а f__ll(..., адреса) для .ll раскладывает структуру по адресам
 func emit_ll_gives(c: Comp, f: Node, in_ll: bool)
@@ -2698,9 +2679,8 @@ modpub func emit_c(c: Comp, program: Node)
         put(c, "#define TB_GFX 1\n")
     if c.ll
         put(c, "#define TB_LL 1\n")
+    // с TB_LL библиотека сама открывает обёртки tb_x_* и tb_ll_crash для файла .ll
     put(c, runtime_text())
-    if c.ll
-        put(c, ll_exports())
     // shared снаружи функций; в ядре volatile: их меняют прерывания и задачи
     each g in c.globals
         if c.bare
@@ -2710,10 +2690,6 @@ modpub func emit_c(c: Comp, program: Node)
         emit_as(c, g.kids[0], g.ty)
         put(c, ";\n")
 
-    if len(c.ll_names) > 0
-        // для функций из .ll: остановка с номером строки (деление на ноль, нет return)
-        put(c, "void tb_ll_crash(int line, int what) { tb_crash(line, what == 0 ? \"деление на ноль\" : what == 1 ? \"остаток от деления на ноль\" : what == 3 ? \"номер за пределами списка\" : what == 5 ? \"объект пустой: его ещё не создали\" : what == 6 ? \"канал закрыт и пуст: receive() нечего взять\" : what == 7 ? \"размер куска в by должен быть больше 0\" : \"obj пустой: его ещё не создали\"); }\n")
-        put(c, "void tb_ll_noreturn(int line, const char *name) { char m[256]; snprintf(m, sizeof m, \"функция %s дошла до конца без return\", name); tb_crash(line, m); }\n")
     // obj: сначала имена, потом устройство (obj может хранить другой obj)
     each top in program.kids
         if top.kind == "obj" and top.by_cols

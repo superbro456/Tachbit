@@ -2812,6 +2812,8 @@ func ll_loop_body(g: LLGen, c: Comp, body: Node, cont: text, out: text)
 
 // встроенная функция: обёртка tb_llb_N в C (номер записан в n.temp_no при выборе)
 func ll_builtin(g: LLGen, c: Comp, n: Node)
+    if c.ll_pure
+        return ll_builtin_x(g, c, n)
     args = ""
     tys = ""
     bargs = ll_bi_args(n)
@@ -2832,6 +2834,84 @@ func ll_builtin(g: LLGen, c: Comp, n: Node)
     r = ll_new(g, "%t")
     ll_put(g, r + " = call " + rt + " " + fn + "(" + args + ")")
     return r
+
+// без C: встроенная функция — сразу функция библиотеки tb_xb_имя(..., строка)
+func ll_builtin_x(g: LLGen, c: Comp, n: Node)
+    xn, xp = ll_xb(c, n)
+    fn = "@tb_xb_" + xn
+    args = ""
+    tys = ""
+    bargs = ll_bi_args(n)
+    count i from 0 to len(bargs) - 1
+        a = bargs[i]
+        v = ll_expr(g, c, a)
+        pk = xp[i]
+        pt = "ptr"
+        if pk == "d"
+            pt = "double"
+            if kind_of(c, a.ty) != "dec"
+                v2 = ll_new(g, "%t")
+                ll_put(g, v2 + " = sitofp i64 " + v + " to double")
+                v = v2
+        else if pk == "i"
+            pt = "i64"
+        args = args + pt + " " + v + ", "
+        tys = tys + pt + ", "
+    args = args + "i32 " + n.line
+    tys = tys + "i32"
+    rt = ll_ext(c, n.ty) + ll_ty(c, n.ty)
+    ll_need(g, "declare " + rt + " " + fn + "(" + tys + ")\n")
+    if ll_none(c, n.ty)
+        ll_put(g, "call void " + fn + "(" + args + ")")
+        return "0"
+    r = ll_new(g, "%t")
+    ll_put(g, r + " = call " + rt + " " + fn + "(" + args + ")")
+    return r
+
+// имя в библиотеке (tb_xb_имя) и виды параметров: i — int, d — dec, p — адрес (текст, список);
+// "" — такой функции там нет (тогда программа идёт старым путём, через clang)
+func ll_xb(c: Comp, n: Node) gives name: text, ps: text
+    nm = n.name
+    if nm == "sort"
+        k = kind_of(c, c.types[n.kids[0].kids[0].ty].elem)
+        if k == "int"
+            name = "sort_int"
+            ps = "p"
+            return
+        if k == "dec"
+            name = "sort_dec"
+            ps = "p"
+            return
+        name = "sort_text"
+        ps = "p"
+        return
+    if nm == "abs"
+        if kind_of(c, n.kids[0].kids[0].ty) == "int"
+            name = "abs_i"
+            ps = "i"
+            return
+        name = "abs_d"
+        ps = "d"
+        return
+    if nm == "min" or nm == "max"
+        if kind_of(c, n.ty) == "int"
+            name = nm + "_i"
+            ps = "ii"
+            return
+        name = nm + "_d"
+        ps = "dd"
+        return
+    table = ["round:d", "char:i", "cut:pii", "code:p", "to_int:p", "to_dec:p", "read_file:p", "write_file:pp", "split:pp", "join:pp", "find:pp", "replace:ppp", "upper:p", "lower:p", "trim:p", "starts_with:pp", "ends_with:pp", "run:p", "exit:i", "file_exists:p", "list_dir:p", "is_folder:p", "make_folder:p", "move:pp", "remove:p", "env:p", "file_size:p", "rgb:iii", "random:ii", "bit_and:ii", "bit_or:ii", "bit_xor:ii", "bit_not:i", "shift_left:ii", "shift_right:ii", "wait_ms:i", "http_get:p", "json_get:pp", "json_text:p", "date_now:", "unix_time:", "time_ms:", "input:", "args:", "sqrt:d", "window_open:iip", "window_alive:", "clear_window:i", "draw_pixel:iii", "draw_rect:iiiii", "draw_circle:iiii", "draw_line:iiiii", "draw_text:iipii", "key_down:p", "mouse_x:", "mouse_y:", "mouse_down:"]
+    each e in table
+        at = find(e, ":")
+        if cut(e, 0, at - 1) == nm
+            name = nm
+            ps = ""
+            if at < len(e) - 1
+                ps = cut(e, at + 1, len(e) - 1)
+            return
+    name = ""
+    ps = ""
 
 // адрес tb_err (у каждого потока свой): через маленькую функцию из C, LTO её встраивает
 func ll_errp(g: LLGen)
@@ -3605,8 +3685,13 @@ modpub func emit_ll(c: Comp, program: Node, target: text, cpu: text)
     each top in program.kids
         if top.kind == "func" and ll_has(c.ll_names, ll_fname(top))
             ll_func(c, top, all, decls)
+    // без clang: показ, конструкторы, shared и main — тоже здесь
+    own = list text
+    if c.ll_pure
+        own = ll_glue(c, program, decls, all)
     each d in decls
-        all.add(d)
+        if not (c.ll_pure and ll_glue_own(d, own))
+            all.add(d)
     all.add("attributes #0 = { nounwind" + cpu + " }\n")
     all.add("!0 = !{!\"branch_weights\", i32 1, i32 2000}\n")
     all.add("!1 = !{!\"tachbit\"}\n!2 = !{!\"tb.list\", !1, i64 0}\n!3 = !{!\"tb.int\", !1, i64 0}\n!4 = !{!\"tb.dec\", !1, i64 0}\n!5 = !{!\"tb.ptr\", !1, i64 0}\n")
@@ -3623,3 +3708,346 @@ modpub func ll_probe_parse(src: text) gives target: text, cpu: text
             each w in split(line, " ")
                 if starts_with(w, "\"") or w == "uwtable" or w == "ssp"
                     cpu = cpu + " " + w
+
+// ---------- вся программа в .ll (без clang) ----------
+// Обычно .ll — только функции, а показ значений, конструкторы obj, shared и main пишет C.
+// Если всё это можно сказать на LLVM, clang не нужен: llvm-link склеивает .ll с готовой
+// библиотекой (.bc), opt оптимизирует, llc делает машинный код.
+
+// можно ли собрать программу целиком в .ll
+modpub func ll_pure_ok(c: Comp, program: Node) gives ok: bool
+    why = ll_pure_why(c, program)
+    if why != "" and env("TB_PURE_WHY") != ""
+        print("через clang: " + why)
+    ok = why == ""
+
+func ll_pure_why(c: Comp, program: Node) gives why: text
+    if c.bare
+        return "ядро"
+    each top in program.kids
+        if top.kind == "func" and not ll_has(c.ll_names, ll_fname(top))
+            return "функция в C: " + top.name
+        if top.kind == "obj" and top.by_cols
+            return "by columns: " + top.name
+    each t in c.types
+        if t.kind == "obj" and not ll_plainobj(c, t.id)
+            return "obj: " + t.obj_name
+    each n in c.ll_bi
+        if n.kind != "call"
+            return "background / wait"
+        xn, xp = ll_xb(c, n)
+        if xn == "" or len(xp) != len(ll_bi_args(n))
+            return "встроенная: " + n.name
+
+// своё LLGen для кусков уровня файла (show, конструкторы, main)
+func ll_glue_gen(c: Comp, decls: list text, name: text)
+    f = Node(kind: "func", name: name, mod: "tb")
+    return LLGen(tmp: 0, open: true, fn: f, decls: decls, fa: "")
+
+// текст функции из LLGen: шапка, ячейки, тело
+func ll_glue_fn(g: LLGen, head: text, all: list text)
+    all.add(head + " {\nentry:\n")
+    each a in g.allocas
+        all.add(a)
+    each l in g.out
+        all.add(l)
+    all.add("}\n")
+
+// значение из памяти: bool лежит байтом
+func ll_glue_load(g: LLGen, c: Comp, t: int, p: text)
+    v = ll_new(g, "%t")
+    if kind_of(c, t) == "bool"
+        ll_put(g, v + " = load i8, ptr " + p)
+        b = ll_new(g, "%t")
+        ll_put(g, b + " = trunc i8 " + v + " to i1")
+        return b
+    ll_put(g, v + " = load " + ll_ty(c, t) + ", ptr " + p)
+    return v
+
+func ll_glue_ps(g: LLGen, s: text)
+    nm, n = ll_strconst(g, "\"" + s + "\"")
+    ll_put(g, "call void @tb_x_ps(ptr " + nm + ")")
+
+func ll_glue_show_call(g: LLGen, c: Comp, t: int, v: text)
+    ll_put(g, "call void @tb_show_" + t + "(" + ll_ty(c, t) + " " + ll_ext(c, t) + v + ")")
+
+// адрес качества obj по адресу самого obj (горячие — прямо в obj, холодные — через tb_cold)
+func ll_glue_fptr(g: LLGen, o: Node, base: text, name: text)
+    hot = 0
+    cold = 0
+    hot_at = -1
+    cold_at = -1
+    each f in o.kids
+        if f.is_cold
+            if f.name == name
+                cold_at = cold
+            cold += 1
+        else
+            if f.name == name
+                hot_at = hot
+            hot += 1
+    fp = ll_new(g, "%t")
+    if hot_at >= 0
+        ll_put(g, fp + " = getelementptr inbounds %\"tb_o_" + o.name + "\", ptr " + base + ", i32 0, i32 " + hot_at)
+        return fp
+    cp = ll_new(g, "%t")
+    ll_put(g, cp + " = getelementptr inbounds %\"tb_o_" + o.name + "\", ptr " + base + ", i32 0, i32 " + hot)
+    cb = ll_new(g, "%t")
+    ll_put(g, cb + " = load ptr, ptr " + cp)
+    ll_put(g, fp + " = getelementptr inbounds %\"tb_c_" + o.name + "\", ptr " + cb + ", i32 0, i32 " + cold_at)
+    return fp
+
+// цикл по элементам списка/dict: для i от 0 до len-1 (len читается из list по адресу lp)
+// возвращает (номер, метка тела, метка выхода); тело пишет вызывающий и зовёт ll_glue_next
+func ll_glue_loop(g: LLGen, lst: text) gives i: text, done: text
+    lp = ll_new(g, "%t")
+    ll_put(g, lp + " = getelementptr inbounds i8, ptr " + lst + ", i64 8")
+    n = ll_new(g, "%t")
+    ll_put(g, n + " = load i64, ptr " + lp)
+    is = "%\"i" + ll_new(g, "") + "\""
+    g.allocas.add("  " + is + " = alloca i64\n")
+    ll_put(g, "store i64 0, ptr " + is)
+    head = ll_new(g, "L")
+    body = ll_new(g, "L")
+    done = ll_new(g, "L")
+    ll_term(g, "br label %" + head)
+    ll_label(g, head)
+    i = ll_new(g, "%t")
+    ll_put(g, i + " = load i64, ptr " + is)
+    lt = ll_new(g, "%t")
+    ll_put(g, lt + " = icmp slt i64 " + i + ", " + n)
+    ll_term(g, "br i1 " + lt + ", label %" + body + ", label %" + done)
+    ll_label(g, body)
+    // ", " перед всеми, кроме первого
+    z = ll_new(g, "%t")
+    ll_put(g, z + " = icmp eq i64 " + i + ", 0")
+    sep = ll_new(g, "L")
+    go = ll_new(g, "L")
+    ll_term(g, "br i1 " + z + ", label %" + go + ", label %" + sep)
+    ll_label(g, sep)
+    ll_glue_ps(g, ", ")
+    ll_term(g, "br label %" + go)
+    ll_label(g, go)
+    // слот номера: вызывающий в конце тела зовёт ll_glue_next(g, is, i, head)
+    g.cont.add(is)
+    g.cont.add(head)
+
+func ll_glue_next(g: LLGen, i: text, done: text)
+    head = g.cont[len(g.cont) - 1]
+    is = g.cont[len(g.cont) - 2]
+    p1 = g.cont.pop()
+    p2 = g.cont.pop()
+    i2 = ll_new(g, "%t")
+    ll_put(g, i2 + " = add i64 " + i + ", 1")
+    ll_put(g, "store i64 " + i2 + ", ptr " + is)
+    ll_term(g, "br label %" + head)
+    ll_label(g, done)
+
+// элемент i списка lst с элементами типа t (bool — биты)
+func ll_glue_elem(g: LLGen, c: Comp, lst: text, t: int, i: text)
+    if kind_of(c, t) == "bool"
+        v = ll_new(g, "%t")
+        ll_put(g, v + " = call zeroext i1 @tb_x_bget(ptr " + lst + ", i64 " + i + ", i32 0)")
+        return v
+    d = ll_new(g, "%t")
+    ll_put(g, d + " = load ptr, ptr " + lst)
+    ep = ll_new(g, "%t")
+    ll_put(g, ep + " = getelementptr inbounds " + ll_ty(c, t) + ", ptr " + d + ", i64 " + i)
+    return ll_glue_load(g, c, t, ep)
+
+// tb_show_N: печать значения типа N (то же, что emit_show пишет на C)
+func ll_glue_show(c: Comp, t: Type, decls: list text, all: list text)
+    k = t.kind
+    if k == "none" or k == "multi" or k == "unknown"
+        return
+    g = ll_glue_gen(c, decls, "show" + t.id)
+    x = "%x"
+    if k == "task"
+        ll_glue_ps(g, "<background>")
+    else if k == "channel"
+        ll_glue_ps(g, "<channel>")
+    else if k == "enum"
+        names = t.obj_node.kids
+        count i from 0 to len(names) - 1
+            z = ll_new(g, "%t")
+            ll_put(g, z + " = icmp eq i64 %x, " + i)
+            yes = ll_new(g, "L")
+            no = ll_new(g, "L")
+            ll_term(g, "br i1 " + z + ", label %" + yes + ", label %" + no)
+            ll_label(g, yes)
+            ll_glue_ps(g, names[i].name)
+            ll_term(g, "ret void")
+            ll_label(g, no)
+    else if k == "int"
+        ll_put(g, "call void @tb_x_show_i(i64 %x)")
+    else if k == "dec"
+        ll_put(g, "call void @tb_x_show_d(double %x)")
+    else if k == "bool"
+        yes = ll_new(g, "L")
+        no = ll_new(g, "L")
+        ll_term(g, "br i1 %x, label %" + yes + ", label %" + no)
+        ll_label(g, yes)
+        ll_glue_ps(g, "true")
+        ll_term(g, "ret void")
+        ll_label(g, no)
+        ll_glue_ps(g, "false")
+    else if k == "text"
+        ll_put(g, "call void @tb_x_ps(ptr %x)")
+    else if k == "list"
+        ll_glue_ps(g, "[")
+        i, done = ll_glue_loop(g, x)
+        v = ll_glue_elem(g, c, x, t.elem, i)
+        ll_glue_show_call(g, c, t.elem, v)
+        ll_glue_next(g, i, done)
+        ll_glue_ps(g, "]")
+    else if k == "dict"
+        ll_glue_ps(g, "{")
+        kl = ll_new(g, "%t")
+        ll_put(g, kl + " = load ptr, ptr %x")
+        vp = ll_new(g, "%t")
+        ll_put(g, vp + " = getelementptr inbounds i8, ptr %x, i64 8")
+        vl = ll_new(g, "%t")
+        ll_put(g, vl + " = load ptr, ptr " + vp)
+        i, done = ll_glue_loop(g, kl)
+        kv = ll_glue_elem(g, c, kl, t.key, i)
+        ll_glue_show_call(g, c, t.key, kv)
+        ll_glue_ps(g, ": ")
+        // значения dict: bool — байтом (не битами, как в list bool)
+        d = ll_new(g, "%t")
+        ll_put(g, d + " = load ptr, ptr " + vl)
+        ep = ll_new(g, "%t")
+        ll_put(g, ep + " = getelementptr inbounds " + ll_mem_ty(c, t.elem) + ", ptr " + d + ", i64 " + i)
+        vv = ll_glue_load(g, c, t.elem, ep)
+        ll_glue_show_call(g, c, t.elem, vv)
+        ll_glue_next(g, i, done)
+        ll_glue_ps(g, "}")
+    else if k == "obj"
+        o = t.obj_node
+        z = ll_new(g, "%t")
+        ll_put(g, z + " = icmp eq ptr %x, null")
+        yes = ll_new(g, "L")
+        no = ll_new(g, "L")
+        ll_term(g, "br i1 " + z + ", label %" + yes + ", label %" + no)
+        ll_label(g, yes)
+        ll_glue_ps(g, "пусто")
+        ll_term(g, "ret void")
+        ll_label(g, no)
+        ll_glue_ps(g, o.name + "(")
+        count i from 0 to len(o.kids) - 1
+            sep = ""
+            if i > 0
+                sep = ", "
+            ll_glue_ps(g, sep + o.kids[i].name + ": ")
+            fp = ll_glue_fptr(g, o, "%x", o.kids[i].name)
+            fv = ll_glue_load(g, c, o.kids[i].ty, fp)
+            ll_glue_show_call(g, c, o.kids[i].ty, fv)
+        ll_glue_ps(g, ")")
+    ll_term(g, "ret void")
+    ll_glue_fn(g, "define internal void @tb_show_" + t.id + "(" + ll_ty(c, t.id) + " " + ll_ext(c, t.id) + "%x) #0", all)
+
+// tb_new_X: новый obj, качества по порядку (то же, что emit_constructor пишет на C)
+func ll_glue_new(c: Comp, o: Node, decls: list text, all: list text)
+    g = ll_glue_gen(c, decls, "new" + o.name)
+    head = "define internal ptr @tb_new_" + o.name + "("
+    cold = false
+    plain = true
+    cold_plain = true
+    count i from 0 to len(o.kids) - 1
+        f = o.kids[i]
+        if i > 0
+            head = head + ", "
+        head = head + ll_ty(c, f.ty) + " " + ll_ext(c, f.ty) + "%a" + i
+        if f.is_cold
+            cold = true
+            if not is_plain_ty(c, f.ty)
+                cold_plain = false
+        if not is_plain_ty(c, f.ty)
+            plain = false
+    if cold
+        plain = false
+    sp = ll_new(g, "%t")
+    ll_put(g, sp + " = getelementptr %\"tb_o_" + o.name + "\", ptr null, i32 1")
+    sz = ll_new(g, "%t")
+    ll_put(g, sz + " = ptrtoint ptr " + sp + " to i64")
+    mem = "tb_x_obj_mem"
+    if plain
+        mem = "tb_x_obj_mem_np"
+    ll_put(g, "%o = call ptr @" + mem + "(i64 " + sz + ")")
+    if cold
+        hot = 0
+        each f in o.kids
+            if not f.is_cold
+                hot += 1
+        csp = ll_new(g, "%t")
+        ll_put(g, csp + " = getelementptr %\"tb_c_" + o.name + "\", ptr null, i32 1")
+        csz = ll_new(g, "%t")
+        ll_put(g, csz + " = ptrtoint ptr " + csp + " to i64")
+        cmem = "tb_x_cold_mem"
+        if cold_plain
+            cmem = "tb_x_cold_mem_np"
+        cb = ll_new(g, "%t")
+        ll_put(g, cb + " = call ptr @" + cmem + "(i64 " + csz + ")")
+        cp = ll_new(g, "%t")
+        ll_put(g, cp + " = getelementptr inbounds %\"tb_o_" + o.name + "\", ptr %o, i32 0, i32 " + hot)
+        ll_put(g, "store ptr " + cb + ", ptr " + cp)
+    count i from 0 to len(o.kids) - 1
+        f = o.kids[i]
+        fp = ll_glue_fptr(g, o, "%o", f.name)
+        if kind_of(c, f.ty) == "bool"
+            b = ll_new(g, "%t")
+            ll_put(g, b + " = zext i1 %a" + i + " to i8")
+            ll_put(g, "store i8 " + b + ", ptr " + fp)
+        else
+            ll_put(g, "store " + ll_ty(c, f.ty) + " %a" + i + ", ptr " + fp)
+    ll_term(g, "ret ptr %o")
+    ll_glue_fn(g, head + ") #0", all)
+
+// shared, замки и main: начало программы (то же, что main в C)
+func ll_glue_main(c: Comp, program: Node, decls: list text, all: list text)
+    each gl in c.globals
+        all.add("@\"v_" + gl.name + "\" = hidden global " + ll_mem_ty(c, gl.ty) + " zeroinitializer\n")
+    each l in c.locks
+        all.add("@\"tb_lk_" + l + "\" = hidden global i32 0\n")
+    g = ll_glue_gen(c, decls, "main")
+    ll_put(g, "%top = alloca i8")
+    ll_put(g, "call void @tb_x_start(i32 %argc, ptr %argv, ptr %top)")
+    // shared: уборка памяти смотрит в них; значение — как в C до main
+    each gl in c.globals
+        gs = "@\"v_" + gl.name + "\""
+        ll_put(g, "call void @tb_x_gc_root(ptr " + gs + ", i64 " + ll_size(c, gl.ty) + ")")
+        v = ll_as(g, c, gl.kids[0], gl.ty)
+        ll_put(g, "store " + ll_ty(c, gl.ty) + " " + v + ", ptr " + gs)
+    main_func = program.kids[0]
+    each top in program.kids
+        if top.kind == "func" and top.name == "main" and top.mod == program.kids[0].mod
+            main_func = top
+    ll_put(g, "call void @tb_x_call_main(ptr @\"" + ll_fname(main_func) + "\")")
+    ll_term(g, "ret i32 0")
+    ll_glue_fn(g, "define i32 @main(i32 %argc, ptr %argv) #0", all)
+
+// всё вместе: эти имена определены здесь, их объявления (declare) не нужны
+func ll_glue(c: Comp, program: Node, decls: list text, all: list text) gives own: list text
+    each t in c.types
+        if not (t.kind == "none" or t.kind == "multi" or t.kind == "unknown")
+            ll_glue_show(c, t, decls, all)
+            own.add("tb_show_" + t.id)
+    each top in program.kids
+        if top.kind == "obj"
+            ll_glue_new(c, top, decls, all)
+            own.add("tb_new_" + top.name)
+    ll_glue_main(c, program, decls, all)
+    each gl in c.globals
+        own.add("\"v_" + gl.name + "\"")
+    each l in c.locks
+        own.add("\"tb_lk_" + l + "\"")
+    all.add("declare void @tb_x_show_i(i64)\ndeclare void @tb_x_show_d(double)\ndeclare ptr @tb_x_obj_mem(i64)\ndeclare ptr @tb_x_obj_mem_np(i64)\ndeclare ptr @tb_x_cold_mem(i64)\ndeclare ptr @tb_x_cold_mem_np(i64)\n")
+    all.add("declare void @tb_x_start(i32, ptr, ptr)\ndeclare void @tb_x_gc_root(ptr, i64)\ndeclare void @tb_x_call_main(ptr)\n")
+
+// объявление (declare @имя / @имя = external) того, что уже определено в этом файле
+func ll_glue_own(line: text, own: list text)
+    each o in own
+        if find(line, "@" + o + "(") >= 0 and starts_with(line, "declare")
+            return true
+        if starts_with(line, "@" + o + " = external")
+            return true
+    return false
