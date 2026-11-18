@@ -212,6 +212,13 @@ func ll_ext(c: Comp, t: int)
         return "zeroext "
     return ""
 
+// shared снаружи функций: из LLVM — та же переменная C (v_имя); пока только int и dec
+func ll_global_ok(c: Comp, name: text, t: int)
+    if not ll_is_global(c, name)
+        return true
+    k = kind_of(c, t)
+    return k == "int" or k == "dec"
+
 func ll_is_global(c: Comp, name: text)
     each g in c.globals
         if g.name == name
@@ -315,7 +322,7 @@ func ll_expr_ok(c: Comp, n: Node, names: list text)
     if k == "string"
         return ll_str_ok(n.value)
     if k == "name"
-        return not n.is_link and (ll_val(c, n.ty) or ll_box(c, n.ty)) and not ll_is_global(c, n.name)
+        return not n.is_link and (ll_val(c, n.ty) or ll_box(c, n.ty)) and ll_global_ok(c, n.name, n.ty)
     if k == "list" or k == "dict"
         return ll_box_ok(c, n, names)
     if k == "call" and n.has_ref and n.ref.kind == "obj"
@@ -450,7 +457,7 @@ func ll_block_ok(c: Comp, b: Node, names: list text)
 func ll_stmt_ok(c: Comp, n: Node, names: list text)
     k = n.kind
     if k == "assign"
-        if n.is_link or ll_is_global(c, n.name)
+        if n.is_link or not ll_global_ok(c, n.name, n.ty)
             return false
         if ll_box(c, n.ty)
             // xs = list int (пустой), xs = [1, 2], b = Ball(...), ys = xs
@@ -507,7 +514,7 @@ func ll_stmt_ok(c: Comp, n: Node, names: list text)
         else if t.kind == "field"
             if not ll_field_ok(c, t)
                 return false
-        else if t.kind != "name" or t.is_link or ll_is_global(c, t.name)
+        else if t.kind != "name" or t.is_link or not ll_global_ok(c, t.name, t.ty)
             return false
         if not (op == "=" or op == "+=" or op == "-=" or op == "*=" or op == "/=")
             return false
@@ -560,7 +567,7 @@ func ll_stmt_ok(c: Comp, n: Node, names: list text)
     return false
 
 func ll_head_ok(c: Comp, f: Node)
-    if f.name == "main" or f.irq != 0 or len(f.kids[2].kids) > 0
+    if f.irq != 0 or len(f.kids[2].kids) > 0
         return false
     if not (kind_of(c, f.ty) == "none" or ll_val(c, f.ty) or ll_box(c, f.ty))
         return false
@@ -646,6 +653,10 @@ func ll_new(g: LLGen, prefix: text)
 
 // место переменной в памяти функции (LLVM сам превратит его в регистр)
 func ll_slot(g: LLGen, c: Comp, name: text, t: int)
+    if ll_is_global(c, name)
+        gs = "@\"v_" + name + "\""
+        ll_need(g, gs + " = external hidden global " + ll_ty(c, t) + "\n")
+        return gs
     s = "%\"v." + name + "." + ll_ty(c, t) + "\""
     if not ll_has(g.slots, s)
         g.slots.add(s)
@@ -1645,6 +1656,13 @@ func ll_builtin(g: LLGen, c: Comp, n: Node)
 
 // функция сломалась: выйти со значением по умолчанию (ошибка уже лежит в tb_err)
 func ll_bail(g: LLGen, c: Comp)
+    if g.fn.name == "main"
+        // в main ошибку некому передать: сообщение и выход, как tb_die в C
+        e = ll_new(g, "%t")
+        ll_put(g, e + " = load ptr, ptr @tb_err")
+        ll_put(g, "call void @tb_die(ptr " + e + ")")
+        ll_term(g, "unreachable")
+        return
     ll_fa_end(g)
     if kind_of(c, g.fn.ty) == "none"
         ll_term(g, "ret void")
@@ -2064,7 +2082,7 @@ modpub func emit_ll(c: Comp, program: Node, target: text, cpu: text)
     all.add("declare void @tb_ps(ptr)\ndeclare ptr @tb_itos(i64)\ndeclare ptr @tb_dtos(double)\ndeclare ptr @tb_btos(i32)\n")
     all.add("declare ptr @tb_digits(i64, ptr, ptr)\ndeclare ptr @tb_mem_np(i64)\ndeclare i64 @tb_tlen(ptr)\ndeclare ptr @tb_char_at(ptr, i64, i64, i32)\n")
     all.add("declare ptr @tb_cat(ptr, ptr)\ndeclare void @tb_app(ptr, ptr, ptr, ptr)\ndeclare void @tb_app_i(ptr, ptr, ptr, i64)\ndeclare void @tb_app_n(ptr, ptr, ptr, ptr, i64)\n")
-    all.add("@tb_err = external hidden thread_local global ptr, align 8\n")
+    all.add("@tb_err = external hidden thread_local global ptr, align 8\ndeclare void @tb_die(ptr) noreturn cold\n")
     all.add("declare ptr @tb_grow(ptr)\ndeclare ptr @tb_pop(ptr, i32)\ndeclare void @tb_lclear(ptr, i32)\ndeclare ptr @tb_list_new_np(i64)\ndeclare ptr @tb_list_from_np(i64, i64, ptr)\ndeclare ptr @tb_dict_new(i32, i64)\ndeclare ptr @tb_dict_from(i32, i64, i64, ptr, ptr)\ndeclare ptr @tb_dget(ptr, ptr, i32)\ndeclare ptr @tb_dput(ptr, ptr, ptr)\ndeclare i32 @tb_dhas(ptr, ptr)\ndeclare void @tb_dremove(ptr, ptr)\ndeclare void @tb_dclear(ptr, i32)\ndeclare i64 @tb_dlen(ptr)\ndeclare ptr @tb_dkeys_copy(ptr)\ndeclare ptr @tb_dvals_copy(ptr)\ndeclare ptr @tb_list_new(i64)\ndeclare ptr @tb_list_from(i64, i64, ptr)\n")
     all.add("declare void @tb_temp_begin_p(ptr)\ndeclare void @tb_temp_end_p(ptr)\ndeclare i32 @tb_fa_begin(ptr)\ndeclare void @tb_fa_end(i32, ptr)\n")
     all.add("declare i64 @strlen(ptr)\ndeclare i32 @strcmp(ptr, ptr)\ndeclare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)\n")
