@@ -1,0 +1,7 @@
+// .pop() у пустого списка в функции, которая идёт через LLVM
+func take()
+    xs = list int
+    return xs.pop()
+
+func main()
+    print(take())

@@ -1,0 +1,55 @@
+// свои списки и obj внутри функций, которые идут через LLVM
+obj Pt
+    x: int
+    y: int
+    tag: text
+    hist: list int
+
+func squares(n: int)
+    xs = list int
+    count i from 1 to n
+        xs.add(i * i)
+    return xs
+
+func total(xs: list int)
+    s = 0
+    each x in xs
+        s += x
+    return s
+
+func halves()
+    ds = [1, 2.5, 4]
+    ds.add(0.25)
+    last = ds.pop()
+    return ds[0] + ds[1] + ds[2] + last
+
+func make(x: int)
+    p = Pt(x: x, y: x * 2, tag: "p" + x)
+    p.hist.add(x)
+    return p
+
+func shift(p: Pt)
+    p.x += 10
+    p.hist = [p.x, p.y]
+    return p.x + p.y
+
+// список растёт внутри цикла: номер проверяется на каждом шаге
+func grow_and_read(n: int)
+    xs = [1]
+    s = 0
+    count i from 0 to n
+        xs.add(i)
+        s += xs[i]
+    xs.clear()
+    return s + len(xs)
+
+func main()
+    xs = squares(5)
+    print(xs, total(xs), total(squares(100)))
+    print(halves())
+    p = make(3)
+    print(p.x, p.y, p.tag, p.hist)
+    print(shift(p), p.hist)
+    print(grow_and_read(10))
+    empty = list int
+    print(total(empty))

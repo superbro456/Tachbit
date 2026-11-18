@@ -95,6 +95,51 @@ func ll_plainobj(c: Comp, t: int)
 func ll_ref_name_ok(c: Comp, n: Node)
     return n.kind == "name" and not n.is_link and (ll_numlist(c, n.ty) or ll_plainobj(c, n.ty)) and not ll_is_global(c, n.name)
 
+// список чисел или obj: в LLVM — указатель
+func ll_box(c: Comp, t: int)
+    return ll_numlist(c, t) or ll_plainobj(c, t)
+
+// выражение-коробка, которое LLVM умеет посчитать: имя, [1, 2, 3], Ball(...), вызов, p.tags
+func ll_box_ok(c: Comp, n: Node, names: list text)
+    if not ll_box(c, n.ty)
+        return false
+    k = n.kind
+    if k == "name"
+        return ll_ref_name_ok(c, n)
+    if k == "list"
+        each x in n.kids
+            if not (ll_simple(c, x.ty) and ll_expr_ok(c, x, names))
+                return false
+        return true
+    if k == "call" and n.has_ref and n.ref.kind == "obj"
+        return ll_new_ok(c, n, names)
+    if k == "call" or k == "field"
+        return ll_expr_ok(c, n, names)
+    return false
+
+// Ball(name: ..., x: ...): каждое качество — значение, которое LLVM умеет посчитать,
+// а пропущенное — то, что LLVM умеет поставить по умолчанию
+func ll_new_ok(c: Comp, n: Node, names: list text)
+    if not ll_plainobj(c, n.ty)
+        return false
+    o = n.ref
+    count i from 0 to len(o.kids) - 1
+        ft = o.kids[i].ty
+        if n.kids[i].kind == "missing"
+            if not (ll_val(c, ft) or ll_box(c, ft))
+                return false
+        else
+            v = n.kids[i].kids[0]
+            if ll_val(c, ft)
+                if not (ll_val(c, v.ty) and ll_expr_ok(c, v, names))
+                    return false
+            else if ll_box(c, ft)
+                if not ll_box_ok(c, v, names)
+                    return false
+            else
+                return false
+    return true
+
 // качество в памяти: как в C (long long → i64, double, _Bool → i8, остальное — указатель)
 func ll_mem_ty(c: Comp, t: int)
     k = kind_of(c, t)
@@ -227,7 +272,14 @@ func ll_expr_ok(c: Comp, n: Node, names: list text)
     if k == "string"
         return ll_str_ok(n.value)
     if k == "name"
-        return not n.is_link and ll_val(c, n.ty) and not ll_is_global(c, n.name)
+        return not n.is_link and (ll_val(c, n.ty) or ll_box(c, n.ty)) and not ll_is_global(c, n.name)
+    if k == "list"
+        return ll_box_ok(c, n, names)
+    if k == "call" and n.has_ref and n.ref.kind == "obj"
+        return ll_new_ok(c, n, names)
+    if k == "method"
+        // xs.pop(): последнее число списка
+        return n.name == "pop" and ll_list_name_ok(c, n.kids[0])
     if k == "unary"
         return ll_simple(c, n.ty) and ll_expr_ok(c, n.kids[0], names)
     if k == "binop"
@@ -272,8 +324,8 @@ func ll_expr_ok(c: Comp, n: Node, names: list text)
             if a.kind == "missing" or len(a.kids) == 0
                 return false
             v = a.kids[0]
-            if ll_numlist(c, v.ty) or ll_plainobj(c, v.ty)
-                if not ll_ref_name_ok(c, v)
+            if ll_box(c, v.ty)
+                if not ll_box_ok(c, v, names)
                     return false
             else if not (ll_val(c, v.ty) and ll_expr_ok(c, v, names))
                 return false
@@ -287,8 +339,8 @@ func ll_expr_ok(c: Comp, n: Node, names: list text)
         each a in n.kids
             if a.kind == "missing" or len(a.kids) == 0
                 return false
-            if ll_numlist(c, a.kids[0].ty) or ll_plainobj(c, a.kids[0].ty)
-                if not ll_ref_name_ok(c, a.kids[0])
+            if ll_box(c, a.kids[0].ty)
+                if not ll_box_ok(c, a.kids[0], names)
                     return false
             else if not ll_expr_ok(c, a.kids[0], names)
                 return false
@@ -308,7 +360,7 @@ func ll_concat_walk(c: Comp, n: Node, parts: list Node)
 
 // p.x: p — имя obj, x — число (int, dec, bool, enum)
 func ll_field_ok(c: Comp, n: Node)
-    return n.kind == "field" and len(n.kids) == 1 and n.kids[0].kind == "name" and not n.kids[0].is_link and ll_plainobj(c, n.kids[0].ty) and not ll_is_global(c, n.kids[0].name) and ll_val(c, n.ty)
+    return n.kind == "field" and len(n.kids) == 1 and n.kids[0].kind == "name" and not n.kids[0].is_link and ll_plainobj(c, n.kids[0].ty) and not ll_is_global(c, n.kids[0].name) and (ll_val(c, n.ty) or ll_box(c, n.ty))
 
 func ll_block_ok(c: Comp, b: Node, names: list text)
     if len(b.kids) == 0
@@ -321,10 +373,27 @@ func ll_block_ok(c: Comp, b: Node, names: list text)
 func ll_stmt_ok(c: Comp, n: Node, names: list text)
     k = n.kind
     if k == "assign"
-        return len(n.kids) == 1 and not n.is_link and ll_val(c, n.ty) and not ll_is_global(c, n.name) and ll_expr_ok(c, n.kids[0], names)
+        if n.is_link or ll_is_global(c, n.name)
+            return false
+        if ll_box(c, n.ty)
+            // xs = list int (пустой), xs = [1, 2], b = Ball(...), ys = xs
+            if len(n.kids) == 0
+                return ll_numlist(c, n.ty)
+            return ll_box_ok(c, n.kids[0], names)
+        return len(n.kids) == 1 and ll_val(c, n.ty) and ll_expr_ok(c, n.kids[0], names)
     if k == "set"
         t = n.kids[0]
         op = n.value
+        if ll_box(c, n.ty)
+            // p.tags = xs: только  =
+            if op != "="
+                return false
+            if t.kind == "field"
+                if not ll_field_ok(c, t)
+                    return false
+            else if t.kind != "name" or t.is_link or ll_is_global(c, t.name)
+                return false
+            return ll_box_ok(c, n.kids[1], names)
         if not ll_val(c, n.ty)
             return false
         if ll_is_text(c, n.ty)
@@ -369,13 +438,18 @@ func ll_stmt_ok(c: Comp, n: Node, names: list text)
     if k == "return"
         return len(n.kids) == 0 or ll_expr_ok(c, n.kids[0], names)
     if k == "expr_stmt"
-        return n.kids[0].kind == "call" and ll_expr_ok(c, n.kids[0], names)
+        e = n.kids[0]
+        if e.kind == "method" and ll_list_name_ok(c, e.kids[0])
+            if e.name == "add"
+                return len(e.kids) == 2 and ll_simple(c, e.kids[1].kids[0].ty) and ll_expr_ok(c, e.kids[1].kids[0], names)
+            return e.name == "pop" or e.name == "clear"
+        return e.kind == "call" and ll_expr_ok(c, e, names)
     return false
 
 func ll_head_ok(c: Comp, f: Node)
     if f.name == "main" or f.irq != 0 or f.can_fail or len(f.kids[2].kids) > 0
         return false
-    if not (kind_of(c, f.ty) == "none" or ll_val(c, f.ty))
+    if not (kind_of(c, f.ty) == "none" or ll_val(c, f.ty) or ll_box(c, f.ty))
         return false
     each p in f.kids[0].kids
         if p.is_link or not (ll_val(c, p.ty) or ll_numlist(c, p.ty) or ll_plainobj(c, p.ty))
@@ -626,6 +700,18 @@ func ll_expr(g: LLGen, c: Comp, n: Node)
             ll_put(g, r + " = fneg double " + v)
         else
             ll_put(g, r + " = sub nsw i64 0, " + v)
+        return r
+    if k == "list"
+        return ll_list_lit(g, c, n)
+    if k == "call" and n.has_ref and n.ref.kind == "obj"
+        return ll_new_obj(g, c, n)
+    if k == "method"
+        // xs.pop()
+        base = ll_expr(g, c, n.kids[0])
+        p = ll_new(g, "%t")
+        ll_put(g, p + " = call ptr @tb_pop(ptr " + base + ", i32 " + n.line + ")")
+        r = ll_new(g, "%t")
+        ll_put(g, r + " = load " + ll_elem_ty(c, n.kids[0].ty) + ", ptr " + p + ll_elem_tag(c, n.kids[0].ty))
         return r
     if k == "binop"
         if ll_is_text(c, n.ty)
@@ -967,6 +1053,84 @@ func ll_find_blds(g: LLGen, c: Comp, f: Node)
         if not ll_has(bad, name) and not ll_has(g.blds, name)
             g.blds.add(name)
 
+// ---------- свои списки и obj ----------
+
+// значение по умолчанию (пропущенное качество obj, xs = list int): как emit_default в C
+func ll_default(g: LLGen, c: Comp, t: int)
+    k = kind_of(c, t)
+    if k == "dec"
+        return "0.0"
+    if k == "bool"
+        return "false"
+    if k == "text"
+        name, sn = ll_strconst(g, "\"\"")
+        return name
+    if ll_numlist(c, t)
+        r = ll_new(g, "%t")
+        ll_put(g, r + " = call ptr @tb_list_new_np(i64 8)")
+        return r
+    if k == "obj"
+        return "null"
+    return "0"
+
+// [1, 2, 3]: числа во временный массив на стеке, потом tb_list_from_np (как в C)
+func ll_list_lit(g: LLGen, c: Comp, n: Node)
+    et = ll_elem_ty(c, n.ty)
+    nk = len(n.kids)
+    if nk == 0
+        r0 = ll_new(g, "%t")
+        ll_put(g, r0 + " = call ptr @tb_list_new_np(i64 8)")
+        return r0
+    arr = "%\"arr" + ll_new(g, "") + "\""
+    g.allocas.add("  " + arr + " = alloca [" + nk + " x " + et + "]\n")
+    count i from 0 to nk - 1
+        v = ll_as(g, c, n.kids[i], c.types[n.ty].elem)
+        ep = ll_new(g, "%t")
+        ll_put(g, ep + " = getelementptr inbounds " + et + ", ptr " + arr + ", i64 " + i)
+        ll_put(g, "store " + et + " " + v + ", ptr " + ep)
+    r = ll_new(g, "%t")
+    ll_put(g, r + " = call ptr @tb_list_from_np(i64 " + nk + ", i64 8, ptr " + arr + ")")
+    return r
+
+// Ball(...): tb_new_Ball из C (все качества по порядку, пропущенные — по умолчанию)
+func ll_new_obj(g: LLGen, c: Comp, n: Node)
+    o = n.ref
+    args = ""
+    tys = ""
+    count i from 0 to len(o.kids) - 1
+        ft = o.kids[i].ty
+        v = ""
+        if n.kids[i].kind == "missing"
+            v = ll_default(g, c, ft)
+        else
+            v = ll_as(g, c, n.kids[i].kids[0], ft)
+        if i > 0
+            args = args + ", "
+            tys = tys + ", "
+        args = args + ll_ty(c, ft) + " " + ll_ext(c, ft) + v
+        tys = tys + ll_ty(c, ft) + " " + ll_ext(c, ft)
+    ll_need(g, "declare ptr @tb_new_" + o.name + "(" + tys + ")\n")
+    r = ll_new(g, "%t")
+    ll_put(g, r + " = call ptr @tb_new_" + o.name + "(" + args + ")")
+    return r
+
+// меняется ли в теле длина какого-нибудь списка: add / pop / clear, новое значение
+// у имени списка, вызов функции, которой отдали список или obj (она может сделать add)
+func ll_may_resize(c: Comp, n: Node)
+    k = n.kind
+    if k == "method"
+        return true
+    if (k == "assign" or k == "set") and kind_of(c, n.ty) == "list"
+        return true
+    if k == "call" and n.has_ref and n.ref.kind == "func"
+        each a in n.kids
+            if len(a.kids) > 0 and ll_box(c, a.kids[0].ty)
+                return true
+    each kid in n.kids
+        if ll_may_resize(c, kid)
+            return true
+    return false
+
 // адрес p.x: проверка на пустой obj, потом поле (холодное — через tb_cold), как в C
 func ll_field_ptr(g: LLGen, c: Comp, n: Node)
     base = ll_expr(g, c, n.kids[0])
@@ -1162,7 +1326,11 @@ func ll_stmt(g: LLGen, c: Comp, n: Node)
             each part in ll_app_parts(c, n.kids[0])
                 ll_app(g, c, n.name, n.ty, part)
             return
-        v = ll_as(g, c, n.kids[0], n.ty)
+        v = ""
+        if len(n.kids) == 0
+            v = ll_default(g, c, n.ty)
+        else
+            v = ll_as(g, c, n.kids[0], n.ty)
         ll_put(g, "store " + ll_ty(c, n.ty) + " " + v + ", ptr " + ll_slot(g, c, n.name, n.ty))
         if bld
             // новый текст: своей памяти у s пока нет
@@ -1278,8 +1446,8 @@ func ll_stmt(g: LLGen, c: Comp, n: Node)
         nodes = list Node
         offs = list int
         ll_fast_collect(c, n.kids[2], n.name, keys, nodes, offs)
-        if len(keys) > 0 and g.fast_depth < 2 and not ll_assigns(n.kids[2], n.name)
-            // В функциях, которые идут в LLVM, списки не растут и не укорачиваются (нет add/pop):
+        if len(keys) > 0 and g.fast_depth < 2 and not ll_assigns(n.kids[2], n.name) and not ll_may_resize(c, n.kids[2])
+            // В теле списки не растут и не укорачиваются (нет add/pop, вызовов со списками):
             // значит, все xs[i + k] можно проверить один раз до цикла. Прошло — цикл без проверок.
             none = ll_new(g, "%t")
             ll_put(g, none + " = icmp sgt i64 " + start + ", " + end)
@@ -1398,6 +1566,18 @@ func ll_stmt(g: LLGen, c: Comp, n: Node)
         else
             ll_fa_end(g)
             ll_term(g, "ret void")
+    else if k == "expr_stmt" and n.kids[0].kind == "method" and n.kids[0].name == "add"
+        // xs.add(v): сначала значение, потом место под него (как в C)
+        e = n.kids[0]
+        lt = e.kids[0].ty
+        v = ll_as(g, c, e.kids[1].kids[0], c.types[lt].elem)
+        base = ll_expr(g, c, e.kids[0])
+        p = ll_new(g, "%t")
+        ll_put(g, p + " = call ptr @tb_grow(ptr " + base + ")")
+        ll_put(g, "store " + ll_elem_ty(c, lt) + " " + v + ", ptr " + p + ll_elem_tag(c, lt))
+    else if k == "expr_stmt" and n.kids[0].kind == "method" and n.kids[0].name == "clear"
+        base = ll_expr(g, c, n.kids[0].kids[0])
+        ll_put(g, "call void @tb_lclear(ptr " + base + ", i32 " + n.kids[0].line + ")")
     else if k == "expr_stmt"
         ignored = ll_expr(g, c, n.kids[0])
 
@@ -1477,6 +1657,7 @@ modpub func emit_ll(c: Comp, program: Node, target: text, cpu: text)
     all.add("declare void @tb_ps(ptr)\ndeclare ptr @tb_itos(i64)\ndeclare ptr @tb_dtos(double)\ndeclare ptr @tb_btos(i32)\n")
     all.add("declare ptr @tb_digits(i64, ptr, ptr)\ndeclare ptr @tb_mem_np(i64)\ndeclare i64 @tb_tlen(ptr)\ndeclare ptr @tb_char_at(ptr, i64, i64, i32)\n")
     all.add("declare ptr @tb_cat(ptr, ptr)\ndeclare void @tb_app(ptr, ptr, ptr, ptr)\ndeclare void @tb_app_i(ptr, ptr, ptr, i64)\ndeclare void @tb_app_n(ptr, ptr, ptr, ptr, i64)\n")
+    all.add("declare ptr @tb_grow(ptr)\ndeclare ptr @tb_pop(ptr, i32)\ndeclare void @tb_lclear(ptr, i32)\ndeclare ptr @tb_list_new_np(i64)\ndeclare ptr @tb_list_from_np(i64, i64, ptr)\n")
     all.add("declare void @tb_temp_begin_p(ptr)\ndeclare void @tb_temp_end_p(ptr)\ndeclare i32 @tb_fa_begin(ptr)\ndeclare void @tb_fa_end(i32, ptr)\n")
     all.add("declare i64 @strlen(ptr)\ndeclare i32 @strcmp(ptr, ptr)\ndeclare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)\n")
     all.add("\n")
