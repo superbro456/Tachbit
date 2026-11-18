@@ -1,0 +1,30 @@
+enum Color
+    red
+    green
+
+obj Bag
+    items: list int
+    tags: list text
+
+func keys_of(d: dict text int) gives r: list text
+    r = d.keys()
+
+func main()
+    d = {"a": 1, "b": 2}
+    each k in d
+        print(k, d[k])
+    n = {5: "x", 7: "y"}
+    each k in n
+        print(k + 1, n[k])
+    each ch in "hi ok"
+        print(ch)
+    b = Bag()
+    b.items.add(3)
+    b.items.add(4)
+    b.tags.add("t")
+    print(len(b.items), b.items[1], b.tags, len(keys_of(d)), len(d.keys()))
+    x = b.items.pop()
+    print(x, b.items)
+    cs = [Color.red, Color.green]
+    cs.add(Color.red)
+    print(cs, len(cs))

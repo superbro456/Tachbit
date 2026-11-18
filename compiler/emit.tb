@@ -266,7 +266,7 @@ func ll_exports()
     x.add("TB_X(tb_dict *, dict_new, (int t, long long v), (t, v))\nTB_X(tb_dict *, dict_from, (int t, long long v, long long n, const void *k, const void *vs), (t, v, n, k, vs))\n")
     x.add("TB_X(void *, dget, (tb_dict *d, const void *k, int line), (d, k, line))\nTB_X(void *, dput, (tb_dict *d, const void *k, const void *def), (d, k, def))\nTB_X(int, dhas, (tb_dict *d, const void *k), (d, k))\n")
     x.add("TB_XV(dremove, (tb_dict *d, const void *k), (d, k))\nTB_XV(dclear, (tb_dict *d, int line), (d, line))\nTB_X(long long, dlen, (tb_dict *d), (d))\nTB_X(tb_list *, dkeys_copy, (tb_dict *d), (d))\nTB_X(tb_list *, dvals_copy, (tb_dict *d), (d))\n")
-    x.add("TB_XV(die, (const char *m), (m))\nconst char **tb_x_errp(void) { return &tb_err; }\n")
+    x.add("TB_XV(die, (const char *m), (m))\nTB_X(const char *, chr, (long long c), (c))\nTB_X(_Bool, bget, (tb_list *l, long long i, int line), (l, i, line))\nTB_XV(bset, (tb_list *l, long long i, _Bool v, int line), (l, i, v, line))\nTB_XV(badd, (tb_list *l, _Bool v), (l, v))\nTB_X(_Bool, bpop, (tb_list *l, int line), (l, line))\nTB_X(tb_list *, bits_new, (void), ())\nTB_X(tb_list *, bits_from, (long long n, const unsigned char *s), (n, s))\nconst char **tb_x_errp(void) { return &tb_err; }\n")
     return join(x, "")
 
 // in_ll: тело в .ll (f__ll), а C-шная f(...) собирает выходы в структуру;

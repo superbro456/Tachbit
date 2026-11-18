@@ -1,0 +1,51 @@
+// --llvm: выходы bool и с именем параметра, else err у нескольких выходов,
+// дроби, качества по цепочке, temp, ярлыки, списки списков
+obj Node
+    name: text
+    kids: list Node
+    score: dec
+
+func check(x: int) gives v: int, ok: bool
+    if x < 0
+        fail "минус"
+    v = x * 2
+    ok = x > 3
+
+func skip_spaces(s: text, pos: int) gives pos: int, n: int
+    repeat while pos < len(s) and s[pos] == " "
+        pos += 1
+        n += 1
+
+func main()
+    a, b = check(5) else err
+        print(err)
+    print(a, b)
+    a, b = check(1) else err
+        print(err)
+    print(a, b)
+    c, d = check(-1) else err
+        print("ошибка:", err)
+    print(c, d)
+    p, n = skip_spaces("   x", 1)
+    print(p, n)
+    print(2.6, 0.1 + 0.2, 3.14159 * 2.0, 1.10)
+    root = Node(name: "r")
+    root.kids.add(Node(name: "a", score: 1.5))
+    root.kids[0].kids.add(Node(name: "b"))
+    root.kids[0].kids[0].score = 7.25
+    print(root.kids[0].kids[0].name, root.kids[0].kids[0].score, len(root.kids[0].kids))
+    nm: link root.kids[0].name
+    nm = "A"
+    print(root.kids[0].name)
+    temp
+        t = Node(name: "tmp")
+        print(t.name)
+    grid = [[1, 2], [3]]
+    grid[1].add(4)
+    e = list int
+    grid.add(e)
+    print(grid, len(grid[2]))
+    s = text
+    each ch in "abc"
+        s = ch + s
+    print(s)
