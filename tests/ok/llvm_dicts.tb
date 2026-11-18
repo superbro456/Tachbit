@@ -1,0 +1,38 @@
+// dict в функциях, которые идут через LLVM
+func count_words(words: list text)
+    seen = dict text int
+    each w in words
+        seen[w] += 1
+    return seen
+
+func report(d: dict text int)
+    out = ""
+    each k in d.keys()
+        out += k + "=" + d[k] + " "
+    return out
+
+func flags()
+    f = {1: true, 2: false}
+    f[3] = true
+    n = 0
+    count i from 1 to 3
+        if f[i]
+            n += 1
+    f.remove(1)
+    if f.has(1)
+        n += 100
+    return n * 10 + len(f)
+
+func names()
+    d = {"a": "альфа", "b": "бета"}
+    d["a"] += "!"
+    vals = d.values()
+    d.clear()
+    return vals[0] + vals[1] + len(d)
+
+func main()
+    w = count_words(["кот", "пёс", "кот", "ёж", "кот"])
+    print(w)
+    print(report(w))
+    print(flags())
+    print(names())

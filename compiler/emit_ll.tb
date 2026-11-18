@@ -55,17 +55,33 @@ func ll_val(c: Comp, t: int)
 func ll_is_text(c: Comp, t: int)
     return kind_of(c, t) == "text"
 
-// список чисел (list int / list dec): в LLVM — указатель на tb_list {data, len, cap, size}
+// список, который LLVM умеет вести: list int / list dec / list text / list Obj (obj не by columns).
+// В LLVM — указатель на tb_list {data, len, cap, size}, элемент — 8 байт
 func ll_numlist(c: Comp, t: int)
     if kind_of(c, t) != "list" or is_cols_list(c, t)
         return false
     e = c.types[t].elem
-    return e == 1 or e == 2
+    return e == 1 or e == 2 or e == 4 or ll_plainobj(c, e)
+
+// в списке адреса (тексты, obj): уборка памяти должна смотреть внутрь
+func ll_ptr_elems(c: Comp, t: int)
+    e = c.types[t].elem
+    return not (e == 1 or e == 2)
 
 func ll_elem_ty(c: Comp, t: int)
     if c.types[t].elem == 2
         return "double"
+    if ll_ptr_elems(c, t)
+        return "ptr"
     return "i64"
+
+// элемент годится для этого списка: число как число, текст/obj — как значение-коробка
+func ll_elem_ok(c: Comp, lt: int, v: Node, names: list text)
+    if ll_ptr_elems(c, lt)
+        if ll_box(c, v.ty)
+            return ll_box_ok(c, v, names)
+        return ll_is_text(c, v.ty) and ll_expr_ok(c, v, names)
+    return ll_simple(c, v.ty) and ll_expr_ok(c, v, names)
 
 // пометки для LLVM (TBAA): числа в списках и устройство списка (data, len) никогда не лежат
 // в одной памяти, а int и dec — тоже. C этого сказать не может: у него len и элементы int —
@@ -73,6 +89,8 @@ func ll_elem_ty(c: Comp, t: int)
 func ll_elem_tag(c: Comp, t: int)
     if c.types[t].elem == 2
         return ", !tbaa !12"
+    if ll_ptr_elems(c, t)
+        return ", !tbaa !13"
     return ", !tbaa !11"
 
 // имя списка чисел, которое можно отдать в LLVM (параметр функции)
@@ -93,11 +111,29 @@ func ll_plainobj(c: Comp, t: int)
 
 // имя obj или списка чисел, которое можно отдать другой функции
 func ll_ref_name_ok(c: Comp, n: Node)
-    return n.kind == "name" and not n.is_link and (ll_numlist(c, n.ty) or ll_plainobj(c, n.ty)) and not ll_is_global(c, n.name)
+    return n.kind == "name" and not n.is_link and ll_box(c, n.ty) and not ll_is_global(c, n.name)
 
-// список чисел или obj: в LLVM — указатель
+// список, obj или dict: в LLVM — указатель
 func ll_box(c: Comp, t: int)
-    return ll_numlist(c, t) or ll_plainobj(c, t)
+    return ll_numlist(c, t) or ll_plainobj(c, t) or ll_dict(c, t)
+
+// dict с ключом int или text и значением, которое LLVM умеет класть и брать (8 байт, bool — 1)
+func ll_dict(c: Comp, t: int)
+    if kind_of(c, t) != "dict"
+        return false
+    kk = kind_of(c, c.types[t].key)
+    if not (kk == "int" or kk == "text")
+        return false
+    e = c.types[t].elem
+    return ll_val(c, e) or ll_numlist(c, e) or ll_plainobj(c, e) or (kind_of(c, e) == "dict" and ll_dict(c, e))
+
+// значение подходит туда, где ждут тип t
+func ll_value_ok(c: Comp, t: int, v: Node, names: list text)
+    if ll_box(c, t)
+        return ll_box(c, v.ty) and ll_box_ok(c, v, names)
+    if ll_is_text(c, t)
+        return ll_is_text(c, v.ty) and ll_expr_ok(c, v, names)
+    return ll_simple(c, v.ty) and ll_expr_ok(c, v, names)
 
 // выражение-коробка, которое LLVM умеет посчитать: имя, [1, 2, 3], Ball(...), вызов, p.tags
 func ll_box_ok(c: Comp, n: Node, names: list text)
@@ -108,12 +144,19 @@ func ll_box_ok(c: Comp, n: Node, names: list text)
         return ll_ref_name_ok(c, n)
     if k == "list"
         each x in n.kids
-            if not (ll_simple(c, x.ty) and ll_expr_ok(c, x, names))
+            if not ll_elem_ok(c, n.ty, x, names)
                 return false
+        return true
+    if k == "dict"
+        i = 0
+        repeat while i + 1 < len(n.kids)
+            if not (ll_expr_ok(c, n.kids[i], names) and ll_value_ok(c, c.types[n.ty].elem, n.kids[i + 1], names))
+                return false
+            i += 2
         return true
     if k == "call" and n.has_ref and n.ref.kind == "obj"
         return ll_new_ok(c, n, names)
-    if k == "call" or k == "field"
+    if k == "call" or k == "field" or k == "index" or k == "method"
         return ll_expr_ok(c, n, names)
     return false
 
@@ -153,7 +196,7 @@ func ll_mem_ty(c: Comp, t: int)
 
 func ll_ty(c: Comp, t: int)
     k = kind_of(c, t)
-    if k == "list" or k == "obj" or k == "text"
+    if k == "list" or k == "obj" or k == "text" or k == "dict"
         return "ptr"
     if k == "dec"
         return "double"
@@ -273,13 +316,23 @@ func ll_expr_ok(c: Comp, n: Node, names: list text)
         return ll_str_ok(n.value)
     if k == "name"
         return not n.is_link and (ll_val(c, n.ty) or ll_box(c, n.ty)) and not ll_is_global(c, n.name)
-    if k == "list"
+    if k == "list" or k == "dict"
         return ll_box_ok(c, n, names)
     if k == "call" and n.has_ref and n.ref.kind == "obj"
         return ll_new_ok(c, n, names)
     if k == "method"
-        // xs.pop(): последнее число списка
-        return n.name == "pop" and ll_list_name_ok(c, n.kids[0])
+        b = n.kids[0]
+        if ll_dict(c, b.ty)
+            // d.has(k), d.remove(k), d.keys(), d.values()
+            if not ll_box_ok(c, b, names)
+                return false
+            if n.name == "has" or n.name == "remove"
+                return len(n.kids) == 2 and ll_expr_ok(c, n.kids[1].kids[0], names)
+            if n.name == "keys" or n.name == "values"
+                return ll_numlist(c, n.ty)
+            return false
+        // xs.pop(): последний элемент списка
+        return n.name == "pop" and ll_list_name_ok(c, b)
     if k == "unary"
         return ll_simple(c, n.ty) and ll_expr_ok(c, n.kids[0], names)
     if k == "binop"
@@ -309,6 +362,8 @@ func ll_expr_ok(c: Comp, n: Node, names: list text)
             return false
         return ll_expr_ok(c, n.kids[0], names) and ll_expr_ok(c, n.kids[1], names)
     if k == "index"
+        if ll_dict(c, n.kids[0].ty)
+            return ll_box_ok(c, n.kids[0], names) and ll_expr_ok(c, n.kids[1], names)
         if ll_is_text(c, n.kids[0].ty)
             return kind_of(c, n.kids[1].ty) == "int" and ll_expr_ok(c, n.kids[0], names) and ll_expr_ok(c, n.kids[1], names)
         return ll_list_name_ok(c, n.kids[0]) and kind_of(c, n.kids[1].ty) == "int" and ll_expr_ok(c, n.kids[1], names)
@@ -318,6 +373,8 @@ func ll_expr_ok(c: Comp, n: Node, names: list text)
         a = n.kids[0].kids[0]
         if ll_is_text(c, a.ty)
             return ll_expr_ok(c, a, names)
+        if ll_dict(c, a.ty)
+            return ll_box_ok(c, a, names)
         return ll_list_name_ok(c, a)
     if k == "call" and not n.has_ref and (n.name == "print" or n.name == "show")
         each a in n.kids
@@ -378,12 +435,28 @@ func ll_stmt_ok(c: Comp, n: Node, names: list text)
         if ll_box(c, n.ty)
             // xs = list int (пустой), xs = [1, 2], b = Ball(...), ys = xs
             if len(n.kids) == 0
-                return ll_numlist(c, n.ty)
+                return ll_numlist(c, n.ty) or ll_dict(c, n.ty)
             return ll_box_ok(c, n.kids[0], names)
         return len(n.kids) == 1 and ll_val(c, n.ty) and ll_expr_ok(c, n.kids[0], names)
     if k == "set"
         t = n.kids[0]
         op = n.value
+        if t.kind == "index" and ll_dict(c, t.kids[0].ty)
+            // d[k] = v, d[k] += v
+            if not (ll_box_ok(c, t.kids[0], names) and ll_expr_ok(c, t.kids[1], names))
+                return false
+            if op == "="
+                return ll_value_ok(c, n.ty, n.kids[1], names)
+            if ll_is_text(c, n.ty)
+                return op == "+=" and ll_val(c, n.kids[1].ty) and kind_of(c, n.kids[1].ty) != "enum" and ll_expr_ok(c, n.kids[1], names)
+            if not (ll_simple(c, n.ty) and ll_simple(c, n.kids[1].ty))
+                return false
+            if not (op == "+=" or op == "-=" or op == "*=" or op == "/=")
+                return false
+            return ll_expr_ok(c, n.kids[1], names)
+        if (ll_box(c, n.ty) or ll_is_text(c, n.ty)) and t.kind == "index"
+            // names[i] = "x", pts[i] = p: только  =
+            return op == "=" and ll_expr_ok(c, t, names) and ll_elem_ok(c, t.kids[0].ty, n.kids[1], names)
         if ll_box(c, n.ty)
             // p.tags = xs: только  =
             if op != "="
@@ -432,16 +505,20 @@ func ll_stmt_ok(c: Comp, n: Node, names: list text)
     if k == "repeat_times" or k == "repeat_while"
         return ll_expr_ok(c, n.kids[0], names) and ll_block_ok(c, n.kids[1], names)
     if k == "each"
-        return not n.by_vec and not n.is_par and not n.by_piece and ll_list_name_ok(c, n.kids[0]) and ll_block_ok(c, n.kids[1], names)
+        return not n.by_vec and not n.is_par and not n.by_piece and ll_numlist(c, n.kids[0].ty) and ll_box_ok(c, n.kids[0], names) and ll_block_ok(c, n.kids[1], names)
     if k == "skip" or k == "stop"
         return true
     if k == "return"
         return len(n.kids) == 0 or ll_expr_ok(c, n.kids[0], names)
     if k == "expr_stmt"
         e = n.kids[0]
+        if e.kind == "method" and ll_dict(c, e.kids[0].ty)
+            if e.name == "clear"
+                return ll_box_ok(c, e.kids[0], names)
+            return ll_expr_ok(c, e, names)
         if e.kind == "method" and ll_list_name_ok(c, e.kids[0])
             if e.name == "add"
-                return len(e.kids) == 2 and ll_simple(c, e.kids[1].kids[0].ty) and ll_expr_ok(c, e.kids[1].kids[0], names)
+                return len(e.kids) == 2 and ll_elem_ok(c, e.kids[0].ty, e.kids[1].kids[0], names)
             return e.name == "pop" or e.name == "clear"
         return e.kind == "call" and ll_expr_ok(c, e, names)
     return false
@@ -452,7 +529,7 @@ func ll_head_ok(c: Comp, f: Node)
     if not (kind_of(c, f.ty) == "none" or ll_val(c, f.ty) or ll_box(c, f.ty))
         return false
     each p in f.kids[0].kids
-        if p.is_link or not (ll_val(c, p.ty) or ll_numlist(c, p.ty) or ll_plainobj(c, p.ty))
+        if p.is_link or not (ll_val(c, p.ty) or ll_box(c, p.ty))
             return false
     return true
 
@@ -703,6 +780,30 @@ func ll_expr(g: LLGen, c: Comp, n: Node)
         return r
     if k == "list"
         return ll_list_lit(g, c, n)
+    if k == "dict"
+        return ll_dict_lit(g, c, n)
+    if k == "method" and ll_dict(c, n.kids[0].ty)
+        base = ll_expr(g, c, n.kids[0])
+        if n.name == "has"
+            kp = ll_key_ptr(g, c, n.kids[0].ty, n.kids[1].kids[0])
+            h = ll_new(g, "%t")
+            ll_put(g, h + " = call i32 @tb_dhas(ptr " + base + ", ptr " + kp + ")")
+            r = ll_new(g, "%t")
+            ll_put(g, r + " = icmp ne i32 " + h + ", 0")
+            return r
+        if n.name == "remove"
+            kp = ll_key_ptr(g, c, n.kids[0].ty, n.kids[1].kids[0])
+            ll_put(g, "call void @tb_dremove(ptr " + base + ", ptr " + kp + ")")
+            return "0"
+        if n.name == "clear"
+            ll_put(g, "call void @tb_dclear(ptr " + base + ", i32 " + n.line + ")")
+            return "0"
+        r = ll_new(g, "%t")
+        fn = "tb_dkeys_copy"
+        if n.name == "values"
+            fn = "tb_dvals_copy"
+        ll_put(g, r + " = call ptr @" + fn + "(ptr " + base + ")")
+        return r
     if k == "call" and n.has_ref and n.ref.kind == "obj"
         return ll_new_obj(g, c, n)
     if k == "method"
@@ -728,6 +829,14 @@ func ll_expr(g: LLGen, c: Comp, n: Node)
             ll_put(g, r2 + " = trunc i8 " + r + " to i1")
             return r2
         return r
+    if k == "index" and ll_dict(c, n.kids[0].ty)
+        // d[k]: нет ключа — остановка, как в C
+        dt = n.kids[0].ty
+        base = ll_expr(g, c, n.kids[0])
+        kp = ll_key_ptr(g, c, dt, n.kids[1])
+        p = ll_new(g, "%t")
+        ll_put(g, p + " = call ptr @tb_dget(ptr " + base + ", ptr " + kp + ", i32 " + n.line + ")")
+        return ll_load_val(g, c, c.types[dt].elem, p)
     if k == "index" and ll_is_text(c, n.kids[0].ty)
         // s[i]: текст из одного байта (как tb_char_at в C)
         sv = ll_q(g, c, n.kids[0])
@@ -766,6 +875,11 @@ func ll_expr(g: LLGen, c: Comp, n: Node)
             r = ll_new(g, "%t")
             ll_put(g, r + " = call i64 @tb_tlen(ptr " + sv + ")")
             return r
+        if ll_dict(c, a.ty)
+            db = ll_expr(g, c, a)
+            dl = ll_new(g, "%t")
+            ll_put(g, dl + " = call i64 @tb_dlen(ptr " + db + ")")
+            return dl
         // len(xs)
         base = ll_expr(g, c, a)
         return ll_len(g, base)
@@ -1067,7 +1181,11 @@ func ll_default(g: LLGen, c: Comp, t: int)
         return name
     if ll_numlist(c, t)
         r = ll_new(g, "%t")
-        ll_put(g, r + " = call ptr @tb_list_new_np(i64 8)")
+        ll_put(g, r + " = call ptr @" + ll_list_new_fn(c, t) + "(i64 8)")
+        return r
+    if ll_dict(c, t)
+        r = ll_new(g, "%t")
+        ll_put(g, r + " = call ptr @tb_dict_new(i32 " + ll_dict_text(c, t) + ", i64 " + ll_vsize(c, t) + ")")
         return r
     if k == "obj"
         return "null"
@@ -1079,7 +1197,7 @@ func ll_list_lit(g: LLGen, c: Comp, n: Node)
     nk = len(n.kids)
     if nk == 0
         r0 = ll_new(g, "%t")
-        ll_put(g, r0 + " = call ptr @tb_list_new_np(i64 8)")
+        ll_put(g, r0 + " = call ptr @" + ll_list_new_fn(c, n.ty) + "(i64 8)")
         return r0
     arr = "%\"arr" + ll_new(g, "") + "\""
     g.allocas.add("  " + arr + " = alloca [" + nk + " x " + et + "]\n")
@@ -1089,8 +1207,17 @@ func ll_list_lit(g: LLGen, c: Comp, n: Node)
         ll_put(g, ep + " = getelementptr inbounds " + et + ", ptr " + arr + ", i64 " + i)
         ll_put(g, "store " + et + " " + v + ", ptr " + ep)
     r = ll_new(g, "%t")
-    ll_put(g, r + " = call ptr @tb_list_from_np(i64 " + nk + ", i64 8, ptr " + arr + ")")
+    from_fn = "tb_list_from_np"
+    if ll_ptr_elems(c, n.ty)
+        from_fn = "tb_list_from"
+    ll_put(g, r + " = call ptr @" + from_fn + "(i64 " + nk + ", i64 8, ptr " + arr + ")")
     return r
+
+// пустой список: из чисел — память без адресов (уборка туда не смотрит), иначе обычная
+func ll_list_new_fn(c: Comp, t: int)
+    if ll_ptr_elems(c, t)
+        return "tb_list_new"
+    return "tb_list_new_np"
 
 // Ball(...): tb_new_Ball из C (все качества по порядку, пропущенные — по умолчанию)
 func ll_new_obj(g: LLGen, c: Comp, n: Node)
@@ -1112,6 +1239,89 @@ func ll_new_obj(g: LLGen, c: Comp, n: Node)
     ll_need(g, "declare ptr @tb_new_" + o.name + "(" + tys + ")\n")
     r = ll_new(g, "%t")
     ll_put(g, r + " = call ptr @tb_new_" + o.name + "(" + args + ")")
+    return r
+
+// ---------- dict ----------
+
+func ll_dict_text(c: Comp, t: int)
+    if kind_of(c, c.types[t].key) == "text"
+        return "1"
+    return "0"
+
+// размер значения в памяти dict (как sizeof в C)
+func ll_vsize(c: Comp, t: int)
+    if kind_of(c, c.types[t].elem) == "bool"
+        return "1"
+    return "8"
+
+// ключ как адрес (&(K){ключ} в C): своё место на стеке функции
+func ll_key_ptr(g: LLGen, c: Comp, dt: int, key: Node)
+    kt = c.types[dt].key
+    // dict хранит сам адрес текста-ключа: читаем «с сохранением»
+    v = ll_expr(g, c, key)
+    slot = "%\"key" + ll_new(g, "") + "\""
+    g.allocas.add("  " + slot + " = alloca " + ll_ty(c, kt) + "\n")
+    ll_put(g, "store " + ll_ty(c, kt) + " " + v + ", ptr " + slot)
+    return slot
+
+// значение типа t в памяти: bool — байт
+func ll_store_val(g: LLGen, c: Comp, t: int, v: text, at: text)
+    if kind_of(c, t) == "bool"
+        z = ll_new(g, "%t")
+        ll_put(g, z + " = zext i1 " + v + " to i8")
+        ll_put(g, "store i8 " + z + ", ptr " + at)
+        return
+    ll_put(g, "store " + ll_mem_ty(c, t) + " " + v + ", ptr " + at)
+
+func ll_load_val(g: LLGen, c: Comp, t: int, at: text)
+    r = ll_new(g, "%t")
+    ll_put(g, r + " = load " + ll_mem_ty(c, t) + ", ptr " + at)
+    if kind_of(c, t) == "bool"
+        r2 = ll_new(g, "%t")
+        ll_put(g, r2 + " = trunc i8 " + r + " to i1")
+        return r2
+    return r
+
+// {k: v, ...}: ключи и значения во временные массивы на стеке, потом tb_dict_from
+func ll_dict_lit(g: LLGen, c: Comp, n: Node)
+    t = n.ty
+    vt = c.types[t].elem
+    kt = c.types[t].key
+    nk = len(n.kids) / 2
+    if nk == 0
+        r0 = ll_new(g, "%t")
+        ll_put(g, r0 + " = call ptr @tb_dict_new(i32 " + ll_dict_text(c, t) + ", i64 " + ll_vsize(c, t) + ")")
+        return r0
+    ka = "%\"dk" + ll_new(g, "") + "\""
+    va = "%\"dv" + ll_new(g, "") + "\""
+    g.allocas.add("  " + ka + " = alloca [" + nk + " x " + ll_ty(c, kt) + "]\n")
+    g.allocas.add("  " + va + " = alloca [" + nk + " x " + ll_mem_ty(c, vt) + "]\n")
+    count i from 0 to nk - 1
+        kv = ll_expr(g, c, n.kids[2 * i])
+        kp = ll_new(g, "%t")
+        ll_put(g, kp + " = getelementptr inbounds " + ll_ty(c, kt) + ", ptr " + ka + ", i64 " + i)
+        ll_put(g, "store " + ll_ty(c, kt) + " " + kv + ", ptr " + kp)
+        vv = ll_as(g, c, n.kids[2 * i + 1], vt)
+        vp = ll_new(g, "%t")
+        ll_put(g, vp + " = getelementptr inbounds " + ll_mem_ty(c, vt) + ", ptr " + va + ", i64 " + i)
+        ll_store_val(g, c, vt, vv, vp)
+    r = ll_new(g, "%t")
+    ll_put(g, r + " = call ptr @tb_dict_from(i32 " + ll_dict_text(c, t) + ", i64 " + ll_vsize(c, t) + ", i64 " + nk + ", ptr " + ka + ", ptr " + va + ")")
+    return r
+
+// адрес d[k] для записи: ключа нет — dict создаёт его со значением по умолчанию
+func ll_dput(g: LLGen, c: Comp, t: Node)
+    dt = t.kids[0].ty
+    vt = c.types[dt].elem
+    base = ll_expr(g, c, t.kids[0])
+    kp = ll_key_ptr(g, c, dt, t.kids[1])
+    def = "null"
+    if ll_val(c, vt) and kind_of(c, vt) != "enum"
+        def = "%\"def" + ll_new(g, "") + "\""
+        g.allocas.add("  " + def + " = alloca " + ll_mem_ty(c, vt) + "\n")
+        ll_store_val(g, c, vt, ll_default(g, c, vt), def)
+    r = ll_new(g, "%t")
+    ll_put(g, r + " = call ptr @tb_dput(ptr " + base + ", ptr " + kp + ", ptr " + def + ")")
     return r
 
 // меняется ли в теле длина какого-нибудь списка: add / pop / clear, новое значение
@@ -1335,6 +1545,30 @@ func ll_stmt(g: LLGen, c: Comp, n: Node)
         if bld
             // новый текст: своей памяти у s пока нет
             ll_put(g, "store i64 -1, ptr " + ll_rl(g, n.name))
+    else if k == "set" and n.kids[0].kind == "index" and ll_dict(c, n.kids[0].kids[0].ty)
+        // d[k] = v / d[k] += v: сначала значение, потом место (как в C)
+        t = n.kids[0]
+        op = n.value
+        vt = n.ty
+        v = ""
+        if op == "="
+            v = ll_as(g, c, n.kids[1], vt)
+        else if ll_is_text(c, vt)
+            v = ll_as_text(g, c, n.kids[1])
+        else
+            v = ll_expr(g, c, n.kids[1])
+        p = ll_dput(g, c, t)
+        if op == "="
+            ll_store_val(g, c, vt, v, p)
+            return
+        old = ll_load_val(g, c, vt, p)
+        r = ""
+        if ll_is_text(c, vt)
+            r = ll_new(g, "%t")
+            ll_put(g, r + " = call ptr @tb_cat(ptr " + old + ", ptr " + v + ")")
+        else
+            r = ll_arith(g, c, cut(op, 0, 0), old, vt, v, n.kids[1].ty, vt, n.line)
+        ll_store_val(g, c, vt, r, p)
     else if k == "set" and n.kids[0].kind == "index"
         // xs[i] = v / xs[i] += v: как в C, сначала значение, потом адрес
         t = n.kids[0]
@@ -1575,6 +1809,8 @@ func ll_stmt(g: LLGen, c: Comp, n: Node)
         p = ll_new(g, "%t")
         ll_put(g, p + " = call ptr @tb_grow(ptr " + base + ")")
         ll_put(g, "store " + ll_elem_ty(c, lt) + " " + v + ", ptr " + p + ll_elem_tag(c, lt))
+    else if k == "expr_stmt" and n.kids[0].kind == "method" and n.kids[0].name == "clear" and ll_dict(c, n.kids[0].kids[0].ty)
+        ignored = ll_expr(g, c, n.kids[0])
     else if k == "expr_stmt" and n.kids[0].kind == "method" and n.kids[0].name == "clear"
         base = ll_expr(g, c, n.kids[0].kids[0])
         ll_put(g, "call void @tb_lclear(ptr " + base + ", i32 " + n.kids[0].line + ")")
@@ -1657,7 +1893,7 @@ modpub func emit_ll(c: Comp, program: Node, target: text, cpu: text)
     all.add("declare void @tb_ps(ptr)\ndeclare ptr @tb_itos(i64)\ndeclare ptr @tb_dtos(double)\ndeclare ptr @tb_btos(i32)\n")
     all.add("declare ptr @tb_digits(i64, ptr, ptr)\ndeclare ptr @tb_mem_np(i64)\ndeclare i64 @tb_tlen(ptr)\ndeclare ptr @tb_char_at(ptr, i64, i64, i32)\n")
     all.add("declare ptr @tb_cat(ptr, ptr)\ndeclare void @tb_app(ptr, ptr, ptr, ptr)\ndeclare void @tb_app_i(ptr, ptr, ptr, i64)\ndeclare void @tb_app_n(ptr, ptr, ptr, ptr, i64)\n")
-    all.add("declare ptr @tb_grow(ptr)\ndeclare ptr @tb_pop(ptr, i32)\ndeclare void @tb_lclear(ptr, i32)\ndeclare ptr @tb_list_new_np(i64)\ndeclare ptr @tb_list_from_np(i64, i64, ptr)\n")
+    all.add("declare ptr @tb_grow(ptr)\ndeclare ptr @tb_pop(ptr, i32)\ndeclare void @tb_lclear(ptr, i32)\ndeclare ptr @tb_list_new_np(i64)\ndeclare ptr @tb_list_from_np(i64, i64, ptr)\ndeclare ptr @tb_dict_new(i32, i64)\ndeclare ptr @tb_dict_from(i32, i64, i64, ptr, ptr)\ndeclare ptr @tb_dget(ptr, ptr, i32)\ndeclare ptr @tb_dput(ptr, ptr, ptr)\ndeclare i32 @tb_dhas(ptr, ptr)\ndeclare void @tb_dremove(ptr, ptr)\ndeclare void @tb_dclear(ptr, i32)\ndeclare i64 @tb_dlen(ptr)\ndeclare ptr @tb_dkeys_copy(ptr)\ndeclare ptr @tb_dvals_copy(ptr)\ndeclare ptr @tb_list_new(i64)\ndeclare ptr @tb_list_from(i64, i64, ptr)\n")
     all.add("declare void @tb_temp_begin_p(ptr)\ndeclare void @tb_temp_end_p(ptr)\ndeclare i32 @tb_fa_begin(ptr)\ndeclare void @tb_fa_end(i32, ptr)\n")
     all.add("declare i64 @strlen(ptr)\ndeclare i32 @strcmp(ptr, ptr)\ndeclare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)\n")
     all.add("\n")
@@ -1669,8 +1905,8 @@ modpub func emit_ll(c: Comp, program: Node, target: text, cpu: text)
         all.add(d)
     all.add("attributes #0 = { nounwind" + cpu + " }\n")
     all.add("!0 = !{!\"branch_weights\", i32 1, i32 2000}\n")
-    all.add("!1 = !{!\"tachbit\"}\n!2 = !{!\"tb.list\", !1, i64 0}\n!3 = !{!\"tb.int\", !1, i64 0}\n!4 = !{!\"tb.dec\", !1, i64 0}\n")
-    all.add("!10 = !{!2, !2, i64 0}\n!11 = !{!3, !3, i64 0}\n!12 = !{!4, !4, i64 0}\n")
+    all.add("!1 = !{!\"tachbit\"}\n!2 = !{!\"tb.list\", !1, i64 0}\n!3 = !{!\"tb.int\", !1, i64 0}\n!4 = !{!\"tb.dec\", !1, i64 0}\n!5 = !{!\"tb.ptr\", !1, i64 0}\n")
+    all.add("!10 = !{!2, !2, i64 0}\n!11 = !{!3, !3, i64 0}\n!12 = !{!4, !4, i64 0}\n!13 = !{!5, !5, i64 0}\n")
     return join(all, "")
 
 // как clang этой машины пишет функцию: берём из его вывода цель и настройки процессора

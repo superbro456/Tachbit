@@ -1,0 +1,7 @@
+// нет такого ключа в dict в функции, которая идёт через LLVM
+func get(k: text)
+    d = {"a": 1}
+    return d[k]
+
+func main()
+    print(get("b"))

@@ -2461,6 +2461,10 @@ TB_API void tb_lclear(tb_list *l, int line) {
     memset(l->data, 0, bytes);
     l->len = 0; l->cap = cap;
 }
+// --llvm: число ключей (из .ll не надо знать устройство tb_dict)
+TB_INL long long tb_dlen(tb_dict *d) { return d->keys->len; }
+TB_INL tb_list *tb_dkeys_copy(tb_dict *d) { return tb_copy(d->keys); }
+TB_INL tb_list *tb_dvals_copy(tb_dict *d) { return tb_copy(d->vals); }
 TB_API void tb_dclear(tb_dict *d, int line) {
     tb_lclear(d->keys, line);
     tb_lclear(d->vals, line);

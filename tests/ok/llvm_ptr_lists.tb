@@ -1,0 +1,35 @@
+// списки текстов и obj в функциях, которые идут через LLVM
+obj Item
+    name: text
+    price: int
+
+func names(n: int)
+    out = list text
+    count i from 1 to n
+        out.add("n" + i)
+    out[0] = "первый"
+    return out
+
+func joined(xs: list text)
+    s = ""
+    each x in xs
+        s += x
+        s += "|"
+    return s
+
+func shop()
+    items = [Item(name: "хлеб", price: 30), Item(name: "сыр", price: 250)]
+    items.add(Item(name: "чай", price: 90))
+    sum = 0
+    each it in items
+        sum += it.price
+    last = items.pop()
+    return sum - last.price + len(items)
+
+func main()
+    xs = names(4)
+    print(xs, len(xs))
+    print(joined(xs))
+    print(shop())
+    words = ["a", "b"]
+    print(joined(words))
