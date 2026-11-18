@@ -1,0 +1,39 @@
+// несколько выходов gives в функциях, которые идут через LLVM
+func split_name(full: text) gives first: text, rest: text, n: int
+    at = find(full, " ")
+    if at < 0
+        first = full
+        return
+    first = cut(full, 0, at - 1)
+    rest = cut(full, at + 1, len(full) - 1)
+    n = len(rest)
+
+func minmax(xs: list int) gives lo: int, hi: int
+    lo = xs[0]
+    hi = xs[0]
+    each x in xs
+        if x < lo
+            lo = x
+        if x > hi
+            hi = x
+
+func safe_div(a: int, b: int) gives q: int, r: int
+    if b == 0
+        fail "деление на ноль"
+    q = a / b
+    r = a % b
+
+func use_all()
+    f, r, n = split_name("Анна Мария Ли")
+    lo, hi = minmax([4, -2, 9, 3])
+    return f + "|" + r + "|" + n + "|" + lo + "|" + hi
+
+func main()
+    print(use_all())
+    a, b, c = split_name("одно")
+    print(a, "[" + b + "]", c)
+    q, r = safe_div(17, 5) else err
+        print("ошибка", err)
+    print(q, r)
+    q2, r2 = safe_div(1, 0) else err
+        print("ошибка:", err)

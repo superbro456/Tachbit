@@ -269,6 +269,44 @@ func ll_exports()
     x.add("TB_XV(die, (const char *m), (m))\nconst char **tb_x_errp(void) { return &tb_err; }\n")
     return join(x, "")
 
+// in_ll: тело в .ll (f__ll), а C-шная f(...) собирает выходы в структуру;
+// иначе тело в C, а f__ll(..., адреса) для .ll раскладывает структуру по адресам
+func emit_ll_gives(c: Comp, f: Node, in_ll: bool)
+    rt = c_type(c, f.ty)
+    nm = fname(f)
+    decl = ""
+    args = ""
+    each p in f.kids[0].kids
+        if decl != ""
+            decl = decl + ", "
+            args = args + ", "
+        if p.is_link
+            decl = decl + c_type(c, p.ty) + " *v_" + p.name
+        else
+            decl = decl + c_type(c, p.ty) + " v_" + p.name
+        args = args + "v_" + p.name
+    outs = ""
+    oargs = ""
+    count j from 0 to len(f.kids[2].kids) - 1
+        outs = outs + ", " + c_type(c, f.kids[2].kids[j].ty) + " *o" + j
+        oargs = oargs + ", &r.o" + j
+    ll_decl = decl + outs
+    ll_args = args + oargs
+    if decl == ""
+        ll_decl = cut(outs, 2, len(outs) - 1)
+        ll_args = cut(oargs, 2, len(oargs) - 1)
+    put(c, "void " + nm + "__ll(" + ll_decl + ")")
+    if in_ll
+        put(c, ";\n" + rt + " " + nm + "(")
+        if decl == ""
+            put(c, "void")
+        put(c, decl + ") { " + rt + " r; " + nm + "__ll(" + ll_args + "); return r; }\n")
+        return
+    put(c, " { " + rt + " r = " + nm + "(" + args + ");")
+    count j from 0 to len(f.kids[2].kids) - 1
+        put(c, " *o" + j + " = r.o" + j + ";")
+    put(c, " }\n")
+
 // обёртка tb_llb_N для встроенной функции из .ll: параметры a0, a1 ... вместо выражений,
 // тело — то же, что вывод C написал бы прямо на месте вызова (с тем же номером строки)
 func emit_ll_builtin(c: Comp, n: Node, id: int)
@@ -2687,6 +2725,13 @@ modpub func emit_c(c: Comp, program: Node)
         put(c, w)
     each f in funcs_out
         put(c, f)
+    // --llvm: gives с несколькими выходами ходит между C и .ll через адреса выходов (имя__ll)
+    each top in program.kids
+        if top.kind == "func" and len(top.kids[2].kids) > 1
+            if has_text(c.ll_names, fname(top))
+                emit_ll_gives(c, top, true)
+            else if has_text(c.ll_ext, fname(top))
+                emit_ll_gives(c, top, false)
     main_func = program.kids[0]
     each top in program.kids
         if top.kind == "func" and top.name == "main" and top.mod == program.kids[0].mod
