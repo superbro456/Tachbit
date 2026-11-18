@@ -3547,6 +3547,7 @@ TB_API int tb_vk_swapchain(void) {
     tbvk_GetPhysicalDeviceSurfacePresentModesKHR(tb_vk.pd, tb_vk.surf, &np, 0); if (np > 16) np = 16;
     tbvk_GetPhysicalDeviceSurfacePresentModesKHR(tb_vk.pd, tb_vk.surf, &np, pm);
     for (uint32_t i = 0; i < np; i++) if (pm[i] == 1) mode = 1;
+    if (getenv("TB_FPS_FREE")) for (uint32_t i = 0; i < np; i++) if (pm[i] == 0) mode = 0;   // замеры: не ждать экран
     uint32_t cnt = cap.minImageCount + 1;
     if (cap.maxImageCount && cnt > cap.maxImageCount) cnt = cap.maxImageCount;
     VkFlags alpha = (cap.supportedCompositeAlpha & 1) ? 1 : cap.supportedCompositeAlpha & (~cap.supportedCompositeAlpha + 1);
@@ -3893,6 +3894,9 @@ TB_API int tb_mtl_init(id view) {
     TB_MSG1(void, layer, "setDrawableSize:", CGSize, CGSizeMake(tb_gw, tb_gh));
     TB_MSG1(void, layer, "setMagnificationFilter:", id, tb_nsstr("nearest"));
     TB_MSG1(void, layer, "setColorspace:", CGColorSpaceRef, tb_cgspace);
+    // кадр показывается вместе с обновлением экрана (без разрывов картинки).
+    // TB_FPS_FREE=1 (замеры скорости): не ждать экран
+    if (getenv("TB_FPS_FREE")) TB_MSG1(void, layer, "setDisplaySyncEnabled:", BOOL, NO);
     TB_MSG1(void, view, "setLayer:", id, layer);
     TB_MSG1(void, view, "setWantsLayer:", BOOL, YES);
     tb_mtl.layer = layer;
