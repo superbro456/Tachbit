@@ -888,9 +888,12 @@ func check_builtin(c: Comp, n: Node) gives r: int
     if name == "window_alive" or name == "mouse_down"
         builtin_args(c, n, "", name + "()")
         return 3
-    if name == "mouse_x" or name == "mouse_y" or name == "time_ms" or name == "frame_ms" or name == "fps" or name == "window_w" or name == "window_h"
+    if name == "mouse_x" or name == "mouse_y" or name == "time_ms" or name == "fps" or name == "window_w" or name == "window_h"
         builtin_args(c, n, "", name + "()")
         return 1
+    if name == "frame_ms"
+        builtin_args(c, n, "", "frame_ms()  →  сколько мс шёл прошлый кадр (дробное)")
+        return 2
     if name == "set_fps"
         builtin_args(c, n, "i", "set_fps(кадров_в_секунду)  — 0: сколько успеет, без ожидания экрана")
         return 0

@@ -2302,6 +2302,10 @@ TB_API const char *tb_json_text(const char *s) {
     return out;
 }
 // ---------- время и случайные числа ----------
+TB_API long long tb_time_us(void) {
+    struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (long long)ts.tv_sec * 1000000 + ts.tv_nsec / 1000;
+}
 TB_API long long tb_time_ms(void) {
     struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
     return (long long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
@@ -4376,6 +4380,13 @@ TB_API void tb_gpu_flush(int present) {
         }
         TB_MSG(void, enc, "endEncoding");
     }
+    // без ожидания экрана (set_fps(0)): кадр рисуется всегда, а показывается не чаще 250 раз в секунду —
+    // окно Mac не берёт кадры быстрее, и ожидание следующего кадра окна держало бы всю программу
+    static long long last_show = 0;
+    if (present && tb_gpu_nosync && !tb_gpu_back) {
+        long long now = tb_time_us();
+        if (now - last_show < 4000) present = 0; else last_show = now;
+    }
     if (present) {
         id drw = TB_MSG(id, tb_mtl.layer, "nextDrawable");
         id dt = drw ? TB_MSG(id, drw, "texture") : 0;
@@ -4695,19 +4706,16 @@ TB_API void tb_apply_resize(void) {
 TB_API long long tb_window_w(void) { if (tb_px && !tb_resizable) { tb_resizable = 1; tb_gfx_resizable(); } return tb_gw; }
 TB_API long long tb_window_h(void) { if (tb_px && !tb_resizable) { tb_resizable = 1; tb_gfx_resizable(); } return tb_gh; }
 // частота кадров: -1 — как у экрана (по умолчанию), 0 — сколько успеет, n — n кадров в секунду (set_fps)
-TB_API long long tb_fps_want = -1, tb_frame_ms_v = 16, tb_fps_v = 0, tb_fps_n = 0, tb_fps_t0 = 0, tb_last_us = 0;
-TB_API long long tb_time_us(void) {
-    struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (long long)ts.tv_sec * 1000000 + ts.tv_nsec / 1000;
-}
+TB_API double tb_frame_ms_v = 16.0;
+TB_API long long tb_fps_want = -1, tb_fps_v = 0, tb_fps_n = 0, tb_fps_t0 = 0, tb_last_us = 0;
 TB_API void tb_set_fps(long long n) {
     if (n < 0) n = -1;
     tb_fps_want = n;
     int nosync = n == 0 || getenv("TB_FPS_FREE") != 0;
     if (nosync != tb_gpu_nosync) { tb_gpu_nosync = nosync; if (tb_gpu_on) tb_gpu_vsync(); }
 }
-TB_API long long tb_frame_ms(void) { return tb_frame_ms_v; }
-TB_API long long tb_fps(void) { return tb_fps_v ? tb_fps_v : tb_frame_ms_v > 0 ? 1000 / tb_frame_ms_v : 0; }
+TB_API double tb_frame_ms(void) { return tb_frame_ms_v; }
+TB_API long long tb_fps(void) { return tb_fps_v ? tb_fps_v : tb_frame_ms_v > 0 ? (long long)(1000 / tb_frame_ms_v) : 0; }
 // показать кадр, принять клавиши и мышь, держать частоту кадров; false — окно закрыли
 TB_API int tb_window_alive(void) {
     if (!tb_px || tb_gclosed) return 0;
@@ -4724,7 +4732,7 @@ TB_API int tb_window_alive(void) {
     // кадр пришёл быстрее 4 мс — экран частоту не держит, держим сами 60 кадров в секунду
     else if (!tb_gpu_on || now - tb_last_us < 4000) period = 16667;
     if (period && now - tb_last_us < period) { usleep((useconds_t)(period - (now - tb_last_us))); now = tb_time_us(); }
-    tb_frame_ms_v = (now - tb_last_us + 500) / 1000;
+    tb_frame_ms_v = (now - tb_last_us) / 1000.0;
     tb_last_us = now;
     if (!tb_fps_t0) tb_fps_t0 = now;
     tb_fps_n++;
@@ -5011,7 +5019,7 @@ TB_B(_Bool, key_down, (const char *s, int line), tb_key_down(s))
 TB_B(long long, mouse_x, (int line), tb_mouse_x())
 TB_B(long long, mouse_y, (int line), tb_mouse_y())
 TB_B(_Bool, mouse_down, (int line), tb_mouse_down())
-TB_B(long long, frame_ms, (int line), tb_frame_ms())
+TB_B(double, frame_ms, (int line), tb_frame_ms())
 TB_B(long long, fps, (int line), tb_fps())
 TB_BV(set_fps, (long long n, int line), tb_set_fps(n))
 TB_B(long long, window_w, (int line), tb_window_w())

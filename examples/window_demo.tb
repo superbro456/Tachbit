@@ -1,0 +1,41 @@
+// окно для игр: тяни его мышью, смотри частоту кадров. Esc — выход, пробел — set_fps(0) / как у экрана
+//   tb run examples/window_demo.tb
+func main()
+    try window_open(640, 400, "Tachbit: окно и видеокарта")
+    x = 100.0
+    y = 100.0
+    dx = 240.0
+    dy = 180.0
+    free = false
+    space_was = false
+    repeat while window_alive()
+        if key_down("escape")
+            stop
+        if key_down("space") and not space_was
+            free = not free
+            if free
+                set_fps(0)
+            else
+                set_fps(-1)
+        space_was = key_down("space")
+        w = window_w()
+        h = window_h()
+        // одна скорость при любой частоте кадров: точки в секунду × время кадра
+        x += dx * frame_ms() / 1000
+        y += dy * frame_ms() / 1000
+        if x < 20 or x > w - 20
+            dx = -dx
+            x = max(20.0, min(x, w - 20.0))
+        if y < 20 or y > h - 20
+            dy = -dy
+            y = max(20.0, min(y, h - 20.0))
+        clear_window(rgb(16, 18, 28))
+        count k from 0 to w / 40
+            draw_line(k * 40, 0, k * 40, h, rgb(30, 34, 50))
+        draw_circle(round(x), round(y), 20, rgb(47, 209, 191))
+        draw_text(10, 10, "окно " + w + "×" + h + "   кадров в секунду: " + fps() + "   кадр: " + round(frame_ms() * 10) / 10.0 + " мс", 1, rgb(244, 243, 239))
+        mode = "как у экрана"
+        if free
+            mode = "сколько успеет (set_fps(0))"
+        draw_text(10, 30, "пробел — частота: " + mode, 1, rgb(255, 210, 90))
+        draw_text(10, h - 24, "тяни окно за угол мышью", 1, rgb(150, 150, 170))
