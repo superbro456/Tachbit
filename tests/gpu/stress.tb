@@ -1,0 +1,20 @@
+// много фигур за кадр: больше 65536 — видеокарта рисует частями, порядок не теряется
+func main()
+    try window_open(640, 480, "GPU: много фигур")
+    frame = 0
+    repeat while window_alive()
+        frame += 1
+        if frame > 6
+            stop
+        clear_window(rgb(0, 0, 0))
+        repeat 90000 times
+            draw_pixel(random(-5, 645), random(-5, 485), rgb(random(0, 255), random(0, 255), random(0, 255)))
+        repeat 3000 times
+            draw_circle(random(-20, 660), random(-20, 500), random(0, 12), rgb(random(0, 255), random(0, 255), 90))
+        repeat 3000 times
+            draw_rect(random(-20, 640), random(-20, 480), random(-3, 40), random(-3, 40), rgb(90, random(0, 255), random(0, 255)))
+        repeat 200 times
+            draw_line(random(-100, 740), random(-100, 580), random(-100, 740), random(-100, 580), rgb(255, random(0, 255), 0))
+        repeat 100 times
+            draw_text(random(-50, 640), random(-30, 480), "Tachbit Ёё Жж", random(1, 4), rgb(255, 255, random(0, 255)))
+        draw_text(-300, -200, "Я", 60, rgb(30, 160, 250))

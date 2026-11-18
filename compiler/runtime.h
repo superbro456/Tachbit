@@ -3023,14 +3023,798 @@ TB_API long long tb_last_frame = 0;
 // клавиши: буквы и цифры — свой код ASCII (A..Z, 0..9), остальные:
 enum { TB_K_ENTER = 10, TB_K_ESC = 27, TB_K_SPACE = 32, TB_K_BACK = 8, TB_K_TAB = 9,
        TB_K_UP = 17, TB_K_DOWN = 18, TB_K_RIGHT = 19, TB_K_LEFT = 20, TB_K_SHIFT = 21 };
+// ---------- рисование на видеокарте (GPU) ----------
+// Кадр не рисуется точками на процессоре: каждая фигура записывается как «экземпляр»
+// (прямоугольник, круг или буква), а видеокарта рисует их все разом — по тем же правилам
+// точек, что и процессор (tb_draw_* ниже). Mac — Metal, Linux и Windows — Vulkan.
+// Если видеокарты нет (нет драйвера Vulkan, нет экрана) — рисуем как раньше, на процессоре.
+//   TB_GPU=0        — всегда на процессоре
+//   TB_GPU_CHECK=1  — рисовать и там и там и сверять каждый кадр точка в точку
+//   TB_GPU_INFO=1   — сказать, чем рисуем
+typedef struct { int32_t x0, y0, x1, y1, ox, oy; uint32_t c, m; } tb_ginst;   // 32 байта
+enum { TB_GI_CAP = 65536 };
+TB_API int tb_gpu_on = 0, tb_gpu_check = 0, tb_gpu_first = 1;
+TB_API tb_ginst *tb_gi = 0;            // память экземпляров (видна видеокарте)
+TB_API int tb_gin = 0;
+TB_API uint32_t *tb_gpu_back = 0;      // TB_GPU_CHECK: кадр, прочитанный обратно с видеокарты
+TB_API long long tb_gpu_frames = 0, tb_gpu_bad = 0;
+TB_API void tb_gpu_flush(int present);   // своя у каждой системы: Metal или Vulkan
+TB_API int tb_gpu_want(void) {
+    const char *e = getenv("TB_GPU");
+    tb_gpu_check = getenv("TB_GPU_CHECK") != 0 && getenv("TB_GPU_CHECK")[0] == '1';
+    return !(e && e[0] == '0');
+}
+TB_API void tb_gpu_say(const char *what) {
+    const char *e = getenv("TB_GPU_INFO");
+    if ((e && e[0] == '1') || tb_gpu_check) fprintf(stderr, "окно: рисует %s\n", what);
+}
+TB_API void tb_gpu_report(void) {
+    fprintf(stderr, "TB_GPU_CHECK: кадров %lld, разошлось %lld\n", tb_gpu_frames, tb_gpu_bad);
+}
+// сверить кадр видеокарты с кадром процессора (видны только младшие 24 бита цвета)
+TB_API void tb_gpu_compare(void) {
+    if (!tb_gpu_back) return;
+    tb_gpu_frames++;
+    long long n = (long long)tb_gw * tb_gh, bad = 0, first = -1;
+    for (long long i = 0; i < n; i++)
+        if (((tb_gpu_back[i] ^ tb_px[i]) & 0xFFFFFF) != 0) { if (first < 0) first = i; bad++; }
+    if (bad) {
+        tb_gpu_bad++;
+        if (tb_gpu_bad <= 5)
+            fprintf(stderr, "TB_GPU_CHECK: кадр %lld: не совпало точек %lld, первая x=%lld y=%lld: видеокарта %06x, процессор %06x\n",
+                tb_gpu_frames, bad, first % tb_gw, first / tb_gw, tb_gpu_back[first] & 0xFFFFFF, tb_px[first] & 0xFFFFFF);
+    }
+}
+TB_INL void tb_gpu_add(long long x0, long long y0, long long x1, long long y1, long long ox, long long oy, uint32_t c, uint32_t m) {
+    if (tb_gin == TB_GI_CAP) tb_gpu_flush(0);
+    tb_ginst *g = &tb_gi[tb_gin++];
+    g->x0 = (int32_t)x0; g->y0 = (int32_t)y0; g->x1 = (int32_t)x1; g->y1 = (int32_t)y1;
+    g->ox = (int32_t)ox; g->oy = (int32_t)oy; g->c = c; g->m = m;
+}
+// прямоугольник: обрезан окном; соседние полоски одного цвета склеиваются (линии, точки по одной)
+TB_API void tb_gpu_rect(long long x, long long y, long long w, long long h, long long c) {
+    long long x0 = x < 0 ? 0 : x, y0 = y < 0 ? 0 : y, x1 = x + w > tb_gw ? tb_gw : x + w, y1 = y + h > tb_gh ? tb_gh : y + h;
+    if (x0 >= x1 || y0 >= y1) return;
+    uint32_t cc = (uint32_t)c & 0xFFFFFF;
+    if (tb_gin > 0) {
+        tb_ginst *g = &tb_gi[tb_gin - 1];
+        if (g->m == 0 && g->c == cc) {
+            if (g->y0 == y0 && g->y1 == y1) {
+                if (g->x1 == x0) { g->x1 = (int32_t)x1; return; }
+                if (g->x0 == x1) { g->x0 = (int32_t)x0; return; }
+            }
+            if (g->x0 == x0 && g->x1 == x1) {
+                if (g->y1 == y0) { g->y1 = (int32_t)y1; return; }
+                if (g->y0 == y1) { g->y0 = (int32_t)y0; return; }
+            }
+        }
+    }
+    tb_gpu_add(x0, y0, x1, y1, 0, 0, cc, 0);
+}
+TB_API void tb_gpu_circle(long long cx, long long cy, long long r, long long c) {
+    if (r < 0 || cx + r < 0 || cy + r < 0 || cx - r >= tb_gw || cy - r >= tb_gh) return;
+    if (r <= 16384) {
+        long long x0 = cx - r < 0 ? 0 : cx - r, y0 = cy - r < 0 ? 0 : cy - r;
+        long long x1 = cx + r + 1 > tb_gw ? tb_gw : cx + r + 1, y1 = cy + r + 1 > tb_gh ? tb_gh : cy + r + 1;
+        tb_gpu_add(x0, y0, x1, y1, cx, cy, (uint32_t)c & 0xFFFFFF, (1u << 30) | (uint32_t)r);
+        return;
+    }
+    // огромный круг: по строкам, полосками (то же правило i*i + j*j <= r*r + r)
+    long long ja = -r > -cy ? -r : -cy, jb = r < tb_gh - 1 - cy ? r : tb_gh - 1 - cy;
+    for (long long j = ja; j <= jb; j++) {
+        long long rest = r * r + r - j * j, i = (long long)sqrt((double)rest);
+        while (i * i > rest) i--;
+        while ((i + 1) * (i + 1) <= rest) i++;
+        tb_gpu_rect(cx - i, cy + j, 2 * i + 1, 1, c);
+    }
+}
+TB_API void tb_gpu_glyph(long long x, long long y, int g, long long size, long long c) {
+    if (x >= tb_gw || y >= tb_gh || x + 8 * size <= 0 || y + 16 * size <= 0) return;
+    if (size >= (1 << 22) || x < -(1LL << 30) || y < -(1LL << 30)) {
+        for (int row = 0; row < 16; row++) for (int col = 0; col < 8; col++)
+            if (tb_font[g][row] & (0x80 >> col)) tb_gpu_rect(x + col * size, y + row * size, size, size, c);
+        return;
+    }
+    long long x0 = x < 0 ? 0 : x, y0 = y < 0 ? 0 : y;
+    long long x1 = x + 8 * size > tb_gw ? tb_gw : x + 8 * size, y1 = y + 16 * size > tb_gh ? tb_gh : y + 16 * size;
+    tb_gpu_add(x0, y0, x1, y1, x, y, (uint32_t)c & 0xFFFFFF, (2u << 30) | ((uint32_t)g << 22) | (uint32_t)size);
+}
+#if !defined(__APPLE__)
+#ifndef _WIN32
+#include <dlfcn.h>
+#endif
+// ---------- Vulkan (Linux и Windows) ----------
+// Свои описания Vulkan (только то, что нужно): программе не нужны заголовки Vulkan,
+// а сама библиотека Vulkan грузится при запуске (dlopen) — нет её, рисуем на процессоре.
+#if defined(_WIN32) && !defined(_WIN64)
+#define TBVK_CALL __stdcall
+#else
+#define TBVK_CALL
+#endif
+typedef int32_t VkResult;
+typedef uint32_t VkFlags, VkBool32;
+typedef uint64_t VkDeviceSize;
+typedef struct VkInstance_T *VkInstance;
+typedef struct VkPhysicalDevice_T *VkPhysicalDevice;
+typedef struct VkDevice_T *VkDevice;
+typedef struct VkQueue_T *VkQueue;
+typedef struct VkCommandBuffer_T *VkCommandBuffer;
+typedef uint64_t VkSurfaceKHR, VkSwapchainKHR, VkImage, VkImageView, VkDeviceMemory, VkBuffer, VkRenderPass,
+    VkFramebuffer, VkPipeline, VkPipelineLayout, VkShaderModule, VkCommandPool, VkFence, VkSemaphore,
+    VkDescriptorSetLayout, VkDescriptorPool, VkDescriptorSet;
+typedef void (TBVK_CALL *PFN_vkVoidFunction)(void);
+typedef struct { uint32_t width, height; } VkExtent2D;
+typedef struct { uint32_t width, height, depth; } VkExtent3D;
+typedef struct { int32_t x, y; } VkOffset2D;
+typedef struct { int32_t x, y, z; } VkOffset3D;
+typedef struct { VkOffset2D offset; VkExtent2D extent; } VkRect2D;
+typedef struct { uint32_t sType; const void *pNext; const char *pApplicationName; uint32_t applicationVersion;
+    const char *pEngineName; uint32_t engineVersion; uint32_t apiVersion; } VkApplicationInfo;
+typedef struct { uint32_t sType; const void *pNext; VkFlags flags; const VkApplicationInfo *pApplicationInfo;
+    uint32_t enabledLayerCount; const char *const *ppEnabledLayerNames; uint32_t enabledExtensionCount;
+    const char *const *ppEnabledExtensionNames; } VkInstanceCreateInfo;
+typedef struct { VkFlags queueFlags; uint32_t queueCount, timestampValidBits; VkExtent3D minImageTransferGranularity; } VkQueueFamilyProperties;
+typedef struct { uint32_t sType; const void *pNext; VkFlags flags; uint32_t queueFamilyIndex, queueCount;
+    const float *pQueuePriorities; } VkDeviceQueueCreateInfo;
+typedef struct { uint32_t sType; const void *pNext; VkFlags flags; uint32_t queueCreateInfoCount;
+    const VkDeviceQueueCreateInfo *pQueueCreateInfos; uint32_t enabledLayerCount; const char *const *ppEnabledLayerNames;
+    uint32_t enabledExtensionCount; const char *const *ppEnabledExtensionNames; const void *pEnabledFeatures; } VkDeviceCreateInfo;
+typedef struct { uint32_t minImageCount, maxImageCount; VkExtent2D currentExtent, minImageExtent, maxImageExtent;
+    uint32_t maxImageArrayLayers; VkFlags supportedTransforms; uint32_t currentTransform; VkFlags supportedCompositeAlpha;
+    VkFlags supportedUsageFlags; } VkSurfaceCapabilitiesKHR;
+typedef struct { uint32_t format, colorSpace; } VkSurfaceFormatKHR;
+typedef struct { uint32_t sType; const void *pNext; VkFlags flags; VkSurfaceKHR surface; uint32_t minImageCount;
+    uint32_t imageFormat, imageColorSpace; VkExtent2D imageExtent; uint32_t imageArrayLayers; VkFlags imageUsage;
+    uint32_t imageSharingMode, queueFamilyIndexCount; const uint32_t *pQueueFamilyIndices; uint32_t preTransform;
+    uint32_t compositeAlpha, presentMode; VkBool32 clipped; VkSwapchainKHR oldSwapchain; } VkSwapchainCreateInfoKHR;
+typedef struct { uint32_t sType; const void *pNext; VkFlags flags; uint32_t imageType, format; VkExtent3D extent;
+    uint32_t mipLevels, arrayLayers, samples, tiling; VkFlags usage; uint32_t sharingMode, queueFamilyIndexCount;
+    const uint32_t *pQueueFamilyIndices; uint32_t initialLayout; } VkImageCreateInfo;
+typedef struct { VkDeviceSize size, alignment; uint32_t memoryTypeBits; } VkMemoryRequirements;
+typedef struct { uint32_t memoryTypeCount; struct { VkFlags propertyFlags; uint32_t heapIndex; } memoryTypes[32];
+    uint32_t memoryHeapCount; struct { VkDeviceSize size; VkFlags flags; } memoryHeaps[16]; } VkPhysicalDeviceMemoryProperties;
+typedef struct { uint32_t sType; const void *pNext; VkDeviceSize allocationSize; uint32_t memoryTypeIndex; } VkMemoryAllocateInfo;
+typedef struct { VkFlags aspectMask; uint32_t baseMipLevel, levelCount, baseArrayLayer, layerCount; } VkImageSubresourceRange;
+typedef struct { VkFlags aspectMask; uint32_t mipLevel, baseArrayLayer, layerCount; } VkImageSubresourceLayers;
+typedef struct { uint32_t sType; const void *pNext; VkFlags flags; VkImage image; uint32_t viewType, format;
+    uint32_t components[4]; VkImageSubresourceRange subresourceRange; } VkImageViewCreateInfo;
+typedef struct { VkFlags flags; uint32_t format, samples, loadOp, storeOp, stencilLoadOp, stencilStoreOp, initialLayout,
+    finalLayout; } VkAttachmentDescription;
+typedef struct { uint32_t attachment, layout; } VkAttachmentReference;
+typedef struct { VkFlags flags; uint32_t pipelineBindPoint, inputAttachmentCount; const VkAttachmentReference *pInputAttachments;
+    uint32_t colorAttachmentCount; const VkAttachmentReference *pColorAttachments, *pResolveAttachments, *pDepthStencilAttachment;
+    uint32_t preserveAttachmentCount; const uint32_t *pPreserveAttachments; } VkSubpassDescription;
+typedef struct { uint32_t srcSubpass, dstSubpass; VkFlags srcStageMask, dstStageMask, srcAccessMask, dstAccessMask,
+    dependencyFlags; } VkSubpassDependency;
+typedef struct { uint32_t sType; const void *pNext; VkFlags flags; uint32_t attachmentCount; const VkAttachmentDescription *pAttachments;
+    uint32_t subpassCount; const VkSubpassDescription *pSubpasses; uint32_t dependencyCount;
+    const VkSubpassDependency *pDependencies; } VkRenderPassCreateInfo;
+typedef struct { uint32_t sType; const void *pNext; VkFlags flags; VkRenderPass renderPass; uint32_t attachmentCount;
+    const VkImageView *pAttachments; uint32_t width, height, layers; } VkFramebufferCreateInfo;
+typedef struct { uint32_t sType; const void *pNext; VkFlags flags; size_t codeSize; const uint32_t *pCode; } VkShaderModuleCreateInfo;
+typedef struct { uint32_t sType; const void *pNext; VkFlags flags; uint32_t stage; VkShaderModule module; const char *pName;
+    const void *pSpecializationInfo; } VkPipelineShaderStageCreateInfo;
+typedef struct { uint32_t binding, stride, inputRate; } VkVertexInputBindingDescription;
+typedef struct { uint32_t location, binding, format, offset; } VkVertexInputAttributeDescription;
+typedef struct { uint32_t sType; const void *pNext; VkFlags flags; uint32_t vertexBindingDescriptionCount;
+    const VkVertexInputBindingDescription *pVertexBindingDescriptions; uint32_t vertexAttributeDescriptionCount;
+    const VkVertexInputAttributeDescription *pVertexAttributeDescriptions; } VkPipelineVertexInputStateCreateInfo;
+typedef struct { uint32_t sType; const void *pNext; VkFlags flags; uint32_t topology; VkBool32 primitiveRestartEnable; } VkPipelineInputAssemblyStateCreateInfo;
+typedef struct { float x, y, width, height, minDepth, maxDepth; } VkViewport;
+typedef struct { uint32_t sType; const void *pNext; VkFlags flags; uint32_t viewportCount; const VkViewport *pViewports;
+    uint32_t scissorCount; const VkRect2D *pScissors; } VkPipelineViewportStateCreateInfo;
+typedef struct { uint32_t sType; const void *pNext; VkFlags flags; VkBool32 depthClampEnable, rasterizerDiscardEnable;
+    uint32_t polygonMode; VkFlags cullMode; uint32_t frontFace; VkBool32 depthBiasEnable; float depthBiasConstantFactor,
+    depthBiasClamp, depthBiasSlopeFactor, lineWidth; } VkPipelineRasterizationStateCreateInfo;
+typedef struct { uint32_t sType; const void *pNext; VkFlags flags; uint32_t rasterizationSamples; VkBool32 sampleShadingEnable;
+    float minSampleShading; const uint32_t *pSampleMask; VkBool32 alphaToCoverageEnable, alphaToOneEnable; } VkPipelineMultisampleStateCreateInfo;
+typedef struct { VkBool32 blendEnable; uint32_t srcColorBlendFactor, dstColorBlendFactor, colorBlendOp, srcAlphaBlendFactor,
+    dstAlphaBlendFactor, alphaBlendOp; VkFlags colorWriteMask; } VkPipelineColorBlendAttachmentState;
+typedef struct { uint32_t sType; const void *pNext; VkFlags flags; VkBool32 logicOpEnable; uint32_t logicOp, attachmentCount;
+    const VkPipelineColorBlendAttachmentState *pAttachments; float blendConstants[4]; } VkPipelineColorBlendStateCreateInfo;
+typedef struct { VkFlags stageFlags; uint32_t offset, size; } VkPushConstantRange;
+typedef struct { uint32_t sType; const void *pNext; VkFlags flags; uint32_t setLayoutCount; const VkDescriptorSetLayout *pSetLayouts;
+    uint32_t pushConstantRangeCount; const VkPushConstantRange *pPushConstantRanges; } VkPipelineLayoutCreateInfo;
+typedef struct { uint32_t sType; const void *pNext; VkFlags flags; uint32_t stageCount; const VkPipelineShaderStageCreateInfo *pStages;
+    const VkPipelineVertexInputStateCreateInfo *pVertexInputState; const VkPipelineInputAssemblyStateCreateInfo *pInputAssemblyState;
+    const void *pTessellationState; const VkPipelineViewportStateCreateInfo *pViewportState;
+    const VkPipelineRasterizationStateCreateInfo *pRasterizationState; const VkPipelineMultisampleStateCreateInfo *pMultisampleState;
+    const void *pDepthStencilState; const VkPipelineColorBlendStateCreateInfo *pColorBlendState; const void *pDynamicState;
+    VkPipelineLayout layout; VkRenderPass renderPass; uint32_t subpass; VkPipeline basePipelineHandle;
+    int32_t basePipelineIndex; } VkGraphicsPipelineCreateInfo;
+typedef struct { uint32_t binding, descriptorType, descriptorCount; VkFlags stageFlags; const void *pImmutableSamplers; } VkDescriptorSetLayoutBinding;
+typedef struct { uint32_t sType; const void *pNext; VkFlags flags; uint32_t bindingCount; const VkDescriptorSetLayoutBinding *pBindings; } VkDescriptorSetLayoutCreateInfo;
+typedef struct { uint32_t type, descriptorCount; } VkDescriptorPoolSize;
+typedef struct { uint32_t sType; const void *pNext; VkFlags flags; uint32_t maxSets, poolSizeCount; const VkDescriptorPoolSize *pPoolSizes; } VkDescriptorPoolCreateInfo;
+typedef struct { uint32_t sType; const void *pNext; VkDescriptorPool descriptorPool; uint32_t descriptorSetCount;
+    const VkDescriptorSetLayout *pSetLayouts; } VkDescriptorSetAllocateInfo;
+typedef struct { VkBuffer buffer; VkDeviceSize offset, range; } VkDescriptorBufferInfo;
+typedef struct { uint32_t sType; const void *pNext; VkDescriptorSet dstSet; uint32_t dstBinding, dstArrayElement, descriptorCount,
+    descriptorType; const void *pImageInfo; const VkDescriptorBufferInfo *pBufferInfo; const void *pTexelBufferView; } VkWriteDescriptorSet;
+typedef struct { uint32_t sType; const void *pNext; VkFlags flags; VkDeviceSize size; VkFlags usage; uint32_t sharingMode,
+    queueFamilyIndexCount; const uint32_t *pQueueFamilyIndices; } VkBufferCreateInfo;
+typedef struct { uint32_t sType; const void *pNext; VkFlags flags; uint32_t queueFamilyIndex; } VkCommandPoolCreateInfo;
+typedef struct { uint32_t sType; const void *pNext; VkCommandPool commandPool; uint32_t level, commandBufferCount; } VkCommandBufferAllocateInfo;
+typedef struct { uint32_t sType; const void *pNext; VkFlags flags; const void *pInheritanceInfo; } VkCommandBufferBeginInfo;
+typedef union { float float32[4]; int32_t int32[4]; uint32_t uint32[4]; } VkClearColorValue;
+typedef struct { uint32_t sType; const void *pNext; VkRenderPass renderPass; VkFramebuffer framebuffer; VkRect2D renderArea;
+    uint32_t clearValueCount; const VkClearColorValue *pClearValues; } VkRenderPassBeginInfo;
+typedef struct { uint32_t sType; const void *pNext; VkFlags srcAccessMask, dstAccessMask; uint32_t oldLayout, newLayout,
+    srcQueueFamilyIndex, dstQueueFamilyIndex; VkImage image; VkImageSubresourceRange subresourceRange; } VkImageMemoryBarrier;
+typedef struct { VkImageSubresourceLayers srcSubresource; VkOffset3D srcOffsets[2]; VkImageSubresourceLayers dstSubresource;
+    VkOffset3D dstOffsets[2]; } VkImageBlit;
+typedef struct { VkDeviceSize bufferOffset; uint32_t bufferRowLength, bufferImageHeight; VkImageSubresourceLayers imageSubresource;
+    VkOffset3D imageOffset; VkExtent3D imageExtent; } VkBufferImageCopy;
+typedef struct { uint32_t sType; const void *pNext; uint32_t waitSemaphoreCount; const VkSemaphore *pWaitSemaphores;
+    const VkFlags *pWaitDstStageMask; uint32_t commandBufferCount; const VkCommandBuffer *pCommandBuffers;
+    uint32_t signalSemaphoreCount; const VkSemaphore *pSignalSemaphores; } VkSubmitInfo;
+typedef struct { uint32_t sType; const void *pNext; uint32_t waitSemaphoreCount; const VkSemaphore *pWaitSemaphores;
+    uint32_t swapchainCount; const VkSwapchainKHR *pSwapchains; const uint32_t *pImageIndices; VkResult *pResults; } VkPresentInfoKHR;
+typedef struct { uint32_t sType; const void *pNext; VkFlags flags; } VkFenceCreateInfo;
+typedef struct { VkFlags linearTilingFeatures, optimalTilingFeatures, bufferFeatures; } VkFormatProperties;
+// нужные функции Vulkan: имя, ответ, параметры
+#define TBVK_FUNCS(X) \
+    X(EnumeratePhysicalDevices, VkResult, (VkInstance, uint32_t *, VkPhysicalDevice *)) \
+    X(GetPhysicalDeviceProperties, void, (VkPhysicalDevice, void *)) \
+    X(GetPhysicalDeviceQueueFamilyProperties, void, (VkPhysicalDevice, uint32_t *, VkQueueFamilyProperties *)) \
+    X(GetPhysicalDeviceMemoryProperties, void, (VkPhysicalDevice, VkPhysicalDeviceMemoryProperties *)) \
+    X(GetPhysicalDeviceFormatProperties, void, (VkPhysicalDevice, uint32_t, VkFormatProperties *)) \
+    X(GetPhysicalDeviceSurfaceSupportKHR, VkResult, (VkPhysicalDevice, uint32_t, VkSurfaceKHR, VkBool32 *)) \
+    X(GetPhysicalDeviceSurfaceCapabilitiesKHR, VkResult, (VkPhysicalDevice, VkSurfaceKHR, VkSurfaceCapabilitiesKHR *)) \
+    X(GetPhysicalDeviceSurfaceFormatsKHR, VkResult, (VkPhysicalDevice, VkSurfaceKHR, uint32_t *, VkSurfaceFormatKHR *)) \
+    X(GetPhysicalDeviceSurfacePresentModesKHR, VkResult, (VkPhysicalDevice, VkSurfaceKHR, uint32_t *, uint32_t *)) \
+    X(CreateDevice, VkResult, (VkPhysicalDevice, const VkDeviceCreateInfo *, const void *, VkDevice *)) \
+    X(GetDeviceQueue, void, (VkDevice, uint32_t, uint32_t, VkQueue *)) \
+    X(CreateSwapchainKHR, VkResult, (VkDevice, const VkSwapchainCreateInfoKHR *, const void *, VkSwapchainKHR *)) \
+    X(DestroySwapchainKHR, void, (VkDevice, VkSwapchainKHR, const void *)) \
+    X(GetSwapchainImagesKHR, VkResult, (VkDevice, VkSwapchainKHR, uint32_t *, VkImage *)) \
+    X(AcquireNextImageKHR, VkResult, (VkDevice, VkSwapchainKHR, uint64_t, VkSemaphore, VkFence, uint32_t *)) \
+    X(QueuePresentKHR, VkResult, (VkQueue, const VkPresentInfoKHR *)) \
+    X(CreateImage, VkResult, (VkDevice, const VkImageCreateInfo *, const void *, VkImage *)) \
+    X(GetImageMemoryRequirements, void, (VkDevice, VkImage, VkMemoryRequirements *)) \
+    X(BindImageMemory, VkResult, (VkDevice, VkImage, VkDeviceMemory, VkDeviceSize)) \
+    X(CreateImageView, VkResult, (VkDevice, const VkImageViewCreateInfo *, const void *, VkImageView *)) \
+    X(CreateBuffer, VkResult, (VkDevice, const VkBufferCreateInfo *, const void *, VkBuffer *)) \
+    X(GetBufferMemoryRequirements, void, (VkDevice, VkBuffer, VkMemoryRequirements *)) \
+    X(BindBufferMemory, VkResult, (VkDevice, VkBuffer, VkDeviceMemory, VkDeviceSize)) \
+    X(AllocateMemory, VkResult, (VkDevice, const VkMemoryAllocateInfo *, const void *, VkDeviceMemory *)) \
+    X(MapMemory, VkResult, (VkDevice, VkDeviceMemory, VkDeviceSize, VkDeviceSize, VkFlags, void **)) \
+    X(CreateRenderPass, VkResult, (VkDevice, const VkRenderPassCreateInfo *, const void *, VkRenderPass *)) \
+    X(CreateFramebuffer, VkResult, (VkDevice, const VkFramebufferCreateInfo *, const void *, VkFramebuffer *)) \
+    X(CreateShaderModule, VkResult, (VkDevice, const VkShaderModuleCreateInfo *, const void *, VkShaderModule *)) \
+    X(CreateDescriptorSetLayout, VkResult, (VkDevice, const VkDescriptorSetLayoutCreateInfo *, const void *, VkDescriptorSetLayout *)) \
+    X(CreateDescriptorPool, VkResult, (VkDevice, const VkDescriptorPoolCreateInfo *, const void *, VkDescriptorPool *)) \
+    X(AllocateDescriptorSets, VkResult, (VkDevice, const VkDescriptorSetAllocateInfo *, VkDescriptorSet *)) \
+    X(UpdateDescriptorSets, void, (VkDevice, uint32_t, const VkWriteDescriptorSet *, uint32_t, const void *)) \
+    X(CreatePipelineLayout, VkResult, (VkDevice, const VkPipelineLayoutCreateInfo *, const void *, VkPipelineLayout *)) \
+    X(CreateGraphicsPipelines, VkResult, (VkDevice, uint64_t, uint32_t, const VkGraphicsPipelineCreateInfo *, const void *, VkPipeline *)) \
+    X(CreateCommandPool, VkResult, (VkDevice, const VkCommandPoolCreateInfo *, const void *, VkCommandPool *)) \
+    X(AllocateCommandBuffers, VkResult, (VkDevice, const VkCommandBufferAllocateInfo *, VkCommandBuffer *)) \
+    X(CreateFence, VkResult, (VkDevice, const VkFenceCreateInfo *, const void *, VkFence *)) \
+    X(CreateSemaphore, VkResult, (VkDevice, const VkFenceCreateInfo *, const void *, VkSemaphore *)) \
+    X(WaitForFences, VkResult, (VkDevice, uint32_t, const VkFence *, VkBool32, uint64_t)) \
+    X(ResetFences, VkResult, (VkDevice, uint32_t, const VkFence *)) \
+    X(DeviceWaitIdle, VkResult, (VkDevice)) \
+    X(BeginCommandBuffer, VkResult, (VkCommandBuffer, const VkCommandBufferBeginInfo *)) \
+    X(EndCommandBuffer, VkResult, (VkCommandBuffer)) \
+    X(ResetCommandBuffer, VkResult, (VkCommandBuffer, VkFlags)) \
+    X(CmdBeginRenderPass, void, (VkCommandBuffer, const VkRenderPassBeginInfo *, uint32_t)) \
+    X(CmdEndRenderPass, void, (VkCommandBuffer)) \
+    X(CmdBindPipeline, void, (VkCommandBuffer, uint32_t, VkPipeline)) \
+    X(CmdBindDescriptorSets, void, (VkCommandBuffer, uint32_t, VkPipelineLayout, uint32_t, uint32_t, const VkDescriptorSet *, uint32_t, const uint32_t *)) \
+    X(CmdBindVertexBuffers, void, (VkCommandBuffer, uint32_t, uint32_t, const VkBuffer *, const VkDeviceSize *)) \
+    X(CmdPushConstants, void, (VkCommandBuffer, VkPipelineLayout, VkFlags, uint32_t, uint32_t, const void *)) \
+    X(CmdDraw, void, (VkCommandBuffer, uint32_t, uint32_t, uint32_t, uint32_t)) \
+    X(CmdPipelineBarrier, void, (VkCommandBuffer, VkFlags, VkFlags, VkFlags, uint32_t, const void *, uint32_t, const void *, uint32_t, const VkImageMemoryBarrier *)) \
+    X(CmdBlitImage, void, (VkCommandBuffer, VkImage, uint32_t, VkImage, uint32_t, uint32_t, const VkImageBlit *, uint32_t)) \
+    X(CmdCopyImageToBuffer, void, (VkCommandBuffer, VkImage, uint32_t, VkBuffer, uint32_t, const VkBufferImageCopy *)) \
+    X(CmdClearColorImage, void, (VkCommandBuffer, VkImage, uint32_t, const VkClearColorValue *, uint32_t, const VkImageSubresourceRange *)) \
+    X(QueueSubmit, VkResult, (VkQueue, uint32_t, const VkSubmitInfo *, VkFence))
+#define TBVK_DECL(n, r, p) TB_API r (TBVK_CALL *tbvk_##n) p = 0;
+TBVK_FUNCS(TBVK_DECL)
+TB_API PFN_vkVoidFunction (TBVK_CALL *tbvk_gipa)(VkInstance, const char *) = 0;
+TB_API VkResult (TBVK_CALL *tbvk_CreateInstance)(const VkInstanceCreateInfo *, const void *, VkInstance *) = 0;
+// шейдеры: compiler/gpu/tb.vert и tb.frag, переведены в SPIR-V (tools/gpu_shaders.py)
+// @@SPIRV-BEGIN@@
+TB_API const uint32_t tb_spv_vert[579] = {
+    0x07230203, 0x00010000, 0x0008000b, 0x0000005b, 0x00000000, 0x00020011, 0x00000001, 0x0006000b,
+    0x00000001, 0x4c534c47, 0x6474732e, 0x3035342e, 0x00000000, 0x0003000e, 0x00000000, 0x00000001,
+    0x000c000f, 0x00000000, 0x00000004, 0x6e69616d, 0x00000000, 0x0000000a, 0x0000001b, 0x0000003b,
+    0x00000051, 0x00000053, 0x00000057, 0x00000059, 0x00030003, 0x00000002, 0x000001c2, 0x00040005,
+    0x00000004, 0x6e69616d, 0x00000000, 0x00030005, 0x00000008, 0x00000076, 0x00060005, 0x0000000a,
+    0x565f6c67, 0x65747265, 0x646e4978, 0x00007865, 0x00030005, 0x0000000f, 0x00000070, 0x00030005,
+    0x0000001b, 0x00000071, 0x00060005, 0x00000039, 0x505f6c67, 0x65567265, 0x78657472, 0x00000000,
+    0x00060006, 0x00000039, 0x00000000, 0x505f6c67, 0x7469736f, 0x006e6f69, 0x00070006, 0x00000039,
+    0x00000001, 0x505f6c67, 0x746e696f, 0x657a6953, 0x00000000, 0x00070006, 0x00000039, 0x00000002,
+    0x435f6c67, 0x4470696c, 0x61747369, 0x0065636e, 0x00070006, 0x00000039, 0x00000003, 0x435f6c67,
+    0x446c6c75, 0x61747369, 0x0065636e, 0x00030005, 0x0000003b, 0x00000000, 0x00030005, 0x0000003d,
+    0x00000050, 0x00050006, 0x0000003d, 0x00000000, 0x657a6973, 0x00000000, 0x00030005, 0x0000003f,
+    0x00006370, 0x00030005, 0x00000051, 0x00006f76, 0x00030005, 0x00000053, 0x0000006f, 0x00030005,
+    0x00000057, 0x006d6376, 0x00030005, 0x00000059, 0x00006d63, 0x00040047, 0x0000000a, 0x0000000b,
+    0x0000002a, 0x00040047, 0x0000001b, 0x0000001e, 0x00000000, 0x00030047, 0x00000039, 0x00000002,
+    0x00050048, 0x00000039, 0x00000000, 0x0000000b, 0x00000000, 0x00050048, 0x00000039, 0x00000001,
+    0x0000000b, 0x00000001, 0x00050048, 0x00000039, 0x00000002, 0x0000000b, 0x00000003, 0x00050048,
+    0x00000039, 0x00000003, 0x0000000b, 0x00000004, 0x00030047, 0x0000003d, 0x00000002, 0x00050048,
+    0x0000003d, 0x00000000, 0x00000023, 0x00000000, 0x00030047, 0x00000051, 0x0000000e, 0x00040047,
+    0x00000051, 0x0000001e, 0x00000000, 0x00040047, 0x00000053, 0x0000001e, 0x00000001, 0x00030047,
+    0x00000057, 0x0000000e, 0x00040047, 0x00000057, 0x0000001e, 0x00000001, 0x00040047, 0x00000059,
+    0x0000001e, 0x00000002, 0x00020013, 0x00000002, 0x00030021, 0x00000003, 0x00000002, 0x00040015,
+    0x00000006, 0x00000020, 0x00000001, 0x00040020, 0x00000007, 0x00000007, 0x00000006, 0x00040020,
+    0x00000009, 0x00000001, 0x00000006, 0x0004003b, 0x00000009, 0x0000000a, 0x00000001, 0x00030016,
+    0x0000000c, 0x00000020, 0x00040017, 0x0000000d, 0x0000000c, 0x00000002, 0x00040020, 0x0000000e,
+    0x00000007, 0x0000000d, 0x0004002b, 0x00000006, 0x00000011, 0x00000001, 0x0004002b, 0x00000006,
+    0x00000013, 0x00000000, 0x00020014, 0x00000014, 0x00040017, 0x00000019, 0x00000006, 0x00000004,
+    0x00040020, 0x0000001a, 0x00000001, 0x00000019, 0x0004003b, 0x0000001a, 0x0000001b, 0x00000001,
+    0x00040015, 0x0000001c, 0x00000020, 0x00000000, 0x0004002b, 0x0000001c, 0x0000001d, 0x00000002,
+    0x0004002b, 0x0000001c, 0x00000021, 0x00000000, 0x0004002b, 0x00000006, 0x00000027, 0x00000002,
+    0x0004002b, 0x0000001c, 0x0000002d, 0x00000003, 0x0004002b, 0x0000001c, 0x00000031, 0x00000001,
+    0x00040017, 0x00000037, 0x0000000c, 0x00000004, 0x0004001c, 0x00000038, 0x0000000c, 0x00000031,
+    0x0006001e, 0x00000039, 0x00000037, 0x0000000c, 0x00000038, 0x00000038, 0x00040020, 0x0000003a,
+    0x00000003, 0x00000039, 0x0004003b, 0x0000003a, 0x0000003b, 0x00000003, 0x0003001e, 0x0000003d,
+    0x0000000d, 0x00040020, 0x0000003e, 0x00000009, 0x0000003d, 0x0004003b, 0x0000003e, 0x0000003f,
+    0x00000009, 0x00040020, 0x00000040, 0x00000009, 0x0000000d, 0x0004002b, 0x0000000c, 0x00000044,
+    0x40000000, 0x0004002b, 0x0000000c, 0x00000046, 0x3f800000, 0x0004002b, 0x0000000c, 0x00000049,
+    0x00000000, 0x00040020, 0x0000004d, 0x00000003, 0x00000037, 0x00040017, 0x0000004f, 0x00000006,
+    0x00000002, 0x00040020, 0x00000050, 0x00000003, 0x0000004f, 0x0004003b, 0x00000050, 0x00000051,
+    0x00000003, 0x00040020, 0x00000052, 0x00000001, 0x0000004f, 0x0004003b, 0x00000052, 0x00000053,
+    0x00000001, 0x00040017, 0x00000055, 0x0000001c, 0x00000002, 0x00040020, 0x00000056, 0x00000003,
+    0x00000055, 0x0004003b, 0x00000056, 0x00000057, 0x00000003, 0x00040020, 0x00000058, 0x00000001,
+    0x00000055, 0x0004003b, 0x00000058, 0x00000059, 0x00000001, 0x00050036, 0x00000002, 0x00000004,
+    0x00000000, 0x00000003, 0x000200f8, 0x00000005, 0x0004003b, 0x00000007, 0x00000008, 0x00000007,
+    0x0004003b, 0x0000000e, 0x0000000f, 0x00000007, 0x0004003b, 0x00000007, 0x00000016, 0x00000007,
+    0x0004003b, 0x00000007, 0x0000002a, 0x00000007, 0x0004003d, 0x00000006, 0x0000000b, 0x0000000a,
+    0x0003003e, 0x00000008, 0x0000000b, 0x0004003d, 0x00000006, 0x00000010, 0x00000008, 0x000500c7,
+    0x00000006, 0x00000012, 0x00000010, 0x00000011, 0x000500ab, 0x00000014, 0x00000015, 0x00000012,
+    0x00000013, 0x000300f7, 0x00000018, 0x00000000, 0x000400fa, 0x00000015, 0x00000017, 0x00000020,
+    0x000200f8, 0x00000017, 0x00050041, 0x00000009, 0x0000001e, 0x0000001b, 0x0000001d, 0x0004003d,
+    0x00000006, 0x0000001f, 0x0000001e, 0x0003003e, 0x00000016, 0x0000001f, 0x000200f9, 0x00000018,
+    0x000200f8, 0x00000020, 0x00050041, 0x00000009, 0x00000022, 0x0000001b, 0x00000021, 0x0004003d,
+    0x00000006, 0x00000023, 0x00000022, 0x0003003e, 0x00000016, 0x00000023, 0x000200f9, 0x00000018,
+    0x000200f8, 0x00000018, 0x0004003d, 0x00000006, 0x00000024, 0x00000016, 0x0004006f, 0x0000000c,
+    0x00000025, 0x00000024, 0x0004003d, 0x00000006, 0x00000026, 0x00000008, 0x000500c7, 0x00000006,
+    0x00000028, 0x00000026, 0x00000027, 0x000500ab, 0x00000014, 0x00000029, 0x00000028, 0x00000013,
+    0x000300f7, 0x0000002c, 0x00000000, 0x000400fa, 0x00000029, 0x0000002b, 0x00000030, 0x000200f8,
+    0x0000002b, 0x00050041, 0x00000009, 0x0000002e, 0x0000001b, 0x0000002d, 0x0004003d, 0x00000006,
+    0x0000002f, 0x0000002e, 0x0003003e, 0x0000002a, 0x0000002f, 0x000200f9, 0x0000002c, 0x000200f8,
+    0x00000030, 0x00050041, 0x00000009, 0x00000032, 0x0000001b, 0x00000031, 0x0004003d, 0x00000006,
+    0x00000033, 0x00000032, 0x0003003e, 0x0000002a, 0x00000033, 0x000200f9, 0x0000002c, 0x000200f8,
+    0x0000002c, 0x0004003d, 0x00000006, 0x00000034, 0x0000002a, 0x0004006f, 0x0000000c, 0x00000035,
+    0x00000034, 0x00050050, 0x0000000d, 0x00000036, 0x00000025, 0x00000035, 0x0003003e, 0x0000000f,
+    0x00000036, 0x0004003d, 0x0000000d, 0x0000003c, 0x0000000f, 0x00050041, 0x00000040, 0x00000041,
+    0x0000003f, 0x00000013, 0x0004003d, 0x0000000d, 0x00000042, 0x00000041, 0x00050088, 0x0000000d,
+    0x00000043, 0x0000003c, 0x00000042, 0x0005008e, 0x0000000d, 0x00000045, 0x00000043, 0x00000044,
+    0x00050050, 0x0000000d, 0x00000047, 0x00000046, 0x00000046, 0x00050083, 0x0000000d, 0x00000048,
+    0x00000045, 0x00000047, 0x00050051, 0x0000000c, 0x0000004a, 0x00000048, 0x00000000, 0x00050051,
+    0x0000000c, 0x0000004b, 0x00000048, 0x00000001, 0x00070050, 0x00000037, 0x0000004c, 0x0000004a,
+    0x0000004b, 0x00000049, 0x00000046, 0x00050041, 0x0000004d, 0x0000004e, 0x0000003b, 0x00000013,
+    0x0003003e, 0x0000004e, 0x0000004c, 0x0004003d, 0x0000004f, 0x00000054, 0x00000053, 0x0003003e,
+    0x00000051, 0x00000054, 0x0004003d, 0x00000055, 0x0000005a, 0x00000059, 0x0003003e, 0x00000057,
+    0x0000005a, 0x000100fd, 0x00010038,
+};
+TB_API const uint32_t tb_spv_frag[878] = {
+    0x07230203, 0x00010000, 0x0008000b, 0x000000a2, 0x00000000, 0x00020011, 0x00000001, 0x0006000b,
+    0x00000001, 0x4c534c47, 0x6474732e, 0x3035342e, 0x00000000, 0x0003000e, 0x00000000, 0x00000001,
+    0x0009000f, 0x00000004, 0x00000004, 0x6e69616d, 0x00000000, 0x0000000d, 0x00000017, 0x00000030,
+    0x00000090, 0x00030010, 0x00000004, 0x00000007, 0x00030003, 0x00000002, 0x000001c2, 0x00040005,
+    0x00000004, 0x6e69616d, 0x00000000, 0x00030005, 0x00000009, 0x00000070, 0x00060005, 0x0000000d,
+    0x465f6c67, 0x43676172, 0x64726f6f, 0x00000000, 0x00030005, 0x00000014, 0x0000006d, 0x00030005,
+    0x00000017, 0x006d6376, 0x00030005, 0x0000001c, 0x0000006b, 0x00030005, 0x00000026, 0x00000072,
+    0x00030005, 0x0000002b, 0x00000069, 0x00030005, 0x00000030, 0x00006f76, 0x00030005, 0x00000035,
+    0x0000006a, 0x00030005, 0x00000051, 0x00000073, 0x00030005, 0x00000055, 0x00007863, 0x00030005,
+    0x0000005d, 0x00007972, 0x00030005, 0x00000065, 0x00000067, 0x00030005, 0x0000006b, 0x00000062,
+    0x00040005, 0x0000006f, 0x746e6f46, 0x00000000, 0x00040006, 0x0000006f, 0x00000000, 0x00000066,
+    0x00040005, 0x00000071, 0x746e6f66, 0x00000000, 0x00030005, 0x0000008c, 0x00000063, 0x00030005,
+    0x00000090, 0x006c6f63, 0x00040047, 0x0000000d, 0x0000000b, 0x0000000f, 0x00030047, 0x00000017,
+    0x0000000e, 0x00040047, 0x00000017, 0x0000001e, 0x00000001, 0x00030047, 0x00000030, 0x0000000e,
+    0x00040047, 0x00000030, 0x0000001e, 0x00000000, 0x00040047, 0x0000006e, 0x00000006, 0x00000010,
+    0x00030047, 0x0000006f, 0x00000002, 0x00050048, 0x0000006f, 0x00000000, 0x00000023, 0x00000000,
+    0x00040047, 0x00000071, 0x00000021, 0x00000000, 0x00040047, 0x00000071, 0x00000022, 0x00000000,
+    0x00040047, 0x00000090, 0x0000001e, 0x00000000, 0x00020013, 0x00000002, 0x00030021, 0x00000003,
+    0x00000002, 0x00040015, 0x00000006, 0x00000020, 0x00000001, 0x00040017, 0x00000007, 0x00000006,
+    0x00000002, 0x00040020, 0x00000008, 0x00000007, 0x00000007, 0x00030016, 0x0000000a, 0x00000020,
+    0x00040017, 0x0000000b, 0x0000000a, 0x00000004, 0x00040020, 0x0000000c, 0x00000001, 0x0000000b,
+    0x0004003b, 0x0000000c, 0x0000000d, 0x00000001, 0x00040017, 0x0000000e, 0x0000000a, 0x00000002,
+    0x00040015, 0x00000012, 0x00000020, 0x00000000, 0x00040020, 0x00000013, 0x00000007, 0x00000012,
+    0x00040017, 0x00000015, 0x00000012, 0x00000002, 0x00040020, 0x00000016, 0x00000001, 0x00000015,
+    0x0004003b, 0x00000016, 0x00000017, 0x00000001, 0x0004002b, 0x00000012, 0x00000018, 0x00000001,
+    0x00040020, 0x00000019, 0x00000001, 0x00000012, 0x0004002b, 0x00000006, 0x0000001e, 0x0000001e,
+    0x00020014, 0x00000021, 0x00040020, 0x00000025, 0x00000007, 0x00000006, 0x0004002b, 0x00000012,
+    0x00000028, 0x003fffff, 0x0004002b, 0x00000012, 0x0000002c, 0x00000000, 0x00040020, 0x0000002f,
+    0x00000001, 0x00000007, 0x0004003b, 0x0000002f, 0x00000030, 0x00000001, 0x00040020, 0x00000031,
+    0x00000001, 0x00000006, 0x0004002b, 0x00000012, 0x0000004d, 0x00000002, 0x0004002b, 0x00000006,
+    0x00000067, 0x00000016, 0x0004002b, 0x00000012, 0x00000069, 0x000000ff, 0x00040017, 0x0000006c,
+    0x00000012, 0x00000004, 0x0004002b, 0x00000012, 0x0000006d, 0x000000a1, 0x0004001c, 0x0000006e,
+    0x0000006c, 0x0000006d, 0x0003001e, 0x0000006f, 0x0000006e, 0x00040020, 0x00000070, 0x00000002,
+    0x0000006f, 0x0004003b, 0x00000070, 0x00000071, 0x00000002, 0x0004002b, 0x00000006, 0x00000072,
+    0x00000000, 0x0004002b, 0x00000006, 0x00000075, 0x00000002, 0x00040020, 0x00000077, 0x00000002,
+    0x00000012, 0x0004002b, 0x00000006, 0x0000007b, 0x00000003, 0x0004002b, 0x00000012, 0x0000007e,
+    0x00000008, 0x0004002b, 0x00000012, 0x00000083, 0x00000080, 0x00040020, 0x0000008f, 0x00000003,
+    0x0000000b, 0x0004003b, 0x0000008f, 0x00000090, 0x00000003, 0x0004002b, 0x00000006, 0x00000092,
+    0x00000010, 0x0004002b, 0x00000006, 0x00000097, 0x00000008, 0x0004002b, 0x0000000a, 0x0000009e,
+    0x437f0000, 0x00050036, 0x00000002, 0x00000004, 0x00000000, 0x00000003, 0x000200f8, 0x00000005,
+    0x0004003b, 0x00000008, 0x00000009, 0x00000007, 0x0004003b, 0x00000013, 0x00000014, 0x00000007,
+    0x0004003b, 0x00000013, 0x0000001c, 0x00000007, 0x0004003b, 0x00000025, 0x00000026, 0x00000007,
+    0x0004003b, 0x00000025, 0x0000002b, 0x00000007, 0x0004003b, 0x00000025, 0x00000035, 0x00000007,
+    0x0004003b, 0x00000025, 0x00000051, 0x00000007, 0x0004003b, 0x00000025, 0x00000055, 0x00000007,
+    0x0004003b, 0x00000025, 0x0000005d, 0x00000007, 0x0004003b, 0x00000013, 0x00000065, 0x00000007,
+    0x0004003b, 0x00000013, 0x0000006b, 0x00000007, 0x0004003b, 0x00000013, 0x0000008c, 0x00000007,
+    0x0004003d, 0x0000000b, 0x0000000f, 0x0000000d, 0x0007004f, 0x0000000e, 0x00000010, 0x0000000f,
+    0x0000000f, 0x00000000, 0x00000001, 0x0004006e, 0x00000007, 0x00000011, 0x00000010, 0x0003003e,
+    0x00000009, 0x00000011, 0x00050041, 0x00000019, 0x0000001a, 0x00000017, 0x00000018, 0x0004003d,
+    0x00000012, 0x0000001b, 0x0000001a, 0x0003003e, 0x00000014, 0x0000001b, 0x0004003d, 0x00000012,
+    0x0000001d, 0x00000014, 0x000500c2, 0x00000012, 0x0000001f, 0x0000001d, 0x0000001e, 0x0003003e,
+    0x0000001c, 0x0000001f, 0x0004003d, 0x00000012, 0x00000020, 0x0000001c, 0x000500aa, 0x00000021,
+    0x00000022, 0x00000020, 0x00000018, 0x000300f7, 0x00000024, 0x00000000, 0x000400fa, 0x00000022,
+    0x00000023, 0x0000004b, 0x000200f8, 0x00000023, 0x0004003d, 0x00000012, 0x00000027, 0x00000014,
+    0x000500c7, 0x00000012, 0x00000029, 0x00000027, 0x00000028, 0x0004007c, 0x00000006, 0x0000002a,
+    0x00000029, 0x0003003e, 0x00000026, 0x0000002a, 0x00050041, 0x00000025, 0x0000002d, 0x00000009,
+    0x0000002c, 0x0004003d, 0x00000006, 0x0000002e, 0x0000002d, 0x00050041, 0x00000031, 0x00000032,
+    0x00000030, 0x0000002c, 0x0004003d, 0x00000006, 0x00000033, 0x00000032, 0x00050082, 0x00000006,
+    0x00000034, 0x0000002e, 0x00000033, 0x0003003e, 0x0000002b, 0x00000034, 0x00050041, 0x00000025,
+    0x00000036, 0x00000009, 0x00000018, 0x0004003d, 0x00000006, 0x00000037, 0x00000036, 0x00050041,
+    0x00000031, 0x00000038, 0x00000030, 0x00000018, 0x0004003d, 0x00000006, 0x00000039, 0x00000038,
+    0x00050082, 0x00000006, 0x0000003a, 0x00000037, 0x00000039, 0x0003003e, 0x00000035, 0x0000003a,
+    0x0004003d, 0x00000006, 0x0000003b, 0x0000002b, 0x0004003d, 0x00000006, 0x0000003c, 0x0000002b,
+    0x00050084, 0x00000006, 0x0000003d, 0x0000003b, 0x0000003c, 0x0004003d, 0x00000006, 0x0000003e,
+    0x00000035, 0x0004003d, 0x00000006, 0x0000003f, 0x00000035, 0x00050084, 0x00000006, 0x00000040,
+    0x0000003e, 0x0000003f, 0x00050080, 0x00000006, 0x00000041, 0x0000003d, 0x00000040, 0x0004003d,
+    0x00000006, 0x00000042, 0x00000026, 0x0004003d, 0x00000006, 0x00000043, 0x00000026, 0x00050084,
+    0x00000006, 0x00000044, 0x00000042, 0x00000043, 0x0004003d, 0x00000006, 0x00000045, 0x00000026,
+    0x00050080, 0x00000006, 0x00000046, 0x00000044, 0x00000045, 0x000500ad, 0x00000021, 0x00000047,
+    0x00000041, 0x00000046, 0x000300f7, 0x00000049, 0x00000000, 0x000400fa, 0x00000047, 0x00000048,
+    0x00000049, 0x000200f8, 0x00000048, 0x000100fc, 0x000200f8, 0x00000049, 0x000200f9, 0x00000024,
+    0x000200f8, 0x0000004b, 0x0004003d, 0x00000012, 0x0000004c, 0x0000001c, 0x000500aa, 0x00000021,
+    0x0000004e, 0x0000004c, 0x0000004d, 0x000300f7, 0x00000050, 0x00000000, 0x000400fa, 0x0000004e,
+    0x0000004f, 0x00000050, 0x000200f8, 0x0000004f, 0x0004003d, 0x00000012, 0x00000052, 0x00000014,
+    0x000500c7, 0x00000012, 0x00000053, 0x00000052, 0x00000028, 0x0004007c, 0x00000006, 0x00000054,
+    0x00000053, 0x0003003e, 0x00000051, 0x00000054, 0x00050041, 0x00000025, 0x00000056, 0x00000009,
+    0x0000002c, 0x0004003d, 0x00000006, 0x00000057, 0x00000056, 0x00050041, 0x00000031, 0x00000058,
+    0x00000030, 0x0000002c, 0x0004003d, 0x00000006, 0x00000059, 0x00000058, 0x00050082, 0x00000006,
+    0x0000005a, 0x00000057, 0x00000059, 0x0004003d, 0x00000006, 0x0000005b, 0x00000051, 0x00050087,
+    0x00000006, 0x0000005c, 0x0000005a, 0x0000005b, 0x0003003e, 0x00000055, 0x0000005c, 0x00050041,
+    0x00000025, 0x0000005e, 0x00000009, 0x00000018, 0x0004003d, 0x00000006, 0x0000005f, 0x0000005e,
+    0x00050041, 0x00000031, 0x00000060, 0x00000030, 0x00000018, 0x0004003d, 0x00000006, 0x00000061,
+    0x00000060, 0x00050082, 0x00000006, 0x00000062, 0x0000005f, 0x00000061, 0x0004003d, 0x00000006,
+    0x00000063, 0x00000051, 0x00050087, 0x00000006, 0x00000064, 0x00000062, 0x00000063, 0x0003003e,
+    0x0000005d, 0x00000064, 0x0004003d, 0x00000012, 0x00000066, 0x00000014, 0x000500c2, 0x00000012,
+    0x00000068, 0x00000066, 0x00000067, 0x000500c7, 0x00000012, 0x0000006a, 0x00000068, 0x00000069,
+    0x0003003e, 0x00000065, 0x0000006a, 0x0004003d, 0x00000012, 0x00000073, 0x00000065, 0x0004003d,
+    0x00000006, 0x00000074, 0x0000005d, 0x000500c3, 0x00000006, 0x00000076, 0x00000074, 0x00000075,
+    0x00070041, 0x00000077, 0x00000078, 0x00000071, 0x00000072, 0x00000073, 0x00000076, 0x0004003d,
+    0x00000012, 0x00000079, 0x00000078, 0x0004003d, 0x00000006, 0x0000007a, 0x0000005d, 0x000500c7,
+    0x00000006, 0x0000007c, 0x0000007a, 0x0000007b, 0x0004007c, 0x00000012, 0x0000007d, 0x0000007c,
+    0x00050084, 0x00000012, 0x0000007f, 0x0000007d, 0x0000007e, 0x000500c2, 0x00000012, 0x00000080,
+    0x00000079, 0x0000007f, 0x000500c7, 0x00000012, 0x00000081, 0x00000080, 0x00000069, 0x0003003e,
+    0x0000006b, 0x00000081, 0x0004003d, 0x00000012, 0x00000082, 0x0000006b, 0x0004003d, 0x00000006,
+    0x00000084, 0x00000055, 0x0004007c, 0x00000012, 0x00000085, 0x00000084, 0x000500c2, 0x00000012,
+    0x00000086, 0x00000083, 0x00000085, 0x000500c7, 0x00000012, 0x00000087, 0x00000082, 0x00000086,
+    0x000500aa, 0x00000021, 0x00000088, 0x00000087, 0x0000002c, 0x000300f7, 0x0000008a, 0x00000000,
+    0x000400fa, 0x00000088, 0x00000089, 0x0000008a, 0x000200f8, 0x00000089, 0x000100fc, 0x000200f8,
+    0x0000008a, 0x000200f9, 0x00000050, 0x000200f8, 0x00000050, 0x000200f9, 0x00000024, 0x000200f8,
+    0x00000024, 0x00050041, 0x00000019, 0x0000008d, 0x00000017, 0x0000002c, 0x0004003d, 0x00000012,
+    0x0000008e, 0x0000008d, 0x0003003e, 0x0000008c, 0x0000008e, 0x0004003d, 0x00000012, 0x00000091,
+    0x0000008c, 0x000500c2, 0x00000012, 0x00000093, 0x00000091, 0x00000092, 0x000500c7, 0x00000012,
+    0x00000094, 0x00000093, 0x00000069, 0x00040070, 0x0000000a, 0x00000095, 0x00000094, 0x0004003d,
+    0x00000012, 0x00000096, 0x0000008c, 0x000500c2, 0x00000012, 0x00000098, 0x00000096, 0x00000097,
+    0x000500c7, 0x00000012, 0x00000099, 0x00000098, 0x00000069, 0x00040070, 0x0000000a, 0x0000009a,
+    0x00000099, 0x0004003d, 0x00000012, 0x0000009b, 0x0000008c, 0x000500c7, 0x00000012, 0x0000009c,
+    0x0000009b, 0x00000069, 0x00040070, 0x0000000a, 0x0000009d, 0x0000009c, 0x00070050, 0x0000000b,
+    0x0000009f, 0x00000095, 0x0000009a, 0x0000009d, 0x0000009e, 0x00070050, 0x0000000b, 0x000000a0,
+    0x0000009e, 0x0000009e, 0x0000009e, 0x0000009e, 0x00050088, 0x0000000b, 0x000000a1, 0x0000009f,
+    0x000000a0, 0x0003003e, 0x00000090, 0x000000a1, 0x000100fd, 0x00010038,
+};
+// @@SPIRV-END@@
+TB_API struct {
+    VkInstance inst; VkPhysicalDevice pd; VkDevice dev; VkQueue q; uint32_t qf;
+    VkSurfaceKHR surf; VkSwapchainKHR sc; uint32_t sc_n, sc_w, sc_h; VkImage sc_img[8];
+    VkPhysicalDeviceMemoryProperties mp;
+    VkImage img; VkImageView view; VkRenderPass rp; VkFramebuffer fb;
+    VkPipelineLayout pl; VkPipeline pipe; VkDescriptorSet ds;
+    VkBuffer ibuf, fbuf, rbuf; void *rmap;
+    VkCommandPool pool; VkCommandBuffer cb; VkFence fence; VkSemaphore sem_get, sem_done;
+} tb_vk;
+TB_API int tb_vk_memtype(uint32_t bits, VkFlags want) {
+    for (uint32_t i = 0; i < tb_vk.mp.memoryTypeCount; i++)
+        if ((bits & (1u << i)) && (tb_vk.mp.memoryTypes[i].propertyFlags & want) == want) return (int)i;
+    return -1;
+}
+// буфер в памяти, которую видят и процессор, и видеокарта; map — её адрес для процессора
+TB_API int tb_vk_buffer(VkDeviceSize size, VkFlags usage, VkBuffer *buf, void **map) {
+    VkBufferCreateInfo bi = { 12, 0, 0, size, usage, 0, 0, 0 };
+    if (tbvk_CreateBuffer(tb_vk.dev, &bi, 0, buf)) return 0;
+    VkMemoryRequirements mr; tbvk_GetBufferMemoryRequirements(tb_vk.dev, *buf, &mr);
+    int t = tb_vk_memtype(mr.memoryTypeBits, 2 | 4);   // HOST_VISIBLE | HOST_COHERENT
+    if (t < 0) return 0;
+    VkMemoryAllocateInfo ai = { 5, 0, mr.size, (uint32_t)t };
+    VkDeviceMemory mem;
+    if (tbvk_AllocateMemory(tb_vk.dev, &ai, 0, &mem) || tbvk_BindBufferMemory(tb_vk.dev, *buf, mem, 0)) return 0;
+    return tbvk_MapMemory(tb_vk.dev, mem, 0, size, 0, map) == 0;
+}
+// цепочка кадров окна (swapchain): создаётся заново, если окно поменялось
+TB_API int tb_vk_swapchain(void) {
+    VkSurfaceCapabilitiesKHR cap;
+    if (tbvk_GetPhysicalDeviceSurfaceCapabilitiesKHR(tb_vk.pd, tb_vk.surf, &cap)) return 0;
+    VkExtent2D ext = cap.currentExtent;
+    if (ext.width == 0xFFFFFFFFu) { ext.width = (uint32_t)tb_gw; ext.height = (uint32_t)tb_gh; }
+    if (ext.width == 0 || ext.height == 0) return 0;   // окно свёрнуто
+    if (!(cap.supportedUsageFlags & 2)) return 0;      // нужно копировать в кадр окна (TRANSFER_DST)
+    uint32_t nf = 0; tbvk_GetPhysicalDeviceSurfaceFormatsKHR(tb_vk.pd, tb_vk.surf, &nf, 0);
+    VkSurfaceFormatKHR fm[64]; if (nf > 64) nf = 64;
+    if (!nf || tbvk_GetPhysicalDeviceSurfaceFormatsKHR(tb_vk.pd, tb_vk.surf, &nf, fm) < 0) return 0;
+    VkSurfaceFormatKHR f = fm[0];
+    for (uint32_t i = 0; i < nf; i++) if (fm[i].format == 44 || fm[i].format == 37) { f = fm[i]; break; }   // BGRA8 / RGBA8 UNORM
+    uint32_t np = 0, pm[16], mode = 2;   // FIFO есть всегда; MAILBOX (1) лучше — без ожидания
+    tbvk_GetPhysicalDeviceSurfacePresentModesKHR(tb_vk.pd, tb_vk.surf, &np, 0); if (np > 16) np = 16;
+    tbvk_GetPhysicalDeviceSurfacePresentModesKHR(tb_vk.pd, tb_vk.surf, &np, pm);
+    for (uint32_t i = 0; i < np; i++) if (pm[i] == 1) mode = 1;
+    uint32_t cnt = cap.minImageCount + 1;
+    if (cap.maxImageCount && cnt > cap.maxImageCount) cnt = cap.maxImageCount;
+    VkFlags alpha = (cap.supportedCompositeAlpha & 1) ? 1 : cap.supportedCompositeAlpha & (~cap.supportedCompositeAlpha + 1);
+    VkSwapchainKHR old = tb_vk.sc;
+    VkSwapchainCreateInfoKHR ci = { 1000001000, 0, 0, tb_vk.surf, cnt, f.format, f.colorSpace, ext, 1, 2 | 16, 0, 0, 0,
+        cap.currentTransform, alpha, mode, 1, old };
+    if (tbvk_CreateSwapchainKHR(tb_vk.dev, &ci, 0, &tb_vk.sc)) { tb_vk.sc = 0; return 0; }
+    if (old) tbvk_DestroySwapchainKHR(tb_vk.dev, old, 0);
+    tb_vk.sc_n = 8;
+    if (tbvk_GetSwapchainImagesKHR(tb_vk.dev, tb_vk.sc, &tb_vk.sc_n, tb_vk.sc_img) < 0) return 0;
+    tb_vk.sc_w = ext.width; tb_vk.sc_h = ext.height;
+    return 1;
+}
+TB_API void *tb_vk_lib(void) {
+#ifdef _WIN32
+    return (void *)LoadLibraryA("vulkan-1.dll");
+#else
+    void *h = dlopen("libvulkan.so.1", RTLD_NOW | RTLD_LOCAL);
+    return h ? h : dlopen("libvulkan.so", RTLD_NOW | RTLD_LOCAL);
+#endif
+}
+TB_API void *tb_vk_sym(void *lib, const char *n) {
+#ifdef _WIN32
+    return (void *)GetProcAddress((HMODULE)lib, n);
+#else
+    return dlsym(lib, n);
+#endif
+}
+// make_surface: своя у каждой системы (X11 или окно Windows)
+TB_API int tb_vk_init(const char *surf_ext, int (*make_surface)(void)) {
+    void *lib = tb_vk_lib();
+    if (!lib) return 0;
+    tbvk_gipa = (PFN_vkVoidFunction (TBVK_CALL *)(VkInstance, const char *))tb_vk_sym(lib, "vkGetInstanceProcAddr");
+    if (!tbvk_gipa) return 0;
+    tbvk_CreateInstance = (VkResult (TBVK_CALL *)(const VkInstanceCreateInfo *, const void *, VkInstance *))tbvk_gipa(0, "vkCreateInstance");
+    if (!tbvk_CreateInstance) return 0;
+    VkApplicationInfo app = { 0, 0, "Tachbit", 1, "Tachbit", 1, (1u << 22) };   // Vulkan 1.0
+    const char *iext[2] = { "VK_KHR_surface", surf_ext };
+    VkInstanceCreateInfo ici = { 1, 0, 0, &app, 0, 0, 2, iext };
+    if (tbvk_CreateInstance(&ici, 0, &tb_vk.inst)) return 0;
+#define TBVK_LOAD(n, r, p) tbvk_##n = (r (TBVK_CALL *) p)tbvk_gipa(tb_vk.inst, "vk" #n); if (!tbvk_##n) return 0;
+    TBVK_FUNCS(TBVK_LOAD)
+    if (!make_surface()) return 0;
+    // видеокарта: настоящая лучше программной (lavapipe), если есть обе
+    uint32_t n = 0; tbvk_EnumeratePhysicalDevices(tb_vk.inst, &n, 0);
+    VkPhysicalDevice pds[16]; if (n > 16) n = 16;
+    if (!n || tbvk_EnumeratePhysicalDevices(tb_vk.inst, &n, pds) < 0) return 0;
+    int best = -1, best_score = -1;
+    static uint64_t props[1024];   // VkPhysicalDeviceProperties: вид карты по смещению 16, имя по 20
+    for (uint32_t i = 0; i < n; i++) {
+        uint32_t nq = 0; tbvk_GetPhysicalDeviceQueueFamilyProperties(pds[i], &nq, 0);
+        VkQueueFamilyProperties qp[32]; if (nq > 32) nq = 32;
+        tbvk_GetPhysicalDeviceQueueFamilyProperties(pds[i], &nq, qp);
+        for (uint32_t j = 0; j < nq; j++) {
+            VkBool32 ok = 0;
+            if (!(qp[j].queueFlags & 1) || tbvk_GetPhysicalDeviceSurfaceSupportKHR(pds[i], j, tb_vk.surf, &ok) || !ok) continue;
+            tbvk_GetPhysicalDeviceProperties(pds[i], props);
+            uint32_t type = ((uint32_t *)props)[4];
+            int score = type == 2 ? 4 : type == 1 ? 3 : type == 3 ? 2 : 1;   // своя карта, встроенная, виртуальная, процессор
+            if (score > best_score) { best_score = score; best = (int)i; tb_vk.qf = j; }
+            break;
+        }
+    }
+    if (best < 0) return 0;
+    tb_vk.pd = pds[best];
+    tbvk_GetPhysicalDeviceProperties(tb_vk.pd, props);
+    char what[300]; snprintf(what, sizeof what, "видеокарта (Vulkan, %s)", (const char *)props + 20);
+    float prio = 1.0f;
+    VkDeviceQueueCreateInfo qci = { 2, 0, 0, tb_vk.qf, 1, &prio };
+    const char *dext[1] = { "VK_KHR_swapchain" };
+    VkDeviceCreateInfo dci = { 3, 0, 0, 1, &qci, 0, 0, 1, dext, 0 };
+    if (tbvk_CreateDevice(tb_vk.pd, &dci, 0, &tb_vk.dev)) return 0;
+    tbvk_GetDeviceQueue(tb_vk.dev, tb_vk.qf, 0, &tb_vk.q);
+    tbvk_GetPhysicalDeviceMemoryProperties(tb_vk.pd, &tb_vk.mp);
+    VkFormatProperties fp; tbvk_GetPhysicalDeviceFormatProperties(tb_vk.pd, 44, &fp);
+    if ((fp.optimalTilingFeatures & (0x80 | 0x400)) != (0x80 | 0x400)) return 0;   // COLOR_ATTACHMENT, BLIT_SRC
+    if (!tb_vk_swapchain()) return 0;
+    // свой кадр на видеокарте (B8G8R8A8: как tb_px в памяти): живёт между кадрами, как tb_px
+    VkImageCreateInfo ii = { 14, 0, 0, 1, 44, { (uint32_t)tb_gw, (uint32_t)tb_gh, 1 }, 1, 1, 1, 0, 16 | 2 | 1, 0, 0, 0, 0 };
+    if (tbvk_CreateImage(tb_vk.dev, &ii, 0, &tb_vk.img)) return 0;
+    VkMemoryRequirements mr; tbvk_GetImageMemoryRequirements(tb_vk.dev, tb_vk.img, &mr);
+    int mt = tb_vk_memtype(mr.memoryTypeBits, 1);
+    if (mt < 0) mt = tb_vk_memtype(mr.memoryTypeBits, 0);
+    VkMemoryAllocateInfo mai = { 5, 0, mr.size, (uint32_t)mt };
+    VkDeviceMemory imem;
+    if (mt < 0 || tbvk_AllocateMemory(tb_vk.dev, &mai, 0, &imem) || tbvk_BindImageMemory(tb_vk.dev, tb_vk.img, imem, 0)) return 0;
+    VkImageViewCreateInfo vci = { 15, 0, 0, tb_vk.img, 1, 44, { 0, 0, 0, 0 }, { 1, 0, 1, 0, 1 } };
+    if (tbvk_CreateImageView(tb_vk.dev, &vci, 0, &tb_vk.view)) return 0;
+    // проход рисования: старый кадр сохраняется (LOAD), рисуем поверх — как на процессоре
+    VkAttachmentDescription ad = { 0, 44, 1, 0, 0, 2, 1, 2, 2 };   // LOAD, STORE, COLOR_ATTACHMENT_OPTIMAL
+    VkAttachmentReference ar = { 0, 2 };
+    VkSubpassDescription sd = { 0, 0, 0, 0, 1, &ar, 0, 0, 0, 0 };
+    VkSubpassDependency dep = { 0xFFFFFFFFu, 0, 0x400 | 0x1000, 0x400, 0x100 | 0x800 | 0x1000, 0x80 | 0x100, 0 };
+    VkRenderPassCreateInfo rci = { 38, 0, 0, 1, &ad, 1, &sd, 1, &dep };
+    if (tbvk_CreateRenderPass(tb_vk.dev, &rci, 0, &tb_vk.rp)) return 0;
+    VkFramebufferCreateInfo fci = { 37, 0, 0, tb_vk.rp, 1, &tb_vk.view, (uint32_t)tb_gw, (uint32_t)tb_gh, 1 };
+    if (tbvk_CreateFramebuffer(tb_vk.dev, &fci, 0, &tb_vk.fb)) return 0;
+    // шрифт — для шейдера букв (uniform buffer, 161 буква по 16 байт)
+    void *fmap;
+    if (!tb_vk_buffer(sizeof tb_font, 0x10, &tb_vk.fbuf, &fmap)) return 0;
+    memcpy(fmap, tb_font, sizeof tb_font);
+    VkDescriptorSetLayoutBinding lb = { 0, 6, 1, 0x10, 0 };   // UNIFORM_BUFFER, FRAGMENT
+    VkDescriptorSetLayoutCreateInfo lci = { 32, 0, 0, 1, &lb };
+    VkDescriptorSetLayout dsl;
+    if (tbvk_CreateDescriptorSetLayout(tb_vk.dev, &lci, 0, &dsl)) return 0;
+    VkDescriptorPoolSize ps = { 6, 1 };
+    VkDescriptorPoolCreateInfo pci = { 33, 0, 0, 1, 1, &ps };
+    VkDescriptorPool dp;
+    if (tbvk_CreateDescriptorPool(tb_vk.dev, &pci, 0, &dp)) return 0;
+    VkDescriptorSetAllocateInfo dai = { 34, 0, dp, 1, &dsl };
+    if (tbvk_AllocateDescriptorSets(tb_vk.dev, &dai, &tb_vk.ds)) return 0;
+    VkDescriptorBufferInfo dbi = { tb_vk.fbuf, 0, sizeof tb_font };
+    VkWriteDescriptorSet wds = { 35, 0, tb_vk.ds, 0, 0, 1, 6, 0, &dbi, 0 };
+    tbvk_UpdateDescriptorSets(tb_vk.dev, 1, &wds, 0, 0);
+    VkPushConstantRange pcr = { 1, 0, 8 };   // VERTEX: размер окна
+    VkPipelineLayoutCreateInfo plci = { 30, 0, 0, 1, &dsl, 1, &pcr };
+    if (tbvk_CreatePipelineLayout(tb_vk.dev, &plci, 0, &tb_vk.pl)) return 0;
+    VkShaderModuleCreateInfo smv = { 16, 0, 0, sizeof tb_spv_vert, tb_spv_vert }, smf = { 16, 0, 0, sizeof tb_spv_frag, tb_spv_frag };
+    VkShaderModule mv, mf;
+    if (tbvk_CreateShaderModule(tb_vk.dev, &smv, 0, &mv) || tbvk_CreateShaderModule(tb_vk.dev, &smf, 0, &mf)) return 0;
+    VkPipelineShaderStageCreateInfo st[2] = { { 18, 0, 0, 1, mv, "main", 0 }, { 18, 0, 0, 0x10, mf, "main", 0 } };
+    VkVertexInputBindingDescription vb = { 0, sizeof(tb_ginst), 1 };   // INSTANCE
+    VkVertexInputAttributeDescription va[3] = { { 0, 0, 108, 0 }, { 1, 0, 102, 16 }, { 2, 0, 101, 24 } };   // R32G32B32A32_SINT, R32G32_SINT, R32G32_UINT
+    VkPipelineVertexInputStateCreateInfo vis = { 19, 0, 0, 1, &vb, 3, va };
+    VkPipelineInputAssemblyStateCreateInfo ias = { 20, 0, 0, 4, 0 };   // TRIANGLE_STRIP
+    VkViewport vp = { 0, 0, (float)tb_gw, (float)tb_gh, 0, 1 };
+    VkRect2D sci = { { 0, 0 }, { (uint32_t)tb_gw, (uint32_t)tb_gh } };
+    VkPipelineViewportStateCreateInfo vps = { 22, 0, 0, 1, &vp, 1, &sci };
+    VkPipelineRasterizationStateCreateInfo rs = { 23, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0f };
+    VkPipelineMultisampleStateCreateInfo ms = { 24, 0, 0, 1, 0, 0, 0, 0, 0 };
+    VkPipelineColorBlendAttachmentState cba = { 0, 0, 0, 0, 0, 0, 0, 0xF };
+    VkPipelineColorBlendStateCreateInfo cbs = { 26, 0, 0, 0, 0, 1, &cba, { 0, 0, 0, 0 } };
+    VkGraphicsPipelineCreateInfo gci = { 28, 0, 0, 2, st, &vis, &ias, 0, &vps, &rs, &ms, 0, &cbs, 0, tb_vk.pl, tb_vk.rp, 0, 0, -1 };
+    if (tbvk_CreateGraphicsPipelines(tb_vk.dev, 0, 1, &gci, 0, &tb_vk.pipe)) return 0;
+    if (!tb_vk_buffer(sizeof(tb_ginst) * TB_GI_CAP, 0x80, &tb_vk.ibuf, (void **)&tb_gi)) return 0;   // VERTEX_BUFFER
+    if (tb_gpu_check) {
+        if (!tb_vk_buffer((VkDeviceSize)tb_gw * tb_gh * 4, 2, &tb_vk.rbuf, &tb_vk.rmap)) return 0;   // TRANSFER_DST
+        tb_gpu_back = (uint32_t *)tb_vk.rmap;
+    }
+    VkCommandPoolCreateInfo cpi = { 39, 0, 2, tb_vk.qf };   // RESET_COMMAND_BUFFER
+    if (tbvk_CreateCommandPool(tb_vk.dev, &cpi, 0, &tb_vk.pool)) return 0;
+    VkCommandBufferAllocateInfo cai = { 40, 0, tb_vk.pool, 0, 1 };
+    if (tbvk_AllocateCommandBuffers(tb_vk.dev, &cai, &tb_vk.cb)) return 0;
+    VkFenceCreateInfo fi = { 8, 0, 0 }, si = { 9, 0, 0 };
+    if (tbvk_CreateFence(tb_vk.dev, &fi, 0, &tb_vk.fence) || tbvk_CreateSemaphore(tb_vk.dev, &si, 0, &tb_vk.sem_get)
+        || tbvk_CreateSemaphore(tb_vk.dev, &si, 0, &tb_vk.sem_done)) return 0;
+    tb_gpu_say(what);
+    return 1;
+}
+TB_INL VkImageMemoryBarrier tb_vk_bar(VkImage img, VkFlags sa, VkFlags da, uint32_t ol, uint32_t nl) {
+    VkImageMemoryBarrier b = { 45, 0, sa, da, ol, nl, 0xFFFFFFFFu, 0xFFFFFFFFu, img, { 1, 0, 1, 0, 1 } };
+    return b;
+}
+// нарисовать накопленные фигуры; present — ещё и показать кадр в окне
+TB_API void tb_gpu_flush(int present) {
+    if (!tb_gin && !present && !tb_gpu_first) return;
+    VkCommandBuffer cb = tb_vk.cb;
+    VkCommandBufferBeginInfo bi = { 42, 0, 1, 0 };   // ONE_TIME_SUBMIT
+    tbvk_ResetCommandBuffer(cb, 0);
+    tbvk_BeginCommandBuffer(cb, &bi);
+    if (tb_gpu_first) {   // первый кадр: чёрный, как calloc у tb_px
+        tb_gpu_first = 0;
+        VkImageMemoryBarrier b = tb_vk_bar(tb_vk.img, 0, 0x1000, 0, 7);
+        tbvk_CmdPipelineBarrier(cb, 1, 0x1000, 0, 0, 0, 0, 0, 1, &b);
+        VkClearColorValue zero = { { 0, 0, 0, 0 } };
+        VkImageSubresourceRange rg = { 1, 0, 1, 0, 1 };
+        tbvk_CmdClearColorImage(cb, tb_vk.img, 7, &zero, 1, &rg);
+        b = tb_vk_bar(tb_vk.img, 0x1000, 0x80 | 0x100, 7, 2);
+        tbvk_CmdPipelineBarrier(cb, 0x1000, 0x400, 0, 0, 0, 0, 0, 1, &b);
+    }
+    if (tb_gin) {
+        VkRenderPassBeginInfo rb = { 43, 0, tb_vk.rp, tb_vk.fb, { { 0, 0 }, { (uint32_t)tb_gw, (uint32_t)tb_gh } }, 0, 0 };
+        tbvk_CmdBeginRenderPass(cb, &rb, 0);
+        tbvk_CmdBindPipeline(cb, 0, tb_vk.pipe);
+        tbvk_CmdBindDescriptorSets(cb, 0, tb_vk.pl, 0, 1, &tb_vk.ds, 0, 0);
+        VkDeviceSize off = 0;
+        tbvk_CmdBindVertexBuffers(cb, 0, 1, &tb_vk.ibuf, &off);
+        float size[2] = { (float)tb_gw, (float)tb_gh };
+        tbvk_CmdPushConstants(cb, tb_vk.pl, 1, 0, 8, size);
+        tbvk_CmdDraw(cb, 4, (uint32_t)tb_gin, 0, 0);
+        tbvk_CmdEndRenderPass(cb);
+    }
+    uint32_t idx = 0;
+    int shown = 0;
+    if (present) {
+        VkResult r = tb_vk.sc ? tbvk_AcquireNextImageKHR(tb_vk.dev, tb_vk.sc, ~0ULL, tb_vk.sem_get, 0, &idx) : -1000001004;
+        if (r == -1000001004 || (!tb_vk.sc && r < 0)) { tb_vk_swapchain(); }   // OUT_OF_DATE: окно поменялось
+        else if (r >= 0) shown = 1;
+    }
+    if (shown || (present && tb_gpu_back)) {
+        VkImageMemoryBarrier b = tb_vk_bar(tb_vk.img, 0x100, 0x800, 2, 6);
+        tbvk_CmdPipelineBarrier(cb, 0x400, 0x1000, 0, 0, 0, 0, 0, 1, &b);
+        if (shown) {
+            VkImage si = tb_vk.sc_img[idx];
+            b = tb_vk_bar(si, 0, 0x1000, 0, 7);
+            tbvk_CmdPipelineBarrier(cb, 0x1000, 0x1000, 0, 0, 0, 0, 0, 1, &b);
+            VkImageBlit bl = { { 1, 0, 0, 1 }, { { 0, 0, 0 }, { tb_gw, tb_gh, 1 } }, { 1, 0, 0, 1 },
+                { { 0, 0, 0 }, { (int32_t)tb_vk.sc_w, (int32_t)tb_vk.sc_h, 1 } } };
+            tbvk_CmdBlitImage(cb, tb_vk.img, 6, si, 7, 1, &bl, 0);   // NEAREST: точки остаются точками
+            b = tb_vk_bar(si, 0x1000, 0, 7, 1000001002);              // PRESENT_SRC
+            tbvk_CmdPipelineBarrier(cb, 0x1000, 0x2000, 0, 0, 0, 0, 0, 1, &b);
+        }
+        if (present && tb_gpu_back) {
+            VkBufferImageCopy cp = { 0, 0, 0, { 1, 0, 0, 1 }, { 0, 0, 0 }, { (uint32_t)tb_gw, (uint32_t)tb_gh, 1 } };
+            tbvk_CmdCopyImageToBuffer(cb, tb_vk.img, 6, tb_vk.rbuf, 1, &cp);
+        }
+        b = tb_vk_bar(tb_vk.img, 0x800, 0x80 | 0x100, 6, 2);
+        tbvk_CmdPipelineBarrier(cb, 0x1000, 0x400, 0, 0, 0, 0, 0, 1, &b);
+    }
+    tbvk_EndCommandBuffer(cb);
+    VkFlags wst = 0x1000;
+    VkSubmitInfo si = { 4, 0, shown, &tb_vk.sem_get, &wst, 1, &cb, shown, &tb_vk.sem_done };
+    tbvk_QueueSubmit(tb_vk.q, 1, &si, tb_vk.fence);
+    if (shown) {
+        VkPresentInfoKHR pi = { 1000001001, 0, 1, &tb_vk.sem_done, 1, &tb_vk.sc, &idx, 0 };
+        VkResult r = tbvk_QueuePresentKHR(tb_vk.q, &pi);
+        if (r == -1000001004 || r == 1000001003) tb_vk.sc_w = 0;   // пересоздать в следующий раз
+    }
+    // ждём видеокарту: память экземпляров снова свободна для следующих фигур
+    tbvk_WaitForFences(tb_vk.dev, 1, &tb_vk.fence, 1, ~0ULL);
+    tbvk_ResetFences(tb_vk.dev, 1, &tb_vk.fence);
+    if (shown && tb_vk.sc_w == 0) { tbvk_DeviceWaitIdle(tb_vk.dev); tb_vk_swapchain(); }
+    tb_gin = 0;
+    if (present && tb_gpu_back) tb_gpu_compare();
+}
+#endif
 #ifdef __APPLE__
 #include <objc/message.h>
 #include <objc/runtime.h>
 #include <CoreGraphics/CoreGraphics.h>
+#include <dlfcn.h>
 #define TB_MSG(R, o, s) ((R(*)(id, SEL))objc_msgSend)((id)(o), sel_getUid(s))
 #define TB_MSG1(R, o, s, A, a) ((R(*)(id, SEL, A))objc_msgSend)((id)(o), sel_getUid(s), a)
 #define TB_CLS(n) ((id)objc_getClass(n))
 TB_API id tb_nsapp = 0, tb_wnd = 0;
+// @@MSL-BEGIN@@
+TB_API const char tb_msl[] =
+    "#include <metal_stdlib>\n"
+    "using namespace metal;\n"
+    "// то же, что tb.vert и tb.frag (Vulkan), только для Metal на Mac\n"
+    "struct TbInst { int4 q; int2 o; uint2 cm; };\n"
+    "struct TbV { float4 pos [[position]]; int2 o [[flat]]; uint2 cm [[flat]]; };\n"
+    "vertex TbV tb_vert(uint vid [[vertex_id]], uint iid [[instance_id]],\n"
+    "                   const device TbInst *ins [[buffer(0)]], constant float2 &size [[buffer(1)]]) {\n"
+    "    TbInst t = ins[iid];\n"
+    "    float2 p = float2((vid & 1) ? t.q.z : t.q.x, (vid & 2) ? t.q.w : t.q.y);\n"
+    "    TbV out;\n"
+    "    out.pos = float4(p.x / size.x * 2.0 - 1.0, 1.0 - p.y / size.y * 2.0, 0.0, 1.0);\n"
+    "    out.o = t.o;\n"
+    "    out.cm = t.cm;\n"
+    "    return out;\n"
+    "}\n"
+    "fragment float4 tb_frag(TbV v [[stage_in]], constant uint4 *font [[buffer(0)]]) {\n"
+    "    int2 p = int2(v.pos.xy);\n"
+    "    uint m = v.cm.y, k = m >> 30;\n"
+    "    if (k == 1u) {\n"
+    "        int r = int(m & 0x3FFFFFu), i = p.x - v.o.x, j = p.y - v.o.y;\n"
+    "        if (i * i + j * j > r * r + r) discard_fragment();\n"
+    "    } else if (k == 2u) {\n"
+    "        int s = int(m & 0x3FFFFFu), cx = (p.x - v.o.x) / s, ry = (p.y - v.o.y) / s;\n"
+    "        uint g = (m >> 22) & 255u;\n"
+    "        uint b = (font[g][ry >> 2] >> (uint(ry & 3) * 8u)) & 255u;\n"
+    "        if ((b & (0x80u >> uint(cx))) == 0u) discard_fragment();\n"
+    "    }\n"
+    "    uint c = v.cm.x;\n"
+    "    return float4(float((c >> 16) & 255u), float((c >> 8) & 255u), float(c & 255u), 255.0) / 255.0;\n"
+    "}\n";
+// @@MSL-END@@
 TB_API const unsigned char tb_mac_keys[128] = {
     [0]='A',[1]='S',[2]='D',[3]='F',[4]='H',[5]='G',[6]='Z',[7]='X',[8]='C',[9]='V',[11]='B',[12]='Q',[13]='W',
     [14]='E',[15]='R',[16]='Y',[17]='T',[18]='1',[19]='2',[20]='3',[21]='4',[22]='6',[23]='5',[25]='9',[26]='7',
@@ -3047,6 +3831,132 @@ TB_API uint32_t *tb_pres[3];
 TB_API int tb_pres_i = 0;
 TB_API id tb_layer = 0;
 TB_API BOOL tb_nswnd_close(id v, SEL s, id w) { (void)v; (void)s; (void)w; tb_gclosed = 1; return YES; }
+// ---------- Metal (Mac) ----------
+// Metal зовём так же, как Cocoa: через objc_msgSend. Шейдер (tb_msl выше, compiler/gpu/tb.metal)
+// Mac переводит сам при запуске. Сама библиотека Metal грузится через dlopen: нет её — процессор.
+extern void *objc_autoreleasePoolPush(void);
+extern void objc_autoreleasePoolPop(void *);
+typedef struct { unsigned long x, y, z; } tb_mtl3;          // MTLOrigin и MTLSize
+typedef struct { double r, g, b, a; } tb_mtl_color;         // MTLClearColor
+TB_API struct { id dev, queue, pso, tex, ibuf, fbuf, rbuf, layer; } tb_mtl;
+TB_API id tb_nsstr(const char *s) { return TB_MSG1(id, TB_CLS("NSString"), "stringWithUTF8String:", const char *, s); }
+TB_API int tb_mtl_fail(const char *what, id err) {
+    const char *e = getenv("TB_GPU_INFO");
+    if ((e && e[0] == '1') || tb_gpu_check) {
+        const char *d = err ? TB_MSG(const char *, TB_MSG(id, err, "localizedDescription"), "UTF8String") : "";
+        fprintf(stderr, "Metal: %s %s\n", what, d ? d : "");
+    }
+    return 0;
+}
+TB_API int tb_mtl_init(id view) {
+    void *lib = dlopen("/System/Library/Frameworks/Metal.framework/Metal", RTLD_NOW | RTLD_LOCAL);
+    if (!lib) return tb_mtl_fail("нет библиотеки Metal", 0);
+    id (*make_dev)(void) = (id (*)(void))dlsym(lib, "MTLCreateSystemDefaultDevice");
+    id dev = make_dev ? make_dev() : 0;
+    if (!dev || !TB_CLS("CAMetalLayer")) return tb_mtl_fail("нет видеокарты", 0);
+    id err = 0;
+    id shaders = ((id (*)(id, SEL, id, id, id *))objc_msgSend)(dev, sel_getUid("newLibraryWithSource:options:error:"),
+        tb_nsstr(tb_msl), 0, &err);
+    if (!shaders) return tb_mtl_fail("шейдер не собрался:", err);
+    id vf = TB_MSG1(id, shaders, "newFunctionWithName:", id, tb_nsstr("tb_vert"));
+    id ff = TB_MSG1(id, shaders, "newFunctionWithName:", id, tb_nsstr("tb_frag"));
+    if (!vf || !ff) return tb_mtl_fail("нет функций шейдера", 0);
+    id pd = TB_MSG(id, TB_MSG(id, TB_CLS("MTLRenderPipelineDescriptor"), "alloc"), "init");
+    TB_MSG1(void, pd, "setVertexFunction:", id, vf);
+    TB_MSG1(void, pd, "setFragmentFunction:", id, ff);
+    id ca = TB_MSG1(id, TB_MSG(id, pd, "colorAttachments"), "objectAtIndexedSubscript:", unsigned long, 0);
+    TB_MSG1(void, ca, "setPixelFormat:", unsigned long, 80);   // BGRA8Unorm: как tb_px в памяти
+    tb_mtl.pso = ((id (*)(id, SEL, id, id *))objc_msgSend)(dev, sel_getUid("newRenderPipelineStateWithDescriptor:error:"), pd, &err);
+    if (!tb_mtl.pso) return tb_mtl_fail("не собрался конвейер:", err);
+    // свой кадр на видеокарте: живёт между кадрами, как tb_px
+    id td = ((id (*)(id, SEL, unsigned long, unsigned long, unsigned long, BOOL))objc_msgSend)(TB_CLS("MTLTextureDescriptor"),
+        sel_getUid("texture2DDescriptorWithPixelFormat:width:height:mipmapped:"), 80, (unsigned long)tb_gw, (unsigned long)tb_gh, NO);
+    TB_MSG1(void, td, "setUsage:", unsigned long, 1 | 4);      // ShaderRead | RenderTarget
+    TB_MSG1(void, td, "setStorageMode:", unsigned long, 2);    // Private: только на видеокарте
+    tb_mtl.tex = TB_MSG1(id, dev, "newTextureWithDescriptor:", id, td);
+    tb_mtl.ibuf = ((id (*)(id, SEL, unsigned long, unsigned long))objc_msgSend)(dev, sel_getUid("newBufferWithLength:options:"),
+        sizeof(tb_ginst) * TB_GI_CAP, 0);
+    tb_mtl.fbuf = ((id (*)(id, SEL, const void *, unsigned long, unsigned long))objc_msgSend)(dev,
+        sel_getUid("newBufferWithBytes:length:options:"), tb_font, sizeof tb_font, 0);
+    if (!tb_mtl.tex || !tb_mtl.ibuf || !tb_mtl.fbuf) return tb_mtl_fail("нет памяти на видеокарте", 0);
+    if (tb_gpu_check) {
+        tb_mtl.rbuf = ((id (*)(id, SEL, unsigned long, unsigned long))objc_msgSend)(dev, sel_getUid("newBufferWithLength:options:"),
+            (unsigned long)tb_gw * tb_gh * 4, 0);
+        if (!tb_mtl.rbuf) return tb_mtl_fail("нет памяти на видеокарте", 0);
+    }
+    tb_mtl.queue = TB_MSG(id, dev, "newCommandQueue");
+    // слой окна для Metal: кадр того же размера, Retina растягивает его без сглаживания
+    id layer = TB_MSG(id, TB_CLS("CAMetalLayer"), "layer");
+    TB_MSG1(void, layer, "setDevice:", id, dev);
+    TB_MSG1(void, layer, "setPixelFormat:", unsigned long, 80);
+    TB_MSG1(void, layer, "setFramebufferOnly:", BOOL, NO);     // в кадр окна копируем (blit)
+    TB_MSG1(void, layer, "setDrawableSize:", CGSize, CGSizeMake(tb_gw, tb_gh));
+    TB_MSG1(void, layer, "setMagnificationFilter:", id, tb_nsstr("nearest"));
+    TB_MSG1(void, layer, "setColorspace:", CGColorSpaceRef, tb_cgspace);
+    TB_MSG1(void, view, "setLayer:", id, layer);
+    TB_MSG1(void, view, "setWantsLayer:", BOOL, YES);
+    tb_mtl.layer = layer;
+    tb_mtl.dev = dev;
+    tb_gi = (tb_ginst *)TB_MSG(void *, tb_mtl.ibuf, "contents");
+    if (tb_gpu_check) tb_gpu_back = (uint32_t *)TB_MSG(void *, tb_mtl.rbuf, "contents");
+    char what[300];
+    const char *name = TB_MSG(const char *, TB_MSG(id, dev, "name"), "UTF8String");
+    snprintf(what, sizeof what, "видеокарта (Metal, %s)", name ? name : "?");
+    tb_gpu_say(what);
+    return 1;
+}
+// нарисовать накопленные фигуры; present — ещё и показать кадр в окне
+TB_API void tb_gpu_flush(int present) {
+    if (!tb_gin && !present && !tb_gpu_first) return;
+    void *pool = objc_autoreleasePoolPush();
+    id cb = TB_MSG(id, tb_mtl.queue, "commandBuffer");
+    if (tb_gin || tb_gpu_first) {
+        id rpd = TB_MSG(id, TB_CLS("MTLRenderPassDescriptor"), "renderPassDescriptor");
+        id ca = TB_MSG1(id, TB_MSG(id, rpd, "colorAttachments"), "objectAtIndexedSubscript:", unsigned long, 0);
+        TB_MSG1(void, ca, "setTexture:", id, tb_mtl.tex);
+        // первый кадр: чёрный, как calloc у tb_px; дальше старый кадр сохраняется (Load)
+        TB_MSG1(void, ca, "setLoadAction:", unsigned long, tb_gpu_first ? 2 : 1);
+        if (tb_gpu_first) { tb_mtl_color z = { 0, 0, 0, 0 }; TB_MSG1(void, ca, "setClearColor:", tb_mtl_color, z); }
+        TB_MSG1(void, ca, "setStoreAction:", unsigned long, 1);
+        tb_gpu_first = 0;
+        id enc = TB_MSG1(id, cb, "renderCommandEncoderWithDescriptor:", id, rpd);
+        if (tb_gin) {
+            float size[2] = { (float)tb_gw, (float)tb_gh };
+            TB_MSG1(void, enc, "setRenderPipelineState:", id, tb_mtl.pso);
+            ((void (*)(id, SEL, id, unsigned long, unsigned long))objc_msgSend)(enc, sel_getUid("setVertexBuffer:offset:atIndex:"), tb_mtl.ibuf, 0, 0);
+            ((void (*)(id, SEL, const void *, unsigned long, unsigned long))objc_msgSend)(enc, sel_getUid("setVertexBytes:length:atIndex:"), size, 8, 1);
+            ((void (*)(id, SEL, id, unsigned long, unsigned long))objc_msgSend)(enc, sel_getUid("setFragmentBuffer:offset:atIndex:"), tb_mtl.fbuf, 0, 0);
+            ((void (*)(id, SEL, unsigned long, unsigned long, unsigned long, unsigned long))objc_msgSend)(enc,
+                sel_getUid("drawPrimitives:vertexStart:vertexCount:instanceCount:"), 4, 0, 4, (unsigned long)tb_gin);   // TriangleStrip
+        }
+        TB_MSG(void, enc, "endEncoding");
+    }
+    if (present) {
+        id drw = TB_MSG(id, tb_mtl.layer, "nextDrawable");
+        id dt = drw ? TB_MSG(id, drw, "texture") : 0;
+        if (dt && (TB_MSG(unsigned long, dt, "width") != (unsigned long)tb_gw || TB_MSG(unsigned long, dt, "height") != (unsigned long)tb_gh)) dt = 0;
+        if (dt || tb_gpu_back) {
+            tb_mtl3 o = { 0, 0, 0 }, sz = { (unsigned long)tb_gw, (unsigned long)tb_gh, 1 };
+            id bl = TB_MSG(id, cb, "blitCommandEncoder");
+            if (dt)
+                ((void (*)(id, SEL, id, unsigned long, unsigned long, tb_mtl3, tb_mtl3, id, unsigned long, unsigned long, tb_mtl3))objc_msgSend)(bl,
+                    sel_getUid("copyFromTexture:sourceSlice:sourceLevel:sourceOrigin:sourceSize:toTexture:destinationSlice:destinationLevel:destinationOrigin:"),
+                    tb_mtl.tex, 0, 0, o, sz, dt, 0, 0, o);
+            if (tb_gpu_back)
+                ((void (*)(id, SEL, id, unsigned long, unsigned long, tb_mtl3, tb_mtl3, id, unsigned long, unsigned long, unsigned long))objc_msgSend)(bl,
+                    sel_getUid("copyFromTexture:sourceSlice:sourceLevel:sourceOrigin:sourceSize:toBuffer:destinationOffset:destinationBytesPerRow:destinationBytesPerImage:"),
+                    tb_mtl.tex, 0, 0, o, sz, tb_mtl.rbuf, 0, (unsigned long)tb_gw * 4, (unsigned long)tb_gw * tb_gh * 4);
+            TB_MSG(void, bl, "endEncoding");
+        }
+        if (dt) TB_MSG1(void, cb, "presentDrawable:", id, drw);
+    }
+    TB_MSG(void, cb, "commit");
+    // ждём видеокарту: память экземпляров снова свободна для следующих фигур
+    TB_MSG(void, cb, "waitUntilCompleted");
+    objc_autoreleasePoolPop(pool);
+    tb_gin = 0;
+    if (present && tb_gpu_back) tb_gpu_compare();
+}
 TB_API int tb_gfx_open(const char *title) {
     tb_nsapp = TB_MSG(id, TB_CLS("NSApplication"), "sharedApplication");
     TB_MSG1(void, tb_nsapp, "setActivationPolicy:", long, 0);
@@ -3060,16 +3970,20 @@ TB_API int tb_gfx_open(const char *title) {
     TB_MSG1(void, tb_wnd, "setDelegate:", id, TB_MSG(id, TB_MSG(id, (id)dc, "alloc"), "init"));
     id view = TB_MSG(id, TB_MSG(id, TB_CLS("NSView"), "alloc"), "init");
     TB_MSG1(void, tb_wnd, "setContentView:", id, view);
-    TB_MSG1(void, view, "setWantsLayer:", BOOL, YES);
-    tb_layer = TB_MSG(id, view, "layer");
-    id nearest = TB_MSG1(id, TB_CLS("NSString"), "stringWithUTF8String:", const char *, "nearest");
-    TB_MSG1(void, tb_layer, "setMagnificationFilter:", id, nearest);
     CGColorSpaceRef space = CGDisplayCopyColorSpace(CGMainDisplayID());
     if (!space) space = CGColorSpaceCreateDeviceRGB();
     tb_cgspace = space;
-    for (int i = 0; i < 3; i++) {
-        tb_pres[i] = malloc((size_t)tb_gw * tb_gh * 4);
-        if (!tb_pres[i]) return 0;
+    if (tb_gpu_want()) tb_gpu_on = tb_mtl_init(view);
+    if (!tb_gpu_on) {
+        tb_gpu_say("процессор");
+        TB_MSG1(void, view, "setWantsLayer:", BOOL, YES);
+        tb_layer = TB_MSG(id, view, "layer");
+        id nearest = TB_MSG1(id, TB_CLS("NSString"), "stringWithUTF8String:", const char *, "nearest");
+        TB_MSG1(void, tb_layer, "setMagnificationFilter:", id, nearest);
+        for (int i = 0; i < 3; i++) {
+            tb_pres[i] = malloc((size_t)tb_gw * tb_gh * 4);
+            if (!tb_pres[i]) return 0;
+        }
     }
     TB_MSG1(void, tb_wnd, "setTitle:", id, TB_MSG1(id, TB_CLS("NSString"), "stringWithUTF8String:", const char *, title));
     TB_MSG1(void, tb_wnd, "setAcceptsMouseMovedEvents:", BOOL, YES);
@@ -3080,17 +3994,22 @@ TB_API int tb_gfx_open(const char *title) {
     return 1;
 }
 TB_API void tb_gfx_events(void) {
-    size_t bytes = (size_t)tb_gw * tb_gh * 4;
-    uint32_t *buf = tb_pres[tb_pres_i];
-    tb_pres_i = (tb_pres_i + 1) % 3;
-    memcpy(buf, tb_px, bytes);
-    CGDataProviderRef prov = CGDataProviderCreateWithData(0, buf, bytes, 0);
-    CGImageRef img = CGImageCreate(tb_gw, tb_gh, 8, 32, tb_gw * 4, tb_cgspace,
-        kCGImageAlphaNoneSkipFirst | kCGBitmapByteOrder32Little, prov, 0, false, kCGRenderingIntentDefault);
-    TB_MSG1(void, tb_layer, "setContents:", id, (id)img);
-    CGImageRelease(img);
-    CGDataProviderRelease(prov);
-    TB_MSG(void, TB_CLS("CATransaction"), "flush");
+    // пул: временные объекты Cocoa (события, кадры) освобождаются каждый кадр
+    void *pool = objc_autoreleasePoolPush();
+    if (tb_gpu_on) tb_gpu_flush(1);
+    else {
+        size_t bytes = (size_t)tb_gw * tb_gh * 4;
+        uint32_t *buf = tb_pres[tb_pres_i];
+        tb_pres_i = (tb_pres_i + 1) % 3;
+        memcpy(buf, tb_px, bytes);
+        CGDataProviderRef prov = CGDataProviderCreateWithData(0, buf, bytes, 0);
+        CGImageRef img = CGImageCreate(tb_gw, tb_gh, 8, 32, tb_gw * 4, tb_cgspace,
+            kCGImageAlphaNoneSkipFirst | kCGBitmapByteOrder32Little, prov, 0, false, kCGRenderingIntentDefault);
+        TB_MSG1(void, tb_layer, "setContents:", id, (id)img);
+        CGImageRelease(img);
+        CGDataProviderRelease(prov);
+        TB_MSG(void, TB_CLS("CATransaction"), "flush");
+    }
     id mode = TB_MSG1(id, TB_CLS("NSString"), "stringWithUTF8String:", const char *, "kCFRunLoopDefaultMode");
     while (1) {
         id ev = ((id(*)(id, SEL, unsigned long long, id, id, BOOL))objc_msgSend)(tb_nsapp,
@@ -3114,6 +4033,7 @@ TB_API void tb_gfx_events(void) {
         }
         TB_MSG1(void, tb_nsapp, "sendEvent:", id, ev);
     }
+    objc_autoreleasePoolPop(pool);
 }
 #elif defined(_WIN32)
 // окно на Windows: обычное окно Win32, кадр рисует GDI (StretchDIBits), нужна -lgdi32
@@ -3145,9 +4065,16 @@ TB_API LRESULT CALLBACK tb_win_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_LBUTTONDOWN: tb_mdown = 1; tb_mx = (short)LOWORD(lp); tb_my = (short)HIWORD(lp); SetCapture(h); return 0;
     case WM_LBUTTONUP: tb_mdown = 0; tb_mx = (short)LOWORD(lp); tb_my = (short)HIWORD(lp); ReleaseCapture(); return 0;
     case WM_KILLFOCUS: memset(tb_keys, 0, sizeof tb_keys); return 0;
-    case WM_PAINT: { PAINTSTRUCT ps; HDC dc = BeginPaint(h, &ps); if (tb_px) tb_win_blit(dc); EndPaint(h, &ps); return 0; }
+    case WM_PAINT: { PAINTSTRUCT ps; HDC dc = BeginPaint(h, &ps); if (tb_px && !tb_gpu_on) tb_win_blit(dc); EndPaint(h, &ps); return 0; }
     }
     return DefWindowProcW(h, msg, wp, lp);
+}
+// окно Windows для Vulkan
+TB_API int tb_win_surface(void) {
+    struct { uint32_t sType; const void *pNext; VkFlags flags; HINSTANCE inst; HWND hwnd; } ci = { 1000009000, 0, 0, GetModuleHandleW(0), tb_hwnd };
+    VkResult (TBVK_CALL *mk)(VkInstance, const void *, const void *, VkSurfaceKHR *) =
+        (VkResult (TBVK_CALL *)(VkInstance, const void *, const void *, VkSurfaceKHR *))tbvk_gipa(tb_vk.inst, "vkCreateWin32SurfaceKHR");
+    return mk && mk(tb_vk.inst, &ci, 0, &tb_vk.surf) == 0;
 }
 TB_API int tb_gfx_open(const char *title) {
     HINSTANCE inst = GetModuleHandleW(0);
@@ -3175,11 +4102,13 @@ TB_API int tb_gfx_open(const char *title) {
     tb_bmi.bmiHeader.biCompression = BI_RGB;
     ShowWindow(tb_hwnd, SW_SHOW);
     SetForegroundWindow(tb_hwnd);
+    if (tb_gpu_want()) tb_gpu_on = tb_vk_init("VK_KHR_win32_surface", tb_win_surface);
+    if (!tb_gpu_on) tb_gpu_say("процессор");
     return 1;
 }
 TB_API void tb_gfx_events(void) {
-    HDC dc = GetDC(tb_hwnd);
-    if (dc) { tb_win_blit(dc); ReleaseDC(tb_hwnd, dc); }
+    if (tb_gpu_on) tb_gpu_flush(1);
+    else { HDC dc = GetDC(tb_hwnd); if (dc) { tb_win_blit(dc); ReleaseDC(tb_hwnd, dc); } }
     MSG m;
     while (PeekMessageW(&m, 0, 0, 0, PM_REMOVE)) { TranslateMessage(&m); DispatchMessageW(&m); }
 }
@@ -3193,6 +4122,13 @@ TB_API Window tb_xw;
 TB_API GC tb_xgc;
 TB_API XImage *tb_ximg = 0;
 TB_API Atom tb_wm_del;
+// окно X11 для Vulkan
+TB_API int tb_x_surface(void) {
+    struct { uint32_t sType; const void *pNext; VkFlags flags; Display *dpy; Window window; } ci = { 1000004000, 0, 0, tb_dpy, tb_xw };
+    VkResult (TBVK_CALL *mk)(VkInstance, const void *, const void *, VkSurfaceKHR *) =
+        (VkResult (TBVK_CALL *)(VkInstance, const void *, const void *, VkSurfaceKHR *))tbvk_gipa(tb_vk.inst, "vkCreateXlibSurfaceKHR");
+    return mk && mk(tb_vk.inst, &ci, 0, &tb_vk.surf) == 0;
+}
 TB_API int tb_gfx_open(const char *title) {
     tb_dpy = XOpenDisplay(0);
     if (!tb_dpy) return 0;
@@ -3206,6 +4142,8 @@ TB_API int tb_gfx_open(const char *title) {
     XkbSetDetectableAutoRepeat(tb_dpy, True, 0);
     XMapWindow(tb_dpy, tb_xw);
     tb_ximg = XCreateImage(tb_dpy, DefaultVisual(tb_dpy, scr), 24, ZPixmap, 0, (char *)tb_px, tb_gw, tb_gh, 32, 0);
+    if (tb_gpu_want()) tb_gpu_on = tb_vk_init("VK_KHR_xlib_surface", tb_x_surface);
+    if (!tb_gpu_on) tb_gpu_say("процессор");
     return 1;
 }
 TB_API int tb_x_key(KeySym s) {
@@ -3221,7 +4159,8 @@ TB_API int tb_x_key(KeySym s) {
     return 0;
 }
 TB_API void tb_gfx_events(void) {
-    XPutImage(tb_dpy, tb_xw, tb_xgc, tb_ximg, 0, 0, 0, 0, tb_gw, tb_gh);
+    if (tb_gpu_on) tb_gpu_flush(1);
+    else XPutImage(tb_dpy, tb_xw, tb_xgc, tb_ximg, 0, 0, 0, 0, tb_gw, tb_gh);
     while (XPending(tb_dpy)) {
         XEvent e; XNextEvent(tb_dpy, &e);
         if (e.type == ClientMessage && (Atom)e.xclient.data.l[0] == tb_wm_del) tb_gclosed = 1;
@@ -3242,6 +4181,7 @@ TB_API void tb_window_open(long long w, long long h, const char *title) {
     tb_gw = (int)w; tb_gh = (int)h;
     tb_px = calloc((size_t)tb_gw * tb_gh, 4);
     if (!tb_gfx_open(title)) { free(tb_px); tb_px = 0; tb_err = "не могу открыть окно: нет экрана"; return; }
+    if (tb_gpu_on && tb_gpu_check) atexit(tb_gpu_report);
     tb_last_frame = tb_time_ms();
 }
 // показать кадр, принять клавиши и мышь, держать 60 кадров в секунду; false — окно закрыли
@@ -3259,22 +4199,46 @@ TB_API int tb_window_alive(void) {
 TB_INL void tb_put(long long x, long long y, long long c) {
     if (tb_px && x >= 0 && y >= 0 && x < tb_gw && y < tb_gh) tb_px[y * tb_gw + x] = (uint32_t)c;
 }
-TB_API void tb_clear_window(long long c) { if (tb_px) for (long long i = 0; i < (long long)tb_gw * tb_gh; i++) tb_px[i] = (uint32_t)c; }
-TB_API void tb_draw_pixel(long long x, long long y, long long c) { tb_put(x, y, c); }
-TB_API void tb_draw_rect(long long x, long long y, long long w, long long h, long long c) {
+// на видеокарте фигуры записываются (tb_gpu_*), на процессоре — рисуются сразу в tb_px.
+// TB_GPU_CHECK=1: и то и другое, кадры сверяются
+#define TB_CPU_DRAW (!tb_gpu_on || tb_gpu_check)
+TB_API void tb_clear_window(long long c) {
     if (!tb_px) return;
+    if (tb_gpu_on) { tb_gin = 0; tb_gpu_rect(0, 0, tb_gw, tb_gh, c); }   // всё прежнее закрашено
+    if (TB_CPU_DRAW) for (long long i = 0; i < (long long)tb_gw * tb_gh; i++) tb_px[i] = (uint32_t)c;
+}
+TB_API void tb_draw_pixel(long long x, long long y, long long c) {
+    if (!tb_px) return;
+    if (tb_gpu_on) tb_gpu_rect(x, y, 1, 1, c);
+    if (TB_CPU_DRAW) tb_put(x, y, c);
+}
+TB_API void tb_cpu_rect(long long x, long long y, long long w, long long h, long long c) {
     long long x0 = x < 0 ? 0 : x, y0 = y < 0 ? 0 : y, x1 = x + w > tb_gw ? tb_gw : x + w, y1 = y + h > tb_gh ? tb_gh : y + h;
     for (long long j = y0; j < y1; j++) for (long long i = x0; i < x1; i++) tb_px[j * tb_gw + i] = (uint32_t)c;
 }
+TB_API void tb_draw_rect(long long x, long long y, long long w, long long h, long long c) {
+    if (!tb_px) return;
+    if (tb_gpu_on) tb_gpu_rect(x, y, w, h, c);
+    if (TB_CPU_DRAW) tb_cpu_rect(x, y, w, h, c);
+}
 TB_API void tb_draw_circle(long long cx, long long cy, long long r, long long c) {
-    for (long long j = -r; j <= r; j++) for (long long i = -r; i <= r; i++)
-        if (i * i + j * j <= r * r + r) tb_put(cx + i, cy + j, c);
+    if (!tb_px) return;
+    if (tb_gpu_on) tb_gpu_circle(cx, cy, r, c);
+    if (TB_CPU_DRAW) {   // только строки и столбцы внутри окна: огромный круг не перебирает r*r точек
+        long long ja = -r > -cy ? -r : -cy, jb = r < tb_gh - 1 - cy ? r : tb_gh - 1 - cy;
+        long long ia = -r > -cx ? -r : -cx, ib = r < tb_gw - 1 - cx ? r : tb_gw - 1 - cx;
+        for (long long j = ja; j <= jb; j++) for (long long i = ia; i <= ib; i++)
+            if (i * i + j * j <= r * r + r) tb_put(cx + i, cy + j, c);
+    }
 }
 TB_API void tb_draw_line(long long x0, long long y0, long long x1, long long y1, long long c) {
+    if (!tb_px) return;
     long long dx = x1 > x0 ? x1 - x0 : x0 - x1, dy = y1 > y0 ? y0 - y1 : y1 - y0;
     long long sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1, e = dx + dy;
+    int gpu = tb_gpu_on, cpu = TB_CPU_DRAW;
     while (1) {
-        tb_put(x0, y0, c);
+        if (gpu) tb_gpu_rect(x0, y0, 1, 1, c);   // соседние точки склеятся в полоски
+        if (cpu) tb_put(x0, y0, c);
         if (x0 == x1 && y0 == y1) break;
         long long e2 = 2 * e;
         if (e2 >= dy) { e += dy; x0 += sx; }
@@ -3283,6 +4247,7 @@ TB_API void tb_draw_line(long long x0, long long y0, long long x1, long long y1,
 }
 // текст: буква 8×16, size — во сколько раз крупнее
 TB_API void tb_draw_text(long long x, long long y, const char *s, long long size, long long c) {
+    if (!tb_px) return;
     if (size < 1) size = 1;
     const unsigned char *p = (const unsigned char *)s;
     long long cx = x;
@@ -3302,11 +4267,13 @@ TB_API void tb_draw_text(long long x, long long y, const char *s, long long size
         else if (u == 0x401) g = 159;
         else if (u == 0x451) g = 160;
         if (g < 0) g = '?' - 32;
-        for (int row = 0; row < 16; row++) {
-            unsigned char bits = tb_font[g][row];
-            for (int col = 0; col < 8; col++)
-                if (bits & (0x80 >> col)) tb_draw_rect(cx + col * size, y + row * size, size, size, c);
-        }
+        if (tb_gpu_on && g != 0) tb_gpu_glyph(cx, y, g, size, c);   // 0 — пробел, рисовать нечего
+        if (TB_CPU_DRAW)
+            for (int row = 0; row < 16; row++) {
+                unsigned char bits = tb_font[g][row];
+                for (int col = 0; col < 8; col++)
+                    if (bits & (0x80 >> col)) tb_cpu_rect(cx + col * size, y + row * size, size, size, c);
+            }
         cx += 8 * size;
     }
 }

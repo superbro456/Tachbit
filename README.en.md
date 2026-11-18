@@ -26,7 +26,7 @@ cd Tachbit
 ./tools/install_vscode.sh   # optional: VS Code colors, run on F5, errors in the editor
 ```
 
-On Windows: install a MinGW-w64 C compiler (`winget install -e --id MartinStorsjo.LLVM-MinGW.UCRT`, or MSYS2 gcc), then in PowerShell run `powershell -ExecutionPolicy Bypass -File tools\install.ps1`. It builds `tb.exe`, copies it to `%USERPROFILE%\.tachbit\bin` and adds that folder to your PATH. Windows (`window_open`) use GDI; bare-metal kernels (`tachbit bare`) build only on Linux and Mac for now.
+On Windows: install a MinGW-w64 C compiler (`winget install -e --id MartinStorsjo.LLVM-MinGW.UCRT`, or MSYS2 gcc), then in PowerShell run `powershell -ExecutionPolicy Bypass -File tools\install.ps1`. It builds `tb.exe`, copies it to `%USERPROFILE%\.tachbit\bin` and adds that folder to your PATH. Windows (`window_open`) are drawn by the GPU through Vulkan (GDI if there is no Vulkan driver); on Mac the GPU draws through Metal, on Linux through Vulkan (`TB_GPU=0` draws on the CPU, `TB_GPU_CHECK=1` compares every GPU frame with the CPU frame pixel by pixel); bare-metal kernels (`tachbit bare`) build only on Linux and Mac for now.
 
 ```
 tb run examples/hello.tb    # build and run

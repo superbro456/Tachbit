@@ -25,8 +25,11 @@ compiler/*
 !compiler/README.md
 /tachbit-tb
 !compiler/runtime.h
+!compiler/gpu/
 /tachbit-tb
 !compiler/seed/
 compiler/seed/*
 !compiler/seed/tb.c
 .claude/
+tests/gpu/*
+!tests/gpu/*.tb
