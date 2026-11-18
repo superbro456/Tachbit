@@ -164,6 +164,26 @@ func new_project(name: text)
     print("запуск:  tb start " + name)
 
 // native: программа только для этого компьютера (tb run) — можно все команды его процессора
+// --llvm: спросить clang, под какой процессор он собирает (цель, -march, настройки);
+// без этого .ll собирался бы под самый старый x86 (на Intel Mac деление было в 3 раза медленнее)
+func ll_probe(exe: text, native: bool) gives target: text, cpu: text
+    probe = exe + ".probe"
+    write_file(probe + ".c", "long long tb_probe(long long a) { return a; }\n") else err
+        return
+    base = "${CC:-clang} -O2 -w -S -emit-llvm -o " + quote(probe + ".ll") + " " + quote(probe + ".c") + " 2> /dev/null"
+    ok = false
+    if native
+        ok = run(base + " -march=native") == 0
+    if not ok
+        ok = run(base) == 0
+    if ok
+        src = read_file(probe + ".ll") or ""
+        target, cpu = ll_probe_parse(src)
+    remove(probe + ".c") else err
+        ignored = err
+    remove(probe + ".ll") else err
+        ignored = err
+
 func build(c: Comp, path: text, exe: text, native: bool)
     c_path = exe + ".c"
     if is_dir_cmd(exe)
@@ -181,7 +201,8 @@ func build(c: Comp, path: text, exe: text, native: bool)
     if len(c.ll_names) > 0
         // --llvm: числовые функции лежат в .ll; .c и .ll собирает clang (он понимает оба)
         ll_path = exe + ".ll"
-        write_file(ll_path, emit_ll(c, program)) else err
+        target, cpu = ll_probe(exe, native)
+        write_file(ll_path, emit_ll(c, program, target, cpu)) else err
             print("не могу записать файл: " + ll_path)
             return 1
         command = "${CC:-clang} -O2 -w -o " + quote(exe) + " " + quote(c_path) + " " + quote(ll_path) + " -lm -lpthread"
@@ -340,7 +361,8 @@ func main()
         program = load_program(c, path)
         check(c, program)
         ll_pick(c, program)
-        print(emit_ll(c, program))
+        target, cpu = ll_probe(exe, false)
+        print(emit_ll(c, program, target, cpu))
         return
     if mode == "build"
         exit(build(c, path, exe, false))

@@ -536,14 +536,28 @@ func ll_func(c: Comp, f: Node, all: list text)
     all.add("}\n\n")
 
 // весь файл .ll: функции из c.ll_names
-modpub func emit_ll(c: Comp, program: Node)
+// target: строки «target datalayout / triple» от clang этой машины;
+// cpu: его настройки процессора ("target-cpu"=... и т.д.), без них LLVM собирает под самый старый x86
+modpub func emit_ll(c: Comp, program: Node, target: text, cpu: text)
     all = list text
     all.add("; Сделано компилятором Tachbit (--llvm). Не правь руками: правь файл .tb\n")
+    all.add(target)
     all.add("declare void @tb_ll_crash(i32, i32) noreturn cold\n")
     all.add("declare void @tb_ll_noreturn(i32, ptr) noreturn cold\n\n")
     each top in program.kids
         if top.kind == "func" and ll_has(c.ll_names, ll_fname(top))
             ll_func(c, top, all)
-    all.add("attributes #0 = { nounwind }\n")
+    all.add("attributes #0 = { nounwind" + cpu + " }\n")
     all.add("!0 = !{!\"branch_weights\", i32 1, i32 2000}\n")
     return join(all, "")
+
+// как clang этой машины пишет функцию: берём из его вывода цель и настройки процессора
+// (только пары "ключ"="значение" и uwtable/ssp — без пометок про саму пробную функцию)
+modpub func ll_probe_parse(src: text) gives target: text, cpu: text
+    each line in split(src, "\n")
+        if starts_with(line, "target datalayout") or starts_with(line, "target triple")
+            target = target + line + "\n"
+        else if starts_with(line, "attributes #0 = {") and cpu == ""
+            each w in split(line, " ")
+                if starts_with(w, "\"") or w == "uwtable" or w == "ssp"
+                    cpu = cpu + " " + w
