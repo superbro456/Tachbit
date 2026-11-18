@@ -65,9 +65,36 @@ func ll_elem_tag(c: Comp, t: int)
 func ll_list_name_ok(c: Comp, n: Node)
     return n.kind == "name" and not n.is_link and ll_numlist(c, n.ty) and not ll_is_global(c, n.name)
 
+// obj (не by columns), у которого все качества LLVM может разложить так же, как C
+func ll_plainobj(c: Comp, t: int)
+    if kind_of(c, t) != "obj" or is_cols_obj(c, t)
+        return false
+    each f in c.types[t].obj_node.kids
+        k = kind_of(c, f.ty)
+        if not (k == "int" or k == "dec" or k == "bool" or k == "enum" or k == "text" or k == "list" or k == "dict" or k == "obj" or k == "task" or k == "channel")
+            return false
+        if k == "obj" and is_cols_obj(c, f.ty)
+            return false
+    return true
+
+// имя obj или списка чисел, которое можно отдать другой функции
+func ll_ref_name_ok(c: Comp, n: Node)
+    return n.kind == "name" and not n.is_link and (ll_numlist(c, n.ty) or ll_plainobj(c, n.ty)) and not ll_is_global(c, n.name)
+
+// качество в памяти: как в C (long long → i64, double, _Bool → i8, остальное — указатель)
+func ll_mem_ty(c: Comp, t: int)
+    k = kind_of(c, t)
+    if k == "dec"
+        return "double"
+    if k == "bool"
+        return "i8"
+    if k == "int" or k == "enum"
+        return "i64"
+    return "ptr"
+
 func ll_ty(c: Comp, t: int)
     k = kind_of(c, t)
-    if k == "list"
+    if k == "list" or k == "obj"
         return "ptr"
     if k == "dec"
         return "double"
@@ -126,19 +153,26 @@ func ll_expr_ok(c: Comp, n: Node, names: list text)
         return ll_list_name_ok(c, n.kids[0]) and kind_of(c, n.kids[1].ty) == "int" and ll_expr_ok(c, n.kids[1], names)
     if k == "call" and not n.has_ref and n.name == "len"
         return len(n.kids) == 1 and len(n.kids[0].kids) == 1 and ll_list_name_ok(c, n.kids[0].kids[0])
+    if k == "field"
+        return ll_field_ok(c, n) and ll_simple(c, n.ty)
     if k == "call"
-        if not n.has_ref or n.ref.kind != "func" or not ll_has(names, ll_fname(n.ref))
+        // звать можно любую функцию Tachbit с таким же простым видом: свою из LLVM или из C
+        if not n.has_ref or n.ref.kind != "func" or not ll_head_ok(c, n.ref)
             return false
         each a in n.kids
             if a.kind == "missing" or len(a.kids) == 0
                 return false
-            if ll_numlist(c, a.kids[0].ty)
-                if not ll_list_name_ok(c, a.kids[0])
+            if ll_numlist(c, a.kids[0].ty) or ll_plainobj(c, a.kids[0].ty)
+                if not ll_ref_name_ok(c, a.kids[0])
                     return false
             else if not ll_expr_ok(c, a.kids[0], names)
                 return false
         return true
     return false
+
+// p.x: p — имя obj, x — число (int, dec, bool, enum)
+func ll_field_ok(c: Comp, n: Node)
+    return n.kind == "field" and len(n.kids) == 1 and n.kids[0].kind == "name" and not n.kids[0].is_link and ll_plainobj(c, n.kids[0].ty) and not ll_is_global(c, n.kids[0].name) and ll_simple(c, n.ty)
 
 func ll_block_ok(c: Comp, b: Node, names: list text)
     if len(b.kids) == 0
@@ -159,6 +193,9 @@ func ll_stmt_ok(c: Comp, n: Node, names: list text)
             return false
         if t.kind == "index"
             if not ll_expr_ok(c, t, names)
+                return false
+        else if t.kind == "field"
+            if not ll_field_ok(c, t)
                 return false
         else if t.kind != "name" or t.is_link or ll_is_global(c, t.name)
             return false
@@ -193,7 +230,7 @@ func ll_head_ok(c: Comp, f: Node)
     if not (kind_of(c, f.ty) == "none" or ll_simple(c, f.ty))
         return false
     each p in f.kids[0].kids
-        if p.is_link or not (ll_simple(c, p.ty) or ll_numlist(c, p.ty))
+        if p.is_link or not (ll_simple(c, p.ty) or ll_numlist(c, p.ty) or ll_plainobj(c, p.ty))
             return false
     return true
 
@@ -219,6 +256,20 @@ modpub func ll_pick(c: Comp, program: Node)
                     changed = true
         names = keep
     c.ll_names = names
+    // функции из C, которые зовут из LLVM: в C они без static
+    ext = list text
+    each top in program.kids
+        if top.kind == "func" and ll_has(names, ll_fname(top))
+            ll_calls(top.kids[1], names, ext)
+    c.ll_ext = ext
+
+func ll_calls(n: Node, names: list text, ext: list text)
+    if n.kind == "call" and n.has_ref and n.ref.kind == "func"
+        nm = ll_fname(n.ref)
+        if not ll_has(names, nm) and not ll_has(ext, nm)
+            ext.add(nm)
+    each kid in n.kids
+        ll_calls(kid, names, ext)
 
 // ---------- вывод ----------
 
@@ -424,6 +475,15 @@ func ll_expr(g: LLGen, c: Comp, n: Node)
         return r
     if k == "binop"
         return ll_binop(g, c, n)
+    if k == "field"
+        fp = ll_field_ptr(g, c, n)
+        r = ll_new(g, "%t")
+        ll_put(g, r + " = load " + ll_mem_ty(c, n.ty) + ", ptr " + fp)
+        if kind_of(c, n.ty) == "bool"
+            r2 = ll_new(g, "%t")
+            ll_put(g, r2 + " = trunc i8 " + r + " to i1")
+            return r2
+        return r
     if k == "index"
         ep = ll_elem_ptr(g, c, n)
         r = ll_new(g, "%t")
@@ -434,6 +494,71 @@ func ll_expr(g: LLGen, c: Comp, n: Node)
         base = ll_expr(g, c, n.kids[0].kids[0])
         return ll_len(g, base)
     return ll_call(g, c, n)
+
+// адрес p.x: проверка на пустой obj, потом поле (холодное — через tb_cold), как в C
+func ll_field_ptr(g: LLGen, c: Comp, n: Node)
+    base = ll_expr(g, c, n.kids[0])
+    z = ll_new(g, "%t")
+    ll_put(g, z + " = icmp eq ptr " + base + ", null")
+    no = ll_new(g, "L")
+    ok = ll_new(g, "L")
+    ll_term(g, "br i1 " + z + ", label %" + no + ", label %" + ok + ", !prof !0")
+    ll_label(g, no)
+    ll_crash(g, n.line, 4)
+    ll_label(g, ok)
+    o = c.types[n.kids[0].ty].obj_node
+    hot = 0
+    cold = 0
+    hot_at = -1
+    cold_at = -1
+    each f in o.kids
+        if f.is_cold
+            if f.name == n.name
+                cold_at = cold
+            cold += 1
+        else
+            if f.name == n.name
+                hot_at = hot
+            hot += 1
+    fp = ll_new(g, "%t")
+    if hot_at >= 0
+        ll_put(g, fp + " = getelementptr inbounds %\"tb_o_" + o.name + "\", ptr " + base + ", i32 0, i32 " + hot_at)
+        return fp
+    cp = ll_new(g, "%t")
+    ll_put(g, cp + " = getelementptr inbounds %\"tb_o_" + o.name + "\", ptr " + base + ", i32 0, i32 " + hot)
+    cb = ll_new(g, "%t")
+    ll_put(g, cb + " = load ptr, ptr " + cp)
+    ll_put(g, fp + " = getelementptr inbounds %\"tb_c_" + o.name + "\", ptr " + cb + ", i32 0, i32 " + cold_at)
+    return fp
+
+// устройство obj для LLVM: те же поля в том же порядке, что struct в C
+func ll_obj_types(c: Comp, program: Node, all: list text)
+    each top in program.kids
+        if top.kind == "obj" and not top.by_cols
+            t = -1
+            each ty in c.types
+                if ty.kind == "obj" and ty.obj_name == top.name
+                    t = ty.id
+            if t >= 0 and ll_plainobj(c, t)
+                hot = ""
+                cold = ""
+                each f in top.kids
+                    if f.is_cold
+                        if cold != ""
+                            cold = cold + ", "
+                        cold = cold + ll_mem_ty(c, f.ty)
+                    else
+                        if hot != ""
+                            hot = hot + ", "
+                        hot = hot + ll_mem_ty(c, f.ty)
+                if cold != ""
+                    all.add("%\"tb_c_" + top.name + "\" = type { " + cold + " }\n")
+                    if hot != ""
+                        hot = hot + ", "
+                    hot = hot + "ptr"
+                if hot == ""
+                    hot = "i8"
+                all.add("%\"tb_o_" + top.name + "\" = type { " + hot + " }\n")
 
 func ll_len(g: LLGen, base: text)
     lp = ll_new(g, "%t")
@@ -554,6 +679,27 @@ func ll_stmt(g: LLGen, c: Comp, n: Node)
         ll_put(g, old + " = load " + et + ", ptr " + ep + tag)
         r = ll_arith(g, c, cut(op, 0, 0), old, n.ty, v, n.kids[1].ty, n.ty, n.line)
         ll_put(g, "store " + et + " " + r + ", ptr " + ep + tag)
+    else if k == "set" and n.kids[0].kind == "field"
+        // p.x = v / p.x += v: сначала значение, потом адрес (как в C)
+        t = n.kids[0]
+        op = n.value
+        mt = ll_mem_ty(c, n.ty)
+        v = ""
+        if op == "="
+            v = ll_as(g, c, n.kids[1], n.ty)
+        else
+            v = ll_expr(g, c, n.kids[1])
+        fp = ll_field_ptr(g, c, t)
+        r = v
+        if op != "="
+            old = ll_new(g, "%t")
+            ll_put(g, old + " = load " + mt + ", ptr " + fp)
+            r = ll_arith(g, c, cut(op, 0, 0), old, n.ty, v, n.kids[1].ty, n.ty, n.line)
+        if kind_of(c, n.ty) == "bool"
+            z = ll_new(g, "%t")
+            ll_put(g, z + " = zext i1 " + r + " to i8")
+            r = z
+        ll_put(g, "store " + mt + " " + r + ", ptr " + fp)
     else if k == "set"
         t = n.kids[0]
         slot = ll_slot(g, c, t.name, n.ty)
@@ -766,8 +912,30 @@ modpub func emit_ll(c: Comp, program: Node, target: text, cpu: text)
     all = list text
     all.add("; Сделано компилятором Tachbit (--llvm). Не правь руками: правь файл .tb\n")
     all.add(target)
+    // какие функции ушли в LLVM, какие остались в C
+    in_ll = list text
+    in_c = list text
+    each top in program.kids
+        if top.kind == "func"
+            if ll_has(c.ll_names, ll_fname(top))
+                in_ll.add(top.name)
+            else
+                in_c.add(top.name)
+    all.add("; в LLVM (" + len(in_ll) + "): " + join(in_ll, ", ") + "\n")
+    all.add("; через C (" + len(in_c) + "): " + join(in_c, ", ") + "\n")
+    ll_obj_types(c, program, all)
     all.add("declare void @tb_ll_crash(i32, i32) noreturn cold\n")
-    all.add("declare void @tb_ll_noreturn(i32, ptr) noreturn cold\n\n")
+    all.add("declare void @tb_ll_noreturn(i32, ptr) noreturn cold\n")
+    // функции, которые остались в C, но их зовут отсюда
+    each top in program.kids
+        if top.kind == "func" and ll_has(c.ll_ext, ll_fname(top))
+            ps = ""
+            each p in top.kids[0].kids
+                if ps != ""
+                    ps = ps + ", "
+                ps = ps + ll_ty(c, p.ty) + " " + ll_ext(c, p.ty)
+            all.add("declare " + ll_ext(c, top.ty) + ll_ty(c, top.ty) + " @\"" + ll_fname(top) + "\"(" + ps + ")\n")
+    all.add("\n")
     each top in program.kids
         if top.kind == "func" and ll_has(c.ll_names, ll_fname(top))
             ll_func(c, top, all)

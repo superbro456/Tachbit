@@ -1,0 +1,12 @@
+// пустой obj в функции через LLVM: та же ошибка, что через C
+obj Node2
+    value: int
+    next: Node2
+
+func get(n: Node2)
+    return n.value
+
+func main()
+    a = Node2(value: 5)
+    print(get(n: a))
+    print(get(n: a.next))

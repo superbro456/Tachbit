@@ -1,0 +1,35 @@
+// obj и вызовы обычных функций из функций, которые идут через LLVM
+obj Ball
+    name: text
+    x: dec
+    y: dec
+    hits: int
+    alive: bool
+    tags: list int
+
+func label(b: Ball)
+    return "мяч " + b.name
+
+func shout(n: int)
+    print("удар номер", n)
+
+func push(b: Ball, dx: dec, dy: dec)
+    b.x += dx
+    b.y = b.y + dy
+    b.hits += 1
+    if b.hits >= 3
+        b.alive = false
+    shout(n: b.hits)
+
+func energy(b: Ball)
+    if not b.alive
+        return 0.0
+    return b.x * b.x + b.y * b.y
+
+func main()
+    b = Ball(name: "красный", x: 1.0, y: 2.0, alive: true)
+    repeat 3 times
+        push(b: b, dx: 0.5, dy: -1.0)
+    print(label(b: b), b.x, b.y, b.hits, b.alive, energy(b: b))
+    c = Ball(name: "синий", x: 3.0, y: 4.0, alive: true)
+    print(energy(b: c))
