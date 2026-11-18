@@ -1,0 +1,30 @@
+// картинки, частота кадров и размер окна: видеокарта рисует так же, как процессор
+func main()
+    try window_open(300, 200, "GPU: картинки")
+    hero = load_image("tests/gpu/hero.png") or -1
+    tile = load_image("tests/gpu/tile.png") or -1
+    missing = load_image("tests/gpu/нет.png") else err
+        print("нет картинки: " + err)
+        missing = -1
+    print("картинки: " + hero + " " + tile + " " + missing + ", герой " + image_w(hero) + "×" + image_h(hero))
+    set_fps(0)
+    frame = 0
+    repeat while window_alive()
+        frame += 1
+        if frame > 60
+            stop
+        w = window_w()
+        h = window_h()
+        clear_window(rgb(30, 40, 60))
+        count ty from 0 to h / 16
+            count tx from 0 to w / 16
+                if (tx + ty) % 3 == 0
+                    draw_image(tile, tx * 16, ty * 16)
+        draw_image(hero, frame * 4 - 30, 50)
+        draw_image(hero, w - 12, h - 12)
+        draw_image(hero, -10, -10)
+        draw_image(missing, 10, 10)
+        draw_image(99, 10, 10)
+        draw_text(4, h - 20, "fps " + fps() + " кадр " + frame_ms() + " мс " + w + "x" + h, 1, rgb(255, 255, 255))
+        draw_rect(w - 20, 0, 20, 20, rgb(255, 0, 0))
+    print("последний размер: " + window_w() + "x" + window_h())

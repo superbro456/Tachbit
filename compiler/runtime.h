@@ -3023,6 +3023,232 @@ TB_API long long tb_last_frame = 0;
 // клавиши: буквы и цифры — свой код ASCII (A..Z, 0..9), остальные:
 enum { TB_K_ENTER = 10, TB_K_ESC = 27, TB_K_SPACE = 32, TB_K_BACK = 8, TB_K_TAB = 9,
        TB_K_UP = 17, TB_K_DOWN = 18, TB_K_RIGHT = 19, TB_K_LEFT = 20, TB_K_SHIFT = 21 };
+// ---------- картинки PNG (load_image) ----------
+// Свой маленький разбор PNG: распаковка deflate (как zlib) и фильтры строк.
+// Картинка хранится точками 0xAARRGGBB; точка видна, если её прозрачность (A) не меньше 128.
+typedef struct { const unsigned char *p, *end; unsigned bits; int nb, err; unsigned char *out; size_t n, cap; } tb_zs;
+typedef struct { short count[16], sym[320]; } tb_huff;
+TB_API unsigned tb_zbits(tb_zs *z, int n) {
+    while (z->nb < n) {
+        if (z->p >= z->end) { z->err = 1; return 0; }
+        z->bits |= (unsigned)*z->p++ << z->nb; z->nb += 8;
+    }
+    unsigned v = z->bits & ((1u << n) - 1);
+    z->bits >>= n; z->nb -= n;
+    return v;
+}
+TB_API void tb_zput(tb_zs *z, unsigned char b) {
+    if (z->n == z->cap) {
+        size_t nc = z->cap ? z->cap * 2 : 65536;
+        unsigned char *q = realloc(z->out, nc);
+        if (!q) { z->err = 1; return; }
+        z->out = q; z->cap = nc;
+    }
+    z->out[z->n++] = b;
+}
+TB_API void tb_hbuild(tb_huff *h, const unsigned char *len, int n) {
+    short offs[16];
+    memset(h->count, 0, sizeof h->count);
+    for (int i = 0; i < n; i++) h->count[len[i]]++;
+    h->count[0] = 0;
+    offs[1] = 0;
+    for (int l = 1; l < 15; l++) offs[l + 1] = offs[l] + h->count[l];
+    for (int i = 0; i < n; i++) if (len[i]) h->sym[offs[len[i]]++] = (short)i;
+}
+TB_API int tb_hdec(tb_zs *z, const tb_huff *h) {
+    int code = 0, first = 0, index = 0;
+    for (int l = 1; l < 16; l++) {
+        code |= (int)tb_zbits(z, 1);
+        int c = h->count[l];
+        if (code - c < first) return h->sym[index + (code - first)];
+        index += c; first += c; first <<= 1; code <<= 1;
+        if (z->err) return -1;
+    }
+    z->err = 1;
+    return -1;
+}
+TB_API int tb_inflate(tb_zs *z) {
+    static const short lbase[29] = { 3,4,5,6,7,8,9,10,11,13,15,17,19,23,27,31,35,43,51,59,67,83,99,115,131,163,195,227,258 };
+    static const unsigned char lext[29] = { 0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,5,0 };
+    static const short dbase[30] = { 1,2,3,4,5,7,9,13,17,25,33,49,65,97,129,193,257,385,513,769,1025,1537,2049,3073,4097,6145,8193,12289,16385,24577 };
+    static const unsigned char dext[30] = { 0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13 };
+    static const unsigned char order[19] = { 16,17,18,0,8,7,9,6,10,5,11,4,12,3,13,2,14,1,15 };
+    int last;
+    do {
+        last = (int)tb_zbits(z, 1);
+        int type = (int)tb_zbits(z, 2);
+        if (type == 0) {   // без сжатия
+            z->bits >>= z->nb & 7; z->nb -= z->nb & 7;
+            unsigned len = tb_zbits(z, 16), nlen = tb_zbits(z, 16);
+            if ((len ^ 0xFFFF) != nlen) return 0;
+            while (len-- && !z->err) tb_zput(z, (unsigned char)tb_zbits(z, 8));
+        } else if (type == 1 || type == 2) {
+            tb_huff lh, dh;
+            unsigned char lens[320];
+            int nl = 288, nd = 30;
+            if (type == 1) {   // готовые коды
+                for (int i = 0; i < 144; i++) lens[i] = 8;
+                for (int i = 144; i < 256; i++) lens[i] = 9;
+                for (int i = 256; i < 280; i++) lens[i] = 7;
+                for (int i = 280; i < 288; i++) lens[i] = 8;
+                for (int i = 0; i < 30; i++) lens[288 + i] = 5;
+            } else {           // свои коды в начале блока
+                nl = (int)tb_zbits(z, 5) + 257; nd = (int)tb_zbits(z, 5) + 1;
+                int nc = (int)tb_zbits(z, 4) + 4;
+                unsigned char cl[19] = { 0 };
+                for (int i = 0; i < nc; i++) cl[order[i]] = (unsigned char)tb_zbits(z, 3);
+                tb_huff ch; tb_hbuild(&ch, cl, 19);
+                int i = 0;
+                while (i < nl + nd && !z->err) {
+                    int s = tb_hdec(z, &ch), rep = 0, val = 0;
+                    if (s < 16) { lens[i++] = (unsigned char)s; continue; }
+                    if (s == 16) { if (!i) return 0; val = lens[i - 1]; rep = 3 + (int)tb_zbits(z, 2); }
+                    else if (s == 17) rep = 3 + (int)tb_zbits(z, 3);
+                    else if (s == 18) rep = 11 + (int)tb_zbits(z, 7);
+                    else return 0;
+                    if (i + rep > nl + nd) return 0;
+                    while (rep--) lens[i++] = (unsigned char)val;
+                }
+                if (type == 2) memmove(lens + 288, lens + nl, (size_t)nd);
+            }
+            tb_hbuild(&lh, lens, nl);
+            tb_hbuild(&dh, lens + 288, nd);
+            while (!z->err) {
+                int s = tb_hdec(z, &lh);
+                if (s < 0) return 0;
+                if (s < 256) { tb_zput(z, (unsigned char)s); continue; }
+                if (s == 256) break;
+                s -= 257;
+                if (s >= 29) return 0;
+                int len = lbase[s] + (int)tb_zbits(z, lext[s]);
+                int d = tb_hdec(z, &dh);
+                if (d < 0 || d >= 30) return 0;
+                size_t dist = (size_t)dbase[d] + tb_zbits(z, dext[d]);
+                if (dist > z->n) return 0;
+                while (len-- && !z->err) tb_zput(z, z->out[z->n - dist]);
+            }
+        } else return 0;
+    } while (!last && !z->err);
+    return !z->err;
+}
+TB_API unsigned tb_be32(const unsigned char *p) { return ((unsigned)p[0] << 24) | ((unsigned)p[1] << 16) | ((unsigned)p[2] << 8) | p[3]; }
+TB_INL int tb_paeth(int a, int b, int c) {
+    int p = a + b - c, pa = abs(p - a), pb = abs(p - b), pc = abs(p - c);
+    return pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
+}
+// разобрать PNG из памяти; ответ — точки 0xAARRGGBB (malloc) или 0 и текст ошибки в *why
+TB_API uint32_t *tb_png(const unsigned char *d, size_t n, int *pw, int *ph, const char **why) {
+    static const unsigned char sig[8] = { 137, 80, 78, 71, 13, 10, 26, 10 };
+    *why = "это не PNG";
+    if (n < 33 || memcmp(d, sig, 8) != 0) return 0;
+    unsigned w = 0, h = 0; int depth = 0, ctype = 0, inter = 0;
+    unsigned char pal[256][4]; int npal = 0, trns = 0; unsigned key[3] = { 0, 0, 0 };
+    memset(pal, 255, sizeof pal);
+    unsigned char *idat = 0; size_t ni = 0, ci = 0;
+    size_t at = 8;
+    while (at + 12 <= n) {
+        unsigned len = tb_be32(d + at);
+        const unsigned char *type = d + at + 4, *c = d + at + 8;
+        if (len > n - at - 12) { free(idat); *why = "файл PNG обрезан"; return 0; }
+        if (!memcmp(type, "IHDR", 4) && len >= 13) {
+            w = tb_be32(c); h = tb_be32(c + 4); depth = c[8]; ctype = c[9]; inter = c[12];
+        } else if (!memcmp(type, "PLTE", 4)) {
+            npal = (int)(len / 3 > 256 ? 256 : len / 3);
+            for (int i = 0; i < npal; i++) { pal[i][0] = c[i * 3]; pal[i][1] = c[i * 3 + 1]; pal[i][2] = c[i * 3 + 2]; }
+        } else if (!memcmp(type, "tRNS", 4)) {
+            trns = 1;
+            if (ctype == 3) for (unsigned i = 0; i < len && i < 256; i++) pal[i][3] = c[i];
+            else if (ctype == 0 && len >= 2) key[0] = ((unsigned)c[0] << 8) | c[1];
+            else if (ctype == 2 && len >= 6) for (int k = 0; k < 3; k++) key[k] = ((unsigned)c[k * 2] << 8) | c[k * 2 + 1];
+        } else if (!memcmp(type, "IDAT", 4)) {
+            if (ni + len > ci) {
+                ci = (ni + len) * 2;
+                unsigned char *q = realloc(idat, ci);
+                if (!q) { free(idat); *why = "не хватило памяти"; return 0; }
+                idat = q;
+            }
+            memcpy(idat + ni, c, len); ni += len;
+        } else if (!memcmp(type, "IEND", 4)) break;
+        at += 12 + len;
+    }
+    int ch = ctype == 0 ? 1 : ctype == 2 ? 3 : ctype == 3 ? 1 : ctype == 4 ? 2 : ctype == 6 ? 4 : 0;
+    if (!w || !h || w > 16384 || h > 16384 || !ch || !idat) { free(idat); *why = "в PNG нет картинки"; return 0; }
+    if (inter) { free(idat); *why = "PNG с чересстрочностью (interlace) не умею: сохрани без неё"; return 0; }
+    if (!(depth == 8 || depth == 16 || (depth < 8 && (ctype == 0 || ctype == 3) && (depth == 1 || depth == 2 || depth == 4)))) {
+        free(idat); *why = "такую глубину цвета PNG не умею"; return 0;
+    }
+    tb_zs z; memset(&z, 0, sizeof z);
+    z.p = idat + 2; z.end = idat + ni;   // 2 байта заголовка zlib
+    int ok = ni > 2 && (idat[0] & 15) == 8 && tb_inflate(&z);
+    free(idat);
+    size_t bitsp = (size_t)ch * depth, stride = (w * bitsp + 7) / 8, bpp = bitsp >= 8 ? bitsp / 8 : 1;
+    if (!ok || z.n < (stride + 1) * h) { free(z.out); *why = "PNG испорчен"; return 0; }
+    uint32_t *px = malloc((size_t)w * h * 4);
+    if (!px) { free(z.out); *why = "не хватило памяти"; return 0; }
+    unsigned char *prev = 0;
+    for (unsigned y = 0; y < h; y++) {
+        unsigned char *row = z.out + y * (stride + 1), f = row[0], *r = row + 1;
+        for (size_t i = 0; i < stride; i++) {   // фильтры строк PNG
+            int a = i >= bpp ? r[i - bpp] : 0, b = prev ? prev[i] : 0, c = prev && i >= bpp ? prev[i - bpp] : 0;
+            int v = r[i];
+            if (f == 1) v += a; else if (f == 2) v += b; else if (f == 3) v += (a + b) / 2; else if (f == 4) v += tb_paeth(a, b, c);
+            r[i] = (unsigned char)v;
+        }
+        prev = r;
+        for (unsigned x = 0; x < w; x++) {
+            unsigned s[4] = { 0, 0, 0, 255 }, raw[4] = { 0, 0, 0, 0 };
+            for (int k = 0; k < ch; k++) {
+                if (depth == 8) raw[k] = r[x * ch + k], s[k] = raw[k];
+                else if (depth == 16) raw[k] = ((unsigned)r[(x * ch + k) * 2] << 8) | r[(x * ch + k) * 2 + 1], s[k] = raw[k] >> 8;
+                else {
+                    unsigned bit = x * depth, v = (r[bit / 8] >> (8 - depth - bit % 8)) & ((1u << depth) - 1);
+                    raw[k] = v; s[k] = ctype == 3 ? v : v * 255 / ((1u << depth) - 1);
+                }
+            }
+            unsigned R, G, B, A;
+            if (ctype == 3) { unsigned i = s[0] < 256 ? s[0] : 0; R = pal[i][0]; G = pal[i][1]; B = pal[i][2]; A = pal[i][3]; }
+            else if (ctype == 0 || ctype == 4) { R = G = B = s[0]; A = ctype == 4 ? s[1] : (trns && raw[0] == key[0] ? 0 : 255); }
+            else { R = s[0]; G = s[1]; B = s[2]; A = ctype == 6 ? s[3] : (trns && raw[0] == key[0] && raw[1] == key[1] && raw[2] == key[2] ? 0 : 255); }
+            px[(size_t)y * w + x] = (A << 24) | (R << 16) | (G << 8) | B;
+        }
+    }
+    free(z.out);
+    *pw = (int)w; *ph = (int)h;
+    return px;
+}
+// все картинки программы: точки подряд в одном большом массиве (его же видит видеокарта)
+typedef struct { int w, h; uint32_t off; } tb_image;
+TB_API tb_image *tb_imgs = 0;
+TB_API int tb_nimg = 0, tb_img_dirty = 0;
+TB_API uint32_t *tb_imgpx = 0;
+TB_API size_t tb_imgpx_n = 0;
+TB_API long long tb_load_image(const char *path) {
+    FILE *f = fopen(path, "rb");
+    if (!f) { tb_err = "нет такого файла картинки"; return -1; }
+    fseek(f, 0, SEEK_END); long sz = ftell(f); fseek(f, 0, SEEK_SET);
+    unsigned char *d = sz > 0 ? malloc((size_t)sz) : 0;
+    if (!d || fread(d, 1, (size_t)sz, f) != (size_t)sz) { fclose(f); free(d); tb_err = "не могу прочитать файл картинки"; return -1; }
+    fclose(f);
+    int w = 0, h = 0; const char *why = 0;
+    uint32_t *px = tb_png(d, (size_t)sz, &w, &h, &why);
+    free(d);
+    if (!px) { tb_err = why; return -1; }
+    size_t need = tb_imgpx_n + (size_t)w * h;
+    if (need > 0xFFFFFFFFu) { free(px); tb_err = "слишком много картинок"; return -1; }
+    uint32_t *all = realloc(tb_imgpx, need * 4);
+    tb_image *list = realloc(tb_imgs, (size_t)(tb_nimg + 1) * sizeof(tb_image));
+    if (all) tb_imgpx = all;
+    if (list) tb_imgs = list;
+    if (!all || !list) { free(px); tb_err = "не хватило памяти"; return -1; }
+    memcpy(tb_imgpx + tb_imgpx_n, px, (size_t)w * h * 4);
+    free(px);
+    tb_imgs[tb_nimg].w = w; tb_imgs[tb_nimg].h = h; tb_imgs[tb_nimg].off = (uint32_t)tb_imgpx_n;
+    tb_imgpx_n = need;
+    tb_img_dirty = 1;
+    return tb_nimg++;
+}
+TB_API long long tb_image_w(long long i) { return i >= 0 && i < tb_nimg ? tb_imgs[i].w : 0; }
+TB_API long long tb_image_h(long long i) { return i >= 0 && i < tb_nimg ? tb_imgs[i].h : 0; }
 // ---------- рисование на видеокарте (GPU) ----------
 // Кадр не рисуется точками на процессоре: каждая фигура записывается как «экземпляр»
 // (прямоугольник, круг или буква), а видеокарта рисует их все разом — по тем же правилам
@@ -3036,12 +3262,23 @@ enum { TB_GI_CAP = 65536 };
 TB_API int tb_gpu_on = 0, tb_gpu_check = 0, tb_gpu_first = 1;
 TB_API tb_ginst *tb_gi = 0;            // память экземпляров (видна видеокарте)
 TB_API int tb_gin = 0;
+// TB_GSLOTS наборов памяти по кругу: пока видеокарта рисует один кадр, программа уже пишет следующий
+enum { TB_GSLOTS = 3 };
+TB_API int tb_gslot = 0;
 TB_API uint32_t *tb_gpu_back = 0;      // TB_GPU_CHECK: кадр, прочитанный обратно с видеокарты
 TB_API long long tb_gpu_frames = 0, tb_gpu_bad = 0;
 TB_API void tb_gpu_flush(int present);   // своя у каждой системы: Metal или Vulkan
+TB_API void tb_gpu_vsync(void);          // включить или выключить ожидание экрана (tb_gpu_nosync)
+TB_API int tb_gpu_nosync = 0;
+TB_API int tb_gpu_resize(int ow, int oh);   // окно поменяло размер
+// окно можно тянуть мышью, если программа спросила его размер (window_w, window_h)
+TB_API int tb_resizable = 0, tb_new_w = 0, tb_new_h = 0;
+TB_API void tb_gfx_resizable(void);   // свои у каждой системы
+TB_API void tb_gfx_reimage(void);            // 1: не ждать обновления экрана (set_fps(0), TB_FPS_FREE=1)
 TB_API int tb_gpu_want(void) {
     const char *e = getenv("TB_GPU");
     tb_gpu_check = getenv("TB_GPU_CHECK") != 0 && getenv("TB_GPU_CHECK")[0] == '1';
+    if (getenv("TB_FPS_FREE")) tb_gpu_nosync = 1;
     return !(e && e[0] == '0');
 }
 TB_API void tb_gpu_say(const char *what) {
@@ -3107,6 +3344,13 @@ TB_API void tb_gpu_circle(long long cx, long long cy, long long r, long long c) 
         while ((i + 1) * (i + 1) <= rest) i++;
         tb_gpu_rect(cx - i, cy + j, 2 * i + 1, 1, c);
     }
+}
+TB_API void tb_gpu_image(long long id, long long x, long long y) {
+    tb_image *im = &tb_imgs[id];
+    if (x >= tb_gw || y >= tb_gh || x + im->w <= 0 || y + im->h <= 0) return;
+    long long x0 = x < 0 ? 0 : x, y0 = y < 0 ? 0 : y;
+    long long x1 = x + im->w > tb_gw ? tb_gw : x + im->w, y1 = y + im->h > tb_gh ? tb_gh : y + im->h;
+    tb_gpu_add(x0, y0, x1, y1, x, y, im->off, (3u << 30) | (uint32_t)im->w);
 }
 TB_API void tb_gpu_glyph(long long x, long long y, int g, long long size, long long c) {
     if (x >= tb_gw || y >= tb_gh || x + 8 * size <= 0 || y + 16 * size <= 0) return;
@@ -3243,6 +3487,9 @@ typedef struct { uint32_t sType; const void *pNext; VkFlags srcAccessMask, dstAc
     srcQueueFamilyIndex, dstQueueFamilyIndex; VkImage image; VkImageSubresourceRange subresourceRange; } VkImageMemoryBarrier;
 typedef struct { VkImageSubresourceLayers srcSubresource; VkOffset3D srcOffsets[2]; VkImageSubresourceLayers dstSubresource;
     VkOffset3D dstOffsets[2]; } VkImageBlit;
+typedef struct { VkImageSubresourceLayers srcSubresource; VkOffset3D srcOffset; VkImageSubresourceLayers dstSubresource;
+    VkOffset3D dstOffset; VkExtent3D extent; } VkImageCopy;
+typedef struct { uint32_t sType; const void *pNext; VkFlags flags; uint32_t dynamicStateCount; const uint32_t *pDynamicStates; } VkPipelineDynamicStateCreateInfo;
 typedef struct { VkDeviceSize bufferOffset; uint32_t bufferRowLength, bufferImageHeight; VkImageSubresourceLayers imageSubresource;
     VkOffset3D imageOffset; VkExtent3D imageExtent; } VkBufferImageCopy;
 typedef struct { uint32_t sType; const void *pNext; uint32_t waitSemaphoreCount; const VkSemaphore *pWaitSemaphores;
@@ -3278,6 +3525,14 @@ typedef struct { VkFlags linearTilingFeatures, optimalTilingFeatures, bufferFeat
     X(GetBufferMemoryRequirements, void, (VkDevice, VkBuffer, VkMemoryRequirements *)) \
     X(BindBufferMemory, VkResult, (VkDevice, VkBuffer, VkDeviceMemory, VkDeviceSize)) \
     X(AllocateMemory, VkResult, (VkDevice, const VkMemoryAllocateInfo *, const void *, VkDeviceMemory *)) \
+    X(DestroyBuffer, void, (VkDevice, VkBuffer, const void *)) \
+    X(DestroyImage, void, (VkDevice, VkImage, const void *)) \
+    X(DestroyImageView, void, (VkDevice, VkImageView, const void *)) \
+    X(DestroyFramebuffer, void, (VkDevice, VkFramebuffer, const void *)) \
+    X(CmdCopyImage, void, (VkCommandBuffer, VkImage, uint32_t, VkImage, uint32_t, uint32_t, const VkImageCopy *)) \
+    X(CmdSetViewport, void, (VkCommandBuffer, uint32_t, uint32_t, const VkViewport *)) \
+    X(CmdSetScissor, void, (VkCommandBuffer, uint32_t, uint32_t, const VkRect2D *)) \
+    X(FreeMemory, void, (VkDevice, VkDeviceMemory, const void *)) \
     X(MapMemory, VkResult, (VkDevice, VkDeviceMemory, VkDeviceSize, VkDeviceSize, VkFlags, void **)) \
     X(CreateRenderPass, VkResult, (VkDevice, const VkRenderPassCreateInfo *, const void *, VkRenderPass *)) \
     X(CreateFramebuffer, VkResult, (VkDevice, const VkFramebufferCreateInfo *, const void *, VkFramebuffer *)) \
@@ -3391,11 +3646,11 @@ TB_API const uint32_t tb_spv_vert[579] = {
     0x00000051, 0x00000054, 0x0004003d, 0x00000055, 0x0000005a, 0x00000059, 0x0003003e, 0x00000057,
     0x0000005a, 0x000100fd, 0x00010038,
 };
-TB_API const uint32_t tb_spv_frag[878] = {
-    0x07230203, 0x00010000, 0x0008000b, 0x000000a2, 0x00000000, 0x00020011, 0x00000001, 0x0006000b,
+TB_API const uint32_t tb_spv_frag[1099] = {
+    0x07230203, 0x00010000, 0x0008000b, 0x000000c9, 0x00000000, 0x00020011, 0x00000001, 0x0006000b,
     0x00000001, 0x4c534c47, 0x6474732e, 0x3035342e, 0x00000000, 0x0003000e, 0x00000000, 0x00000001,
     0x0009000f, 0x00000004, 0x00000004, 0x6e69616d, 0x00000000, 0x0000000d, 0x00000017, 0x00000030,
-    0x00000090, 0x00030010, 0x00000004, 0x00000007, 0x00030003, 0x00000002, 0x000001c2, 0x00040005,
+    0x000000b7, 0x00030010, 0x00000004, 0x00000007, 0x00030003, 0x00000002, 0x000001c2, 0x00040005,
     0x00000004, 0x6e69616d, 0x00000000, 0x00030005, 0x00000009, 0x00000070, 0x00060005, 0x0000000d,
     0x465f6c67, 0x43676172, 0x64726f6f, 0x00000000, 0x00030005, 0x00000014, 0x0000006d, 0x00030005,
     0x00000017, 0x006d6376, 0x00030005, 0x0000001c, 0x0000006b, 0x00030005, 0x00000026, 0x00000072,
@@ -3404,12 +3659,17 @@ TB_API const uint32_t tb_spv_frag[878] = {
     0x0000005d, 0x00007972, 0x00030005, 0x00000065, 0x00000067, 0x00030005, 0x0000006b, 0x00000062,
     0x00040005, 0x0000006f, 0x746e6f46, 0x00000000, 0x00040006, 0x0000006f, 0x00000000, 0x00000066,
     0x00040005, 0x00000071, 0x746e6f66, 0x00000000, 0x00030005, 0x0000008c, 0x00000063, 0x00030005,
-    0x00000090, 0x006c6f63, 0x00040047, 0x0000000d, 0x0000000b, 0x0000000f, 0x00030047, 0x00000017,
-    0x0000000e, 0x00040047, 0x00000017, 0x0000001e, 0x00000001, 0x00030047, 0x00000030, 0x0000000e,
-    0x00040047, 0x00000030, 0x0000001e, 0x00000000, 0x00040047, 0x0000006e, 0x00000006, 0x00000010,
-    0x00030047, 0x0000006f, 0x00000002, 0x00050048, 0x0000006f, 0x00000000, 0x00000023, 0x00000000,
-    0x00040047, 0x00000071, 0x00000021, 0x00000000, 0x00040047, 0x00000071, 0x00000022, 0x00000000,
-    0x00040047, 0x00000090, 0x0000001e, 0x00000000, 0x00020013, 0x00000002, 0x00030021, 0x00000003,
+    0x00000094, 0x00000076, 0x00030005, 0x00000096, 0x00676d49, 0x00040006, 0x00000096, 0x00000000,
+    0x00007870, 0x00030005, 0x00000098, 0x00676d69, 0x00030005, 0x000000b7, 0x006c6f63, 0x00040047,
+    0x0000000d, 0x0000000b, 0x0000000f, 0x00030047, 0x00000017, 0x0000000e, 0x00040047, 0x00000017,
+    0x0000001e, 0x00000001, 0x00030047, 0x00000030, 0x0000000e, 0x00040047, 0x00000030, 0x0000001e,
+    0x00000000, 0x00040047, 0x0000006e, 0x00000006, 0x00000010, 0x00030047, 0x0000006f, 0x00000002,
+    0x00050048, 0x0000006f, 0x00000000, 0x00000023, 0x00000000, 0x00040047, 0x00000071, 0x00000021,
+    0x00000000, 0x00040047, 0x00000071, 0x00000022, 0x00000000, 0x00040047, 0x00000095, 0x00000006,
+    0x00000004, 0x00030047, 0x00000096, 0x00000003, 0x00040048, 0x00000096, 0x00000000, 0x00000018,
+    0x00050048, 0x00000096, 0x00000000, 0x00000023, 0x00000000, 0x00030047, 0x00000098, 0x00000018,
+    0x00040047, 0x00000098, 0x00000021, 0x00000001, 0x00040047, 0x00000098, 0x00000022, 0x00000000,
+    0x00040047, 0x000000b7, 0x0000001e, 0x00000000, 0x00020013, 0x00000002, 0x00030021, 0x00000003,
     0x00000002, 0x00040015, 0x00000006, 0x00000020, 0x00000001, 0x00040017, 0x00000007, 0x00000006,
     0x00000002, 0x00040020, 0x00000008, 0x00000007, 0x00000007, 0x00030016, 0x0000000a, 0x00000020,
     0x00040017, 0x0000000b, 0x0000000a, 0x00000004, 0x00040020, 0x0000000c, 0x00000001, 0x0000000b,
@@ -3428,90 +3688,115 @@ TB_API const uint32_t tb_spv_frag[878] = {
     0x0000006f, 0x0004003b, 0x00000070, 0x00000071, 0x00000002, 0x0004002b, 0x00000006, 0x00000072,
     0x00000000, 0x0004002b, 0x00000006, 0x00000075, 0x00000002, 0x00040020, 0x00000077, 0x00000002,
     0x00000012, 0x0004002b, 0x00000006, 0x0000007b, 0x00000003, 0x0004002b, 0x00000012, 0x0000007e,
-    0x00000008, 0x0004002b, 0x00000012, 0x00000083, 0x00000080, 0x00040020, 0x0000008f, 0x00000003,
-    0x0000000b, 0x0004003b, 0x0000008f, 0x00000090, 0x00000003, 0x0004002b, 0x00000006, 0x00000092,
-    0x00000010, 0x0004002b, 0x00000006, 0x00000097, 0x00000008, 0x0004002b, 0x0000000a, 0x0000009e,
-    0x437f0000, 0x00050036, 0x00000002, 0x00000004, 0x00000000, 0x00000003, 0x000200f8, 0x00000005,
-    0x0004003b, 0x00000008, 0x00000009, 0x00000007, 0x0004003b, 0x00000013, 0x00000014, 0x00000007,
-    0x0004003b, 0x00000013, 0x0000001c, 0x00000007, 0x0004003b, 0x00000025, 0x00000026, 0x00000007,
-    0x0004003b, 0x00000025, 0x0000002b, 0x00000007, 0x0004003b, 0x00000025, 0x00000035, 0x00000007,
-    0x0004003b, 0x00000025, 0x00000051, 0x00000007, 0x0004003b, 0x00000025, 0x00000055, 0x00000007,
-    0x0004003b, 0x00000025, 0x0000005d, 0x00000007, 0x0004003b, 0x00000013, 0x00000065, 0x00000007,
-    0x0004003b, 0x00000013, 0x0000006b, 0x00000007, 0x0004003b, 0x00000013, 0x0000008c, 0x00000007,
-    0x0004003d, 0x0000000b, 0x0000000f, 0x0000000d, 0x0007004f, 0x0000000e, 0x00000010, 0x0000000f,
-    0x0000000f, 0x00000000, 0x00000001, 0x0004006e, 0x00000007, 0x00000011, 0x00000010, 0x0003003e,
-    0x00000009, 0x00000011, 0x00050041, 0x00000019, 0x0000001a, 0x00000017, 0x00000018, 0x0004003d,
-    0x00000012, 0x0000001b, 0x0000001a, 0x0003003e, 0x00000014, 0x0000001b, 0x0004003d, 0x00000012,
-    0x0000001d, 0x00000014, 0x000500c2, 0x00000012, 0x0000001f, 0x0000001d, 0x0000001e, 0x0003003e,
-    0x0000001c, 0x0000001f, 0x0004003d, 0x00000012, 0x00000020, 0x0000001c, 0x000500aa, 0x00000021,
-    0x00000022, 0x00000020, 0x00000018, 0x000300f7, 0x00000024, 0x00000000, 0x000400fa, 0x00000022,
-    0x00000023, 0x0000004b, 0x000200f8, 0x00000023, 0x0004003d, 0x00000012, 0x00000027, 0x00000014,
-    0x000500c7, 0x00000012, 0x00000029, 0x00000027, 0x00000028, 0x0004007c, 0x00000006, 0x0000002a,
-    0x00000029, 0x0003003e, 0x00000026, 0x0000002a, 0x00050041, 0x00000025, 0x0000002d, 0x00000009,
-    0x0000002c, 0x0004003d, 0x00000006, 0x0000002e, 0x0000002d, 0x00050041, 0x00000031, 0x00000032,
-    0x00000030, 0x0000002c, 0x0004003d, 0x00000006, 0x00000033, 0x00000032, 0x00050082, 0x00000006,
-    0x00000034, 0x0000002e, 0x00000033, 0x0003003e, 0x0000002b, 0x00000034, 0x00050041, 0x00000025,
-    0x00000036, 0x00000009, 0x00000018, 0x0004003d, 0x00000006, 0x00000037, 0x00000036, 0x00050041,
-    0x00000031, 0x00000038, 0x00000030, 0x00000018, 0x0004003d, 0x00000006, 0x00000039, 0x00000038,
-    0x00050082, 0x00000006, 0x0000003a, 0x00000037, 0x00000039, 0x0003003e, 0x00000035, 0x0000003a,
-    0x0004003d, 0x00000006, 0x0000003b, 0x0000002b, 0x0004003d, 0x00000006, 0x0000003c, 0x0000002b,
-    0x00050084, 0x00000006, 0x0000003d, 0x0000003b, 0x0000003c, 0x0004003d, 0x00000006, 0x0000003e,
-    0x00000035, 0x0004003d, 0x00000006, 0x0000003f, 0x00000035, 0x00050084, 0x00000006, 0x00000040,
-    0x0000003e, 0x0000003f, 0x00050080, 0x00000006, 0x00000041, 0x0000003d, 0x00000040, 0x0004003d,
-    0x00000006, 0x00000042, 0x00000026, 0x0004003d, 0x00000006, 0x00000043, 0x00000026, 0x00050084,
-    0x00000006, 0x00000044, 0x00000042, 0x00000043, 0x0004003d, 0x00000006, 0x00000045, 0x00000026,
-    0x00050080, 0x00000006, 0x00000046, 0x00000044, 0x00000045, 0x000500ad, 0x00000021, 0x00000047,
-    0x00000041, 0x00000046, 0x000300f7, 0x00000049, 0x00000000, 0x000400fa, 0x00000047, 0x00000048,
-    0x00000049, 0x000200f8, 0x00000048, 0x000100fc, 0x000200f8, 0x00000049, 0x000200f9, 0x00000024,
-    0x000200f8, 0x0000004b, 0x0004003d, 0x00000012, 0x0000004c, 0x0000001c, 0x000500aa, 0x00000021,
-    0x0000004e, 0x0000004c, 0x0000004d, 0x000300f7, 0x00000050, 0x00000000, 0x000400fa, 0x0000004e,
-    0x0000004f, 0x00000050, 0x000200f8, 0x0000004f, 0x0004003d, 0x00000012, 0x00000052, 0x00000014,
-    0x000500c7, 0x00000012, 0x00000053, 0x00000052, 0x00000028, 0x0004007c, 0x00000006, 0x00000054,
-    0x00000053, 0x0003003e, 0x00000051, 0x00000054, 0x00050041, 0x00000025, 0x00000056, 0x00000009,
-    0x0000002c, 0x0004003d, 0x00000006, 0x00000057, 0x00000056, 0x00050041, 0x00000031, 0x00000058,
-    0x00000030, 0x0000002c, 0x0004003d, 0x00000006, 0x00000059, 0x00000058, 0x00050082, 0x00000006,
-    0x0000005a, 0x00000057, 0x00000059, 0x0004003d, 0x00000006, 0x0000005b, 0x00000051, 0x00050087,
-    0x00000006, 0x0000005c, 0x0000005a, 0x0000005b, 0x0003003e, 0x00000055, 0x0000005c, 0x00050041,
-    0x00000025, 0x0000005e, 0x00000009, 0x00000018, 0x0004003d, 0x00000006, 0x0000005f, 0x0000005e,
-    0x00050041, 0x00000031, 0x00000060, 0x00000030, 0x00000018, 0x0004003d, 0x00000006, 0x00000061,
-    0x00000060, 0x00050082, 0x00000006, 0x00000062, 0x0000005f, 0x00000061, 0x0004003d, 0x00000006,
-    0x00000063, 0x00000051, 0x00050087, 0x00000006, 0x00000064, 0x00000062, 0x00000063, 0x0003003e,
-    0x0000005d, 0x00000064, 0x0004003d, 0x00000012, 0x00000066, 0x00000014, 0x000500c2, 0x00000012,
-    0x00000068, 0x00000066, 0x00000067, 0x000500c7, 0x00000012, 0x0000006a, 0x00000068, 0x00000069,
-    0x0003003e, 0x00000065, 0x0000006a, 0x0004003d, 0x00000012, 0x00000073, 0x00000065, 0x0004003d,
-    0x00000006, 0x00000074, 0x0000005d, 0x000500c3, 0x00000006, 0x00000076, 0x00000074, 0x00000075,
-    0x00070041, 0x00000077, 0x00000078, 0x00000071, 0x00000072, 0x00000073, 0x00000076, 0x0004003d,
-    0x00000012, 0x00000079, 0x00000078, 0x0004003d, 0x00000006, 0x0000007a, 0x0000005d, 0x000500c7,
-    0x00000006, 0x0000007c, 0x0000007a, 0x0000007b, 0x0004007c, 0x00000012, 0x0000007d, 0x0000007c,
-    0x00050084, 0x00000012, 0x0000007f, 0x0000007d, 0x0000007e, 0x000500c2, 0x00000012, 0x00000080,
-    0x00000079, 0x0000007f, 0x000500c7, 0x00000012, 0x00000081, 0x00000080, 0x00000069, 0x0003003e,
-    0x0000006b, 0x00000081, 0x0004003d, 0x00000012, 0x00000082, 0x0000006b, 0x0004003d, 0x00000006,
-    0x00000084, 0x00000055, 0x0004007c, 0x00000012, 0x00000085, 0x00000084, 0x000500c2, 0x00000012,
-    0x00000086, 0x00000083, 0x00000085, 0x000500c7, 0x00000012, 0x00000087, 0x00000082, 0x00000086,
-    0x000500aa, 0x00000021, 0x00000088, 0x00000087, 0x0000002c, 0x000300f7, 0x0000008a, 0x00000000,
-    0x000400fa, 0x00000088, 0x00000089, 0x0000008a, 0x000200f8, 0x00000089, 0x000100fc, 0x000200f8,
-    0x0000008a, 0x000200f9, 0x00000050, 0x000200f8, 0x00000050, 0x000200f9, 0x00000024, 0x000200f8,
-    0x00000024, 0x00050041, 0x00000019, 0x0000008d, 0x00000017, 0x0000002c, 0x0004003d, 0x00000012,
-    0x0000008e, 0x0000008d, 0x0003003e, 0x0000008c, 0x0000008e, 0x0004003d, 0x00000012, 0x00000091,
-    0x0000008c, 0x000500c2, 0x00000012, 0x00000093, 0x00000091, 0x00000092, 0x000500c7, 0x00000012,
-    0x00000094, 0x00000093, 0x00000069, 0x00040070, 0x0000000a, 0x00000095, 0x00000094, 0x0004003d,
-    0x00000012, 0x00000096, 0x0000008c, 0x000500c2, 0x00000012, 0x00000098, 0x00000096, 0x00000097,
-    0x000500c7, 0x00000012, 0x00000099, 0x00000098, 0x00000069, 0x00040070, 0x0000000a, 0x0000009a,
-    0x00000099, 0x0004003d, 0x00000012, 0x0000009b, 0x0000008c, 0x000500c7, 0x00000012, 0x0000009c,
-    0x0000009b, 0x00000069, 0x00040070, 0x0000000a, 0x0000009d, 0x0000009c, 0x00070050, 0x0000000b,
-    0x0000009f, 0x00000095, 0x0000009a, 0x0000009d, 0x0000009e, 0x00070050, 0x0000000b, 0x000000a0,
-    0x0000009e, 0x0000009e, 0x0000009e, 0x0000009e, 0x00050088, 0x0000000b, 0x000000a1, 0x0000009f,
-    0x000000a0, 0x0003003e, 0x00000090, 0x000000a1, 0x000100fd, 0x00010038,
+    0x00000008, 0x0004002b, 0x00000012, 0x00000083, 0x00000080, 0x0004002b, 0x00000012, 0x00000090,
+    0x00000003, 0x0003001d, 0x00000095, 0x00000012, 0x0003001e, 0x00000096, 0x00000095, 0x00040020,
+    0x00000097, 0x00000002, 0x00000096, 0x0004003b, 0x00000097, 0x00000098, 0x00000002, 0x0004002b,
+    0x00000006, 0x000000af, 0x00000018, 0x00040020, 0x000000b6, 0x00000003, 0x0000000b, 0x0004003b,
+    0x000000b6, 0x000000b7, 0x00000003, 0x0004002b, 0x00000006, 0x000000b9, 0x00000010, 0x0004002b,
+    0x00000006, 0x000000be, 0x00000008, 0x0004002b, 0x0000000a, 0x000000c5, 0x437f0000, 0x00050036,
+    0x00000002, 0x00000004, 0x00000000, 0x00000003, 0x000200f8, 0x00000005, 0x0004003b, 0x00000008,
+    0x00000009, 0x00000007, 0x0004003b, 0x00000013, 0x00000014, 0x00000007, 0x0004003b, 0x00000013,
+    0x0000001c, 0x00000007, 0x0004003b, 0x00000025, 0x00000026, 0x00000007, 0x0004003b, 0x00000025,
+    0x0000002b, 0x00000007, 0x0004003b, 0x00000025, 0x00000035, 0x00000007, 0x0004003b, 0x00000025,
+    0x00000051, 0x00000007, 0x0004003b, 0x00000025, 0x00000055, 0x00000007, 0x0004003b, 0x00000025,
+    0x0000005d, 0x00000007, 0x0004003b, 0x00000013, 0x00000065, 0x00000007, 0x0004003b, 0x00000013,
+    0x0000006b, 0x00000007, 0x0004003b, 0x00000013, 0x0000008c, 0x00000007, 0x0004003b, 0x00000013,
+    0x00000094, 0x00000007, 0x0004003d, 0x0000000b, 0x0000000f, 0x0000000d, 0x0007004f, 0x0000000e,
+    0x00000010, 0x0000000f, 0x0000000f, 0x00000000, 0x00000001, 0x0004006e, 0x00000007, 0x00000011,
+    0x00000010, 0x0003003e, 0x00000009, 0x00000011, 0x00050041, 0x00000019, 0x0000001a, 0x00000017,
+    0x00000018, 0x0004003d, 0x00000012, 0x0000001b, 0x0000001a, 0x0003003e, 0x00000014, 0x0000001b,
+    0x0004003d, 0x00000012, 0x0000001d, 0x00000014, 0x000500c2, 0x00000012, 0x0000001f, 0x0000001d,
+    0x0000001e, 0x0003003e, 0x0000001c, 0x0000001f, 0x0004003d, 0x00000012, 0x00000020, 0x0000001c,
+    0x000500aa, 0x00000021, 0x00000022, 0x00000020, 0x00000018, 0x000300f7, 0x00000024, 0x00000000,
+    0x000400fa, 0x00000022, 0x00000023, 0x0000004b, 0x000200f8, 0x00000023, 0x0004003d, 0x00000012,
+    0x00000027, 0x00000014, 0x000500c7, 0x00000012, 0x00000029, 0x00000027, 0x00000028, 0x0004007c,
+    0x00000006, 0x0000002a, 0x00000029, 0x0003003e, 0x00000026, 0x0000002a, 0x00050041, 0x00000025,
+    0x0000002d, 0x00000009, 0x0000002c, 0x0004003d, 0x00000006, 0x0000002e, 0x0000002d, 0x00050041,
+    0x00000031, 0x00000032, 0x00000030, 0x0000002c, 0x0004003d, 0x00000006, 0x00000033, 0x00000032,
+    0x00050082, 0x00000006, 0x00000034, 0x0000002e, 0x00000033, 0x0003003e, 0x0000002b, 0x00000034,
+    0x00050041, 0x00000025, 0x00000036, 0x00000009, 0x00000018, 0x0004003d, 0x00000006, 0x00000037,
+    0x00000036, 0x00050041, 0x00000031, 0x00000038, 0x00000030, 0x00000018, 0x0004003d, 0x00000006,
+    0x00000039, 0x00000038, 0x00050082, 0x00000006, 0x0000003a, 0x00000037, 0x00000039, 0x0003003e,
+    0x00000035, 0x0000003a, 0x0004003d, 0x00000006, 0x0000003b, 0x0000002b, 0x0004003d, 0x00000006,
+    0x0000003c, 0x0000002b, 0x00050084, 0x00000006, 0x0000003d, 0x0000003b, 0x0000003c, 0x0004003d,
+    0x00000006, 0x0000003e, 0x00000035, 0x0004003d, 0x00000006, 0x0000003f, 0x00000035, 0x00050084,
+    0x00000006, 0x00000040, 0x0000003e, 0x0000003f, 0x00050080, 0x00000006, 0x00000041, 0x0000003d,
+    0x00000040, 0x0004003d, 0x00000006, 0x00000042, 0x00000026, 0x0004003d, 0x00000006, 0x00000043,
+    0x00000026, 0x00050084, 0x00000006, 0x00000044, 0x00000042, 0x00000043, 0x0004003d, 0x00000006,
+    0x00000045, 0x00000026, 0x00050080, 0x00000006, 0x00000046, 0x00000044, 0x00000045, 0x000500ad,
+    0x00000021, 0x00000047, 0x00000041, 0x00000046, 0x000300f7, 0x00000049, 0x00000000, 0x000400fa,
+    0x00000047, 0x00000048, 0x00000049, 0x000200f8, 0x00000048, 0x000100fc, 0x000200f8, 0x00000049,
+    0x000200f9, 0x00000024, 0x000200f8, 0x0000004b, 0x0004003d, 0x00000012, 0x0000004c, 0x0000001c,
+    0x000500aa, 0x00000021, 0x0000004e, 0x0000004c, 0x0000004d, 0x000300f7, 0x00000050, 0x00000000,
+    0x000400fa, 0x0000004e, 0x0000004f, 0x00000050, 0x000200f8, 0x0000004f, 0x0004003d, 0x00000012,
+    0x00000052, 0x00000014, 0x000500c7, 0x00000012, 0x00000053, 0x00000052, 0x00000028, 0x0004007c,
+    0x00000006, 0x00000054, 0x00000053, 0x0003003e, 0x00000051, 0x00000054, 0x00050041, 0x00000025,
+    0x00000056, 0x00000009, 0x0000002c, 0x0004003d, 0x00000006, 0x00000057, 0x00000056, 0x00050041,
+    0x00000031, 0x00000058, 0x00000030, 0x0000002c, 0x0004003d, 0x00000006, 0x00000059, 0x00000058,
+    0x00050082, 0x00000006, 0x0000005a, 0x00000057, 0x00000059, 0x0004003d, 0x00000006, 0x0000005b,
+    0x00000051, 0x00050087, 0x00000006, 0x0000005c, 0x0000005a, 0x0000005b, 0x0003003e, 0x00000055,
+    0x0000005c, 0x00050041, 0x00000025, 0x0000005e, 0x00000009, 0x00000018, 0x0004003d, 0x00000006,
+    0x0000005f, 0x0000005e, 0x00050041, 0x00000031, 0x00000060, 0x00000030, 0x00000018, 0x0004003d,
+    0x00000006, 0x00000061, 0x00000060, 0x00050082, 0x00000006, 0x00000062, 0x0000005f, 0x00000061,
+    0x0004003d, 0x00000006, 0x00000063, 0x00000051, 0x00050087, 0x00000006, 0x00000064, 0x00000062,
+    0x00000063, 0x0003003e, 0x0000005d, 0x00000064, 0x0004003d, 0x00000012, 0x00000066, 0x00000014,
+    0x000500c2, 0x00000012, 0x00000068, 0x00000066, 0x00000067, 0x000500c7, 0x00000012, 0x0000006a,
+    0x00000068, 0x00000069, 0x0003003e, 0x00000065, 0x0000006a, 0x0004003d, 0x00000012, 0x00000073,
+    0x00000065, 0x0004003d, 0x00000006, 0x00000074, 0x0000005d, 0x000500c3, 0x00000006, 0x00000076,
+    0x00000074, 0x00000075, 0x00070041, 0x00000077, 0x00000078, 0x00000071, 0x00000072, 0x00000073,
+    0x00000076, 0x0004003d, 0x00000012, 0x00000079, 0x00000078, 0x0004003d, 0x00000006, 0x0000007a,
+    0x0000005d, 0x000500c7, 0x00000006, 0x0000007c, 0x0000007a, 0x0000007b, 0x0004007c, 0x00000012,
+    0x0000007d, 0x0000007c, 0x00050084, 0x00000012, 0x0000007f, 0x0000007d, 0x0000007e, 0x000500c2,
+    0x00000012, 0x00000080, 0x00000079, 0x0000007f, 0x000500c7, 0x00000012, 0x00000081, 0x00000080,
+    0x00000069, 0x0003003e, 0x0000006b, 0x00000081, 0x0004003d, 0x00000012, 0x00000082, 0x0000006b,
+    0x0004003d, 0x00000006, 0x00000084, 0x00000055, 0x0004007c, 0x00000012, 0x00000085, 0x00000084,
+    0x000500c2, 0x00000012, 0x00000086, 0x00000083, 0x00000085, 0x000500c7, 0x00000012, 0x00000087,
+    0x00000082, 0x00000086, 0x000500aa, 0x00000021, 0x00000088, 0x00000087, 0x0000002c, 0x000300f7,
+    0x0000008a, 0x00000000, 0x000400fa, 0x00000088, 0x00000089, 0x0000008a, 0x000200f8, 0x00000089,
+    0x000100fc, 0x000200f8, 0x0000008a, 0x000200f9, 0x00000050, 0x000200f8, 0x00000050, 0x000200f9,
+    0x00000024, 0x000200f8, 0x00000024, 0x00050041, 0x00000019, 0x0000008d, 0x00000017, 0x0000002c,
+    0x0004003d, 0x00000012, 0x0000008e, 0x0000008d, 0x0003003e, 0x0000008c, 0x0000008e, 0x0004003d,
+    0x00000012, 0x0000008f, 0x0000001c, 0x000500aa, 0x00000021, 0x00000091, 0x0000008f, 0x00000090,
+    0x000300f7, 0x00000093, 0x00000000, 0x000400fa, 0x00000091, 0x00000092, 0x00000093, 0x000200f8,
+    0x00000092, 0x00050041, 0x00000019, 0x00000099, 0x00000017, 0x0000002c, 0x0004003d, 0x00000012,
+    0x0000009a, 0x00000099, 0x00050041, 0x00000025, 0x0000009b, 0x00000009, 0x00000018, 0x0004003d,
+    0x00000006, 0x0000009c, 0x0000009b, 0x00050041, 0x00000031, 0x0000009d, 0x00000030, 0x00000018,
+    0x0004003d, 0x00000006, 0x0000009e, 0x0000009d, 0x00050082, 0x00000006, 0x0000009f, 0x0000009c,
+    0x0000009e, 0x0004007c, 0x00000012, 0x000000a0, 0x0000009f, 0x0004003d, 0x00000012, 0x000000a1,
+    0x00000014, 0x000500c7, 0x00000012, 0x000000a2, 0x000000a1, 0x00000028, 0x00050084, 0x00000012,
+    0x000000a3, 0x000000a0, 0x000000a2, 0x00050080, 0x00000012, 0x000000a4, 0x0000009a, 0x000000a3,
+    0x00050041, 0x00000025, 0x000000a5, 0x00000009, 0x0000002c, 0x0004003d, 0x00000006, 0x000000a6,
+    0x000000a5, 0x00050041, 0x00000031, 0x000000a7, 0x00000030, 0x0000002c, 0x0004003d, 0x00000006,
+    0x000000a8, 0x000000a7, 0x00050082, 0x00000006, 0x000000a9, 0x000000a6, 0x000000a8, 0x0004007c,
+    0x00000012, 0x000000aa, 0x000000a9, 0x00050080, 0x00000012, 0x000000ab, 0x000000a4, 0x000000aa,
+    0x00060041, 0x00000077, 0x000000ac, 0x00000098, 0x00000072, 0x000000ab, 0x0004003d, 0x00000012,
+    0x000000ad, 0x000000ac, 0x0003003e, 0x00000094, 0x000000ad, 0x0004003d, 0x00000012, 0x000000ae,
+    0x00000094, 0x000500c2, 0x00000012, 0x000000b0, 0x000000ae, 0x000000af, 0x000500b0, 0x00000021,
+    0x000000b1, 0x000000b0, 0x00000083, 0x000300f7, 0x000000b3, 0x00000000, 0x000400fa, 0x000000b1,
+    0x000000b2, 0x000000b3, 0x000200f8, 0x000000b2, 0x000100fc, 0x000200f8, 0x000000b3, 0x0004003d,
+    0x00000012, 0x000000b5, 0x00000094, 0x0003003e, 0x0000008c, 0x000000b5, 0x000200f9, 0x00000093,
+    0x000200f8, 0x00000093, 0x0004003d, 0x00000012, 0x000000b8, 0x0000008c, 0x000500c2, 0x00000012,
+    0x000000ba, 0x000000b8, 0x000000b9, 0x000500c7, 0x00000012, 0x000000bb, 0x000000ba, 0x00000069,
+    0x00040070, 0x0000000a, 0x000000bc, 0x000000bb, 0x0004003d, 0x00000012, 0x000000bd, 0x0000008c,
+    0x000500c2, 0x00000012, 0x000000bf, 0x000000bd, 0x000000be, 0x000500c7, 0x00000012, 0x000000c0,
+    0x000000bf, 0x00000069, 0x00040070, 0x0000000a, 0x000000c1, 0x000000c0, 0x0004003d, 0x00000012,
+    0x000000c2, 0x0000008c, 0x000500c7, 0x00000012, 0x000000c3, 0x000000c2, 0x00000069, 0x00040070,
+    0x0000000a, 0x000000c4, 0x000000c3, 0x00070050, 0x0000000b, 0x000000c6, 0x000000bc, 0x000000c1,
+    0x000000c4, 0x000000c5, 0x00070050, 0x0000000b, 0x000000c7, 0x000000c5, 0x000000c5, 0x000000c5,
+    0x000000c5, 0x00050088, 0x0000000b, 0x000000c8, 0x000000c6, 0x000000c7, 0x0003003e, 0x000000b7,
+    0x000000c8, 0x000100fd, 0x00010038,
 };
 // @@SPIRV-END@@
 TB_API struct {
     VkInstance inst; VkPhysicalDevice pd; VkDevice dev; VkQueue q; uint32_t qf;
     VkSurfaceKHR surf; VkSwapchainKHR sc; uint32_t sc_n, sc_w, sc_h; VkImage sc_img[8];
     VkPhysicalDeviceMemoryProperties mp;
-    VkImage img; VkImageView view; VkRenderPass rp; VkFramebuffer fb;
+    VkImage img; VkImageView view; VkDeviceMemory imem; VkRenderPass rp; VkFramebuffer fb;
     VkPipelineLayout pl; VkPipeline pipe; VkDescriptorSet ds;
-    VkBuffer ibuf, fbuf, rbuf; void *rmap;
-    VkCommandPool pool; VkCommandBuffer cb; VkFence fence; VkSemaphore sem_get, sem_done;
+    VkBuffer pbuf; VkDeviceMemory pmem;   // точки всех картинок
+    VkBuffer ibuf[TB_GSLOTS], fbuf, rbuf; void *imap[TB_GSLOTS], *rmap;
+    VkCommandPool pool; VkCommandBuffer cb[TB_GSLOTS]; VkFence fence[TB_GSLOTS];
+    VkSemaphore sem_get[TB_GSLOTS], sem_done[TB_GSLOTS];
 } tb_vk;
 TB_API int tb_vk_memtype(uint32_t bits, VkFlags want) {
     for (uint32_t i = 0; i < tb_vk.mp.memoryTypeCount; i++)
@@ -3519,7 +3804,9 @@ TB_API int tb_vk_memtype(uint32_t bits, VkFlags want) {
     return -1;
 }
 // буфер в памяти, которую видят и процессор, и видеокарта; map — её адрес для процессора
-TB_API int tb_vk_buffer(VkDeviceSize size, VkFlags usage, VkBuffer *buf, void **map) {
+TB_API int tb_vk_buffer_m(VkDeviceSize size, VkFlags usage, VkBuffer *buf, void **map, VkDeviceMemory *memo);
+TB_API int tb_vk_buffer(VkDeviceSize size, VkFlags usage, VkBuffer *buf, void **map) { VkDeviceMemory m; return tb_vk_buffer_m(size, usage, buf, map, &m); }
+TB_API int tb_vk_buffer_m(VkDeviceSize size, VkFlags usage, VkBuffer *buf, void **map, VkDeviceMemory *memo) {
     VkBufferCreateInfo bi = { 12, 0, 0, size, usage, 0, 0, 0 };
     if (tbvk_CreateBuffer(tb_vk.dev, &bi, 0, buf)) return 0;
     VkMemoryRequirements mr; tbvk_GetBufferMemoryRequirements(tb_vk.dev, *buf, &mr);
@@ -3528,7 +3815,26 @@ TB_API int tb_vk_buffer(VkDeviceSize size, VkFlags usage, VkBuffer *buf, void **
     VkMemoryAllocateInfo ai = { 5, 0, mr.size, (uint32_t)t };
     VkDeviceMemory mem;
     if (tbvk_AllocateMemory(tb_vk.dev, &ai, 0, &mem) || tbvk_BindBufferMemory(tb_vk.dev, *buf, mem, 0)) return 0;
+    *memo = mem;
     return tbvk_MapMemory(tb_vk.dev, mem, 0, size, 0, map) == 0;
+}
+// картинки поменялись (load_image): все точки — в новый буфер видеокарты
+TB_API int tb_vk_images(void) {
+    if (tb_vk.pbuf) {
+        tbvk_DeviceWaitIdle(tb_vk.dev);
+        tbvk_DestroyBuffer(tb_vk.dev, tb_vk.pbuf, 0);
+        tbvk_FreeMemory(tb_vk.dev, tb_vk.pmem, 0);
+        tb_vk.pbuf = 0;
+    }
+    VkDeviceSize sz = tb_imgpx_n * 4 > 16 ? tb_imgpx_n * 4 : 16;
+    void *map;
+    if (!tb_vk_buffer_m(sz, 0x20, &tb_vk.pbuf, &map, &tb_vk.pmem)) return 0;   // STORAGE_BUFFER
+    if (tb_imgpx_n) memcpy(map, tb_imgpx, tb_imgpx_n * 4);
+    VkDescriptorBufferInfo dbi = { tb_vk.pbuf, 0, sz };
+    VkWriteDescriptorSet wds = { 35, 0, tb_vk.ds, 1, 0, 1, 7, 0, &dbi, 0 };
+    tbvk_UpdateDescriptorSets(tb_vk.dev, 1, &wds, 0, 0);
+    tb_img_dirty = 0;
+    return 1;
 }
 // цепочка кадров окна (swapchain): создаётся заново, если окно поменялось
 TB_API int tb_vk_swapchain(void) {
@@ -3543,11 +3849,13 @@ TB_API int tb_vk_swapchain(void) {
     if (!nf || tbvk_GetPhysicalDeviceSurfaceFormatsKHR(tb_vk.pd, tb_vk.surf, &nf, fm) < 0) return 0;
     VkSurfaceFormatKHR f = fm[0];
     for (uint32_t i = 0; i < nf; i++) if (fm[i].format == 44 || fm[i].format == 37) { f = fm[i]; break; }   // BGRA8 / RGBA8 UNORM
-    uint32_t np = 0, pm[16], mode = 2;   // FIFO есть всегда; MAILBOX (1) лучше — без ожидания
+    uint32_t np = 0, pm[16], mode = 2;   // FIFO: кадр вместе с обновлением экрана (есть всегда)
     tbvk_GetPhysicalDeviceSurfacePresentModesKHR(tb_vk.pd, tb_vk.surf, &np, 0); if (np > 16) np = 16;
     tbvk_GetPhysicalDeviceSurfacePresentModesKHR(tb_vk.pd, tb_vk.surf, &np, pm);
-    for (uint32_t i = 0; i < np; i++) if (pm[i] == 1) mode = 1;
-    if (getenv("TB_FPS_FREE")) for (uint32_t i = 0; i < np; i++) if (pm[i] == 0) mode = 0;   // замеры: не ждать экран
+    if (tb_gpu_nosync) {   // не ждать экран (IMMEDIATE, иначе MAILBOX)
+        for (uint32_t i = 0; i < np; i++) if (pm[i] == 1) mode = 1;
+        for (uint32_t i = 0; i < np; i++) if (pm[i] == 0) mode = 0;
+    }
     uint32_t cnt = cap.minImageCount + 1;
     if (cap.maxImageCount && cnt > cap.maxImageCount) cnt = cap.maxImageCount;
     VkFlags alpha = (cap.supportedCompositeAlpha & 1) ? 1 : cap.supportedCompositeAlpha & (~cap.supportedCompositeAlpha + 1);
@@ -3575,6 +3883,29 @@ TB_API void *tb_vk_sym(void *lib, const char *n) {
 #else
     return dlsym(lib, n);
 #endif
+}
+// свой кадр на видеокарте (B8G8R8A8: как tb_px в памяти): живёт между кадрами, как tb_px
+TB_API int tb_vk_target(void) {
+    VkImageCreateInfo ii = { 14, 0, 0, 1, 44, { (uint32_t)tb_gw, (uint32_t)tb_gh, 1 }, 1, 1, 1, 0, 16 | 2 | 1, 0, 0, 0, 0 };
+    if (tbvk_CreateImage(tb_vk.dev, &ii, 0, &tb_vk.img)) return 0;
+    VkMemoryRequirements mr; tbvk_GetImageMemoryRequirements(tb_vk.dev, tb_vk.img, &mr);
+    int mt = tb_vk_memtype(mr.memoryTypeBits, 1);
+    if (mt < 0) mt = tb_vk_memtype(mr.memoryTypeBits, 0);
+    VkMemoryAllocateInfo mai = { 5, 0, mr.size, (uint32_t)mt };
+    if (mt < 0 || tbvk_AllocateMemory(tb_vk.dev, &mai, 0, &tb_vk.imem) || tbvk_BindImageMemory(tb_vk.dev, tb_vk.img, tb_vk.imem, 0)) return 0;
+    VkImageViewCreateInfo vci = { 15, 0, 0, tb_vk.img, 1, 44, { 0, 0, 0, 0 }, { 1, 0, 1, 0, 1 } };
+    if (tbvk_CreateImageView(tb_vk.dev, &vci, 0, &tb_vk.view)) return 0;
+    VkFramebufferCreateInfo fci = { 37, 0, 0, tb_vk.rp, 1, &tb_vk.view, (uint32_t)tb_gw, (uint32_t)tb_gh, 1 };
+    return tbvk_CreateFramebuffer(tb_vk.dev, &fci, 0, &tb_vk.fb) == 0;
+}
+// TB_GPU_CHECK: буфер, куда кадр читается обратно для сверки
+TB_API VkDeviceMemory tb_vk_rmem = 0;
+TB_API int tb_vk_readback(void) {
+    if (!tb_gpu_check) return 1;
+    if (tb_vk.rbuf) { tbvk_DestroyBuffer(tb_vk.dev, tb_vk.rbuf, 0); tbvk_FreeMemory(tb_vk.dev, tb_vk_rmem, 0); tb_vk.rbuf = 0; }
+    if (!tb_vk_buffer_m((VkDeviceSize)tb_gw * tb_gh * 4, 2, &tb_vk.rbuf, &tb_vk.rmap, &tb_vk_rmem)) return 0;   // TRANSFER_DST
+    tb_gpu_back = (uint32_t *)tb_vk.rmap;
+    return 1;
 }
 // make_surface: своя у каждой системы (X11 или окно Windows)
 TB_API int tb_vk_init(const char *surf_ext, int (*make_surface)(void)) {
@@ -3625,17 +3956,6 @@ TB_API int tb_vk_init(const char *surf_ext, int (*make_surface)(void)) {
     VkFormatProperties fp; tbvk_GetPhysicalDeviceFormatProperties(tb_vk.pd, 44, &fp);
     if ((fp.optimalTilingFeatures & (0x80 | 0x400)) != (0x80 | 0x400)) return 0;   // COLOR_ATTACHMENT, BLIT_SRC
     if (!tb_vk_swapchain()) return 0;
-    // свой кадр на видеокарте (B8G8R8A8: как tb_px в памяти): живёт между кадрами, как tb_px
-    VkImageCreateInfo ii = { 14, 0, 0, 1, 44, { (uint32_t)tb_gw, (uint32_t)tb_gh, 1 }, 1, 1, 1, 0, 16 | 2 | 1, 0, 0, 0, 0 };
-    if (tbvk_CreateImage(tb_vk.dev, &ii, 0, &tb_vk.img)) return 0;
-    VkMemoryRequirements mr; tbvk_GetImageMemoryRequirements(tb_vk.dev, tb_vk.img, &mr);
-    int mt = tb_vk_memtype(mr.memoryTypeBits, 1);
-    if (mt < 0) mt = tb_vk_memtype(mr.memoryTypeBits, 0);
-    VkMemoryAllocateInfo mai = { 5, 0, mr.size, (uint32_t)mt };
-    VkDeviceMemory imem;
-    if (mt < 0 || tbvk_AllocateMemory(tb_vk.dev, &mai, 0, &imem) || tbvk_BindImageMemory(tb_vk.dev, tb_vk.img, imem, 0)) return 0;
-    VkImageViewCreateInfo vci = { 15, 0, 0, tb_vk.img, 1, 44, { 0, 0, 0, 0 }, { 1, 0, 1, 0, 1 } };
-    if (tbvk_CreateImageView(tb_vk.dev, &vci, 0, &tb_vk.view)) return 0;
     // проход рисования: старый кадр сохраняется (LOAD), рисуем поверх — как на процессоре
     VkAttachmentDescription ad = { 0, 44, 1, 0, 0, 2, 1, 2, 2 };   // LOAD, STORE, COLOR_ATTACHMENT_OPTIMAL
     VkAttachmentReference ar = { 0, 2 };
@@ -3643,18 +3963,17 @@ TB_API int tb_vk_init(const char *surf_ext, int (*make_surface)(void)) {
     VkSubpassDependency dep = { 0xFFFFFFFFu, 0, 0x400 | 0x1000, 0x400, 0x100 | 0x800 | 0x1000, 0x80 | 0x100, 0 };
     VkRenderPassCreateInfo rci = { 38, 0, 0, 1, &ad, 1, &sd, 1, &dep };
     if (tbvk_CreateRenderPass(tb_vk.dev, &rci, 0, &tb_vk.rp)) return 0;
-    VkFramebufferCreateInfo fci = { 37, 0, 0, tb_vk.rp, 1, &tb_vk.view, (uint32_t)tb_gw, (uint32_t)tb_gh, 1 };
-    if (tbvk_CreateFramebuffer(tb_vk.dev, &fci, 0, &tb_vk.fb)) return 0;
+    if (!tb_vk_target()) return 0;
     // шрифт — для шейдера букв (uniform buffer, 161 буква по 16 байт)
     void *fmap;
     if (!tb_vk_buffer(sizeof tb_font, 0x10, &tb_vk.fbuf, &fmap)) return 0;
     memcpy(fmap, tb_font, sizeof tb_font);
-    VkDescriptorSetLayoutBinding lb = { 0, 6, 1, 0x10, 0 };   // UNIFORM_BUFFER, FRAGMENT
-    VkDescriptorSetLayoutCreateInfo lci = { 32, 0, 0, 1, &lb };
+    VkDescriptorSetLayoutBinding lb[2] = { { 0, 6, 1, 0x10, 0 }, { 1, 7, 1, 0x10, 0 } };   // UNIFORM, STORAGE; FRAGMENT
+    VkDescriptorSetLayoutCreateInfo lci = { 32, 0, 0, 2, lb };
     VkDescriptorSetLayout dsl;
     if (tbvk_CreateDescriptorSetLayout(tb_vk.dev, &lci, 0, &dsl)) return 0;
-    VkDescriptorPoolSize ps = { 6, 1 };
-    VkDescriptorPoolCreateInfo pci = { 33, 0, 0, 1, 1, &ps };
+    VkDescriptorPoolSize ps[2] = { { 6, 1 }, { 7, 1 } };
+    VkDescriptorPoolCreateInfo pci = { 33, 0, 0, 1, 2, ps };
     VkDescriptorPool dp;
     if (tbvk_CreateDescriptorPool(tb_vk.dev, &pci, 0, &dp)) return 0;
     VkDescriptorSetAllocateInfo dai = { 34, 0, dp, 1, &dsl };
@@ -3662,6 +3981,7 @@ TB_API int tb_vk_init(const char *surf_ext, int (*make_surface)(void)) {
     VkDescriptorBufferInfo dbi = { tb_vk.fbuf, 0, sizeof tb_font };
     VkWriteDescriptorSet wds = { 35, 0, tb_vk.ds, 0, 0, 1, 6, 0, &dbi, 0 };
     tbvk_UpdateDescriptorSets(tb_vk.dev, 1, &wds, 0, 0);
+    if (!tb_vk_images()) return 0;
     VkPushConstantRange pcr = { 1, 0, 8 };   // VERTEX: размер окна
     VkPipelineLayoutCreateInfo plci = { 30, 0, 0, 1, &dsl, 1, &pcr };
     if (tbvk_CreatePipelineLayout(tb_vk.dev, &plci, 0, &tb_vk.pl)) return 0;
@@ -3673,27 +3993,31 @@ TB_API int tb_vk_init(const char *surf_ext, int (*make_surface)(void)) {
     VkVertexInputAttributeDescription va[3] = { { 0, 0, 108, 0 }, { 1, 0, 102, 16 }, { 2, 0, 101, 24 } };   // R32G32B32A32_SINT, R32G32_SINT, R32G32_UINT
     VkPipelineVertexInputStateCreateInfo vis = { 19, 0, 0, 1, &vb, 3, va };
     VkPipelineInputAssemblyStateCreateInfo ias = { 20, 0, 0, 4, 0 };   // TRIANGLE_STRIP
-    VkViewport vp = { 0, 0, (float)tb_gw, (float)tb_gh, 0, 1 };
+    VkViewport vp = { 0, 0, (float)tb_gw, (float)tb_gh, 0, 1 };   // меняется в каждом кадре (окно тянут мышью)
+    uint32_t dyn[2] = { 0, 1 };   // VIEWPORT, SCISSOR
+    VkPipelineDynamicStateCreateInfo dys = { 27, 0, 0, 2, dyn };
     VkRect2D sci = { { 0, 0 }, { (uint32_t)tb_gw, (uint32_t)tb_gh } };
     VkPipelineViewportStateCreateInfo vps = { 22, 0, 0, 1, &vp, 1, &sci };
     VkPipelineRasterizationStateCreateInfo rs = { 23, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0f };
     VkPipelineMultisampleStateCreateInfo ms = { 24, 0, 0, 1, 0, 0, 0, 0, 0 };
     VkPipelineColorBlendAttachmentState cba = { 0, 0, 0, 0, 0, 0, 0, 0xF };
     VkPipelineColorBlendStateCreateInfo cbs = { 26, 0, 0, 0, 0, 1, &cba, { 0, 0, 0, 0 } };
-    VkGraphicsPipelineCreateInfo gci = { 28, 0, 0, 2, st, &vis, &ias, 0, &vps, &rs, &ms, 0, &cbs, 0, tb_vk.pl, tb_vk.rp, 0, 0, -1 };
+    VkGraphicsPipelineCreateInfo gci = { 28, 0, 0, 2, st, &vis, &ias, 0, &vps, &rs, &ms, 0, &cbs, &dys, tb_vk.pl, tb_vk.rp, 0, 0, -1 };
     if (tbvk_CreateGraphicsPipelines(tb_vk.dev, 0, 1, &gci, 0, &tb_vk.pipe)) return 0;
-    if (!tb_vk_buffer(sizeof(tb_ginst) * TB_GI_CAP, 0x80, &tb_vk.ibuf, (void **)&tb_gi)) return 0;   // VERTEX_BUFFER
-    if (tb_gpu_check) {
-        if (!tb_vk_buffer((VkDeviceSize)tb_gw * tb_gh * 4, 2, &tb_vk.rbuf, &tb_vk.rmap)) return 0;   // TRANSFER_DST
-        tb_gpu_back = (uint32_t *)tb_vk.rmap;
-    }
+    for (int s = 0; s < TB_GSLOTS; s++)
+        if (!tb_vk_buffer(sizeof(tb_ginst) * TB_GI_CAP, 0x80, &tb_vk.ibuf[s], &tb_vk.imap[s])) return 0;   // VERTEX_BUFFER
+    if (!tb_vk_readback()) return 0;
     VkCommandPoolCreateInfo cpi = { 39, 0, 2, tb_vk.qf };   // RESET_COMMAND_BUFFER
     if (tbvk_CreateCommandPool(tb_vk.dev, &cpi, 0, &tb_vk.pool)) return 0;
-    VkCommandBufferAllocateInfo cai = { 40, 0, tb_vk.pool, 0, 1 };
-    if (tbvk_AllocateCommandBuffers(tb_vk.dev, &cai, &tb_vk.cb)) return 0;
-    VkFenceCreateInfo fi = { 8, 0, 0 }, si = { 9, 0, 0 };
-    if (tbvk_CreateFence(tb_vk.dev, &fi, 0, &tb_vk.fence) || tbvk_CreateSemaphore(tb_vk.dev, &si, 0, &tb_vk.sem_get)
-        || tbvk_CreateSemaphore(tb_vk.dev, &si, 0, &tb_vk.sem_done)) return 0;
+    VkCommandBufferAllocateInfo cai = { 40, 0, tb_vk.pool, 0, TB_GSLOTS };
+    if (tbvk_AllocateCommandBuffers(tb_vk.dev, &cai, tb_vk.cb)) return 0;
+    VkFenceCreateInfo fi = { 8, 0, 1 }, si = { 9, 0, 0 };   // SIGNALED: набор свободен с самого начала
+    for (int s = 0; s < TB_GSLOTS; s++)
+        if (tbvk_CreateFence(tb_vk.dev, &fi, 0, &tb_vk.fence[s]) || tbvk_CreateSemaphore(tb_vk.dev, &si, 0, &tb_vk.sem_get[s])
+            || tbvk_CreateSemaphore(tb_vk.dev, &si, 0, &tb_vk.sem_done[s])) return 0;
+    tbvk_WaitForFences(tb_vk.dev, 1, &tb_vk.fence[0], 1, ~0ULL);
+    tbvk_ResetFences(tb_vk.dev, 1, &tb_vk.fence[0]);
+    tb_gi = (tb_ginst *)tb_vk.imap[0];
     tb_gpu_say(what);
     return 1;
 }
@@ -3704,7 +4028,9 @@ TB_INL VkImageMemoryBarrier tb_vk_bar(VkImage img, VkFlags sa, VkFlags da, uint3
 // нарисовать накопленные фигуры; present — ещё и показать кадр в окне
 TB_API void tb_gpu_flush(int present) {
     if (!tb_gin && !present && !tb_gpu_first) return;
-    VkCommandBuffer cb = tb_vk.cb;
+    if (tb_img_dirty) tb_vk_images();
+    int s = tb_gslot;
+    VkCommandBuffer cb = tb_vk.cb[s];
     VkCommandBufferBeginInfo bi = { 42, 0, 1, 0 };   // ONE_TIME_SUBMIT
     tbvk_ResetCommandBuffer(cb, 0);
     tbvk_BeginCommandBuffer(cb, &bi);
@@ -3724,16 +4050,20 @@ TB_API void tb_gpu_flush(int present) {
         tbvk_CmdBindPipeline(cb, 0, tb_vk.pipe);
         tbvk_CmdBindDescriptorSets(cb, 0, tb_vk.pl, 0, 1, &tb_vk.ds, 0, 0);
         VkDeviceSize off = 0;
-        tbvk_CmdBindVertexBuffers(cb, 0, 1, &tb_vk.ibuf, &off);
+        tbvk_CmdBindVertexBuffers(cb, 0, 1, &tb_vk.ibuf[s], &off);
         float size[2] = { (float)tb_gw, (float)tb_gh };
         tbvk_CmdPushConstants(cb, tb_vk.pl, 1, 0, 8, size);
+        VkViewport vp = { 0, 0, (float)tb_gw, (float)tb_gh, 0, 1 };
+        VkRect2D sc = { { 0, 0 }, { (uint32_t)tb_gw, (uint32_t)tb_gh } };
+        tbvk_CmdSetViewport(cb, 0, 1, &vp);
+        tbvk_CmdSetScissor(cb, 0, 1, &sc);
         tbvk_CmdDraw(cb, 4, (uint32_t)tb_gin, 0, 0);
         tbvk_CmdEndRenderPass(cb);
     }
     uint32_t idx = 0;
     int shown = 0;
     if (present) {
-        VkResult r = tb_vk.sc ? tbvk_AcquireNextImageKHR(tb_vk.dev, tb_vk.sc, ~0ULL, tb_vk.sem_get, 0, &idx) : -1000001004;
+        VkResult r = tb_vk.sc ? tbvk_AcquireNextImageKHR(tb_vk.dev, tb_vk.sc, ~0ULL, tb_vk.sem_get[s], 0, &idx) : -1000001004;
         if (r == -1000001004 || (!tb_vk.sc && r < 0)) { tb_vk_swapchain(); }   // OUT_OF_DATE: окно поменялось
         else if (r >= 0) shown = 1;
     }
@@ -3759,19 +4089,60 @@ TB_API void tb_gpu_flush(int present) {
     }
     tbvk_EndCommandBuffer(cb);
     VkFlags wst = 0x1000;
-    VkSubmitInfo si = { 4, 0, shown, &tb_vk.sem_get, &wst, 1, &cb, shown, &tb_vk.sem_done };
-    tbvk_QueueSubmit(tb_vk.q, 1, &si, tb_vk.fence);
+    VkSubmitInfo si = { 4, 0, shown, &tb_vk.sem_get[s], &wst, 1, &cb, shown, &tb_vk.sem_done[s] };
+    tbvk_QueueSubmit(tb_vk.q, 1, &si, tb_vk.fence[s]);
     if (shown) {
-        VkPresentInfoKHR pi = { 1000001001, 0, 1, &tb_vk.sem_done, 1, &tb_vk.sc, &idx, 0 };
+        VkPresentInfoKHR pi = { 1000001001, 0, 1, &tb_vk.sem_done[s], 1, &tb_vk.sc, &idx, 0 };
         VkResult r = tbvk_QueuePresentKHR(tb_vk.q, &pi);
         if (r == -1000001004 || r == 1000001003) tb_vk.sc_w = 0;   // пересоздать в следующий раз
     }
-    // ждём видеокарту: память экземпляров снова свободна для следующих фигур
-    tbvk_WaitForFences(tb_vk.dev, 1, &tb_vk.fence, 1, ~0ULL);
-    tbvk_ResetFences(tb_vk.dev, 1, &tb_vk.fence);
+    // TB_GPU_CHECK: дождаться этого кадра, чтобы сверить; иначе видеокарта рисует, а мы идём дальше
+    if (present && tb_gpu_back) {
+        tbvk_WaitForFences(tb_vk.dev, 1, &tb_vk.fence[s], 1, ~0ULL);
+        tb_gpu_compare();
+    }
     if (shown && tb_vk.sc_w == 0) { tbvk_DeviceWaitIdle(tb_vk.dev); tb_vk_swapchain(); }
+    // следующий набор: ждём, только если видеокарта ещё рисует из него кадр трёхкадровой давности
+    tb_gslot = (s + 1) % TB_GSLOTS;
+    tbvk_WaitForFences(tb_vk.dev, 1, &tb_vk.fence[tb_gslot], 1, ~0ULL);
+    tbvk_ResetFences(tb_vk.dev, 1, &tb_vk.fence[tb_gslot]);
+    tb_gi = (tb_ginst *)tb_vk.imap[tb_gslot];
     tb_gin = 0;
-    if (present && tb_gpu_back) tb_gpu_compare();
+}
+TB_API void tb_gpu_vsync(void) { tbvk_DeviceWaitIdle(tb_vk.dev); tb_vk_swapchain(); }
+// окно стало размером tb_gw × tb_gh (было ow × oh): новый кадр, старое остаётся в левом верхнем углу
+TB_API int tb_gpu_resize(int ow, int oh) {
+    tbvk_DeviceWaitIdle(tb_vk.dev);
+    VkImage oi = tb_vk.img; VkImageView ov = tb_vk.view; VkFramebuffer of = tb_vk.fb; VkDeviceMemory om = tb_vk.imem;
+    if (!tb_vk_target() || !tb_vk_readback()) return 0;
+    if (tb_gpu_first) { ow = oh = 0; }   // старый кадр ещё пустой: копировать нечего
+    VkCommandBuffer cb = tb_vk.cb[tb_gslot];
+    VkCommandBufferBeginInfo bi = { 42, 0, 1, 0 };
+    tbvk_ResetCommandBuffer(cb, 0);
+    tbvk_BeginCommandBuffer(cb, &bi);
+    VkImageMemoryBarrier b[2] = { tb_vk_bar(tb_vk.img, 0, 0x1000, 0, 7), tb_vk_bar(oi, 0x100, 0x800, 2, 6) };
+    tbvk_CmdPipelineBarrier(cb, 0x400 | 0x1000, 0x1000, 0, 0, 0, 0, 0, ow && oh ? 2 : 1, b);
+    tb_gpu_first = 0;
+    VkClearColorValue zero = { { 0, 0, 0, 0 } };
+    VkImageSubresourceRange rg = { 1, 0, 1, 0, 1 };
+    tbvk_CmdClearColorImage(cb, tb_vk.img, 7, &zero, 1, &rg);
+    b[0] = tb_vk_bar(tb_vk.img, 0x1000, 0x1000, 7, 7);
+    tbvk_CmdPipelineBarrier(cb, 0x1000, 0x1000, 0, 0, 0, 0, 0, 1, b);
+    VkImageCopy cp = { { 1, 0, 0, 1 }, { 0, 0, 0 }, { 1, 0, 0, 1 }, { 0, 0, 0 },
+        { (uint32_t)(ow < tb_gw ? ow : tb_gw), (uint32_t)(oh < tb_gh ? oh : tb_gh), 1 } };
+    if (ow && oh) tbvk_CmdCopyImage(cb, oi, 6, tb_vk.img, 7, 1, &cp);
+    b[0] = tb_vk_bar(tb_vk.img, 0x1000, 0x80 | 0x100, 7, 2);
+    tbvk_CmdPipelineBarrier(cb, 0x1000, 0x400, 0, 0, 0, 0, 0, 1, b);
+    tbvk_EndCommandBuffer(cb);
+    VkSubmitInfo si = { 4, 0, 0, 0, 0, 1, &cb, 0, 0 };
+    tbvk_QueueSubmit(tb_vk.q, 1, &si, 0);
+    tbvk_DeviceWaitIdle(tb_vk.dev);
+    tbvk_DestroyFramebuffer(tb_vk.dev, of, 0);
+    tbvk_DestroyImageView(tb_vk.dev, ov, 0);
+    tbvk_DestroyImage(tb_vk.dev, oi, 0);
+    tbvk_FreeMemory(tb_vk.dev, om, 0);
+    tb_vk_swapchain();
+    return 1;
 }
 #endif
 #ifdef __APPLE__
@@ -3800,7 +4171,7 @@ TB_API const char tb_msl[] =
     "    out.cm = t.cm;\n"
     "    return out;\n"
     "}\n"
-    "fragment float4 tb_frag(TbV v [[stage_in]], constant uint4 *font [[buffer(0)]]) {\n"
+    "fragment float4 tb_frag(TbV v [[stage_in]], constant uint4 *font [[buffer(0)]], const device uint *img [[buffer(1)]]) {\n"
     "    int2 p = int2(v.pos.xy);\n"
     "    uint m = v.cm.y, k = m >> 30;\n"
     "    if (k == 1u) {\n"
@@ -3813,6 +4184,11 @@ TB_API const char tb_msl[] =
     "        if ((b & (0x80u >> uint(cx))) == 0u) discard_fragment();\n"
     "    }\n"
     "    uint c = v.cm.x;\n"
+    "    if (k == 3u) {\n"
+    "        uint px = img[v.cm.x + uint(p.y - v.o.y) * (m & 0x3FFFFFu) + uint(p.x - v.o.x)];\n"
+    "        if ((px >> 24) < 128u) discard_fragment();\n"
+    "        c = px;\n"
+    "    }\n"
     "    return float4(float((c >> 16) & 255u), float((c >> 8) & 255u), float(c & 255u), 255.0) / 255.0;\n"
     "}\n";
 // @@MSL-END@@
@@ -3839,7 +4215,74 @@ extern void *objc_autoreleasePoolPush(void);
 extern void objc_autoreleasePoolPop(void *);
 typedef struct { unsigned long x, y, z; } tb_mtl3;          // MTLOrigin и MTLSize
 typedef struct { double r, g, b, a; } tb_mtl_color;         // MTLClearColor
-TB_API struct { id dev, queue, pso, tex, ibuf, fbuf, rbuf, layer; } tb_mtl;
+TB_API struct { id dev, queue, pso, tex, ibuf[TB_GSLOTS], cbs[TB_GSLOTS], fbuf, rbuf, pbuf, layer; } tb_mtl;
+// дождаться всех кадров, которые видеокарта ещё рисует
+TB_API void tb_mtl_idle(void) {
+    for (int s = 0; s < TB_GSLOTS; s++)
+        if (tb_mtl.cbs[s]) { TB_MSG(void, tb_mtl.cbs[s], "waitUntilCompleted"); TB_MSG(void, tb_mtl.cbs[s], "release"); tb_mtl.cbs[s] = 0; }
+}
+// картинки поменялись (load_image): все точки — в новый буфер видеокарты
+TB_API int tb_mtl_images(void) {
+    tb_mtl_idle();
+    if (tb_mtl.pbuf) TB_MSG(void, tb_mtl.pbuf, "release");
+    unsigned long sz = tb_imgpx_n * 4 > 16 ? tb_imgpx_n * 4 : 16;
+    tb_mtl.pbuf = ((id (*)(id, SEL, unsigned long, unsigned long))objc_msgSend)(tb_mtl.dev, sel_getUid("newBufferWithLength:options:"), sz, 0);
+    if (!tb_mtl.pbuf) return 0;
+    if (tb_imgpx_n) memcpy(TB_MSG(void *, tb_mtl.pbuf, "contents"), tb_imgpx, tb_imgpx_n * 4);
+    tb_img_dirty = 0;
+    return 1;
+}
+TB_API void tb_gpu_vsync(void) { TB_MSG1(void, tb_mtl.layer, "setDisplaySyncEnabled:", BOOL, tb_gpu_nosync ? NO : YES); }
+// свой кадр на видеокарте размером tb_gw × tb_gh
+TB_API id tb_mtl_texture(void) {
+    id td = ((id (*)(id, SEL, unsigned long, unsigned long, unsigned long, BOOL))objc_msgSend)(TB_CLS("MTLTextureDescriptor"),
+        sel_getUid("texture2DDescriptorWithPixelFormat:width:height:mipmapped:"), 80, (unsigned long)tb_gw, (unsigned long)tb_gh, NO);
+    TB_MSG1(void, td, "setUsage:", unsigned long, 1 | 4);      // ShaderRead | RenderTarget
+    TB_MSG1(void, td, "setStorageMode:", unsigned long, 2);    // Private: только на видеокарте
+    return TB_MSG1(id, tb_mtl.dev, "newTextureWithDescriptor:", id, td);
+}
+TB_API int tb_mtl_readback(void) {
+    if (!tb_gpu_check) return 1;
+    if (tb_mtl.rbuf) TB_MSG(void, tb_mtl.rbuf, "release");
+    tb_mtl.rbuf = ((id (*)(id, SEL, unsigned long, unsigned long))objc_msgSend)(tb_mtl.dev, sel_getUid("newBufferWithLength:options:"),
+        (unsigned long)tb_gw * tb_gh * 4, 0);
+    if (!tb_mtl.rbuf) return 0;
+    tb_gpu_back = (uint32_t *)TB_MSG(void *, tb_mtl.rbuf, "contents");
+    return 1;
+}
+// окно стало размером tb_gw × tb_gh (было ow × oh): новый кадр, старое остаётся в левом верхнем углу
+TB_API int tb_gpu_resize(int ow, int oh) {
+    tb_mtl_idle();
+    if (tb_gpu_first) ow = oh = 0;   // старый кадр ещё пустой: копировать нечего
+    tb_gpu_first = 0;
+    id old = tb_mtl.tex;
+    tb_mtl.tex = tb_mtl_texture();
+    if (!tb_mtl.tex || !tb_mtl_readback()) return 0;
+    void *pool = objc_autoreleasePoolPush();
+    id cb = TB_MSG(id, tb_mtl.queue, "commandBuffer");
+    id rpd = TB_MSG(id, TB_CLS("MTLRenderPassDescriptor"), "renderPassDescriptor");
+    id ca = TB_MSG1(id, TB_MSG(id, rpd, "colorAttachments"), "objectAtIndexedSubscript:", unsigned long, 0);
+    TB_MSG1(void, ca, "setTexture:", id, tb_mtl.tex);
+    TB_MSG1(void, ca, "setLoadAction:", unsigned long, 2);
+    tb_mtl_color z = { 0, 0, 0, 0 };
+    TB_MSG1(void, ca, "setClearColor:", tb_mtl_color, z);
+    TB_MSG1(void, ca, "setStoreAction:", unsigned long, 1);
+    TB_MSG(void, TB_MSG1(id, cb, "renderCommandEncoderWithDescriptor:", id, rpd), "endEncoding");
+    if (ow && oh) {
+        id bl = TB_MSG(id, cb, "blitCommandEncoder");
+        tb_mtl3 o = { 0, 0, 0 }, sz = { (unsigned long)(ow < tb_gw ? ow : tb_gw), (unsigned long)(oh < tb_gh ? oh : tb_gh), 1 };
+        ((void (*)(id, SEL, id, unsigned long, unsigned long, tb_mtl3, tb_mtl3, id, unsigned long, unsigned long, tb_mtl3))objc_msgSend)(bl,
+            sel_getUid("copyFromTexture:sourceSlice:sourceLevel:sourceOrigin:sourceSize:toTexture:destinationSlice:destinationLevel:destinationOrigin:"),
+            old, 0, 0, o, sz, tb_mtl.tex, 0, 0, o);
+        TB_MSG(void, bl, "endEncoding");
+    }
+    TB_MSG(void, cb, "commit");
+    TB_MSG(void, cb, "waitUntilCompleted");
+    objc_autoreleasePoolPop(pool);
+    TB_MSG(void, old, "release");
+    TB_MSG1(void, tb_mtl.layer, "setDrawableSize:", CGSize, CGSizeMake(tb_gw, tb_gh));
+    return 1;
+}
 TB_API id tb_nsstr(const char *s) { return TB_MSG1(id, TB_CLS("NSString"), "stringWithUTF8String:", const char *, s); }
 TB_API int tb_mtl_fail(const char *what, id err) {
     const char *e = getenv("TB_GPU_INFO");
@@ -3870,21 +4313,17 @@ TB_API int tb_mtl_init(id view) {
     tb_mtl.pso = ((id (*)(id, SEL, id, id *))objc_msgSend)(dev, sel_getUid("newRenderPipelineStateWithDescriptor:error:"), pd, &err);
     if (!tb_mtl.pso) return tb_mtl_fail("не собрался конвейер:", err);
     // свой кадр на видеокарте: живёт между кадрами, как tb_px
-    id td = ((id (*)(id, SEL, unsigned long, unsigned long, unsigned long, BOOL))objc_msgSend)(TB_CLS("MTLTextureDescriptor"),
-        sel_getUid("texture2DDescriptorWithPixelFormat:width:height:mipmapped:"), 80, (unsigned long)tb_gw, (unsigned long)tb_gh, NO);
-    TB_MSG1(void, td, "setUsage:", unsigned long, 1 | 4);      // ShaderRead | RenderTarget
-    TB_MSG1(void, td, "setStorageMode:", unsigned long, 2);    // Private: только на видеокарте
-    tb_mtl.tex = TB_MSG1(id, dev, "newTextureWithDescriptor:", id, td);
-    tb_mtl.ibuf = ((id (*)(id, SEL, unsigned long, unsigned long))objc_msgSend)(dev, sel_getUid("newBufferWithLength:options:"),
-        sizeof(tb_ginst) * TB_GI_CAP, 0);
+    tb_mtl.dev = dev;
+    tb_mtl.tex = tb_mtl_texture();
+    for (int s = 0; s < TB_GSLOTS; s++) {
+        tb_mtl.ibuf[s] = ((id (*)(id, SEL, unsigned long, unsigned long))objc_msgSend)(dev, sel_getUid("newBufferWithLength:options:"),
+            sizeof(tb_ginst) * TB_GI_CAP, 0);
+        if (!tb_mtl.ibuf[s]) return tb_mtl_fail("нет памяти на видеокарте", 0);
+    }
     tb_mtl.fbuf = ((id (*)(id, SEL, const void *, unsigned long, unsigned long))objc_msgSend)(dev,
         sel_getUid("newBufferWithBytes:length:options:"), tb_font, sizeof tb_font, 0);
-    if (!tb_mtl.tex || !tb_mtl.ibuf || !tb_mtl.fbuf) return tb_mtl_fail("нет памяти на видеокарте", 0);
-    if (tb_gpu_check) {
-        tb_mtl.rbuf = ((id (*)(id, SEL, unsigned long, unsigned long))objc_msgSend)(dev, sel_getUid("newBufferWithLength:options:"),
-            (unsigned long)tb_gw * tb_gh * 4, 0);
-        if (!tb_mtl.rbuf) return tb_mtl_fail("нет памяти на видеокарте", 0);
-    }
+    if (!tb_mtl.tex || !tb_mtl.fbuf) return tb_mtl_fail("нет памяти на видеокарте", 0);
+    if (!tb_mtl_readback()) return tb_mtl_fail("нет памяти на видеокарте", 0);
     tb_mtl.queue = TB_MSG(id, dev, "newCommandQueue");
     // слой окна для Metal: кадр того же размера, Retina растягивает его без сглаживания
     id layer = TB_MSG(id, TB_CLS("CAMetalLayer"), "layer");
@@ -3896,13 +4335,13 @@ TB_API int tb_mtl_init(id view) {
     TB_MSG1(void, layer, "setColorspace:", CGColorSpaceRef, tb_cgspace);
     // кадр показывается вместе с обновлением экрана (без разрывов картинки).
     // TB_FPS_FREE=1 (замеры скорости): не ждать экран
-    if (getenv("TB_FPS_FREE")) TB_MSG1(void, layer, "setDisplaySyncEnabled:", BOOL, NO);
+    if (tb_gpu_nosync) TB_MSG1(void, layer, "setDisplaySyncEnabled:", BOOL, NO);
     TB_MSG1(void, view, "setLayer:", id, layer);
     TB_MSG1(void, view, "setWantsLayer:", BOOL, YES);
     tb_mtl.layer = layer;
     tb_mtl.dev = dev;
-    tb_gi = (tb_ginst *)TB_MSG(void *, tb_mtl.ibuf, "contents");
-    if (tb_gpu_check) tb_gpu_back = (uint32_t *)TB_MSG(void *, tb_mtl.rbuf, "contents");
+    if (!tb_mtl_images()) return tb_mtl_fail("нет памяти на видеокарте", 0);
+    tb_gi = (tb_ginst *)TB_MSG(void *, tb_mtl.ibuf[0], "contents");
     char what[300];
     const char *name = TB_MSG(const char *, TB_MSG(id, dev, "name"), "UTF8String");
     snprintf(what, sizeof what, "видеокарта (Metal, %s)", name ? name : "?");
@@ -3912,6 +4351,7 @@ TB_API int tb_mtl_init(id view) {
 // нарисовать накопленные фигуры; present — ещё и показать кадр в окне
 TB_API void tb_gpu_flush(int present) {
     if (!tb_gin && !present && !tb_gpu_first) return;
+    if (tb_img_dirty) tb_mtl_images();
     void *pool = objc_autoreleasePoolPush();
     id cb = TB_MSG(id, tb_mtl.queue, "commandBuffer");
     if (tb_gin || tb_gpu_first) {
@@ -3927,9 +4367,10 @@ TB_API void tb_gpu_flush(int present) {
         if (tb_gin) {
             float size[2] = { (float)tb_gw, (float)tb_gh };
             TB_MSG1(void, enc, "setRenderPipelineState:", id, tb_mtl.pso);
-            ((void (*)(id, SEL, id, unsigned long, unsigned long))objc_msgSend)(enc, sel_getUid("setVertexBuffer:offset:atIndex:"), tb_mtl.ibuf, 0, 0);
+            ((void (*)(id, SEL, id, unsigned long, unsigned long))objc_msgSend)(enc, sel_getUid("setVertexBuffer:offset:atIndex:"), tb_mtl.ibuf[tb_gslot], 0, 0);
             ((void (*)(id, SEL, const void *, unsigned long, unsigned long))objc_msgSend)(enc, sel_getUid("setVertexBytes:length:atIndex:"), size, 8, 1);
             ((void (*)(id, SEL, id, unsigned long, unsigned long))objc_msgSend)(enc, sel_getUid("setFragmentBuffer:offset:atIndex:"), tb_mtl.fbuf, 0, 0);
+            ((void (*)(id, SEL, id, unsigned long, unsigned long))objc_msgSend)(enc, sel_getUid("setFragmentBuffer:offset:atIndex:"), tb_mtl.pbuf, 0, 1);
             ((void (*)(id, SEL, unsigned long, unsigned long, unsigned long, unsigned long))objc_msgSend)(enc,
                 sel_getUid("drawPrimitives:vertexStart:vertexCount:instanceCount:"), 4, 0, 4, (unsigned long)tb_gin);   // TriangleStrip
         }
@@ -3955,11 +4396,17 @@ TB_API void tb_gpu_flush(int present) {
         if (dt) TB_MSG1(void, cb, "presentDrawable:", id, drw);
     }
     TB_MSG(void, cb, "commit");
-    // ждём видеокарту: память экземпляров снова свободна для следующих фигур
-    TB_MSG(void, cb, "waitUntilCompleted");
+    // TB_GPU_CHECK: дождаться этого кадра, чтобы сверить; иначе видеокарта рисует, а мы идём дальше
+    if (present && tb_gpu_back) TB_MSG(void, cb, "waitUntilCompleted");
+    tb_mtl.cbs[tb_gslot] = TB_MSG(id, cb, "retain");
     objc_autoreleasePoolPop(pool);
-    tb_gin = 0;
     if (present && tb_gpu_back) tb_gpu_compare();
+    // следующий набор: ждём, только если видеокарта ещё рисует из него кадр трёхкадровой давности
+    tb_gslot = (tb_gslot + 1) % TB_GSLOTS;
+    id old = tb_mtl.cbs[tb_gslot];
+    if (old) { TB_MSG(void, old, "waitUntilCompleted"); TB_MSG(void, old, "release"); tb_mtl.cbs[tb_gslot] = 0; }
+    tb_gi = (tb_ginst *)TB_MSG(void *, tb_mtl.ibuf[tb_gslot], "contents");
+    tb_gin = 0;
 }
 TB_API int tb_gfx_open(const char *title) {
     tb_nsapp = TB_MSG(id, TB_CLS("NSApplication"), "sharedApplication");
@@ -3996,6 +4443,11 @@ TB_API int tb_gfx_open(const char *title) {
     TB_MSG(void, tb_nsapp, "finishLaunching");
     TB_MSG1(void, tb_nsapp, "activateIgnoringOtherApps:", BOOL, YES);
     return 1;
+}
+TB_API void tb_gfx_resizable(void) { TB_MSG1(void, tb_wnd, "setStyleMask:", unsigned long, 1 | 2 | 4 | 8); }
+TB_API void tb_gfx_reimage(void) {
+    if (tb_gpu_on) return;
+    for (int i = 0; i < 3; i++) { free(tb_pres[i]); tb_pres[i] = malloc((size_t)tb_gw * tb_gh * 4); }
 }
 TB_API void tb_gfx_events(void) {
     // пул: временные объекты Cocoa (события, кадры) освобождаются каждый кадр
@@ -4037,6 +4489,17 @@ TB_API void tb_gfx_events(void) {
         }
         TB_MSG1(void, tb_nsapp, "sendEvent:", id, ev);
     }
+    if (tb_resizable) {   // размер окна в точках (на Retina точка = 2×2 пикселя экрана)
+        CGRect r;
+        id view = TB_MSG(id, tb_wnd, "contentView");
+#if defined(__x86_64__)
+        ((void (*)(CGRect *, id, SEL))objc_msgSend_stret)(&r, view, sel_getUid("bounds"));
+#else
+        r = TB_MSG(CGRect, view, "bounds");
+#endif
+        int w = (int)r.size.width, h = (int)r.size.height;
+        if (w > 0 && h > 0 && (w != tb_gw || h != tb_gh)) { tb_new_w = w; tb_new_h = h; }
+    }
     objc_autoreleasePoolPop(pool);
 }
 #elif defined(_WIN32)
@@ -4069,10 +4532,17 @@ TB_API LRESULT CALLBACK tb_win_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_LBUTTONDOWN: tb_mdown = 1; tb_mx = (short)LOWORD(lp); tb_my = (short)HIWORD(lp); SetCapture(h); return 0;
     case WM_LBUTTONUP: tb_mdown = 0; tb_mx = (short)LOWORD(lp); tb_my = (short)HIWORD(lp); ReleaseCapture(); return 0;
     case WM_KILLFOCUS: memset(tb_keys, 0, sizeof tb_keys); return 0;
+    case WM_SIZE: if (wp != SIZE_MINIMIZED && LOWORD(lp) && HIWORD(lp)) { tb_new_w = LOWORD(lp); tb_new_h = HIWORD(lp); } return 0;
     case WM_PAINT: { PAINTSTRUCT ps; HDC dc = BeginPaint(h, &ps); if (tb_px && !tb_gpu_on) tb_win_blit(dc); EndPaint(h, &ps); return 0; }
     }
     return DefWindowProcW(h, msg, wp, lp);
 }
+TB_API void tb_gfx_resizable(void) {
+    LONG_PTR st = GetWindowLongPtrW(tb_hwnd, GWL_STYLE);
+    SetWindowLongPtrW(tb_hwnd, GWL_STYLE, st | WS_THICKFRAME | WS_MAXIMIZEBOX);
+    SetWindowPos(tb_hwnd, 0, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER);
+}
+TB_API void tb_gfx_reimage(void) { tb_bmi.bmiHeader.biWidth = tb_gw; tb_bmi.bmiHeader.biHeight = -tb_gh; }
 // окно Windows для Vulkan
 TB_API int tb_win_surface(void) {
     struct { uint32_t sType; const void *pNext; VkFlags flags; HINSTANCE inst; HWND hwnd; } ci = { 1000009000, 0, 0, GetModuleHandleW(0), tb_hwnd };
@@ -4126,6 +4596,21 @@ TB_API Window tb_xw;
 TB_API GC tb_xgc;
 TB_API XImage *tb_ximg = 0;
 TB_API Atom tb_wm_del;
+TB_API void tb_x_hints(int w0, int h0, int w1, int h1) {
+    XSizeHints *sh = XAllocSizeHints();
+    if (!sh) return;
+    sh->flags = PMinSize | PMaxSize;
+    sh->min_width = w0; sh->min_height = h0; sh->max_width = w1; sh->max_height = h1;
+    XSetWMNormalHints(tb_dpy, tb_xw, sh);
+    XFree(sh);
+}
+TB_API void tb_gfx_resizable(void) { tb_x_hints(1, 1, 8192, 8192); }
+TB_API void tb_gfx_reimage(void) {
+    tb_ximg->data = 0;   // точки — это tb_px, их освобождает сама программа
+    XDestroyImage(tb_ximg);
+    int scr = DefaultScreen(tb_dpy);
+    tb_ximg = XCreateImage(tb_dpy, DefaultVisual(tb_dpy, scr), 24, ZPixmap, 0, (char *)tb_px, tb_gw, tb_gh, 32, 0);
+}
 // окно X11 для Vulkan
 TB_API int tb_x_surface(void) {
     struct { uint32_t sType; const void *pNext; VkFlags flags; Display *dpy; Window window; } ci = { 1000004000, 0, 0, tb_dpy, tb_xw };
@@ -4139,7 +4624,8 @@ TB_API int tb_gfx_open(const char *title) {
     int scr = DefaultScreen(tb_dpy);
     tb_xw = XCreateSimpleWindow(tb_dpy, RootWindow(tb_dpy, scr), 0, 0, tb_gw, tb_gh, 0, 0, 0);
     tb_xgc = XCreateGC(tb_dpy, tb_xw, 0, 0);
-    XSelectInput(tb_dpy, tb_xw, ExposureMask | KeyPressMask | KeyReleaseMask | ButtonPressMask | ButtonReleaseMask | PointerMotionMask);
+    XSelectInput(tb_dpy, tb_xw, ExposureMask | KeyPressMask | KeyReleaseMask | ButtonPressMask | ButtonReleaseMask | PointerMotionMask | StructureNotifyMask);
+    tb_x_hints(tb_gw, tb_gh, tb_gw, tb_gh);   // размер окна не меняется, пока программа не спросит window_w()
     Xutf8SetWMProperties(tb_dpy, tb_xw, title, title, 0, 0, 0, 0, 0);
     tb_wm_del = XInternAtom(tb_dpy, "WM_DELETE_WINDOW", False);
     XSetWMProtocols(tb_dpy, tb_xw, &tb_wm_del, 1);
@@ -4175,6 +4661,9 @@ TB_API void tb_gfx_events(void) {
             if (e.xbutton.button == 1) tb_mdown = e.type == ButtonPress;
             tb_mx = e.xbutton.x; tb_my = e.xbutton.y;
         } else if (e.type == MotionNotify) { tb_mx = e.xmotion.x; tb_my = e.xmotion.y; }
+        else if (e.type == ConfigureNotify && (e.xconfigure.width != tb_gw || e.xconfigure.height != tb_gh)) {
+            tb_new_w = e.xconfigure.width; tb_new_h = e.xconfigure.height;
+        }
     }
     XFlush(tb_dpy);
 }
@@ -4189,15 +4678,58 @@ TB_API void tb_window_open(long long w, long long h, const char *title) {
     tb_last_frame = tb_time_ms();
 }
 // показать кадр, принять клавиши и мышь, держать 60 кадров в секунду; false — окно закрыли
+// окно поменяло размер: новый кадр, старое остаётся в левом верхнем углу, новое место — чёрное
+TB_API void tb_apply_resize(void) {
+    if (!tb_new_w) return;
+    int nw = tb_new_w > 8192 ? 8192 : tb_new_w, nh = tb_new_h > 8192 ? 8192 : tb_new_h, ow = tb_gw, oh = tb_gh;
+    tb_new_w = tb_new_h = 0;
+    if (nw < 1 || nh < 1 || (nw == ow && nh == oh)) return;
+    uint32_t *np = calloc((size_t)nw * nh, 4);
+    if (!np) return;
+    for (int y = 0; y < oh && y < nh; y++) memcpy(np + (size_t)y * nw, tb_px + (size_t)y * ow, (size_t)(ow < nw ? ow : nw) * 4);
+    free(tb_px);
+    tb_px = np; tb_gw = nw; tb_gh = nh;
+    tb_gfx_reimage();
+    if (tb_gpu_on && !tb_gpu_resize(ow, oh)) fprintf(stderr, "видеокарта: не получилось поменять размер кадра\n");
+}
+TB_API long long tb_window_w(void) { if (tb_px && !tb_resizable) { tb_resizable = 1; tb_gfx_resizable(); } return tb_gw; }
+TB_API long long tb_window_h(void) { if (tb_px && !tb_resizable) { tb_resizable = 1; tb_gfx_resizable(); } return tb_gh; }
+// частота кадров: -1 — как у экрана (по умолчанию), 0 — сколько успеет, n — n кадров в секунду (set_fps)
+TB_API long long tb_fps_want = -1, tb_frame_ms_v = 16, tb_fps_v = 0, tb_fps_n = 0, tb_fps_t0 = 0, tb_last_us = 0;
+TB_API long long tb_time_us(void) {
+    struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (long long)ts.tv_sec * 1000000 + ts.tv_nsec / 1000;
+}
+TB_API void tb_set_fps(long long n) {
+    if (n < 0) n = -1;
+    tb_fps_want = n;
+    int nosync = n == 0 || getenv("TB_FPS_FREE") != 0;
+    if (nosync != tb_gpu_nosync) { tb_gpu_nosync = nosync; if (tb_gpu_on) tb_gpu_vsync(); }
+}
+TB_API long long tb_frame_ms(void) { return tb_frame_ms_v; }
+TB_API long long tb_fps(void) { return tb_fps_v ? tb_fps_v : tb_frame_ms_v > 0 ? 1000 / tb_frame_ms_v : 0; }
+// показать кадр, принять клавиши и мышь, держать частоту кадров; false — окно закрыли
 TB_API int tb_window_alive(void) {
     if (!tb_px || tb_gclosed) return 0;
     tb_gfx_events();
-    // TB_FPS_FREE=1 — без ограничения 60 кадров (для замеров скорости)
+    tb_apply_resize();
+    // TB_FPS_FREE=1 — без ограничения (для замеров скорости), как set_fps(0)
     static int free_fps = -1;
     if (free_fps < 0) free_fps = getenv("TB_FPS_FREE") != 0;
-    long long now = tb_time_ms(), wait = 16 - (now - tb_last_frame);
-    if (wait > 0 && !free_fps) usleep((useconds_t)wait * 1000);
-    tb_last_frame = tb_time_ms();
+    long long now = tb_time_us(), period = 0;
+    if (!tb_last_us) tb_last_us = now;
+    if (free_fps || tb_fps_want == 0) period = 0;
+    else if (tb_fps_want > 0) period = 1000000 / tb_fps_want;
+    // как у экрана: видеокарта сама ждёт обновления экрана (60 Гц — 60 кадров, 120 Гц — 120);
+    // кадр пришёл быстрее 4 мс — экран частоту не держит, держим сами 60 кадров в секунду
+    else if (!tb_gpu_on || now - tb_last_us < 4000) period = 16667;
+    if (period && now - tb_last_us < period) { usleep((useconds_t)(period - (now - tb_last_us))); now = tb_time_us(); }
+    tb_frame_ms_v = (now - tb_last_us + 500) / 1000;
+    tb_last_us = now;
+    if (!tb_fps_t0) tb_fps_t0 = now;
+    tb_fps_n++;
+    if (now - tb_fps_t0 >= 1000000) { tb_fps_v = tb_fps_n * 1000000 / (now - tb_fps_t0); tb_fps_n = 0; tb_fps_t0 = now; }
+    tb_last_frame = now / 1000;
     return !tb_gclosed;
 }
 TB_INL void tb_put(long long x, long long y, long long c) {
@@ -4247,6 +4779,21 @@ TB_API void tb_draw_line(long long x0, long long y0, long long x1, long long y1,
         long long e2 = 2 * e;
         if (e2 >= dy) { e += dy; x0 += sx; }
         if (e2 <= dx) { e += dx; y0 += sy; }
+    }
+}
+// картинка из load_image: левый верхний угол в (x, y); прозрачные точки (меньше 128) не рисуются
+TB_API void tb_draw_image(long long id, long long x, long long y) {
+    if (!tb_px || id < 0 || id >= tb_nimg) return;
+    if (tb_gpu_on) tb_gpu_image(id, x, y);
+    if (TB_CPU_DRAW) {
+        tb_image *im = &tb_imgs[id];
+        const uint32_t *src = tb_imgpx + im->off;
+        long long ja = y < 0 ? -y : 0, jb = y + im->h > tb_gh ? tb_gh - y : im->h;
+        long long ia = x < 0 ? -x : 0, ib = x + im->w > tb_gw ? tb_gw - x : im->w;
+        for (long long j = ja; j < jb; j++) for (long long i = ia; i < ib; i++) {
+            uint32_t v = src[j * im->w + i];
+            if ((v >> 24) >= 128) tb_px[(y + j) * tb_gw + x + i] = v & 0xFFFFFF;
+        }
     }
 }
 // текст: буква 8×16, size — во сколько раз крупнее
@@ -4464,5 +5011,14 @@ TB_B(_Bool, key_down, (const char *s, int line), tb_key_down(s))
 TB_B(long long, mouse_x, (int line), tb_mouse_x())
 TB_B(long long, mouse_y, (int line), tb_mouse_y())
 TB_B(_Bool, mouse_down, (int line), tb_mouse_down())
+TB_B(long long, frame_ms, (int line), tb_frame_ms())
+TB_B(long long, fps, (int line), tb_fps())
+TB_BV(set_fps, (long long n, int line), tb_set_fps(n))
+TB_B(long long, window_w, (int line), tb_window_w())
+TB_B(long long, window_h, (int line), tb_window_h())
+TB_B(long long, load_image, (const char *s, int line), tb_load_image(s))
+TB_BV(draw_image, (long long i, long long x, long long y, int line), tb_draw_image(i, x, y))
+TB_B(long long, image_w, (long long i, int line), tb_image_w(i))
+TB_B(long long, image_h, (long long i, int line), tb_image_h(i))
 #endif
 #endif

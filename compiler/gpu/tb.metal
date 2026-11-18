@@ -13,7 +13,7 @@ vertex TbV tb_vert(uint vid [[vertex_id]], uint iid [[instance_id]],
     out.cm = t.cm;
     return out;
 }
-fragment float4 tb_frag(TbV v [[stage_in]], constant uint4 *font [[buffer(0)]]) {
+fragment float4 tb_frag(TbV v [[stage_in]], constant uint4 *font [[buffer(0)]], const device uint *img [[buffer(1)]]) {
     int2 p = int2(v.pos.xy);
     uint m = v.cm.y, k = m >> 30;
     if (k == 1u) {
@@ -26,5 +26,10 @@ fragment float4 tb_frag(TbV v [[stage_in]], constant uint4 *font [[buffer(0)]]) 
         if ((b & (0x80u >> uint(cx))) == 0u) discard_fragment();
     }
     uint c = v.cm.x;
+    if (k == 3u) {
+        uint px = img[v.cm.x + uint(p.y - v.o.y) * (m & 0x3FFFFFu) + uint(p.x - v.o.x)];
+        if ((px >> 24) < 128u) discard_fragment();
+        c = px;
+    }
     return float4(float((c >> 16) & 255u), float((c >> 8) & 255u), float(c & 255u), 255.0) / 255.0;
 }

@@ -33,3 +33,4 @@ compiler/seed/*
 .claude/
 tests/gpu/*
 !tests/gpu/*.tb
+!tests/gpu/*.png

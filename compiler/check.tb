@@ -132,7 +132,7 @@ func fits(want: int, got: int)
 // ---------- функции и obj ----------
 
 func is_builtin(name: text)
-    each b in ["print", "show", "len", "round", "code", "char", "cut", "to_int", "to_dec", "read_file", "write_file", "input", "args", "split", "join", "find", "replace", "upper", "lower", "trim", "starts_with", "ends_with", "sort", "abs", "min", "max", "sqrt", "run", "exit", "file_exists", "list_dir", "is_folder", "make_folder", "move", "remove", "env", "file_size", "window_open", "window_alive", "clear_window", "draw_pixel", "draw_rect", "draw_circle", "draw_line", "draw_text", "key_down", "mouse_x", "mouse_y", "mouse_down", "rgb", "random", "time_ms", "http_get", "json_get", "json_text", "date_now", "unix_time"]
+    each b in ["print", "show", "len", "round", "code", "char", "cut", "to_int", "to_dec", "read_file", "write_file", "input", "args", "split", "join", "find", "replace", "upper", "lower", "trim", "starts_with", "ends_with", "sort", "abs", "min", "max", "sqrt", "run", "exit", "file_exists", "list_dir", "is_folder", "make_folder", "move", "remove", "env", "file_size", "window_open", "window_alive", "clear_window", "draw_pixel", "draw_rect", "draw_circle", "draw_line", "draw_text", "key_down", "mouse_x", "mouse_y", "mouse_down", "frame_ms", "fps", "set_fps", "window_w", "window_h", "load_image", "draw_image", "image_w", "image_h", "rgb", "random", "time_ms", "http_get", "json_get", "json_text", "date_now", "unix_time"]
         if b == name
             return true
     each b in kernel_builtins()
@@ -164,21 +164,21 @@ func bare_only(name: text)
 
 // только в обычной программе (в ядре нет файлов и папок)
 func os_only(name: text)
-    each w in ["list_dir", "is_folder", "make_folder", "move", "remove", "env", "file_size", "window_open", "window_alive", "clear_window", "draw_pixel", "draw_rect", "draw_circle", "draw_line", "draw_text", "key_down", "mouse_x", "mouse_y", "mouse_down", "rgb", "random", "time_ms", "http_get", "json_get", "json_text", "date_now", "unix_time"]
+    each w in ["list_dir", "is_folder", "make_folder", "move", "remove", "env", "file_size", "window_open", "window_alive", "clear_window", "draw_pixel", "draw_rect", "draw_circle", "draw_line", "draw_text", "key_down", "mouse_x", "mouse_y", "mouse_down", "frame_ms", "fps", "set_fps", "window_w", "window_h", "load_image", "draw_image", "image_w", "image_h", "rgb", "random", "time_ms", "http_get", "json_get", "json_text", "date_now", "unix_time"]
         if name == w
             return true
     return false
 
 // окно и рисование
 func gfx_builtin(name: text)
-    each w in ["window_open", "window_alive", "clear_window", "draw_pixel", "draw_rect", "draw_circle", "draw_line", "draw_text", "key_down", "mouse_x", "mouse_y", "mouse_down"]
+    each w in ["window_open", "window_alive", "clear_window", "draw_pixel", "draw_rect", "draw_circle", "draw_line", "draw_text", "key_down", "mouse_x", "mouse_y", "mouse_down", "frame_ms", "fps", "set_fps", "window_w", "window_h", "load_image", "draw_image", "image_w", "image_h"]
         if name == w
             return true
     return false
 
 // встроенные функции, которые могут закончиться ошибкой
 func builtin_can_fail(name: text)
-    if name == "list_dir" or name == "make_folder" or name == "move" or name == "remove" or name == "window_open"
+    if name == "list_dir" or name == "make_folder" or name == "move" or name == "remove" or name == "window_open" or name == "load_image"
         return true
     return name == "to_int" or name == "to_dec" or name == "read_file" or name == "write_file" or name == "input" or name == "http_get" or name == "json_get"
 
@@ -888,8 +888,20 @@ func check_builtin(c: Comp, n: Node) gives r: int
     if name == "window_alive" or name == "mouse_down"
         builtin_args(c, n, "", name + "()")
         return 3
-    if name == "mouse_x" or name == "mouse_y" or name == "time_ms"
+    if name == "mouse_x" or name == "mouse_y" or name == "time_ms" or name == "frame_ms" or name == "fps" or name == "window_w" or name == "window_h"
         builtin_args(c, n, "", name + "()")
+        return 1
+    if name == "set_fps"
+        builtin_args(c, n, "i", "set_fps(кадров_в_секунду)  — 0: сколько успеет, без ожидания экрана")
+        return 0
+    if name == "load_image"
+        builtin_args(c, n, "t", "load_image(\"картинка.png\")  →  номер картинки")
+        return 1
+    if name == "draw_image"
+        builtin_args(c, n, "iii", "draw_image(картинка, x, y)")
+        return 0
+    if name == "image_w" or name == "image_h"
+        builtin_args(c, n, "i", name + "(картинка)  →  точки")
         return 1
     if name == "clear_window"
         builtin_args(c, n, "i", "clear_window(цвет)")

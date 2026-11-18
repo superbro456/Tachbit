@@ -1,0 +1,23 @@
+// окно тянут мышью (tests/run_gpu.sh меняет размер через xdotool): кадр растёт и сжимается,
+// старое остаётся в левом верхнем углу — и у видеокарты, и у процессора
+func main()
+    try window_open(200, 150, "GPU: размер")
+    set_fps(100)
+    frame = 0
+    sizes = 0
+    last_w = 0
+    repeat while window_alive()
+        frame += 1
+        if frame > 300
+            stop
+        w = window_w()
+        h = window_h()
+        if w != last_w
+            sizes += 1
+            last_w = w
+        if frame % 2 == 0
+            clear_window(rgb(20, 20, 20 + frame))
+        draw_rect(w - 30, h - 30, 30, 30, rgb(0, 200, 100))
+        draw_circle(w / 2, h / 2, 20, rgb(200, 100, 0))
+        draw_text(2, 2, "" + w + "x" + h, 1, rgb(255, 255, 255))
+    print("размеров: " + sizes)

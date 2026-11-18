@@ -1,9 +1,11 @@
 #version 450
 // те же правила точек, что у рисования на процессоре (runtime.h):
-// вид 0 — прямоугольник, 1 — круг i*i + j*j <= r*r + r, 2 — буква 8×16 из шрифта, size — масштаб
+// вид 0 — прямоугольник, 1 — круг i*i + j*j <= r*r + r, 2 — буква 8×16 из шрифта, size — масштаб,
+// 3 — картинка: vcm.x — где её точки, ширина в m; точка видна, если прозрачность не меньше 128
 layout(location = 0) flat in ivec2 vo;
 layout(location = 1) flat in uvec2 vcm;
 layout(set = 0, binding = 0) uniform Font { uvec4 f[161]; } font;
+layout(std430, set = 0, binding = 1) readonly buffer Img { uint px[]; } img;   // все картинки подряд
 layout(location = 0) out vec4 col;
 void main() {
     ivec2 p = ivec2(gl_FragCoord.xy);
@@ -18,5 +20,10 @@ void main() {
         if ((b & (0x80u >> uint(cx))) == 0u) discard;
     }
     uint c = vcm.x;
+    if (k == 3u) {
+        uint v = img.px[vcm.x + uint(p.y - vo.y) * (m & 0x3FFFFFu) + uint(p.x - vo.x)];
+        if ((v >> 24) < 128u) discard;
+        c = v;
+    }
     col = vec4(float((c >> 16) & 255u), float((c >> 8) & 255u), float(c & 255u), 255.0) / 255.0;
 }
