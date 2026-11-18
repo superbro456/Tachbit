@@ -228,7 +228,9 @@ func llvm_lib(bin: text, gfx: bool, native: bool) gives lib: text, target: text,
             lib = ""
             return
         cl = "c=" + quote(bin + "/clang") + "; [ -x \"$c\" ] || c=clang; "
-        cmd = cl + "\"$c\" -O2 -w -c -emit-llvm" + flags + " -x c " + quote(base + ".c") + " -o " + quote(base + ".tmp.bc") + " 2> /dev/null"
+        // Mac: clang из brew сам может не знать, где заголовки системы — берём их у xcrun
+        cl += "s=; [ \"$(uname)\" = Darwin ] && command -v xcrun > /dev/null && s=\"-isysroot $(xcrun --show-sdk-path)\"; "
+        cmd = cl + "\"$c\" $s -O2 -w -c -emit-llvm" + flags + " -x c " + quote(base + ".c") + " -o " + quote(base + ".tmp.bc") + " 2> /dev/null"
         cmd += " && " + quote(bin + "/llvm-dis") + " " + quote(base + ".tmp.bc") + " -o - | grep -E '^target |^attributes #0 ' > " + quote(base + ".tmp.target")
         cmd += " && mv " + quote(base + ".tmp.target") + " " + quote(tpath) + " && mv " + quote(base + ".tmp.bc") + " " + quote(lib)
         ok = run(cmd) == 0
