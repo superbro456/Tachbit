@@ -2161,7 +2161,11 @@ func emit_block(c: Comp, block: Node, depth: int)
 
 func emit_signature(c: Comp, f: Node)
     params = f.kids[0]
-    put(c, "static " + c_type(c, f.ty) + " " + fname(f) + "(")
+    if has_text(c.ll_names, fname(f))
+        // тело этой функции в файле .ll (--llvm): здесь только имя, без static
+        put(c, c_type(c, f.ty) + " " + fname(f) + "(")
+    else
+        put(c, "static " + c_type(c, f.ty) + " " + fname(f) + "(")
     if len(params.kids) == 0
         put(c, "void")
     count i from 0 to len(params.kids) - 1
@@ -2771,6 +2775,10 @@ modpub func emit_c(c: Comp, program: Node)
         emit_as(c, g.kids[0], g.ty)
         put(c, ";\n")
 
+    if len(c.ll_names) > 0
+        // для функций из .ll: остановка с номером строки (деление на ноль, нет return)
+        put(c, "void tb_ll_crash(int line, int what) { tb_crash(line, what == 0 ? \"деление на ноль\" : \"остаток от деления на ноль\"); }\n")
+        put(c, "void tb_ll_noreturn(int line, const char *name) { char m[256]; snprintf(m, sizeof m, \"функция %s дошла до конца без return\", name); tb_crash(line, m); }\n")
     // obj: сначала имена, потом устройство (obj может хранить другой obj)
     each top in program.kids
         if top.kind == "obj" and top.by_cols
@@ -2809,7 +2817,7 @@ modpub func emit_c(c: Comp, program: Node)
     funcs_out = list text
     c.out = funcs_out
     each top in program.kids
-        if top.kind == "func"
+        if top.kind == "func" and not has_text(c.ll_names, fname(top))
             emit_func(c, top)
     c.out = saved
     each w in c.workers

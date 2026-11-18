@@ -1,0 +1,549 @@
+// Слой 4б. ВЫВОД LLVM IR (опыт, включается флагом --llvm).
+// Функции, где только числа (int, dec, bool), условия, циклы и вызовы таких же функций,
+// пишутся сразу на языке LLVM (файл .ll), мимо C. Остальное по-прежнему идёт через C.
+// Имена и способ вызова те же, что у C (f_<модуль>__<имя>), поэтому clang
+// собирает .c и .ll в одну программу, и они зовут друг друга как обычно.
+// Это первый шаг: дальше в .ll можно класть то, чего C не скажет (move = noalias,
+// пределы чисел, вызовы слитых орбит), — свои проходы LLVM поверх готового LLVM.
+use check
+
+obj LLGen
+    out: list text
+    allocas: list text
+    slots: list text
+    tmp: int
+    open: bool
+    cont: list text
+    brk: list text
+    fn: Node
+
+// имя функции: то же, что у вывода C
+func ll_fname(f: Node)
+    mod = ""
+    each ch in f.mod
+        k = code(ch)
+        if (k >= 97 and k <= 122) or (k >= 65 and k <= 90) or (k >= 48 and k <= 57)
+            mod = mod + ch
+        else
+            mod = mod + "_"
+    return "f_" + mod + "__" + f.name
+
+func ll_has(names: list text, name: text)
+    each x in names
+        if x == name
+            return true
+    return false
+
+func ll_simple(c: Comp, t: int)
+    k = kind_of(c, t)
+    return k == "int" or k == "dec" or k == "bool" or k == "enum"
+
+func ll_ty(c: Comp, t: int)
+    k = kind_of(c, t)
+    if k == "dec"
+        return "double"
+    if k == "bool"
+        return "i1"
+    if k == "none"
+        return "void"
+    return "i64"
+
+// у bool в C (_Bool) при вызове есть пометка zeroext
+func ll_ext(c: Comp, t: int)
+    if kind_of(c, t) == "bool"
+        return "zeroext "
+    return ""
+
+func ll_is_global(c: Comp, name: text)
+    each g in c.globals
+        if g.name == name
+            return true
+    return false
+
+// десятичное число, которое LLVM примет как есть: целая часть + дробь из половинок/четвертей/восьмых
+func ll_dec_ok(v: text)
+    dot = find(v, ".")
+    if dot < 0 or dot > 15
+        return false
+    frac = cut(v, dot + 1, len(v) - 1)
+    repeat while len(frac) > 0 and ends_with(frac, "0")
+        frac = cut(frac, 0, len(frac) - 2)
+    return frac == "" or frac == "5" or frac == "25" or frac == "75" or frac == "125" or frac == "375" or frac == "625" or frac == "875"
+
+// ---------- какие функции можно писать прямо в LLVM ----------
+
+func ll_expr_ok(c: Comp, n: Node, names: list text)
+    k = n.kind
+    if k == "number" or k == "enumval" or k == "bool"
+        return true
+    if k == "decimal"
+        return ll_dec_ok(n.value)
+    if k == "name"
+        return not n.is_link and ll_simple(c, n.ty) and not ll_is_global(c, n.name)
+    if k == "unary"
+        return ll_simple(c, n.ty) and ll_expr_ok(c, n.kids[0], names)
+    if k == "binop"
+        op = n.value
+        if op == "orelse"
+            return false
+        if not (ll_simple(c, n.ty) and ll_simple(c, n.kids[0].ty) and ll_simple(c, n.kids[1].ty))
+            return false
+        if not (op == "+" or op == "-" or op == "*" or op == "/" or op == "%" or op == "==" or op == "!=" or op == "<" or op == ">" or op == "<=" or op == ">=" or op == "and" or op == "or")
+            return false
+        if op == "%" and kind_of(c, n.ty) == "dec"
+            return false
+        return ll_expr_ok(c, n.kids[0], names) and ll_expr_ok(c, n.kids[1], names)
+    if k == "call"
+        if not n.has_ref or n.ref.kind != "func" or not ll_has(names, ll_fname(n.ref))
+            return false
+        each a in n.kids
+            if a.kind == "missing" or len(a.kids) == 0 or not ll_expr_ok(c, a.kids[0], names)
+                return false
+        return true
+    return false
+
+func ll_block_ok(c: Comp, b: Node, names: list text)
+    if len(b.kids) == 0
+        return true
+    each s in b.kids
+        if not ll_stmt_ok(c, s, names)
+            return false
+    return true
+
+func ll_stmt_ok(c: Comp, n: Node, names: list text)
+    k = n.kind
+    if k == "assign"
+        return len(n.kids) == 1 and not n.is_link and ll_simple(c, n.ty) and not ll_is_global(c, n.name) and ll_expr_ok(c, n.kids[0], names)
+    if k == "set"
+        t = n.kids[0]
+        op = n.value
+        if t.kind != "name" or t.is_link or ll_is_global(c, t.name) or not ll_simple(c, n.ty)
+            return false
+        if not (op == "=" or op == "+=" or op == "-=" or op == "*=" or op == "/=")
+            return false
+        return ll_expr_ok(c, n.kids[1], names)
+    if k == "if"
+        each x in n.kids
+            if x.kind == "block"
+                if not ll_block_ok(c, x, names)
+                    return false
+            else if not ll_expr_ok(c, x, names)
+                return false
+        return true
+    if k == "count"
+        return not n.is_par and ll_expr_ok(c, n.kids[0], names) and ll_expr_ok(c, n.kids[1], names) and ll_block_ok(c, n.kids[2], names)
+    if k == "repeat_times" or k == "repeat_while"
+        return ll_expr_ok(c, n.kids[0], names) and ll_block_ok(c, n.kids[1], names)
+    if k == "skip" or k == "stop"
+        return true
+    if k == "return"
+        return len(n.kids) == 0 or ll_expr_ok(c, n.kids[0], names)
+    if k == "expr_stmt"
+        return n.kids[0].kind == "call" and ll_expr_ok(c, n.kids[0], names)
+    return false
+
+func ll_head_ok(c: Comp, f: Node)
+    if f.name == "main" or f.irq != 0 or f.can_fail or len(f.kids[2].kids) > 0
+        return false
+    if not (kind_of(c, f.ty) == "none" or ll_simple(c, f.ty))
+        return false
+    each p in f.kids[0].kids
+        if p.is_link or not ll_simple(c, p.ty)
+            return false
+    return true
+
+// c.ll_names: функции, которые пойдут в LLVM. Сначала все подходящие по виду,
+// потом выкидываем тех, кто зовёт выкинутых, пока список не перестанет меняться.
+modpub func ll_pick(c: Comp, program: Node)
+    names = list text
+    if c.bare
+        c.ll_names = names
+        return
+    each top in program.kids
+        if top.kind == "func" and ll_head_ok(c, top)
+            names.add(ll_fname(top))
+    changed = true
+    repeat while changed
+        changed = false
+        keep = list text
+        each top in program.kids
+            if top.kind == "func" and ll_has(names, ll_fname(top))
+                if ll_block_ok(c, top.kids[1], names)
+                    keep.add(ll_fname(top))
+                else
+                    changed = true
+        names = keep
+    c.ll_names = names
+
+// ---------- вывод ----------
+
+func ll_put(g: LLGen, s: text)
+    if not g.open
+        // код после return / stop: свой блок, до него никто не дойдёт
+        g.tmp += 1
+        g.out.add("d" + g.tmp + ":\n")
+        g.open = true
+    g.out.add("  " + s + "\n")
+
+// конец блока: br / ret / unreachable
+func ll_term(g: LLGen, s: text)
+    ll_put(g, s)
+    g.open = false
+
+func ll_label(g: LLGen, name: text)
+    if g.open
+        g.out.add("  br label %" + name + "\n")
+    g.out.add(name + ":\n")
+    g.open = true
+
+func ll_new(g: LLGen, prefix: text)
+    g.tmp += 1
+    return prefix + g.tmp
+
+// место переменной в памяти функции (LLVM сам превратит его в регистр)
+func ll_slot(g: LLGen, c: Comp, name: text, t: int)
+    s = "%\"v." + name + "." + ll_ty(c, t) + "\""
+    if not ll_has(g.slots, s)
+        g.slots.add(s)
+        g.allocas.add("  " + s + " = alloca " + ll_ty(c, t) + "\n")
+    return s
+
+func ll_crash(g: LLGen, line: int, what: int)
+    ll_put(g, "call void @tb_ll_crash(i32 " + line + ", i32 " + what + ")")
+    ll_term(g, "unreachable")
+
+// значение n как тип want (int → dec, если надо)
+func ll_as(g: LLGen, c: Comp, n: Node, want: int)
+    v = ll_expr(g, c, n)
+    if kind_of(c, want) == "dec" and kind_of(c, n.ty) != "dec"
+        r = ll_new(g, "%t")
+        ll_put(g, r + " = sitofp i64 " + v + " to double")
+        return r
+    return v
+
+func ll_to_dec(g: LLGen, c: Comp, v: text, t: int)
+    if kind_of(c, t) == "dec"
+        return v
+    r = ll_new(g, "%t")
+    ll_put(g, r + " = sitofp i64 " + v + " to double")
+    return r
+
+func ll_call(g: LLGen, c: Comp, n: Node)
+    f = n.ref
+    params = f.kids[0]
+    args = ""
+    count i from 0 to len(n.kids) - 1
+        p = params.kids[i]
+        arg = n.kids[i].kids[0]
+        v = ll_expr(g, c, arg)
+        if kind_of(c, p.ty) == "dec"
+            v = ll_to_dec(g, c, v, arg.ty)
+        if i > 0
+            args = args + ", "
+        args = args + ll_ty(c, p.ty) + " " + ll_ext(c, p.ty) + v
+    callee = ll_ext(c, f.ty) + ll_ty(c, f.ty) + " @\"" + ll_fname(f) + "\"(" + args + ")"
+    if kind_of(c, f.ty) == "none"
+        ll_put(g, "call " + callee)
+        return "0"
+    r = ll_new(g, "%t")
+    ll_put(g, r + " = call " + callee)
+    return r
+
+// and / or: правую часть считаем, только если она нужна
+func ll_logic(g: LLGen, c: Comp, n: Node)
+    a = ll_expr(g, c, n.kids[0])
+    left = ll_new(g, "L")
+    ll_label(g, left)
+    right = ll_new(g, "L")
+    done = ll_new(g, "L")
+    if n.value == "and"
+        ll_term(g, "br i1 " + a + ", label %" + right + ", label %" + done)
+    else
+        ll_term(g, "br i1 " + a + ", label %" + done + ", label %" + right)
+    ll_label(g, right)
+    b = ll_expr(g, c, n.kids[1])
+    right_end = ll_new(g, "L")
+    ll_label(g, right_end)
+    ll_term(g, "br label %" + done)
+    ll_label(g, done)
+    r = ll_new(g, "%t")
+    short = "false"
+    if n.value == "or"
+        short = "true"
+    ll_put(g, r + " = phi i1 [ " + short + ", %" + left + " ], [ " + b + ", %" + right_end + " ]")
+    return r
+
+func ll_binop(g: LLGen, c: Comp, n: Node)
+    op = n.value
+    if op == "and" or op == "or"
+        return ll_logic(g, c, n)
+    ta = n.kids[0].ty
+    tb = n.kids[1].ty
+    a = ll_expr(g, c, n.kids[0])
+    b = ll_expr(g, c, n.kids[1])
+    r = ll_new(g, "%t")
+    cmp = op == "==" or op == "!=" or op == "<" or op == ">" or op == "<=" or op == ">="
+    if cmp
+        if kind_of(c, ta) == "dec" or kind_of(c, tb) == "dec"
+            a = ll_to_dec(g, c, a, ta)
+            b = ll_to_dec(g, c, b, tb)
+            fc = "oeq"
+            if op == "!="
+                fc = "une"
+            else if op == "<"
+                fc = "olt"
+            else if op == ">"
+                fc = "ogt"
+            else if op == "<="
+                fc = "ole"
+            else if op == ">="
+                fc = "oge"
+            ll_put(g, r + " = fcmp " + fc + " double " + a + ", " + b)
+            return r
+        ic = "eq"
+        if op == "!="
+            ic = "ne"
+        else if op == "<"
+            ic = "slt"
+        else if op == ">"
+            ic = "sgt"
+        else if op == "<="
+            ic = "sle"
+        else if op == ">="
+            ic = "sge"
+        ll_put(g, r + " = icmp " + ic + " " + ll_ty(c, ta) + " " + a + ", " + b)
+        return r
+    if kind_of(c, n.ty) == "dec"
+        a = ll_to_dec(g, c, a, ta)
+        b = ll_to_dec(g, c, b, tb)
+        fo = "fadd"
+        if op == "-"
+            fo = "fsub"
+        else if op == "*"
+            fo = "fmul"
+        else if op == "/"
+            fo = "fdiv"
+        ll_put(g, r + " = " + fo + " double " + a + ", " + b)
+        return r
+    if op == "/" or op == "%"
+        // деление на ноль: как в C — остановка с номером строки
+        z = ll_new(g, "%t")
+        bad = ll_new(g, "L")
+        ok = ll_new(g, "L")
+        ll_put(g, z + " = icmp eq i64 " + b + ", 0")
+        ll_term(g, "br i1 " + z + ", label %" + bad + ", label %" + ok + ", !prof !0")
+        ll_label(g, bad)
+        what = 0
+        if op == "%"
+            what = 1
+        ll_crash(g, n.line, what)
+        ll_label(g, ok)
+        io = "sdiv"
+        if op == "%"
+            io = "srem"
+        ll_put(g, r + " = " + io + " i64 " + a + ", " + b)
+        return r
+    io = "add nsw"
+    if op == "-"
+        io = "sub nsw"
+    else if op == "*"
+        io = "mul nsw"
+    ll_put(g, r + " = " + io + " i64 " + a + ", " + b)
+    return r
+
+func ll_expr(g: LLGen, c: Comp, n: Node)
+    k = n.kind
+    if k == "number" or k == "enumval"
+        return n.value
+    if k == "decimal"
+        return n.value
+    if k == "bool"
+        return n.value
+    if k == "name"
+        r = ll_new(g, "%t")
+        ll_put(g, r + " = load " + ll_ty(c, n.ty) + ", ptr " + ll_slot(g, c, n.name, n.ty))
+        return r
+    if k == "unary"
+        v = ll_expr(g, c, n.kids[0])
+        r = ll_new(g, "%t")
+        if n.value == "not"
+            ll_put(g, r + " = xor i1 " + v + ", true")
+        else if kind_of(c, n.ty) == "dec"
+            ll_put(g, r + " = fneg double " + v)
+        else
+            ll_put(g, r + " = sub nsw i64 0, " + v)
+        return r
+    if k == "binop"
+        return ll_binop(g, c, n)
+    return ll_call(g, c, n)
+
+func ll_block(g: LLGen, c: Comp, b: Node)
+    each s in b.kids
+        ll_stmt(g, c, s)
+
+func ll_stmt(g: LLGen, c: Comp, n: Node)
+    k = n.kind
+    if k == "assign"
+        v = ll_as(g, c, n.kids[0], n.ty)
+        ll_put(g, "store " + ll_ty(c, n.ty) + " " + v + ", ptr " + ll_slot(g, c, n.name, n.ty))
+    else if k == "set"
+        t = n.kids[0]
+        slot = ll_slot(g, c, t.name, n.ty)
+        ty = ll_ty(c, n.ty)
+        op = n.value
+        if op == "="
+            v = ll_as(g, c, n.kids[1], n.ty)
+            ll_put(g, "store " + ty + " " + v + ", ptr " + slot)
+            return
+        // x += y: как  x = x + y
+        bin = Node(kind: "binop", line: n.line, value: cut(op, 0, 0), ty: n.ty)
+        bin.kids.add(t)
+        bin.kids.add(n.kids[1])
+        v = ll_binop(g, c, bin)
+        ll_put(g, "store " + ty + " " + v + ", ptr " + slot)
+    else if k == "if"
+        done = ll_new(g, "L")
+        i = 0
+        repeat while i + 1 < len(n.kids)
+            cv = ll_expr(g, c, n.kids[i])
+            yes = ll_new(g, "L")
+            no = ll_new(g, "L")
+            ll_term(g, "br i1 " + cv + ", label %" + yes + ", label %" + no)
+            ll_label(g, yes)
+            ll_block(g, c, n.kids[i + 1])
+            if g.open
+                ll_term(g, "br label %" + done)
+            ll_label(g, no)
+            i += 2
+        if len(n.kids) % 2 == 1
+            ll_block(g, c, n.kids[len(n.kids) - 1])
+        ll_label(g, done)
+    else if k == "count"
+        // как в C: сначала конец, потом начало; конец считается один раз
+        end = ll_expr(g, c, n.kids[1])
+        start = ll_expr(g, c, n.kids[0])
+        slot = ll_slot(g, c, n.name, 1)
+        ll_put(g, "store i64 " + start + ", ptr " + slot)
+        head = ll_new(g, "L")
+        body = ll_new(g, "L")
+        step = ll_new(g, "L")
+        out = ll_new(g, "L")
+        ll_label(g, head)
+        iv = ll_new(g, "%t")
+        ll_put(g, iv + " = load i64, ptr " + slot)
+        cv = ll_new(g, "%t")
+        ll_put(g, cv + " = icmp sle i64 " + iv + ", " + end)
+        ll_term(g, "br i1 " + cv + ", label %" + body + ", label %" + out)
+        ll_label(g, body)
+        g.cont.add(step)
+        g.brk.add(out)
+        ll_block(g, c, n.kids[2])
+        gone_c = g.cont.pop()
+        gone_b = g.brk.pop()
+        ll_label(g, step)
+        iv2 = ll_new(g, "%t")
+        ll_put(g, iv2 + " = load i64, ptr " + slot)
+        nx = ll_new(g, "%t")
+        ll_put(g, nx + " = add nsw i64 " + iv2 + ", 1")
+        ll_put(g, "store i64 " + nx + ", ptr " + slot)
+        ll_term(g, "br label %" + head)
+        ll_label(g, out)
+    else if k == "repeat_times"
+        total = ll_expr(g, c, n.kids[0])
+        slot = ll_slot(g, c, ll_new(g, "r"), 1)
+        ll_put(g, "store i64 0, ptr " + slot)
+        head = ll_new(g, "L")
+        body = ll_new(g, "L")
+        step = ll_new(g, "L")
+        out = ll_new(g, "L")
+        ll_label(g, head)
+        iv = ll_new(g, "%t")
+        ll_put(g, iv + " = load i64, ptr " + slot)
+        cv = ll_new(g, "%t")
+        ll_put(g, cv + " = icmp slt i64 " + iv + ", " + total)
+        ll_term(g, "br i1 " + cv + ", label %" + body + ", label %" + out)
+        ll_label(g, body)
+        g.cont.add(step)
+        g.brk.add(out)
+        ll_block(g, c, n.kids[1])
+        gone_c = g.cont.pop()
+        gone_b = g.brk.pop()
+        ll_label(g, step)
+        iv2 = ll_new(g, "%t")
+        ll_put(g, iv2 + " = load i64, ptr " + slot)
+        nx = ll_new(g, "%t")
+        ll_put(g, nx + " = add nsw i64 " + iv2 + ", 1")
+        ll_put(g, "store i64 " + nx + ", ptr " + slot)
+        ll_term(g, "br label %" + head)
+        ll_label(g, out)
+    else if k == "repeat_while"
+        head = ll_new(g, "L")
+        body = ll_new(g, "L")
+        out = ll_new(g, "L")
+        ll_label(g, head)
+        cv = ll_expr(g, c, n.kids[0])
+        ll_term(g, "br i1 " + cv + ", label %" + body + ", label %" + out)
+        ll_label(g, body)
+        g.cont.add(head)
+        g.brk.add(out)
+        ll_block(g, c, n.kids[1])
+        gone_c = g.cont.pop()
+        gone_b = g.brk.pop()
+        ll_term(g, "br label %" + head)
+        ll_label(g, out)
+    else if k == "skip"
+        ll_term(g, "br label %" + g.cont[len(g.cont) - 1])
+    else if k == "stop"
+        ll_term(g, "br label %" + g.brk[len(g.brk) - 1])
+    else if k == "return"
+        if len(n.kids) == 1 and kind_of(c, g.fn.ty) != "none"
+            v = ll_as(g, c, n.kids[0], g.fn.ty)
+            ll_term(g, "ret " + ll_ty(c, g.fn.ty) + " " + v)
+        else
+            ll_term(g, "ret void")
+    else if k == "expr_stmt"
+        ignored = ll_call(g, c, n.kids[0])
+
+func ll_func(c: Comp, f: Node, all: list text)
+    g = LLGen(tmp: 0, open: true, fn: f)
+    params = f.kids[0]
+    head = "define " + ll_ext(c, f.ty) + ll_ty(c, f.ty) + " @\"" + ll_fname(f) + "\"("
+    count i from 0 to len(params.kids) - 1
+        p = params.kids[i]
+        if i > 0
+            head = head + ", "
+        head = head + ll_ty(c, p.ty) + " " + ll_ext(c, p.ty) + "%\"p." + p.name + "\""
+    head = head + ") #0 {\n"
+    each p in params.kids
+        slot = ll_slot(g, c, p.name, p.ty)
+        g.out.add("  store " + ll_ty(c, p.ty) + " %\"p." + p.name + "\", ptr " + slot + "\n")
+    ll_block(g, c, f.kids[1])
+    if g.open
+        if kind_of(c, f.ty) == "none"
+            ll_term(g, "ret void")
+        else
+            // как в C: «функция имя дошла до конца без return»
+            nm = "@\"tb.nm." + ll_fname(f) + "\""
+            all.add(nm + " = private unnamed_addr constant [" + (len(f.name) + 1) + " x i8] c\"" + f.name + "\\00\"\n")
+            ll_put(g, "call void @tb_ll_noreturn(i32 " + f.line + ", ptr " + nm + ")")
+            ll_term(g, "unreachable")
+    all.add(head)
+    all.add("entry:\n")
+    each a in g.allocas
+        all.add(a)
+    each s in g.out
+        all.add(s)
+    all.add("}\n\n")
+
+// весь файл .ll: функции из c.ll_names
+modpub func emit_ll(c: Comp, program: Node)
+    all = list text
+    all.add("; Сделано компилятором Tachbit (--llvm). Не правь руками: правь файл .tb\n")
+    all.add("declare void @tb_ll_crash(i32, i32) noreturn cold\n")
+    all.add("declare void @tb_ll_noreturn(i32, ptr) noreturn cold\n\n")
+    each top in program.kids
+        if top.kind == "func" and ll_has(c.ll_names, ll_fname(top))
+            ll_func(c, top, all)
+    all.add("attributes #0 = { nounwind }\n")
+    all.add("!0 = !{!\"branch_weights\", i32 1, i32 2000}\n")
+    return join(all, "")

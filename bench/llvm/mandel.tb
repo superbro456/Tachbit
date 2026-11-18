@@ -1,0 +1,25 @@
+// множество Мандельброта: сколько точек сетки внутри (dec, вложенные циклы)
+func inside(cx: dec, cy: dec)
+    x = 0.0
+    y = 0.0
+    count k from 1 to 200
+        x2 = x * x
+        y2 = y * y
+        if x2 + y2 > 4.0
+            return false
+        y = 2.0 * x * y + cy
+        x = x2 - y2 + cx
+    return true
+
+func area(size: int)
+    total = 0
+    count i from 0 to size - 1
+        count j from 0 to size - 1
+            cx = -2.0 + 2.5 * i / size
+            cy = -1.25 + 2.5 * j / size
+            if inside(cx: cx, cy: cy)
+                total += 1
+    return total
+
+func main()
+    print(area(size: 1200))

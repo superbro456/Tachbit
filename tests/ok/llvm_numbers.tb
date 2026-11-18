@@ -1,0 +1,57 @@
+// числовые функции: с --llvm они идут через LLVM IR, без него — через C; ответ один
+func sign(x: int)
+    if x > 0
+        return 1
+    else if x < 0
+        return -1
+    return 0
+
+func both(a: bool, b: bool)
+    return a and b
+
+func either(a: bool, b: bool)
+    return a or not b
+
+func half(x: int)
+    return x / 2
+
+func mix(a: int, b: dec)
+    r = a + b
+    r += 1
+    r *= 2
+    r = r / 4
+    return r
+
+func loops(n: int)
+    total = 0
+    count i from 1 to n
+        if i % 3 == 0
+            skip
+        if i > 20
+            stop
+        total += i
+    k = 0
+    repeat 5 times
+        k += 2
+    w = 100
+    repeat while w > 1
+        w = w / 3
+    return total * 1000 + k * 10 + w
+
+func neg(x: dec)
+    return -x * 0.5
+
+func never(x: int)
+    return x > 1000000
+
+func guard(x: int)
+    // правая часть and не считается, если левая false: деления на ноль нет
+    return x != 0 and 10 / x > 2
+
+func main()
+    print(sign(x: -7), sign(x: 0), sign(x: 9))
+    print(both(a: true, b: false), either(a: false, b: false))
+    print(half(x: -7), mix(a: 3, b: 0.5))
+    print(loops(n: 30))
+    print(neg(x: 3.0), never(x: 5))
+    print(guard(x: 0), guard(x: 3), guard(x: 4))

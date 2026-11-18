@@ -12,6 +12,10 @@ bench/*
 !bench/*.tb
 !bench/*.py
 !bench/run.sh
+!bench/llvm/
+bench/llvm/*
+!bench/llvm/*.tb
+!bench/llvm/run.sh
 !bench/*_pure.c
 !bench/*_smart.c
 /tb

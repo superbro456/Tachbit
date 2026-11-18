@@ -1,0 +1,19 @@
+// сумма НОД для всех пар до N (деление в цикле)
+func gcd(a: int, b: int)
+    x = a
+    y = b
+    repeat while y != 0
+        t = x % y
+        x = y
+        y = t
+    return x
+
+func gcd_sum(n: int)
+    total = 0
+    count i from 1 to n
+        count j from 1 to n
+            total += gcd(a: i, b: j)
+    return total
+
+func main()
+    print(gcd_sum(n: 2500))

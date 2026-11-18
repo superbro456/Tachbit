@@ -962,6 +962,17 @@ SIMD (`vec`: сумма квадратов 10 млн дробей 20 раз, Lin
                                   типы
 ```
 
+## Путь через LLVM (опыт)
+
+```
+tachbit run --llvm файл.tb      # собрать числовые функции через LLVM IR
+tachbit ll файл.tb              # показать, что ушло в LLVM (текст .ll)
+```
+
+`compiler/emit_ll.tb` пишет функции, где только `int`, `dec`, `bool`, условия, циклы (`count`, `repeat`, `repeat while`, `skip`, `stop`) и вызовы таких же функций, сразу на языке LLVM — мимо C. Всё остальное по-прежнему идёт через C. Имена и способ вызова у обоих путей одни (`f_<модуль>__<имя>`), поэтому `clang` собирает `.c` и `.ll` в одну программу. Нужен `clang` (на Mac он и есть `cc`).
+
+Сейчас скорость та же, что через C: оба пути кончаются одним и тем же LLVM. Смысл шага — дверь: в `.ll` можно класть то, чего C сказать не умеет (данные после `move` ни с чем не пересекаются, пределы чисел из «мяча в коробке», вызов слитой орбиты), и свои проходы LLVM поверх готового LLVM. Замер: `./bench/llvm/run.sh`, тесты обоими путями: `./tests/run_tests_llvm.sh`.
+
 ## Компилятор на Tachbit (0.5)
 
 Сборка без стартера (`./tools/build_tb.sh`):
@@ -982,8 +993,9 @@ mv compiler/main tachbit-tb2
 | `compiler/parser.tb` | токены → дерево |
 | `compiler/check.tb` | типы и ошибки |
 | `compiler/emit.tb` | дерево → C |
+| `compiler/emit_ll.tb` | числовые функции → LLVM IR (`--llvm`, опыт) |
 | `compiler/runtime_text.tb` | библиотека `tb_*` (делается `python3 tools/embed_runtime.py`) |
-| `compiler/main.tb` | команды `new`, `start`, `run`, `build`, `check`, `c`, `tree`, `tokens`; модули `use` |
+| `compiler/main.tb` | команды `new`, `start`, `run`, `build`, `check`, `c`, `ll`, `tree`, `tokens`, флаг `--llvm`; модули `use` |
 
 Что пришлось добавить в язык, пока писали компилятор на нём самом:
 - `run("команда")`, `exit(код)`, `file_exists("путь")`;

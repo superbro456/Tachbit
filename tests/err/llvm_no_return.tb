@@ -1,0 +1,8 @@
+// функция с числом дошла до конца без return
+func pick(x: int)
+    if x > 0
+        return 1
+
+func main()
+    print(pick(x: 5))
+    print(pick(x: -5))

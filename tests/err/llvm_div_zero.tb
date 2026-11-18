@@ -1,0 +1,8 @@
+// деление на ноль в числовой функции: и через C, и через --llvm — остановка со строкой
+func share(total: int, parts: int)
+    each_part = total / parts
+    return each_part
+
+func main()
+    print(share(total: 10, parts: 2))
+    print(share(total: 10, parts: 0))

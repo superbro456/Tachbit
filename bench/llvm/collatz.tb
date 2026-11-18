@@ -1,0 +1,24 @@
+// самая длинная цепочка Коллатца до N: только числа и циклы
+func steps(start: int)
+    n = start
+    s = 0
+    repeat while n != 1
+        if n % 2 == 0
+            n = n / 2
+        else
+            n = 3 * n + 1
+        s += 1
+    return s
+
+func longest(limit: int)
+    best = 0
+    best_n = 0
+    count i from 1 to limit
+        s = steps(start: i)
+        if s > best
+            best = s
+            best_n = i
+    return best_n
+
+func main()
+    print(longest(limit: 3000000))

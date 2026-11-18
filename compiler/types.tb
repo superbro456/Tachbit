@@ -237,3 +237,6 @@ obj Comp
     // shared снаружи функций: первые n_globals переменных в vars — общие для всей программы
     n_globals: int
     globals: list Node
+    // --llvm: собирать числовые функции через LLVM IR; ll_names — какие функции ушли в .ll
+    ll: bool
+    ll_names: list text

@@ -7,6 +7,7 @@ use runtime_text
 use parser
 use check
 use emit
+use emit_ll
 
 // "examples/shop.tb" → папка "examples/" (на Windows и "examples\\shop.tb")
 func folder_of(path: text)
@@ -170,11 +171,20 @@ func build(c: Comp, path: text, exe: text, native: bool)
         return 1
     program = load_program(c, path)
     check(c, program)
+    if c.ll
+        ll_pick(c, program)
     emit_c(c, program)
     write_file(c_path, join(c.out, "")) else err
         print("не могу записать файл: " + c_path)
         return 1
     command = "${CC:-cc} -O2 -w -o " + quote(exe) + " " + quote(c_path) + " -lm -lpthread"
+    if len(c.ll_names) > 0
+        // --llvm: числовые функции лежат в .ll; .c и .ll собирает clang (он понимает оба)
+        ll_path = exe + ".ll"
+        write_file(ll_path, emit_ll(c, program)) else err
+            print("не могу записать файл: " + ll_path)
+            return 1
+        command = "${CC:-clang} -O2 -w -o " + quote(exe) + " " + quote(c_path) + " " + quote(ll_path) + " -lm -lpthread"
     flags_native = ""
     if native
         flags_native = " -march=native"
@@ -262,11 +272,21 @@ func usage()
     print("  tachbit bare   файл.tb   сделать ядро без ОС (файл.elf для QEMU)")
     print("  tachbit check  файл.tb   только найти ошибки")
     print("  tachbit c      файл.tb   показать, какой C получился")
+    print("  tachbit ll     файл.tb   показать LLVM IR числовых функций (опыт)")
+    print("  --llvm         к build / run: числовые функции собрать через LLVM IR")
     print("  tachbit tree   файл.tb   показать дерево")
     print("  tachbit tokens файл.tb   показать токены")
 
 func main()
-    a = args()
+    all_args = args()
+    // --llvm где угодно в строке: числовые функции собрать через LLVM IR (опыт)
+    use_ll = false
+    a = list text
+    each x in all_args
+        if x == "--llvm"
+            use_ll = true
+        else
+            a.add(x)
     if len(a) < 1
         usage()
         exit(1)
@@ -286,14 +306,14 @@ func main()
     if mode == "start"
         mode = "run"
     // имя проекта можно не писать: тогда берётся текущая папка
-    if len(a) < 2 and not (mode == "run" or mode == "build" or mode == "bare" or mode == "check" or mode == "c")
+    if len(a) < 2 and not (mode == "run" or mode == "build" or mode == "bare" or mode == "check" or mode == "c" or mode == "ll")
         usage()
         exit(1)
     arg = ""
     if len(a) > 1
         arg = a[1]
     path, exe = project_main(arg)
-    c = Comp(file_name: path)
+    c = Comp(file_name: path, ll: use_ll)
     if mode == "tokens"
         src = read_file(path) else err
             say_error("не могу открыть файл: " + path)
@@ -314,6 +334,13 @@ func main()
         check(c, program)
         emit_c(c, program)
         print(cut(join(c.out, ""), 0, len(join(c.out, "")) - 2))
+        return
+    if mode == "ll"
+        // показать, какие функции уйдут в LLVM, и сам текст .ll
+        program = load_program(c, path)
+        check(c, program)
+        ll_pick(c, program)
+        print(emit_ll(c, program))
         return
     if mode == "build"
         exit(build(c, path, exe, false))
