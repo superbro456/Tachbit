@@ -1,0 +1,13 @@
+[Point(x: 1.5, y: 2, name: a), Point(x: 3, y: 4, name: b), Point(x: 10, y: 0, name: c)] 3
+Point(x: 99, y: 0, name: c)
+11.5 [Point(x: 1.5, y: 102, name: a), Point(x: 3, y: 4, name: B), Point(x: 7, y: 7, name: z)]
+[Point(x: 1, y: 0, name: ), Point(x: 0, y: 2, name: )]
+{k: Point(x: 5, y: 0, name: )} [Point(x: 5, y: 0, name: )]
+Point(x: 0, y: 0, name: )
+2 2 z
+Flag(on: false, n: 3)
+{1: Flag(on: false, n: 6), 2: Flag(on: true, n: 0)} 6 [Flag(on: false, n: 6), Flag(on: true, n: 0)]
+Point(x: 3, y: 4, name: ) 34
+ 3 true
+Point(x: 3, y: 4, name: picked)
+110 10

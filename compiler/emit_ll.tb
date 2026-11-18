@@ -74,6 +74,185 @@ func ll_numlist(c: Comp, t: int)
     // список списков: внутренний — тоже такой список
     return kind_of(c, e) == "list" and ll_numlist(c, e)
 
+// obj by columns: «строка» {список колонок, номер} — в LLVM { ptr, i64 }, как tb_row_X в C.
+// Качества — числа и тексты (каждое — своя колонка в tb_cols_X {len, cap, q_a, q_b ...})
+func ll_row(c: Comp, t: int)
+    if kind_of(c, t) != "obj" or not is_cols_obj(c, t)
+        return false
+    each f in c.types[t].obj_node.kids
+        k = kind_of(c, f.ty)
+        if not (k == "int" or k == "dec" or k == "bool" or k == "enum" or k == "text")
+            return false
+    return true
+
+// список obj by columns: указатель на tb_cols_X, len лежит первым
+func ll_colist(c: Comp, t: int)
+    return kind_of(c, t) == "list" and is_cols_list(c, t) and ll_row(c, c.types[t].elem)
+
+// выражение-строка: имя, Point(...), pts[i]
+func ll_row_ok(c: Comp, n: Node, names: list text)
+    if not ll_row(c, n.ty)
+        return false
+    if n.kind == "name"
+        return not n.is_link and not ll_is_global(c, n.name)
+    if n.kind == "call" and n.has_ref and n.ref.kind == "obj"
+        count i from 0 to len(n.ref.kids) - 1
+            if n.kids[i].kind != "missing"
+                v = n.kids[i].kids[0]
+                if not (ll_val(c, v.ty) and ll_expr_ok(c, v, names))
+                    return false
+        return true
+    if n.kind == "index" and ll_dict(c, n.kids[0].ty)
+        return ll_box_ok(c, n.kids[0], names) and ll_expr_ok(c, n.kids[1], names)
+    if n.kind == "call" or n.kind == "try" or n.kind == "else_err" or (n.kind == "binop" and n.value == "orelse")
+        return ll_expr_ok(c, n, names)
+    if n.kind == "index"
+        return ll_colist(c, n.kids[0].ty) and ll_box_ok(c, n.kids[0], names) and kind_of(c, n.kids[1].ty) == "int" and ll_expr_ok(c, n.kids[1], names)
+    return false
+
+func ll_cname(c: Comp, t: int)
+    if kind_of(c, t) == "list"
+        return c.types[c.types[t].elem].obj_node.name
+    return c.types[t].obj_node.name
+
+// ---------- obj by columns ----------
+
+func ll_cneed(g: LLGen, c: Comp, t: int)
+    nm = ll_cname(c, t)
+    ll_need(g, "declare ptr @tb_lc_new_" + nm + "()\ndeclare void @tb_lc_add_" + nm + "(ptr, ptr, i64, i32)\ndeclare void @tb_lc_set_" + nm + "(ptr, i64, ptr, i64, i32)\ndeclare ptr @tb_lc_from_" + nm + "(i64, ptr)\n")
+    return nm
+
+// строка из двух частей
+func ll_mkrow(g: LLGen, a: text, i: text)
+    r1 = ll_new(g, "%t")
+    ll_put(g, r1 + " = insertvalue { ptr, i64 } undef, ptr " + a + ", 0")
+    r2 = ll_new(g, "%t")
+    ll_put(g, r2 + " = insertvalue { ptr, i64 } " + r1 + ", i64 " + i + ", 1")
+    return r2
+
+func ll_rpart(g: LLGen, r: text, k: int)
+    x = ll_new(g, "%t")
+    ll_put(g, x + " = extractvalue { ptr, i64 } " + r + ", " + k)
+    return x
+
+// длина списка колонок: первое поле tb_cols_X
+func ll_clen(g: LLGen, base: text)
+    r = ll_new(g, "%t")
+    ll_put(g, r + " = load i64, ptr " + base)
+    return r
+
+// pts[i] с проверкой номера → {pts, i}
+func ll_col_at(g: LLGen, c: Comp, n: Node)
+    base = ll_expr(g, c, n.kids[0])
+    idx = ll_expr(g, c, n.kids[1])
+    ln = ll_clen(g, base)
+    bad = ll_new(g, "%t")
+    ll_put(g, bad + " = icmp uge i64 " + idx + ", " + ln)
+    no = ll_new(g, "L")
+    ok = ll_new(g, "L")
+    ll_term(g, "br i1 " + bad + ", label %" + no + ", label %" + ok + ", !prof !0")
+    ll_label(g, no)
+    ll_crash(g, n.line, 3)
+    ll_label(g, ok)
+    return ll_mkrow(g, base, idx)
+
+// Point(...): новая строка — свой список колонок из одного элемента (tb_new_X в C)
+func ll_new_row(g: LLGen, c: Comp, n: Node)
+    o = n.ref
+    args = ""
+    tys = ""
+    count i from 0 to len(o.kids) - 1
+        ft = o.kids[i].ty
+        v = ""
+        if n.kids[i].kind == "missing"
+            v = ll_default(g, c, ft)
+        else
+            v = ll_as(g, c, n.kids[i].kids[0], ft)
+        if i > 0
+            args = args + ", "
+            tys = tys + ", "
+        args = args + ll_ty(c, ft) + " " + ll_ext(c, ft) + v
+        tys = tys + ll_ty(c, ft) + " " + ll_ext(c, ft)
+    ll_need(g, "declare ptr @tb_lc_make_" + o.name + "(" + tys + ")\n")
+    r = ll_new(g, "%t")
+    ll_put(g, r + " = call ptr @tb_lc_make_" + o.name + "(" + args + ")")
+    return ll_mkrow(g, r, "0")
+
+// адрес качества строки: колонка q_f (после len и cap), в ней элемент номер i
+func ll_row_field_ptr(g: LLGen, c: Comp, n: Node)
+    r = ll_expr(g, c, n.kids[0])
+    a = ll_rpart(g, r, 0)
+    i = ll_rpart(g, r, 1)
+    z = ll_new(g, "%t")
+    ll_put(g, z + " = icmp eq ptr " + a + ", null")
+    no = ll_new(g, "L")
+    ok = ll_new(g, "L")
+    ll_term(g, "br i1 " + z + ", label %" + no + ", label %" + ok + ", !prof !0")
+    ll_label(g, no)
+    ll_crash(g, n.line, 4)
+    ll_label(g, ok)
+    o = c.types[n.kids[0].ty].obj_node
+    at = 0
+    count k from 0 to len(o.kids) - 1
+        if o.kids[k].name == n.name
+            at = k
+    cp = ll_new(g, "%t")
+    ll_put(g, cp + " = getelementptr inbounds i8, ptr " + a + ", i64 " + (16 + 8 * at))
+    col = ll_new(g, "%t")
+    ll_put(g, col + " = load ptr, ptr " + cp)
+    ep = ll_new(g, "%t")
+    ll_put(g, ep + " = getelementptr inbounds " + ll_mem_ty(c, n.ty) + ", ptr " + col + ", i64 " + i)
+    return ep
+
+// [Point(...), ...]: строки во временный массив, потом tb_colsfrom_X
+func ll_col_lit(g: LLGen, c: Comp, n: Node)
+    nm = ll_cneed(g, c, n.ty)
+    nk = len(n.kids)
+    if nk == 0
+        r0 = ll_new(g, "%t")
+        ll_put(g, r0 + " = call ptr @tb_lc_new_" + nm + "()")
+        return r0
+    arr = "%\"arr" + ll_new(g, "") + "\""
+    g.allocas.add("  " + arr + " = alloca [" + nk + " x { ptr, i64 }]\n")
+    count i from 0 to nk - 1
+        v = ll_expr(g, c, n.kids[i])
+        ep = ll_new(g, "%t")
+        ll_put(g, ep + " = getelementptr inbounds { ptr, i64 }, ptr " + arr + ", i64 " + i)
+        ll_put(g, "store { ptr, i64 } " + v + ", ptr " + ep)
+    r = ll_new(g, "%t")
+    ll_put(g, r + " = call ptr @tb_lc_from_" + nm + "(i64 " + nk + ", ptr " + arr + ")")
+    return r
+
+// each a in pts: a = {pts, i}, len читается на каждом шаге
+func ll_each_cols(g: LLGen, c: Comp, n: Node)
+    base = ll_expr(g, c, n.kids[0])
+    islot = ll_slot(g, c, ll_new(g, "e"), 1)
+    ll_put(g, "store i64 0, ptr " + islot)
+    head = ll_new(g, "L")
+    body = ll_new(g, "L")
+    step = ll_new(g, "L")
+    out = ll_new(g, "L")
+    ll_label(g, head)
+    iv = ll_new(g, "%t")
+    ll_put(g, iv + " = load i64, ptr " + islot)
+    ln = ll_clen(g, base)
+    cv = ll_new(g, "%t")
+    ll_put(g, cv + " = icmp slt i64 " + iv + ", " + ln)
+    ll_term(g, "br i1 " + cv + ", label %" + body + ", label %" + out)
+    ll_label(g, body)
+    rv = ll_mkrow(g, base, iv)
+    et = c.types[n.kids[0].ty].elem
+    ll_put(g, "store { ptr, i64 } " + rv + ", ptr " + ll_slot(g, c, n.name, et))
+    ll_loop_body(g, c, n.kids[1], step, out)
+    ll_label(g, step)
+    iv2 = ll_new(g, "%t")
+    ll_put(g, iv2 + " = load i64, ptr " + islot)
+    nx = ll_new(g, "%t")
+    ll_put(g, nx + " = add nsw i64 " + iv2 + ", 1")
+    ll_put(g, "store i64 " + nx + ", ptr " + islot)
+    ll_term(g, "br label %" + head)
+    ll_label(g, out)
+
 // list bool: по биту на элемент (tb_bget/tb_bset/tb_badd/tb_bpop из C, LTO их встраивает)
 func ll_bits(c: Comp, t: int)
     return kind_of(c, t) == "list" and c.types[t].elem == 3
@@ -92,6 +271,8 @@ func ll_elem_ty(c: Comp, t: int)
 
 // элемент годится для этого списка: число как число, текст/obj — как значение-коробка
 func ll_elem_ok(c: Comp, lt: int, v: Node, names: list text)
+    if ll_colist(c, lt)
+        return ll_row_ok(c, v, names)
     if ll_bits(c, lt)
         return kind_of(c, v.ty) == "bool" and ll_expr_ok(c, v, names)
     if ll_ptr_elems(c, lt)
@@ -136,7 +317,7 @@ func ll_ref_name_ok(c: Comp, n: Node)
 
 // список, obj или dict: в LLVM — указатель
 func ll_box(c: Comp, t: int)
-    return ll_numlist(c, t) or ll_bits(c, t) or ll_plainobj(c, t) or ll_dict(c, t)
+    return ll_numlist(c, t) or ll_bits(c, t) or ll_colist(c, t) or ll_plainobj(c, t) or ll_dict(c, t)
 
 // dict с ключом int или text и значением, которое LLVM умеет класть и брать (8 байт, bool — 1)
 func ll_dict(c: Comp, t: int)
@@ -146,10 +327,12 @@ func ll_dict(c: Comp, t: int)
     if not (kk == "int" or kk == "text")
         return false
     e = c.types[t].elem
-    return ll_val(c, e) or ll_numlist(c, e) or ll_plainobj(c, e) or (kind_of(c, e) == "dict" and ll_dict(c, e))
+    return ll_val(c, e) or ll_numlist(c, e) or ll_plainobj(c, e) or ll_row(c, e) or (kind_of(c, e) == "dict" and ll_dict(c, e))
 
 // значение подходит туда, где ждут тип t
 func ll_value_ok(c: Comp, t: int, v: Node, names: list text)
+    if ll_row(c, t)
+        return ll_row_ok(c, v, names)
     if ll_box(c, t)
         return ll_box(c, v.ty) and ll_box_ok(c, v, names)
     if ll_is_text(c, t)
@@ -207,6 +390,8 @@ func ll_new_ok(c: Comp, n: Node, names: list text)
 // качество в памяти: как в C (long long → i64, double, _Bool → i8, остальное — указатель)
 func ll_mem_ty(c: Comp, t: int)
     k = kind_of(c, t)
+    if k == "obj" and is_cols_obj(c, t)
+        return "{ ptr, i64 }"
     if k == "dec"
         return "double"
     if k == "bool"
@@ -217,6 +402,8 @@ func ll_mem_ty(c: Comp, t: int)
 
 func ll_ty(c: Comp, t: int)
     k = kind_of(c, t)
+    if k == "obj" and is_cols_obj(c, t)
+        return "{ ptr, i64 }"
     if k == "list" or k == "obj" or k == "text" or k == "dict"
         return "ptr"
     if k == "dec"
@@ -378,10 +565,14 @@ func ll_expr_ok(c: Comp, n: Node, names: list text)
     if k == "name"
         if n.is_link
             return ll_link_ok(c, n.ty)
+        if ll_row(c, n.ty)
+            return ll_row_ok(c, n, names)
         return (ll_val(c, n.ty) or ll_box(c, n.ty)) and ll_global_ok(c, n.name, n.ty)
     if k == "list" or k == "dict"
         return ll_box_ok(c, n, names)
     if k == "call" and n.has_ref and n.ref.kind == "obj"
+        if ll_row(c, n.ty)
+            return ll_row_ok(c, n, names)
         return ll_new_ok(c, n, names)
     if k == "method"
         b = n.kids[0]
@@ -392,7 +583,7 @@ func ll_expr_ok(c: Comp, n: Node, names: list text)
             if n.name == "has" or n.name == "remove"
                 return len(n.kids) == 2 and ll_expr_ok(c, n.kids[1].kids[0], names)
             if n.name == "keys" or n.name == "values"
-                return ll_numlist(c, n.ty)
+                return ll_numlist(c, n.ty) or ll_colist(c, n.ty)
             return false
         // xs.pop(): последний элемент списка
         return n.name == "pop" and ll_list_name_ok(c, b, names)
@@ -430,6 +621,8 @@ func ll_expr_ok(c: Comp, n: Node, names: list text)
             return false
         return ll_expr_ok(c, n.kids[0], names) and ll_expr_ok(c, n.kids[1], names)
     if k == "index"
+        if ll_colist(c, n.kids[0].ty)
+            return ll_row_ok(c, n, names)
         if ll_dict(c, n.kids[0].ty)
             return ll_box_ok(c, n.kids[0], names) and ll_expr_ok(c, n.kids[1], names)
         if ll_is_text(c, n.kids[0].ty)
@@ -441,7 +634,7 @@ func ll_expr_ok(c: Comp, n: Node, names: list text)
         a = n.kids[0].kids[0]
         if ll_is_text(c, a.ty)
             return ll_expr_ok(c, a, names)
-        if ll_dict(c, a.ty)
+        if ll_dict(c, a.ty) or ll_colist(c, a.ty)
             return ll_box_ok(c, a, names)
         return ll_list_name_ok(c, a, names)
     if k == "call" and not n.has_ref and (n.name == "print" or n.name == "show")
@@ -449,7 +642,10 @@ func ll_expr_ok(c: Comp, n: Node, names: list text)
             if a.kind == "missing" or len(a.kids) == 0
                 return false
             v = a.kids[0]
-            if ll_box(c, v.ty)
+            if ll_row(c, v.ty)
+                if not ll_row_ok(c, v, names)
+                    return false
+            else if ll_box(c, v.ty)
                 if not ll_box_ok(c, v, names)
                     return false
             else if not (ll_val(c, v.ty) and ll_expr_ok(c, v, names))
@@ -511,10 +707,18 @@ func ll_addr(g: LLGen, c: Comp, v: Node)
         return ll_field_ptr(g, c, v)
     return ll_elem_ptr(g, c, v)
 
+// аргумент при вызове: тип, пометка, значение; строка by columns — двумя частями
+func ll_arg(g: LLGen, c: Comp, p: Node, v: text)
+    if not p.is_link and ll_row(c, p.ty)
+        return "ptr " + ll_rpart(g, v, 0) + ", i64 " + ll_rpart(g, v, 1)
+    return ll_pty(c, p) + " " + ll_pext(c, p) + v
+
 // тип параметра при вызове: у link — адрес
 func ll_pty(c: Comp, p: Node)
     if p.is_link
         return "ptr"
+    if ll_row(c, p.ty)
+        return "ptr, i64"
     return ll_ty(c, p.ty)
 
 func ll_pext(c: Comp, p: Node)
@@ -535,6 +739,8 @@ func ll_concat_walk(c: Comp, n: Node, parts: list Node)
 
 // p.x: p — obj (имя, users[i], a.b, f()), x — число, текст или коробка
 func ll_field_ok(c: Comp, n: Node, names: list text)
+    if n.kind == "field" and len(n.kids) == 1 and ll_row(c, n.kids[0].ty)
+        return ll_val(c, n.ty) and ll_row_ok(c, n.kids[0], names)
     if n.kind != "field" or len(n.kids) != 1 or not ll_plainobj(c, n.kids[0].ty) or not (ll_val(c, n.ty) or ll_box(c, n.ty))
         return false
     b = n.kids[0]
@@ -558,10 +764,13 @@ func ll_stmt_ok(c: Comp, n: Node, names: list text)
             return false
         if not ll_global_ok(c, n.name, n.ty)
             return false
+        if ll_row(c, n.ty)
+            // p = Point(...), q = pts[1], e = Point()
+            return n.is_link == false and (len(n.kids) == 0 or ll_row_ok(c, n.kids[0], names))
         if ll_box(c, n.ty)
             // xs = list int (пустой), xs = [1, 2], b = Ball(...), ys = xs
             if len(n.kids) == 0
-                return ll_numlist(c, n.ty) or ll_bits(c, n.ty) or ll_dict(c, n.ty)
+                return ll_numlist(c, n.ty) or ll_bits(c, n.ty) or ll_colist(c, n.ty) or ll_dict(c, n.ty)
             return ll_box_ok(c, n.kids[0], names)
         if len(n.kids) == 0
             // s = text, n = int: значение по умолчанию
@@ -583,6 +792,9 @@ func ll_stmt_ok(c: Comp, n: Node, names: list text)
             if not (op == "+=" or op == "-=" or op == "*=" or op == "/=")
                 return false
             return ll_expr_ok(c, n.kids[1], names)
+        if ll_row(c, n.ty) and t.kind == "index"
+            // pts[i] = Point(...): строку целиком
+            return op == "=" and ll_row_ok(c, t, names) and ll_row_ok(c, n.kids[1], names)
         if (ll_box(c, n.ty) or ll_is_text(c, n.ty)) and t.kind == "index"
             // names[i] = "x", pts[i] = p: только  =
             return op == "=" and ll_expr_ok(c, t, names) and ll_elem_ok(c, t.kids[0].ty, n.kids[1], names)
@@ -639,7 +851,7 @@ func ll_stmt_ok(c: Comp, n: Node, names: list text)
         lt = n.kids[0].ty
         if ll_is_text(c, lt)
             return ll_expr_ok(c, n.kids[0], names)
-        return (ll_numlist(c, lt) or ll_bits(c, lt) or ll_dict(c, lt)) and ll_box_ok(c, n.kids[0], names)
+        return (ll_numlist(c, lt) or ll_bits(c, lt) or ll_colist(c, lt) or ll_dict(c, lt)) and ll_box_ok(c, n.kids[0], names)
     if k == "skip" or k == "stop"
         return true
     if k == "temp"
@@ -685,6 +897,8 @@ func ll_stmt_ok(c: Comp, n: Node, names: list text)
             if e.name == "clear"
                 return ll_box_ok(c, e.kids[0], names)
             return ll_expr_ok(c, e, names)
+        if e.kind == "method" and ll_colist(c, e.kids[0].ty)
+            return e.name == "add" and len(e.kids) == 2 and ll_box_ok(c, e.kids[0], names) and ll_row_ok(c, e.kids[1].kids[0], names)
         if e.kind == "method" and ll_list_name_ok(c, e.kids[0], names)
             if e.name == "add"
                 return len(e.kids) == 2 and ll_elem_ok(c, e.kids[0].ty, e.kids[1].kids[0], names)
@@ -698,9 +912,23 @@ func ll_head_ok(c: Comp, f: Node)
     outs = f.kids[2].kids
     each o in outs
         // выходы gives: числа, тексты, коробки
-        if not (ll_val(c, o.ty) or ll_box(c, o.ty))
+        if not (ll_val(c, o.ty) or ll_box(c, o.ty) or ll_row(c, o.ty))
             return false
-    if len(outs) <= 1 and not (kind_of(c, f.ty) == "none" or ll_val(c, f.ty) or ll_box(c, f.ty))
+    if len(outs) <= 1 and not (kind_of(c, f.ty) == "none" or ll_val(c, f.ty) or ll_box(c, f.ty) or ll_row(c, f.ty))
+        return false
+    // строка by columns идёт в двух регистрах; если регистров не хватит, C кладёт её в стек
+    // целиком — так что строки разрешаем, только пока всё влезает в 6 регистров
+    regs = 0
+    rows = false
+    each p in f.kids[0].kids
+        if p.is_link or kind_of(c, p.ty) != "dec"
+            regs += 1
+        if not p.is_link and ll_row(c, p.ty)
+            regs += 1
+            rows = true
+    if len(outs) > 1
+        regs += len(outs)
+    if rows and regs > 6
         return false
     each p in f.kids[0].kids
         if p.is_link
@@ -709,7 +937,7 @@ func ll_head_ok(c: Comp, f: Node)
             each o in outs
                 if o.name == p.name
                     return false
-        else if not (ll_val(c, p.ty) or ll_box(c, p.ty))
+        else if not (ll_val(c, p.ty) or ll_box(c, p.ty) or ll_row(c, p.ty))
             return false
     return true
 
@@ -868,7 +1096,7 @@ func ll_call(g: LLGen, c: Comp, n: Node)
                 v = ll_to_dec(g, c, v, arg.ty)
         if i > 0
             args = args + ", "
-        args = args + ll_pty(c, p) + " " + ll_pext(c, p) + v
+        args = args + ll_arg(g, c, p, v)
     callee = ll_ext(c, f.ty) + ll_ty(c, f.ty) + " @\"" + ll_fname(f) + "\"(" + args + ")"
     if kind_of(c, f.ty) == "none"
         ll_put(g, "call " + callee)
@@ -1088,8 +1316,19 @@ func ll_expr(g: LLGen, c: Comp, n: Node)
         if n.name == "values"
             fn = "tb_x_dvals_copy"
         ll_put(g, r + " = call ptr @" + fn + "(ptr " + base + ")")
+        if ll_colist(c, n.ty)
+            // значения-строки лежат подряд по 16 байт: из них — список колонок
+            cn = ll_cneed(g, c, n.ty)
+            vd = ll_new(g, "%t")
+            ll_put(g, vd + " = load ptr, ptr " + r)
+            vl = ll_len(g, r)
+            r2 = ll_new(g, "%t")
+            ll_put(g, r2 + " = call ptr @tb_lc_from_" + cn + "(i64 " + vl + ", ptr " + vd + ")")
+            return r2
         return r
     if k == "call" and n.has_ref and n.ref.kind == "obj"
+        if ll_row(c, n.ty)
+            return ll_new_row(g, c, n)
         return ll_new_obj(g, c, n)
     if k == "method" and ll_bits(c, n.kids[0].ty)
         bl = ll_expr(g, c, n.kids[0])
@@ -1138,6 +1377,8 @@ func ll_expr(g: LLGen, c: Comp, n: Node)
         r = ll_new(g, "%t")
         ll_put(g, r + " = call ptr @tb_x_char_at(ptr " + sv + ", i64 " + iv + ", i64 " + known + ", i32 " + n.line + ")")
         return r
+    if k == "index" and ll_colist(c, n.kids[0].ty)
+        return ll_col_at(g, c, n)
     if k == "index" and ll_bits(c, n.kids[0].ty)
         bl = ll_expr(g, c, n.kids[0])
         bi = ll_expr(g, c, n.kids[1])
@@ -1180,6 +1421,8 @@ func ll_expr(g: LLGen, c: Comp, n: Node)
             return dl
         // len(xs)
         base = ll_expr(g, c, a)
+        if ll_colist(c, a.ty)
+            return ll_clen(g, base)
         return ll_len(g, base)
     return ll_call(g, c, n)
 
@@ -1377,9 +1620,17 @@ func ll_print(g: LLGen, c: Comp, n: Node, newline: bool)
         if i > 0
             ll_put(g, "call void @tb_x_ps(ptr " + sp + ")")
         x = ll_q(g, c, v)
-        decl = "declare void @tb_show_" + v.ty + "(" + ll_ty(c, v.ty) + " " + ll_ext(c, v.ty) + ")\n"
-        ll_need(g, decl)
-        ll_put(g, "call void @tb_show_" + v.ty + "(" + ll_ty(c, v.ty) + " " + ll_ext(c, v.ty) + x + ")")
+        if ll_row(c, v.ty)
+            // строку C принимает целиком (две части): отдаём адрес копии
+            rs = "%\"rs" + ll_new(g, "") + "\""
+            g.allocas.add("  " + rs + " = alloca { ptr, i64 }\n")
+            ll_put(g, "store { ptr, i64 } " + x + ", ptr " + rs)
+            ll_need(g, "declare void @tb_lc_show_" + v.ty + "(ptr)\n")
+            ll_put(g, "call void @tb_lc_show_" + v.ty + "(ptr " + rs + ")")
+        else
+            decl = "declare void @tb_show_" + v.ty + "(" + ll_ty(c, v.ty) + " " + ll_ext(c, v.ty) + ")\n"
+            ll_need(g, decl)
+            ll_put(g, "call void @tb_show_" + v.ty + "(" + ll_ty(c, v.ty) + " " + ll_ext(c, v.ty) + x + ")")
     if newline
         nlp, nln = ll_strconst(g, "\"\\n\"")
         ll_put(g, "call void @tb_x_ps(ptr " + nlp + ")")
@@ -1491,6 +1742,13 @@ func ll_default(g: LLGen, c: Comp, t: int)
         r = ll_new(g, "%t")
         ll_put(g, r + " = call ptr @tb_x_bits_new()")
         return r
+    if ll_colist(c, t)
+        cn = ll_cneed(g, c, t)
+        r = ll_new(g, "%t")
+        ll_put(g, r + " = call ptr @tb_lc_new_" + cn + "()")
+        return r
+    if ll_row(c, t)
+        return "zeroinitializer"
     if ll_numlist(c, t)
         r = ll_new(g, "%t")
         ll_put(g, r + " = call ptr @" + ll_list_new_fn(c, t) + "(i64 8)")
@@ -1505,6 +1763,8 @@ func ll_default(g: LLGen, c: Comp, t: int)
 
 // [1, 2, 3]: числа во временный массив на стеке, потом tb_list_from_np (как в C)
 func ll_list_lit(g: LLGen, c: Comp, n: Node)
+    if ll_colist(c, n.ty)
+        return ll_col_lit(g, c, n)
     nk = len(n.kids)
     if ll_bits(c, n.ty)
         // [true, false]: байты на стеке, потом tb_bits_from (как в C)
@@ -1580,6 +1840,8 @@ func ll_dict_text(c: Comp, t: int)
 func ll_vsize(c: Comp, t: int)
     if kind_of(c, c.types[t].elem) == "bool"
         return "1"
+    if ll_row(c, c.types[t].elem)
+        return "16"
     return "8"
 
 // ключ как адрес (&(K){ключ} в C): своё место на стеке функции
@@ -1671,6 +1933,8 @@ func ll_may_resize(c: Comp, n: Node)
 
 // адрес p.x: проверка на пустой obj, потом поле (холодное — через tb_cold), как в C
 func ll_field_ptr(g: LLGen, c: Comp, n: Node)
+    if ll_row(c, n.kids[0].ty)
+        return ll_row_field_ptr(g, c, n)
     base = ll_expr(g, c, n.kids[0])
     z = ll_new(g, "%t")
     ll_put(g, z + " = icmp eq ptr " + base + ", null")
@@ -1805,7 +2069,7 @@ func ll_index_key(n: Node)
 
 func ll_fast_collect(c: Comp, n: Node, var: text, keys: list text, nodes: list Node, offs: list int)
     key = ll_index_key(n)
-    if key != "" and ll_bits(c, n.kids[0].ty)
+    if key != "" and not ll_numlist(c, n.kids[0].ty)
         key = ""
     if key != "" and starts_with(key, n.kids[0].name + "#" + var + "#") and not ll_has(keys, key)
         k = to_int(cut(key, len(n.kids[0].name) + len(var) + 2, len(key) - 1)) or 0
@@ -1936,7 +2200,7 @@ func ll_call_multi(g: LLGen, c: Comp, n: Node, outs: list text)
             v = ll_as(g, c, arg, p.ty)
         if i > 0
             args = args + ", "
-        args = args + ll_pty(c, p) + " " + ll_pext(c, p) + v
+        args = args + ll_arg(g, c, p, v)
     fouts = f.kids[2].kids
     bytes = list text
     count j from 0 to len(outs) - 1
@@ -2078,6 +2342,13 @@ func ll_stmt(g: LLGen, c: Comp, n: Node)
         else
             r = ll_arith(g, c, cut(op, 0, 0), old, vt, v, n.kids[1].ty, vt, n.line)
         ll_store_val(g, c, vt, r, p)
+    else if k == "set" and n.kids[0].kind == "index" and ll_colist(c, n.kids[0].kids[0].ty)
+        // pts[i] = p: сначала значение, потом список и номер; копия качеств (tb_colset_X)
+        rv = ll_expr(g, c, n.kids[1])
+        cl = ll_expr(g, c, n.kids[0].kids[0])
+        ci = ll_expr(g, c, n.kids[0].kids[1])
+        cn = ll_cneed(g, c, n.kids[0].kids[0].ty)
+        ll_put(g, "call void @tb_lc_set_" + cn + "(ptr " + cl + ", i64 " + ci + ", ptr " + ll_rpart(g, rv, 0) + ", i64 " + ll_rpart(g, rv, 1) + ", i32 " + n.line + ")")
     else if k == "set" and n.kids[0].kind == "index" and ll_bits(c, n.kids[0].kids[0].ty)
         // flags[i] = v: сначала значение, потом список и номер (как в C)
         v = ll_expr(g, c, n.kids[1])
@@ -2265,6 +2536,9 @@ func ll_stmt(g: LLGen, c: Comp, n: Node)
         if ll_bits(c, lt)
             ll_each_bits(g, c, n)
             return
+        if ll_colist(c, lt)
+            ll_each_cols(g, c, n)
+            return
         base = ll_expr(g, c, n.kids[0])
         vt = c.types[lt].elem
         if ll_dict(c, lt)
@@ -2406,10 +2680,33 @@ func ll_stmt(g: LLGen, c: Comp, n: Node)
         // xs.add(v): сначала значение, потом место под него (как в C)
         e = n.kids[0]
         lt = e.kids[0].ty
+        pv = e.kids[1].kids[0]
+        if ll_colist(c, lt) and pv.kind == "call" and pv.has_ref and pv.ref.kind == "obj"
+            // pts.add(Point(...)): качества сразу в колонки, без временной строки (как в C)
+            pl = ll_expr(g, c, e.kids[0])
+            o = pv.ref
+            pargs = "ptr " + pl
+            ptys = "ptr"
+            count i from 0 to len(o.kids) - 1
+                ft = o.kids[i].ty
+                fv = ""
+                if pv.kids[i].kind == "missing"
+                    fv = ll_default(g, c, ft)
+                else
+                    fv = ll_as(g, c, pv.kids[i].kids[0], ft)
+                pargs = pargs + ", " + ll_ty(c, ft) + " " + ll_ext(c, ft) + fv
+                ptys = ptys + ", " + ll_ty(c, ft) + " " + ll_ext(c, ft)
+            ll_need(g, "declare void @tb_lc_push_" + o.name + "(" + ptys + ", i32)\n")
+            ll_put(g, "call void @tb_lc_push_" + o.name + "(" + pargs + ", i32 " + e.line + ")")
+            return
         v = ll_as(g, c, e.kids[1].kids[0], c.types[lt].elem)
         base = ll_expr(g, c, e.kids[0])
         if ll_bits(c, lt)
             ll_put(g, "call void @tb_x_badd(ptr " + base + ", i1 zeroext " + v + ")")
+            return
+        if ll_colist(c, lt)
+            cn = ll_cneed(g, c, lt)
+            ll_put(g, "call void @tb_lc_add_" + cn + "(ptr " + base + ", ptr " + ll_rpart(g, v, 0) + ", i64 " + ll_rpart(g, v, 1) + ", i32 " + e.line + ")")
             return
         p = ll_new(g, "%t")
         ll_put(g, p + " = call ptr @tb_x_grow(ptr " + base + ")")
@@ -2443,7 +2740,11 @@ func ll_func(c: Comp, f: Node, all: list text, decls: list text)
         p = params.kids[i]
         if i > 0
             head = head + ", "
-        head = head + ll_pty(c, p) + " " + ll_pext(c, p) + ll_pname(g, p.name)
+        if not p.is_link and ll_row(c, p.ty)
+            // строка — двумя параметрами, как её раскладывает clang (ptr, i64)
+            head = head + "ptr %\"p." + p.name + ".c\", i64 %\"p." + p.name + ".i\""
+        else
+            head = head + ll_pty(c, p) + " " + ll_pext(c, p) + ll_pname(g, p.name)
     if g.multi_out
         count i from 0 to len(outs) - 1
             if i > 0 or len(params.kids) > 0
@@ -2460,6 +2761,11 @@ func ll_func(c: Comp, f: Node, all: list text, decls: list text)
             g.links.add(p.name)
         else
             slot = ll_slot(g, c, p.name, p.ty)
+            if ll_row(c, p.ty)
+                rp = ll_pname(g, p.name)
+                r0 = "%\"p." + p.name + ".r\""
+                g.out.add("  " + r0 + " = insertvalue { ptr, i64 } undef, ptr %\"p." + p.name + ".c\", 0\n")
+                g.out.add("  " + rp + " = insertvalue { ptr, i64 } " + r0 + ", i64 %\"p." + p.name + ".i\", 1\n")
             g.out.add("  store " + ll_ty(c, p.ty) + " " + ll_pname(g, p.name) + ", ptr " + slot + "\n")
     each o in outs
         // выход с именем параметра — та же переменная: уже лежит значение параметра.

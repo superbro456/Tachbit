@@ -2615,6 +2615,32 @@ func emit_cols_helpers(c: Comp, o: Node)
     count i from 0 to len(o.kids) - 1
         put(c, "    l->q_" + o.kids[i].name + "[0] = a" + i + ";\n")
     put(c, "    l->len = 1;\n    return (" + row + "){l, 0};\n}\n")
+    if c.ll
+        // --llvm: те же помощники, но строка — двумя частями (список колонок, номер)
+        put(c, "TB_LLV " + cols + " *tb_lc_new_" + nm + "(void) { return tb_cols_new_" + nm + "(); }\n")
+        put(c, "TB_LLV void tb_lc_add_" + nm + "(" + cols + " *l, " + cols + " *rc, long long ri, int line) { tb_coladd_" + nm + "(l, (" + row + "){rc, ri}, line); }\n")
+        put(c, "TB_LLV void tb_lc_set_" + nm + "(" + cols + " *l, long long i, " + cols + " *rc, long long ri, int line) { tb_colset_" + nm + "(l, i, (" + row + "){rc, ri}, line); }\n")
+        put(c, "TB_LLV " + cols + " *tb_lc_from_" + nm + "(long long n, " + row + " *rows) { return tb_colsfrom_" + nm + "(n, rows); }\n")
+        put(c, "TB_LLV " + cols + " *tb_lc_make_" + nm + "(")
+        if len(o.kids) == 0
+            put(c, "void")
+        count i from 0 to len(o.kids) - 1
+            if i > 0
+                put(c, ", ")
+            put(c, c_type(c, o.kids[i].ty) + " a" + i)
+        put(c, ") { return tb_new_" + nm + "(")
+        count i from 0 to len(o.kids) - 1
+            if i > 0
+                put(c, ", ")
+            put(c, "a" + i)
+        put(c, ").c; }\n")
+        put(c, "TB_LLV void tb_lc_push_" + nm + "(" + cols + " *l")
+        count i from 0 to len(o.kids) - 1
+            put(c, ", " + c_type(c, o.kids[i].ty) + " a" + i)
+        put(c, ", int line) { tb_colpush_" + nm + "(l")
+        count i from 0 to len(o.kids) - 1
+            put(c, ", a" + i)
+        put(c, ", line); }\n")
 
 func emit_constructor(c: Comp, o: Node)
     if o.by_cols
@@ -2710,6 +2736,9 @@ modpub func emit_c(c: Comp, program: Node)
     put(c, "\n")
     each t in c.types
         emit_show(c, t)
+        if c.ll and t.kind == "obj" and is_cols_obj(c, t.id)
+            // строку из .ll отдают по адресу (две части в регистрах у разных машин передаются по-разному)
+            put(c, "TB_LLV void tb_lc_show_" + t.id + "(tb_row_" + t.obj_node.name + " *r) { tb_show_" + t.id + "(*r); }\n")
     // --llvm: встроенные функции, которые зовут из .ll — обёртка с видом Tachbit
     count i from 0 to len(c.ll_bi) - 1
         emit_ll_builtin(c, c.ll_bi[i], i)
