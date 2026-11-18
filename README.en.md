@@ -99,7 +99,7 @@ On the authors' Mac (Intel i9) Tachbit is as fast as plain C or faster on all 18
 
 ### LLVM path (experimental)
 
-`tachbit run --llvm file.tb` writes number-only functions (`int`, `dec`, `bool`, conditions, loops, calls to such functions) straight to LLVM IR (`compiler/emit_ll.tb`); everything else still goes through C, and `clang` links both. Speed is the same as the C path today; the point is to carry facts C cannot express (`move` = no aliasing, known number ranges) to custom LLVM passes later. `tachbit ll file.tb` prints the IR, `./bench/llvm/run.sh` compares the two paths.
+`tachbit run --llvm file.tb` writes functions with numbers and text (`int`, `dec`, `bool`, `text`, `print`, conditions, loops, calls) straight to LLVM IR (`compiler/emit_ll.tb`); everything else still goes through C, and `clang` links both. Speed is the same as the C path today; the point is to carry facts C cannot express (`move` = no aliasing, known number ranges) to custom LLVM passes later. `tachbit ll file.tb` prints the IR, `./bench/llvm/run.sh` compares the two paths.
 
 ## Layout
 

@@ -16,7 +16,7 @@ best() {
     echo "$b"
 }
 printf "%-12s %8s %8s  %s\n" "задача" "через C" "LLVM" "функций в .ll"
-for b in fib collatz mandel primes_div gcd hist axpy prefix; do
+for b in fib collatz mandel primes_div gcd hist axpy prefix texts; do
     src=$b.tb
     [ "$b" = fib ] && src=../fib.tb
     CC=clang "$T" build "$src" > /dev/null || exit 1

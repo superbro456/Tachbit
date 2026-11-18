@@ -1,0 +1,70 @@
+// тексты в функциях, которые идут через LLVM
+obj Pet
+    name: text
+    age: int
+
+func greet(who: text, n: int)
+    return "привет, " + who + "! номер " + n + ", доля " + 0.5 + ", да? " + true
+
+func commas(s: text)
+    k = 0
+    count i from 0 to len(s) - 1
+        if s[i] == ","
+            k += 1
+    return k
+
+func build(n: int)
+    s = ""
+    count i from 1 to n
+        s += i
+        s += ";"
+    return s
+
+func grow(n: int)
+    s = "<"
+    count i from 1 to n
+        s = s + "x" + i
+    return s + ">"
+
+func order(a: text, b: text)
+    if a < b
+        return -1
+    if a == b
+        return 0
+    return 1
+
+func rename(p: Pet, extra: text)
+    p.name += extra
+    p.age += 1
+
+func escapes()
+    print("таб:\tконец", "кавычка \" и \\ слеш", "\x41\102")
+
+func flipped()
+    return order(b: "a", a: "b")
+
+// текст живёт один шаг цикла: память шага отдаётся в конце шага (и при skip)
+func score(n: int)
+    k = 0
+    count i from 1 to n
+        w = "w" + i + "-" + (i % 3)
+        if i % 5 == 0
+            skip
+        if w == "w1-1"
+            k += 100
+        k += len(w)
+    return k
+
+func main()
+    print(greet("мир", 7))
+    print(commas("a,b,,c"), commas(""))
+    print(build(5), len(build(12)))
+    print(grow(3))
+    print(order("abc", "abd"), order("x", "x"), flipped())
+    p = Pet(name: "Рыжик", age: 2)
+    rename(p, "-кот")
+    print(p.name, p.age)
+    escapes()
+    print(score(2000))
+    s = build(3)
+    print(s[0], s[len(s) - 1])

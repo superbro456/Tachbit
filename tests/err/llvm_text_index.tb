@@ -1,0 +1,6 @@
+// номер за пределами текста в функции, которая идёт через LLVM
+func last(s: text)
+    return s[len(s)]
+
+func main()
+    print(last("abc"))

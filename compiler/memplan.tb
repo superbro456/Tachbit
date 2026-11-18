@@ -1,0 +1,199 @@
+// Память без temp: какую память компилятор может отдать сам (в конце шага цикла
+// или при выходе из функции). Общий разбор для вывода C и вывода LLVM.
+use check
+
+func mp_has(names: list text, name: text)
+    each x in names
+        if x == name
+            return true
+    return false
+
+// ---------- память цикла без temp: компилятор сам отдаёт её в конце каждого шага ----------
+// Если тело цикла ничего не сохраняет наружу (ни текст, ни список, ни obj — только числа),
+// всё, что создано за шаг, берётся из временной памяти и отдаётся разом в конце шага.
+// Это то же, что temp, только компилятор ставит его сам, а память берётся быстрее malloc.
+
+modpub func is_plain_ty(c: Comp, t: int)
+    return t == 1 or t == 2 or t == 3 or is_enum(c, t)
+
+// имена, которые создаются внутри тела
+func at_inner(n: Node, inner: list text)
+    k = n.kind
+    if (k == "assign" and n.creates) or k == "each" or k == "count" or k == "else_err"
+        inner.add(n.name)
+    if k == "multi"
+        count i from 0 to len(n.kids) - 2
+            if n.kids[i].creates
+                inner.add(n.kids[i].name)
+    each kid in n.kids
+        at_inner(kid, inner)
+
+// список, dict или obj (их можно менять; текст менять нельзя)
+func is_box(c: Comp, t: int)
+    return t > 4 and not is_enum(c, t)
+
+// имя, от которого идёт u.list[i].x
+func root_name(n: Node)
+    r = n
+    repeat while r.kind == "index" or r.kind == "field"
+        r = r.kids[0]
+    if r.kind == "name"
+        return r.name
+    return ""
+
+// значение не тянет за собой список, dict или obj снаружи шага (или изнутри, но «не свежий»)
+func at_fresh_expr(c: Comp, n: Node, inner: list text, fresh: list text)
+    if n.kind == "name" and is_box(c, n.ty) and not (mp_has(inner, n.name) and mp_has(fresh, n.name))
+        return false
+    each k in n.kids
+        if not at_fresh_expr(c, k, inner, fresh)
+            return false
+    return true
+
+// убрать из «свежих» имена, в которые попало что-то снаружи; true — что-то убрали
+func at_unfresh(c: Comp, n: Node, inner: list text, fresh: list text) gives changed: bool
+    k = n.kind
+    lose = ""
+    if k == "assign" and len(n.kids) == 1 and is_box(c, n.kids[0].ty) and not at_fresh_expr(c, n.kids[0], inner, fresh)
+        lose = n.name
+    if k == "each" and not at_fresh_expr(c, n.kids[0], inner, fresh)
+        lose = n.name
+    if k == "set" and n.kids[0].kind != "name" and is_box(c, n.kids[1].ty) and not at_fresh_expr(c, n.kids[1], inner, fresh)
+        lose = root_name(n.kids[0])
+    if k == "method" and n.name == "add" and is_box(c, n.kids[1].kids[0].ty) and not at_fresh_expr(c, n.kids[1].kids[0], inner, fresh)
+        lose = root_name(n.kids[0])
+    if k == "multi"
+        count i from 0 to len(n.kids) - 2
+            if mp_has(fresh, n.kids[i].name)
+                drop_name(fresh, n.kids[i].name)
+                changed = true
+    if lose != "" and mp_has(fresh, lose)
+        drop_name(fresh, lose)
+        changed = true
+    each kid in n.kids
+        if at_unfresh(c, kid, inner, fresh)
+            changed = true
+
+func drop_name(names: list text, name: text)
+    keep = list text
+    each x in names
+        if x != name
+            keep.add(x)
+    repeat while len(names) > 0
+        gone = names.pop()
+    each x in keep
+        names.add(x)
+
+// сюда можно класть новое: это свежий список / dict / obj, созданный на этом шаге
+func at_own(n: Node, inner: list text, fresh: list text)
+    r = root_name(n)
+    return r != "" and mp_has(inner, r) and mp_has(fresh, r)
+
+// что-то в теле не даёт отдать память шага: сохраняет наружу или уходит из цикла
+func at_bad(c: Comp, n: Node, inner: list text, fresh: list text, level: int)
+    k = n.kind
+    if k == "return" and not c.at_ret_ok
+        return true
+    if k == "fail" or k == "try" or k == "background" or k == "together" or k == "temp" or k == "danger"
+        return true
+    if k == "stop" and level == 0
+        return true
+    if (k == "each" or k == "count") and (n.is_par or n.by_vec or n.by_piece)
+        return true
+    if k == "assign" and not n.creates and not is_plain_ty(c, n.ty) and not mp_has(inner, n.name)
+        return true
+    if k == "set"
+        target = n.kids[0]
+        if target.kind == "name" and not is_plain_ty(c, target.ty) and not mp_has(inner, target.name)
+            return true
+        if target.kind != "name" and not at_own(target, inner, fresh)
+            if not is_plain_ty(c, n.kids[1].ty)
+                return true
+            if target.kind == "index" and kind_of(c, target.kids[0].ty) == "dict" and not is_plain_ty(c, target.kids[1].ty)
+                return true
+    if k == "method" and n.name == "add" and not is_plain_ty(c, n.kids[1].kids[0].ty) and not at_own(n.kids[0], inner, fresh)
+        return true
+    if k == "multi"
+        count i from 0 to len(n.kids) - 2
+            if not is_plain_ty(c, n.kids[i].ty) and not mp_has(inner, n.kids[i].name)
+                return true
+    if k == "linkdecl" and not is_plain_ty(c, n.ty)
+        return true
+    if k == "call" and n.has_ref and n.ref.kind == "func"
+        params = n.ref.kids[0]
+        count i from 0 to len(n.kids) - 1
+            a = n.kids[i].kids[0]
+            // в функцию ушёл список, dict или obj снаружи: она может положить в него новое
+            if is_box(c, a.ty) and not at_fresh_expr(c, a, inner, fresh)
+                return true
+            if i < len(params.kids) and params.kids[i].is_link and not is_plain_ty(c, a.ty) and not mp_has(inner, root_name(a))
+                return true
+    next_level = level
+    if k == "each" or k == "count" or k == "repeat_times" or k == "repeat_while"
+        next_level = level + 1
+    each kid in n.kids
+        if at_bad(c, kid, inner, fresh, next_level)
+            return true
+    return false
+
+// в теле создаётся что-то в памяти (текст, список, obj) — иначе отдавать нечего
+func at_allocates(c: Comp, n: Node)
+    seen = list text
+    return at_alloc_in(c, n, seen)
+
+// вызов своей функции берёт память, только если её берёт сама функция
+// (fib не берёт ничего — ей временная память не нужна, и она остаётся быстрой)
+func at_alloc_in(c: Comp, n: Node, seen: list text)
+    k = n.kind
+    if (k == "call" or k == "binop" or k == "list" or k == "dict" or k == "method") and n.ty > 0 and not is_plain_ty(c, n.ty)
+        return true
+    if k == "call" and n.has_ref
+        if n.ref.kind != "func"
+            return true
+        key = n.ref.name + ":" + n.ref.line
+        each name in seen
+            if name == key
+                return false
+        seen.add(key)
+        if at_alloc_in(c, n.ref.kids[1], seen)
+            return true
+    each kid in n.kids
+        if at_alloc_in(c, kid, seen)
+            return true
+    return false
+
+modpub func auto_temp_ok(c: Comp, body: Node)
+    if not at_allocates(c, body)
+        return false
+    inner = list text
+    at_inner(body, inner)
+    fresh = list text
+    each x in inner
+        fresh.add(x)
+    repeat while at_unfresh(c, body, inner, fresh)
+        fresh = fresh
+    return not at_bad(c, body, inner, fresh, 0)
+
+// функция отдаёт наружу только число, dec, bool или ничего, и ничего не кладёт
+// в то, что ей передали: вся её память временная (main не трогаем: она и так до конца)
+modpub func func_arena_ok(c: Comp, f: Node)
+    if f.name == "main" or not (kind_of(c, f.ty) == "none" or kind_of(c, f.ty) == "multi" or is_plain_ty(c, f.ty))
+        return false
+    each o in f.kids[2].kids
+        if not is_plain_ty(c, o.ty)
+            return false
+    body = f.kids[1]
+    if not at_allocates(c, body)
+        return false
+    inner = list text
+    at_inner(body, inner)
+    fresh = list text
+    each x in inner
+        fresh.add(x)
+    repeat while at_unfresh(c, body, inner, fresh)
+        fresh = fresh
+    c.at_ret_ok = true
+    bad = at_bad(c, body, inner, fresh, 0)
+    c.at_ret_ok = false
+    return not bad
+

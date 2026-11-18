@@ -1141,6 +1141,12 @@ TB_INL void tb_temp_end(tb_mark m) {
     tb_temp_depth -= 1;
     tb_lc_clear();
 }
+// --llvm: то же через указатель (из файла .ll так проще, чем отдавать struct по значению)
+TB_INL void tb_temp_begin_p(tb_mark *m) { *m = tb_temp_begin(); }
+TB_INL void tb_temp_end_p(tb_mark *m) { tb_temp_end(*m); }
+// память функции: своя область, только если функцию позвали не изнутри другой области
+TB_INL int tb_fa_begin(tb_mark *m) { if (tb_temp_depth != 0) return 0; *m = tb_temp_begin(); return 1; }
+TB_INL void tb_fa_end(int fa, tb_mark *m) { if (fa) tb_temp_end(*m); }
 // ---------- уборка памяти: сборщик мусора ----------
 // Шаги циклов, функции и temp уже отдают память сами (своя временная память).
 // А то, что живёт дольше (obj, списки, dict, тексты), раньше жило до конца программы.

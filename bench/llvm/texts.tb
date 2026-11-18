@@ -1,0 +1,27 @@
+// тексты: собрать длинный текст на месте и посчитать в нём запятые
+func build(n: int)
+    s = ""
+    count i from 1 to n
+        s += i
+        s += ","
+    return s
+
+func commas(s: text)
+    k = 0
+    count i from 0 to len(s) - 1
+        if s[i] == ","
+            k += 1
+    return k
+
+func words(n: int)
+    k = 0
+    count i from 1 to n
+        w = "w" + i + "-" + (i % 7)
+        if w == "w1-1"
+            k += 1
+        k += len(w)
+    return k
+
+func main()
+    s = build(3000000)
+    print(len(s), commas(s), words(3000000))
