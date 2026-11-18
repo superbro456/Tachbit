@@ -1,0 +1,19 @@
+// гистограмма: по одному списку идём, в другой пишем (каждая запись в C заставляет заново читать len)
+func fill_hist(xs: list int, hist: list int)
+    each x in xs
+        hist[x % 64] += 1
+
+func make(n: int)
+    xs = list int
+    count i from 0 to n - 1
+        xs.add((i * 7919) % 1000003)
+    return xs
+
+func main()
+    xs = make(n: 1000000)
+    hist = list int
+    repeat 64 times
+        hist.add(0)
+    repeat 200 times
+        fill_hist(xs: xs, hist: hist)
+    print(hist[0], hist[63])

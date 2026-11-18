@@ -2777,7 +2777,7 @@ modpub func emit_c(c: Comp, program: Node)
 
     if len(c.ll_names) > 0
         // для функций из .ll: остановка с номером строки (деление на ноль, нет return)
-        put(c, "void tb_ll_crash(int line, int what) { tb_crash(line, what == 0 ? \"деление на ноль\" : \"остаток от деления на ноль\"); }\n")
+        put(c, "void tb_ll_crash(int line, int what) { tb_crash(line, what == 0 ? \"деление на ноль\" : what == 1 ? \"остаток от деления на ноль\" : \"номер за пределами списка\"); }\n")
         put(c, "void tb_ll_noreturn(int line, const char *name) { char m[256]; snprintf(m, sizeof m, \"функция %s дошла до конца без return\", name); tb_crash(line, m); }\n")
     // obj: сначала имена, потом устройство (obj может хранить другой obj)
     each top in program.kids

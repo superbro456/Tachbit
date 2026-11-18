@@ -1,0 +1,8 @@
+// номер за пределами списка в функции с числами: и через C, и через --llvm
+func pick(xs: list int, i: int)
+    return xs[i]
+
+func main()
+    xs = [1, 2, 3]
+    print(pick(xs: xs, i: 2))
+    print(pick(xs: xs, i: 3))

@@ -1,0 +1,48 @@
+// списки чисел в функциях: с --llvm они идут через LLVM IR, без него — через C
+func total(xs: list int)
+    s = 0
+    each x in xs
+        s += x
+    return s
+
+func scale(xs: list dec, k: dec)
+    count i from 0 to len(xs) - 1
+        xs[i] *= k
+
+func add_into(dst: list int, src: list int)
+    count i from 0 to len(src) - 1
+        dst[i] += src[i]
+    dst[0] = 100
+
+func first_big(xs: list int, limit: int)
+    each x in xs
+        if x < limit
+            skip
+        return x
+    return -1
+
+// предел цикла больше списка, но цикл сам останавливается: проверка до цикла не проходит, идёт обычный цикл
+func sum_upto(xs: list int, n: int)
+    s = 0
+    count i from 0 to n
+        if i >= len(xs)
+            stop
+        s += xs[i] * 10 + xs[len(xs) - 1 - i]
+    return s
+
+func neighbours(xs: list int)
+    s = 0
+    count i from 1 to len(xs) - 2
+        s += xs[i - 1] - xs[i + 1]
+    return s
+
+func main()
+    a = [1, 2, 3, 4]
+    b = [10, 20, 30, 40]
+    add_into(dst: a, src: b)
+    print(a, total(xs: a))
+    d = [1.5, 2.0]
+    scale(xs: d, k: 2.0)
+    print(d)
+    print(first_big(xs: b, limit: 25), first_big(xs: b, limit: 99))
+    print(sum_upto(xs: b, n: 100), sum_upto(xs: b, n: 1), neighbours(xs: b))

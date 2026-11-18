@@ -1,0 +1,16 @@
+// суммы с начала: каждый элемент зависит от предыдущего, плюс проверка каждого номера
+func prefix(xs: list int, out: list int)
+    s = 0
+    count i from 0 to len(xs) - 1
+        s += xs[i]
+        out[i] = s
+
+func main()
+    xs = list int
+    out = list int
+    count i from 0 to 999999
+        xs.add(i % 10)
+        out.add(0)
+    repeat 300 times
+        prefix(xs: xs, out: out)
+    print(out[999999])

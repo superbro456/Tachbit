@@ -1,0 +1,14 @@
+// y = y + a*x по всему списку, много раз (основа физики и нейросетей)
+func axpy(y: list dec, x: list dec, a: dec)
+    count i from 0 to len(y) - 1
+        y[i] += a * x[i]
+
+func main()
+    x = list dec
+    y = list dec
+    count i from 0 to 9999
+        x.add(i * 0.5)
+        y.add(1.0)
+    repeat 20000 times
+        axpy(y: y, x: x, a: 0.5)
+    print(y[0], y[9999])

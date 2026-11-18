@@ -16,6 +16,9 @@ obj LLGen
     cont: list text
     brk: list text
     fn: Node
+    // xs[i + k] внутри count, у которых номер проверен один раз до цикла ("xs#i#k")
+    fast: list text
+    fast_depth: int
 
 // имя функции: то же, что у вывода C
 func ll_fname(f: Node)
@@ -38,8 +41,34 @@ func ll_simple(c: Comp, t: int)
     k = kind_of(c, t)
     return k == "int" or k == "dec" or k == "bool" or k == "enum"
 
+// список чисел (list int / list dec): в LLVM — указатель на tb_list {data, len, cap, size}
+func ll_numlist(c: Comp, t: int)
+    if kind_of(c, t) != "list" or is_cols_list(c, t)
+        return false
+    e = c.types[t].elem
+    return e == 1 or e == 2
+
+func ll_elem_ty(c: Comp, t: int)
+    if c.types[t].elem == 2
+        return "double"
+    return "i64"
+
+// пометки для LLVM (TBAA): числа в списках и устройство списка (data, len) никогда не лежат
+// в одной памяти, а int и dec — тоже. C этого сказать не может: у него len и элементы int —
+// оба long long, и после каждой записи в список он заново читает len.
+func ll_elem_tag(c: Comp, t: int)
+    if c.types[t].elem == 2
+        return ", !tbaa !12"
+    return ", !tbaa !11"
+
+// имя списка чисел, которое можно отдать в LLVM (параметр функции)
+func ll_list_name_ok(c: Comp, n: Node)
+    return n.kind == "name" and not n.is_link and ll_numlist(c, n.ty) and not ll_is_global(c, n.name)
+
 func ll_ty(c: Comp, t: int)
     k = kind_of(c, t)
+    if k == "list"
+        return "ptr"
     if k == "dec"
         return "double"
     if k == "bool"
@@ -93,11 +122,20 @@ func ll_expr_ok(c: Comp, n: Node, names: list text)
         if op == "%" and kind_of(c, n.ty) == "dec"
             return false
         return ll_expr_ok(c, n.kids[0], names) and ll_expr_ok(c, n.kids[1], names)
+    if k == "index"
+        return ll_list_name_ok(c, n.kids[0]) and kind_of(c, n.kids[1].ty) == "int" and ll_expr_ok(c, n.kids[1], names)
+    if k == "call" and not n.has_ref and n.name == "len"
+        return len(n.kids) == 1 and len(n.kids[0].kids) == 1 and ll_list_name_ok(c, n.kids[0].kids[0])
     if k == "call"
         if not n.has_ref or n.ref.kind != "func" or not ll_has(names, ll_fname(n.ref))
             return false
         each a in n.kids
-            if a.kind == "missing" or len(a.kids) == 0 or not ll_expr_ok(c, a.kids[0], names)
+            if a.kind == "missing" or len(a.kids) == 0
+                return false
+            if ll_numlist(c, a.kids[0].ty)
+                if not ll_list_name_ok(c, a.kids[0])
+                    return false
+            else if not ll_expr_ok(c, a.kids[0], names)
                 return false
         return true
     return false
@@ -117,7 +155,12 @@ func ll_stmt_ok(c: Comp, n: Node, names: list text)
     if k == "set"
         t = n.kids[0]
         op = n.value
-        if t.kind != "name" or t.is_link or ll_is_global(c, t.name) or not ll_simple(c, n.ty)
+        if not ll_simple(c, n.ty)
+            return false
+        if t.kind == "index"
+            if not ll_expr_ok(c, t, names)
+                return false
+        else if t.kind != "name" or t.is_link or ll_is_global(c, t.name)
             return false
         if not (op == "=" or op == "+=" or op == "-=" or op == "*=" or op == "/=")
             return false
@@ -134,6 +177,8 @@ func ll_stmt_ok(c: Comp, n: Node, names: list text)
         return not n.is_par and ll_expr_ok(c, n.kids[0], names) and ll_expr_ok(c, n.kids[1], names) and ll_block_ok(c, n.kids[2], names)
     if k == "repeat_times" or k == "repeat_while"
         return ll_expr_ok(c, n.kids[0], names) and ll_block_ok(c, n.kids[1], names)
+    if k == "each"
+        return not n.by_vec and not n.is_par and not n.by_piece and ll_list_name_ok(c, n.kids[0]) and ll_block_ok(c, n.kids[1], names)
     if k == "skip" or k == "stop"
         return true
     if k == "return"
@@ -148,7 +193,7 @@ func ll_head_ok(c: Comp, f: Node)
     if not (kind_of(c, f.ty) == "none" or ll_simple(c, f.ty))
         return false
     each p in f.kids[0].kids
-        if p.is_link or not ll_simple(c, p.ty)
+        if p.is_link or not (ll_simple(c, p.ty) or ll_numlist(c, p.ty))
             return false
     return true
 
@@ -277,10 +322,14 @@ func ll_binop(g: LLGen, c: Comp, n: Node)
     op = n.value
     if op == "and" or op == "or"
         return ll_logic(g, c, n)
-    ta = n.kids[0].ty
-    tb = n.kids[1].ty
     a = ll_expr(g, c, n.kids[0])
     b = ll_expr(g, c, n.kids[1])
+    return ll_arith(g, c, op, a, n.kids[0].ty, b, n.kids[1].ty, n.ty, n.line)
+
+// a op b, когда оба значения уже посчитаны (для x += y и xs[i] += y тоже)
+func ll_arith(g: LLGen, c: Comp, op: text, a0: text, ta: int, b0: text, tb: int, rt: int, line: int)
+    a = a0
+    b = b0
     r = ll_new(g, "%t")
     cmp = op == "==" or op == "!=" or op == "<" or op == ">" or op == "<=" or op == ">="
     if cmp
@@ -313,7 +362,7 @@ func ll_binop(g: LLGen, c: Comp, n: Node)
             ic = "sge"
         ll_put(g, r + " = icmp " + ic + " " + ll_ty(c, ta) + " " + a + ", " + b)
         return r
-    if kind_of(c, n.ty) == "dec"
+    if kind_of(c, rt) == "dec"
         a = ll_to_dec(g, c, a, ta)
         b = ll_to_dec(g, c, b, tb)
         fo = "fadd"
@@ -336,7 +385,7 @@ func ll_binop(g: LLGen, c: Comp, n: Node)
         what = 0
         if op == "%"
             what = 1
-        ll_crash(g, n.line, what)
+        ll_crash(g, line, what)
         ll_label(g, ok)
         io = "sdiv"
         if op == "%"
@@ -375,7 +424,109 @@ func ll_expr(g: LLGen, c: Comp, n: Node)
         return r
     if k == "binop"
         return ll_binop(g, c, n)
+    if k == "index"
+        ep = ll_elem_ptr(g, c, n)
+        r = ll_new(g, "%t")
+        ll_put(g, r + " = load " + ll_elem_ty(c, n.kids[0].ty) + ", ptr " + ep + ll_elem_tag(c, n.kids[0].ty))
+        return r
+    if k == "call" and not n.has_ref
+        // len(xs)
+        base = ll_expr(g, c, n.kids[0].kids[0])
+        return ll_len(g, base)
     return ll_call(g, c, n)
+
+func ll_len(g: LLGen, base: text)
+    lp = ll_new(g, "%t")
+    ll_put(g, lp + " = getelementptr inbounds i8, ptr " + base + ", i64 8")
+    r = ll_new(g, "%t")
+    ll_put(g, r + " = load i64, ptr " + lp + ", !tbaa !10")
+    return r
+
+// адрес xs[i] с проверкой номера (как tb_at в C: одно сравнение без знака)
+func ll_elem_ptr(g: LLGen, c: Comp, n: Node)
+    base = ll_expr(g, c, n.kids[0])
+    idx = ll_expr(g, c, n.kids[1])
+    if ll_has(g.fast, ll_index_key(n))
+        // номер уже проверен до цикла
+        d0 = ll_new(g, "%t")
+        ll_put(g, d0 + " = load ptr, ptr " + base + ", !tbaa !10")
+        ep0 = ll_new(g, "%t")
+        ll_put(g, ep0 + " = getelementptr inbounds " + ll_elem_ty(c, n.kids[0].ty) + ", ptr " + d0 + ", i64 " + idx)
+        return ep0
+    ln = ll_len(g, base)
+    bad = ll_new(g, "%t")
+    ll_put(g, bad + " = icmp uge i64 " + idx + ", " + ln)
+    no = ll_new(g, "L")
+    ok = ll_new(g, "L")
+    ll_term(g, "br i1 " + bad + ", label %" + no + ", label %" + ok + ", !prof !0")
+    ll_label(g, no)
+    ll_crash(g, n.line, 3)
+    ll_label(g, ok)
+    d = ll_new(g, "%t")
+    ll_put(g, d + " = load ptr, ptr " + base + ", !tbaa !10")
+    ep = ll_new(g, "%t")
+    ll_put(g, ep + " = getelementptr inbounds " + ll_elem_ty(c, n.kids[0].ty) + ", ptr " + d + ", i64 " + idx)
+    return ep
+
+// один проход count: от start до end включительно, в конце — переход на out
+func ll_count_loop(g: LLGen, c: Comp, n: Node, start: text, end: text, out: text)
+    slot = ll_slot(g, c, n.name, 1)
+    ll_put(g, "store i64 " + start + ", ptr " + slot)
+    head = ll_new(g, "L")
+    body = ll_new(g, "L")
+    step = ll_new(g, "L")
+    ll_label(g, head)
+    iv = ll_new(g, "%t")
+    ll_put(g, iv + " = load i64, ptr " + slot)
+    cv = ll_new(g, "%t")
+    ll_put(g, cv + " = icmp sle i64 " + iv + ", " + end)
+    ll_term(g, "br i1 " + cv + ", label %" + body + ", label %" + out)
+    ll_label(g, body)
+    g.cont.add(step)
+    g.brk.add(out)
+    ll_block(g, c, n.kids[2])
+    gone_c = g.cont.pop()
+    gone_b = g.brk.pop()
+    ll_label(g, step)
+    iv2 = ll_new(g, "%t")
+    ll_put(g, iv2 + " = load i64, ptr " + slot)
+    nx = ll_new(g, "%t")
+    ll_put(g, nx + " = add nsw i64 " + iv2 + ", 1")
+    ll_put(g, "store i64 " + nx + ", ptr " + slot)
+    ll_term(g, "br label %" + head)
+
+// xs[i], xs[i + 3], xs[i - 1] → "xs#i#k"; иначе ""
+func ll_index_key(n: Node)
+    if n.kind != "index" or n.kids[0].kind != "name"
+        return ""
+    ix = n.kids[1]
+    if ix.kind == "name"
+        return n.kids[0].name + "#" + ix.name + "#0"
+    if ix.kind == "binop" and (ix.value == "+" or ix.value == "-") and ix.kids[0].kind == "name" and ix.kids[1].kind == "number"
+        if ix.value == "-"
+            return n.kids[0].name + "#" + ix.kids[0].name + "#-" + ix.kids[1].value
+        return n.kids[0].name + "#" + ix.kids[0].name + "#" + ix.kids[1].value
+    return ""
+
+func ll_fast_collect(c: Comp, n: Node, var: text, keys: list text, nodes: list Node, offs: list int)
+    key = ll_index_key(n)
+    if key != "" and starts_with(key, n.kids[0].name + "#" + var + "#") and not ll_has(keys, key)
+        k = to_int(cut(key, len(n.kids[0].name) + len(var) + 2, len(key) - 1)) or 0
+        if k > -1000000 and k < 1000000
+            keys.add(key)
+            nodes.add(n)
+            offs.add(k)
+    each kid in n.kids
+        ll_fast_collect(c, kid, var, keys, nodes, offs)
+
+// меняют ли где-то в теле саму переменную цикла (тогда проверка до цикла не годится)
+func ll_assigns(n: Node, name: text)
+    if (n.kind == "assign" and n.name == name) or (n.kind == "set" and n.kids[0].kind == "name" and n.kids[0].name == name)
+        return true
+    each kid in n.kids
+        if ll_assigns(kid, name)
+            return true
+    return false
 
 func ll_block(g: LLGen, c: Comp, b: Node)
     each s in b.kids
@@ -386,6 +537,23 @@ func ll_stmt(g: LLGen, c: Comp, n: Node)
     if k == "assign"
         v = ll_as(g, c, n.kids[0], n.ty)
         ll_put(g, "store " + ll_ty(c, n.ty) + " " + v + ", ptr " + ll_slot(g, c, n.name, n.ty))
+    else if k == "set" and n.kids[0].kind == "index"
+        // xs[i] = v / xs[i] += v: как в C, сначала значение, потом адрес
+        t = n.kids[0]
+        op = n.value
+        et = ll_elem_ty(c, t.kids[0].ty)
+        tag = ll_elem_tag(c, t.kids[0].ty)
+        if op == "="
+            v = ll_as(g, c, n.kids[1], n.ty)
+            ep = ll_elem_ptr(g, c, t)
+            ll_put(g, "store " + et + " " + v + ", ptr " + ep + tag)
+            return
+        v = ll_expr(g, c, n.kids[1])
+        ep = ll_elem_ptr(g, c, t)
+        old = ll_new(g, "%t")
+        ll_put(g, old + " = load " + et + ", ptr " + ep + tag)
+        r = ll_arith(g, c, cut(op, 0, 0), old, n.ty, v, n.kids[1].ty, n.ty, n.line)
+        ll_put(g, "store " + et + " " + r + ", ptr " + ep + tag)
     else if k == "set"
         t = n.kids[0]
         slot = ll_slot(g, c, t.name, n.ty)
@@ -396,11 +564,11 @@ func ll_stmt(g: LLGen, c: Comp, n: Node)
             ll_put(g, "store " + ty + " " + v + ", ptr " + slot)
             return
         // x += y: как  x = x + y
-        bin = Node(kind: "binop", line: n.line, value: cut(op, 0, 0), ty: n.ty)
-        bin.kids.add(t)
-        bin.kids.add(n.kids[1])
-        v = ll_binop(g, c, bin)
-        ll_put(g, "store " + ty + " " + v + ", ptr " + slot)
+        v = ll_expr(g, c, n.kids[1])
+        old = ll_new(g, "%t")
+        ll_put(g, old + " = load " + ty + ", ptr " + slot)
+        r = ll_arith(g, c, cut(op, 0, 0), old, n.ty, v, n.kids[1].ty, n.ty, n.line)
+        ll_put(g, "store " + ty + " " + r + ", ptr " + slot)
     else if k == "if"
         done = ll_new(g, "L")
         i = 0
@@ -422,31 +590,48 @@ func ll_stmt(g: LLGen, c: Comp, n: Node)
         // как в C: сначала конец, потом начало; конец считается один раз
         end = ll_expr(g, c, n.kids[1])
         start = ll_expr(g, c, n.kids[0])
-        slot = ll_slot(g, c, n.name, 1)
-        ll_put(g, "store i64 " + start + ", ptr " + slot)
-        head = ll_new(g, "L")
-        body = ll_new(g, "L")
-        step = ll_new(g, "L")
         out = ll_new(g, "L")
-        ll_label(g, head)
-        iv = ll_new(g, "%t")
-        ll_put(g, iv + " = load i64, ptr " + slot)
-        cv = ll_new(g, "%t")
-        ll_put(g, cv + " = icmp sle i64 " + iv + ", " + end)
-        ll_term(g, "br i1 " + cv + ", label %" + body + ", label %" + out)
-        ll_label(g, body)
-        g.cont.add(step)
-        g.brk.add(out)
-        ll_block(g, c, n.kids[2])
-        gone_c = g.cont.pop()
-        gone_b = g.brk.pop()
-        ll_label(g, step)
-        iv2 = ll_new(g, "%t")
-        ll_put(g, iv2 + " = load i64, ptr " + slot)
-        nx = ll_new(g, "%t")
-        ll_put(g, nx + " = add nsw i64 " + iv2 + ", 1")
-        ll_put(g, "store i64 " + nx + ", ptr " + slot)
-        ll_term(g, "br label %" + head)
+        keys = list text
+        nodes = list Node
+        offs = list int
+        ll_fast_collect(c, n.kids[2], n.name, keys, nodes, offs)
+        if len(keys) > 0 and g.fast_depth < 2 and not ll_assigns(n.kids[2], n.name)
+            // В функциях, которые идут в LLVM, списки не растут и не укорачиваются (нет add/pop):
+            // значит, все xs[i + k] можно проверить один раз до цикла. Прошло — цикл без проверок.
+            none = ll_new(g, "%t")
+            ll_put(g, none + " = icmp sgt i64 " + start + ", " + end)
+            all = "true"
+            count q from 0 to len(nodes) - 1
+                base = ll_expr(g, c, nodes[q].kids[0])
+                ln = ll_len(g, base)
+                lo = ll_new(g, "%t")
+                ll_put(g, lo + " = add i64 " + start + ", " + offs[q])
+                hi = ll_new(g, "%t")
+                ll_put(g, hi + " = add i64 " + end + ", " + offs[q])
+                c1 = ll_new(g, "%t")
+                ll_put(g, c1 + " = icmp sge i64 " + lo + ", 0")
+                c2 = ll_new(g, "%t")
+                ll_put(g, c2 + " = icmp slt i64 " + hi + ", " + ln)
+                both = ll_new(g, "%t")
+                ll_put(g, both + " = and i1 " + c1 + ", " + c2)
+                acc = ll_new(g, "%t")
+                ll_put(g, acc + " = and i1 " + all + ", " + both)
+                all = acc
+            go = ll_new(g, "%t")
+            ll_put(g, go + " = or i1 " + none + ", " + all)
+            fast = ll_new(g, "L")
+            slow = ll_new(g, "L")
+            ll_term(g, "br i1 " + go + ", label %" + fast + ", label %" + slow)
+            ll_label(g, fast)
+            each key in keys
+                g.fast.add(key)
+            g.fast_depth += 1
+            ll_count_loop(g, c, n, start, end, out)
+            g.fast_depth -= 1
+            each key in keys
+                gone_k = g.fast.pop()
+            ll_label(g, slow)
+        ll_count_loop(g, c, n, start, end, out)
         ll_label(g, out)
     else if k == "repeat_times"
         total = ll_expr(g, c, n.kids[0])
@@ -474,6 +659,45 @@ func ll_stmt(g: LLGen, c: Comp, n: Node)
         nx = ll_new(g, "%t")
         ll_put(g, nx + " = add nsw i64 " + iv2 + ", 1")
         ll_put(g, "store i64 " + nx + ", ptr " + slot)
+        ll_term(g, "br label %" + head)
+        ll_label(g, out)
+    else if k == "each"
+        // each x in xs: len читается на каждом шаге (как в C), но LLVM знает, что запись чисел его не меняет
+        lt = n.kids[0].ty
+        et = ll_elem_ty(c, lt)
+        base = ll_expr(g, c, n.kids[0])
+        islot = ll_slot(g, c, ll_new(g, "e"), 1)
+        ll_put(g, "store i64 0, ptr " + islot)
+        head = ll_new(g, "L")
+        body = ll_new(g, "L")
+        step = ll_new(g, "L")
+        out = ll_new(g, "L")
+        ll_label(g, head)
+        iv = ll_new(g, "%t")
+        ll_put(g, iv + " = load i64, ptr " + islot)
+        ln = ll_len(g, base)
+        cv = ll_new(g, "%t")
+        ll_put(g, cv + " = icmp slt i64 " + iv + ", " + ln)
+        ll_term(g, "br i1 " + cv + ", label %" + body + ", label %" + out)
+        ll_label(g, body)
+        d = ll_new(g, "%t")
+        ll_put(g, d + " = load ptr, ptr " + base + ", !tbaa !10")
+        ep = ll_new(g, "%t")
+        ll_put(g, ep + " = getelementptr inbounds " + et + ", ptr " + d + ", i64 " + iv)
+        ev = ll_new(g, "%t")
+        ll_put(g, ev + " = load " + et + ", ptr " + ep + ll_elem_tag(c, lt))
+        ll_put(g, "store " + et + " " + ev + ", ptr " + ll_slot(g, c, n.name, c.types[lt].elem))
+        g.cont.add(step)
+        g.brk.add(out)
+        ll_block(g, c, n.kids[1])
+        gone_c = g.cont.pop()
+        gone_b = g.brk.pop()
+        ll_label(g, step)
+        iv2 = ll_new(g, "%t")
+        ll_put(g, iv2 + " = load i64, ptr " + islot)
+        nx = ll_new(g, "%t")
+        ll_put(g, nx + " = add nsw i64 " + iv2 + ", 1")
+        ll_put(g, "store i64 " + nx + ", ptr " + islot)
         ll_term(g, "br label %" + head)
         ll_label(g, out)
     else if k == "repeat_while"
@@ -549,6 +773,8 @@ modpub func emit_ll(c: Comp, program: Node, target: text, cpu: text)
             ll_func(c, top, all)
     all.add("attributes #0 = { nounwind" + cpu + " }\n")
     all.add("!0 = !{!\"branch_weights\", i32 1, i32 2000}\n")
+    all.add("!1 = !{!\"tachbit\"}\n!2 = !{!\"tb.list\", !1, i64 0}\n!3 = !{!\"tb.int\", !1, i64 0}\n!4 = !{!\"tb.dec\", !1, i64 0}\n")
+    all.add("!10 = !{!2, !2, i64 0}\n!11 = !{!3, !3, i64 0}\n!12 = !{!4, !4, i64 0}\n")
     return join(all, "")
 
 // как clang этой машины пишет функцию: берём из его вывода цель и настройки процессора
