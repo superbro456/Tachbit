@@ -842,7 +842,7 @@ func ll_expr(g: LLGen, c: Comp, n: Node)
         // try f(): сломалась — сразу выходим, ошибка остаётся в tb_err для того, кто нас звал
         v = ll_expr(g, c, n.kids[0])
         e = ll_new(g, "%t")
-        ll_put(g, e + " = load ptr, ptr @tb_err")
+        ll_put(g, e + " = load ptr, ptr " + ll_errp(g))
         bad = ll_new(g, "%t")
         ll_put(g, bad + " = icmp ne ptr " + e + ", null")
         no = ll_new(g, "L")
@@ -856,7 +856,7 @@ func ll_expr(g: LLGen, c: Comp, n: Node)
         // v = f() else err: сломалась — блок с текстом ошибки в err, tb_err снова пустой
         v = ll_expr(g, c, n.kids[0])
         e = ll_new(g, "%t")
-        ll_put(g, e + " = load ptr, ptr @tb_err")
+        ll_put(g, e + " = load ptr, ptr " + ll_errp(g))
         bad = ll_new(g, "%t")
         ll_put(g, bad + " = icmp ne ptr " + e + ", null")
         no = ll_new(g, "L")
@@ -864,7 +864,7 @@ func ll_expr(g: LLGen, c: Comp, n: Node)
         ll_term(g, "br i1 " + bad + ", label %" + no + ", label %" + ok + ", !prof !0")
         ll_label(g, no)
         ll_put(g, "store ptr " + e + ", ptr " + ll_slot(g, c, n.name, 4))
-        ll_put(g, "store ptr null, ptr @tb_err")
+        ll_put(g, "store ptr null, ptr " + ll_errp(g))
         ll_block(g, c, n.kids[1])
         ll_label(g, ok)
         return v
@@ -872,7 +872,7 @@ func ll_expr(g: LLGen, c: Comp, n: Node)
         // f() or запасное: сломалась — tb_err снова пустой, берём запасное
         a = ll_as(g, c, n.kids[0], n.ty)
         e = ll_new(g, "%t")
-        ll_put(g, e + " = load ptr, ptr @tb_err")
+        ll_put(g, e + " = load ptr, ptr " + ll_errp(g))
         bad = ll_new(g, "%t")
         ll_put(g, bad + " = icmp ne ptr " + e + ", null")
         here = ll_new(g, "L")
@@ -881,7 +881,7 @@ func ll_expr(g: LLGen, c: Comp, n: Node)
         done = ll_new(g, "L")
         ll_term(g, "br i1 " + bad + ", label %" + no + ", label %" + done)
         ll_label(g, no)
-        ll_put(g, "store ptr null, ptr @tb_err")
+        ll_put(g, "store ptr null, ptr " + ll_errp(g))
         b = ll_as(g, c, n.kids[1], n.ty)
         no_end = ll_new(g, "L")
         ll_label(g, no_end)
@@ -899,21 +899,21 @@ func ll_expr(g: LLGen, c: Comp, n: Node)
         if n.name == "has"
             kp = ll_key_ptr(g, c, n.kids[0].ty, n.kids[1].kids[0])
             h = ll_new(g, "%t")
-            ll_put(g, h + " = call i32 @tb_dhas(ptr " + base + ", ptr " + kp + ")")
+            ll_put(g, h + " = call i32 @tb_x_dhas(ptr " + base + ", ptr " + kp + ")")
             r = ll_new(g, "%t")
             ll_put(g, r + " = icmp ne i32 " + h + ", 0")
             return r
         if n.name == "remove"
             kp = ll_key_ptr(g, c, n.kids[0].ty, n.kids[1].kids[0])
-            ll_put(g, "call void @tb_dremove(ptr " + base + ", ptr " + kp + ")")
+            ll_put(g, "call void @tb_x_dremove(ptr " + base + ", ptr " + kp + ")")
             return "0"
         if n.name == "clear"
-            ll_put(g, "call void @tb_dclear(ptr " + base + ", i32 " + n.line + ")")
+            ll_put(g, "call void @tb_x_dclear(ptr " + base + ", i32 " + n.line + ")")
             return "0"
         r = ll_new(g, "%t")
-        fn = "tb_dkeys_copy"
+        fn = "tb_x_dkeys_copy"
         if n.name == "values"
-            fn = "tb_dvals_copy"
+            fn = "tb_x_dvals_copy"
         ll_put(g, r + " = call ptr @" + fn + "(ptr " + base + ")")
         return r
     if k == "call" and n.has_ref and n.ref.kind == "obj"
@@ -922,7 +922,7 @@ func ll_expr(g: LLGen, c: Comp, n: Node)
         // xs.pop()
         base = ll_expr(g, c, n.kids[0])
         p = ll_new(g, "%t")
-        ll_put(g, p + " = call ptr @tb_pop(ptr " + base + ", i32 " + n.line + ")")
+        ll_put(g, p + " = call ptr @tb_x_pop(ptr " + base + ", i32 " + n.line + ")")
         r = ll_new(g, "%t")
         ll_put(g, r + " = load " + ll_elem_ty(c, n.kids[0].ty) + ", ptr " + p + ll_elem_tag(c, n.kids[0].ty))
         return r
@@ -947,7 +947,7 @@ func ll_expr(g: LLGen, c: Comp, n: Node)
         base = ll_expr(g, c, n.kids[0])
         kp = ll_key_ptr(g, c, dt, n.kids[1])
         p = ll_new(g, "%t")
-        ll_put(g, p + " = call ptr @tb_dget(ptr " + base + ", ptr " + kp + ", i32 " + n.line + ")")
+        ll_put(g, p + " = call ptr @tb_x_dget(ptr " + base + ", ptr " + kp + ", i32 " + n.line + ")")
         return ll_load_val(g, c, c.types[dt].elem, p)
     if k == "index" and ll_is_text(c, n.kids[0].ty)
         // s[i]: текст из одного байта (как tb_char_at в C)
@@ -958,7 +958,7 @@ func ll_expr(g: LLGen, c: Comp, n: Node)
             known = ll_new(g, "%t")
             ll_put(g, known + " = load i64, ptr " + ll_rl(g, n.kids[0].name))
         r = ll_new(g, "%t")
-        ll_put(g, r + " = call ptr @tb_char_at(ptr " + sv + ", i64 " + iv + ", i64 " + known + ", i32 " + n.line + ")")
+        ll_put(g, r + " = call ptr @tb_x_char_at(ptr " + sv + ", i64 " + iv + ", i64 " + known + ", i32 " + n.line + ")")
         return r
     if k == "index"
         ep = ll_elem_ptr(g, c, n)
@@ -979,7 +979,7 @@ func ll_expr(g: LLGen, c: Comp, n: Node)
                 ll_put(g, rl + " = load i64, ptr " + ll_rl(g, a.name))
                 sv = ll_q(g, c, a)
                 tl = ll_new(g, "%t")
-                ll_put(g, tl + " = call i64 @tb_tlen(ptr " + sv + ")")
+                ll_put(g, tl + " = call i64 @tb_x_tlen(ptr " + sv + ")")
                 neg = ll_new(g, "%t")
                 ll_put(g, neg + " = icmp slt i64 " + rl + ", 0")
                 r = ll_new(g, "%t")
@@ -987,12 +987,12 @@ func ll_expr(g: LLGen, c: Comp, n: Node)
                 return r
             sv = ll_q(g, c, a)
             r = ll_new(g, "%t")
-            ll_put(g, r + " = call i64 @tb_tlen(ptr " + sv + ")")
+            ll_put(g, r + " = call i64 @tb_x_tlen(ptr " + sv + ")")
             return r
         if ll_dict(c, a.ty)
             db = ll_expr(g, c, a)
             dl = ll_new(g, "%t")
-            ll_put(g, dl + " = call i64 @tb_dlen(ptr " + db + ")")
+            ll_put(g, dl + " = call i64 @tb_x_dlen(ptr " + db + ")")
             return dl
         // len(xs)
         base = ll_expr(g, c, a)
@@ -1047,13 +1047,13 @@ func ll_as_text(g: LLGen, c: Comp, n: Node)
     v = ll_expr(g, c, n)
     r = ll_new(g, "%t")
     if k == "int"
-        ll_put(g, r + " = call ptr @tb_itos(i64 " + v + ")")
+        ll_put(g, r + " = call ptr @tb_x_itos(i64 " + v + ")")
     else if k == "dec"
-        ll_put(g, r + " = call ptr @tb_dtos(double " + v + ")")
+        ll_put(g, r + " = call ptr @tb_x_dtos(double " + v + ")")
     else
         z = ll_new(g, "%t")
         ll_put(g, z + " = zext i1 " + v + " to i32")
-        ll_put(g, r + " = call ptr @tb_btos(i32 " + z + ")")
+        ll_put(g, r + " = call ptr @tb_x_btos(i32 " + z + ")")
     return r
 
 // a + b + c: сначала каждая часть и её длина (число — цифрами в буфер на стеке),
@@ -1071,7 +1071,7 @@ func ll_concat(g: LLGen, c: Comp, n: Node)
             ns = "%\"bn" + ll_new(g, "") + "\""
             g.allocas.add("  " + ns + " = alloca i64\n")
             p = ll_new(g, "%t")
-            ll_put(g, p + " = call ptr @tb_digits(i64 " + v + ", ptr " + buf + ", ptr " + ns + ")")
+            ll_put(g, p + " = call ptr @tb_x_digits(i64 " + v + ", ptr " + buf + ", ptr " + ns + ")")
             nl = ll_new(g, "%t")
             ll_put(g, nl + " = load i64, ptr " + ns)
             ptrs.add(p)
@@ -1092,7 +1092,7 @@ func ll_concat(g: LLGen, c: Comp, n: Node)
         ll_put(g, t + " = add i64 " + total + ", " + x)
         total = t
     r = ll_new(g, "%t")
-    ll_put(g, r + " = call ptr @tb_mem_np(i64 " + total + ")")
+    ll_put(g, r + " = call ptr @tb_x_mem_np(i64 " + total + ")")
     at = r
     count i from 0 to len(ptrs) - 1
         ll_put(g, "call void @llvm.memcpy.p0.p0.i64(ptr " + at + ", ptr " + ptrs[i] + ", i64 " + lens[i] + ", i1 false)")
@@ -1191,14 +1191,14 @@ func ll_print(g: LLGen, c: Comp, n: Node, newline: bool)
     count i from 0 to len(n.kids) - 1
         v = n.kids[i].kids[0]
         if i > 0
-            ll_put(g, "call void @tb_ps(ptr " + sp + ")")
+            ll_put(g, "call void @tb_x_ps(ptr " + sp + ")")
         x = ll_q(g, c, v)
         decl = "declare void @tb_show_" + v.ty + "(" + ll_ty(c, v.ty) + " " + ll_ext(c, v.ty) + ")\n"
         ll_need(g, decl)
         ll_put(g, "call void @tb_show_" + v.ty + "(" + ll_ty(c, v.ty) + " " + ll_ext(c, v.ty) + x + ")")
     if newline
         nlp, nln = ll_strconst(g, "\"\\n\"")
-        ll_put(g, "call void @tb_ps(ptr " + nlp + ")")
+        ll_put(g, "call void @tb_x_ps(ptr " + nlp + ")")
 
 // дописать part в конец текста name (s += part)
 func ll_app(g: LLGen, c: Comp, name: text, t: int, part: Node)
@@ -1206,13 +1206,13 @@ func ll_app(g: LLGen, c: Comp, name: text, t: int, part: Node)
     k = kind_of(c, part.ty)
     if k == "int"
         v = ll_expr(g, c, part)
-        ll_put(g, "call void @tb_app_i(" + vars + "i64 " + v + ")")
+        ll_put(g, "call void @tb_x_app_i(" + vars + "i64 " + v + ")")
     else if part.kind == "string"
         sp, sn = ll_strconst(g, part.value)
-        ll_put(g, "call void @tb_app_n(" + vars + "ptr " + sp + ", i64 " + sn + ")")
+        ll_put(g, "call void @tb_x_app_n(" + vars + "ptr " + sp + ", i64 " + sn + ")")
     else
         v = ll_as_text(g, c, part)
-        ll_put(g, "call void @tb_app(" + vars + "ptr " + v + ")")
+        ll_put(g, "call void @tb_x_app(" + vars + "ptr " + v + ")")
 
 // ---------- тексты, в которые дописывают на месте (как в C: find_builders) ----------
 
@@ -1299,7 +1299,7 @@ func ll_default(g: LLGen, c: Comp, t: int)
         return r
     if ll_dict(c, t)
         r = ll_new(g, "%t")
-        ll_put(g, r + " = call ptr @tb_dict_new(i32 " + ll_dict_text(c, t) + ", i64 " + ll_vsize(c, t) + ")")
+        ll_put(g, r + " = call ptr @tb_x_dict_new(i32 " + ll_dict_text(c, t) + ", i64 " + ll_vsize(c, t) + ")")
         return r
     if k == "obj"
         return "null"
@@ -1321,17 +1321,17 @@ func ll_list_lit(g: LLGen, c: Comp, n: Node)
         ll_put(g, ep + " = getelementptr inbounds " + et + ", ptr " + arr + ", i64 " + i)
         ll_put(g, "store " + et + " " + v + ", ptr " + ep)
     r = ll_new(g, "%t")
-    from_fn = "tb_list_from_np"
+    from_fn = "tb_x_list_from_np"
     if ll_ptr_elems(c, n.ty)
-        from_fn = "tb_list_from"
+        from_fn = "tb_x_list_from"
     ll_put(g, r + " = call ptr @" + from_fn + "(i64 " + nk + ", i64 8, ptr " + arr + ")")
     return r
 
 // пустой список: из чисел — память без адресов (уборка туда не смотрит), иначе обычная
 func ll_list_new_fn(c: Comp, t: int)
     if ll_ptr_elems(c, t)
-        return "tb_list_new"
-    return "tb_list_new_np"
+        return "tb_x_list_new"
+    return "tb_x_list_new_np"
 
 // Ball(...): tb_new_Ball из C (все качества по порядку, пропущенные — по умолчанию)
 func ll_new_obj(g: LLGen, c: Comp, n: Node)
@@ -1404,7 +1404,7 @@ func ll_dict_lit(g: LLGen, c: Comp, n: Node)
     nk = len(n.kids) / 2
     if nk == 0
         r0 = ll_new(g, "%t")
-        ll_put(g, r0 + " = call ptr @tb_dict_new(i32 " + ll_dict_text(c, t) + ", i64 " + ll_vsize(c, t) + ")")
+        ll_put(g, r0 + " = call ptr @tb_x_dict_new(i32 " + ll_dict_text(c, t) + ", i64 " + ll_vsize(c, t) + ")")
         return r0
     ka = "%\"dk" + ll_new(g, "") + "\""
     va = "%\"dv" + ll_new(g, "") + "\""
@@ -1420,7 +1420,7 @@ func ll_dict_lit(g: LLGen, c: Comp, n: Node)
         ll_put(g, vp + " = getelementptr inbounds " + ll_mem_ty(c, vt) + ", ptr " + va + ", i64 " + i)
         ll_store_val(g, c, vt, vv, vp)
     r = ll_new(g, "%t")
-    ll_put(g, r + " = call ptr @tb_dict_from(i32 " + ll_dict_text(c, t) + ", i64 " + ll_vsize(c, t) + ", i64 " + nk + ", ptr " + ka + ", ptr " + va + ")")
+    ll_put(g, r + " = call ptr @tb_x_dict_from(i32 " + ll_dict_text(c, t) + ", i64 " + ll_vsize(c, t) + ", i64 " + nk + ", ptr " + ka + ", ptr " + va + ")")
     return r
 
 // адрес d[k] для записи: ключа нет — dict создаёт его со значением по умолчанию
@@ -1435,7 +1435,7 @@ func ll_dput(g: LLGen, c: Comp, t: Node)
         g.allocas.add("  " + def + " = alloca " + ll_mem_ty(c, vt) + "\n")
         ll_store_val(g, c, vt, ll_default(g, c, vt), def)
     r = ll_new(g, "%t")
-    ll_put(g, r + " = call ptr @tb_dput(ptr " + base + ", ptr " + kp + ", ptr " + def + ")")
+    ll_put(g, r + " = call ptr @tb_x_dput(ptr " + base + ", ptr " + kp + ", ptr " + def + ")")
     return r
 
 // меняется ли в теле длина какого-нибудь списка: add / pop / clear, новое значение
@@ -1621,7 +1621,7 @@ func ll_loop_body(g: LLGen, c: Comp, body: Node, cont: text, out: text)
         return
     am = "%\"am" + ll_new(g, "") + "\""
     g.allocas.add("  " + am + " = alloca [2 x i64]\n")
-    ll_put(g, "call void @tb_temp_begin_p(ptr " + am + ")")
+    ll_put(g, "call void @tb_x_temp_begin_p(ptr " + am + ")")
     rel = ll_new(g, "L")
     g.cont.add(rel)
     g.brk.add(out)
@@ -1629,7 +1629,7 @@ func ll_loop_body(g: LLGen, c: Comp, body: Node, cont: text, out: text)
     gone_c = g.cont.pop()
     gone_b = g.brk.pop()
     ll_label(g, rel)
-    ll_put(g, "call void @tb_temp_end_p(ptr " + am + ")")
+    ll_put(g, "call void @tb_x_temp_end_p(ptr " + am + ")")
     ll_term(g, "br label %" + cont)
 
 // встроенная функция: обёртка tb_llb_N в C (номер записан в n.temp_no при выборе)
@@ -1654,13 +1654,19 @@ func ll_builtin(g: LLGen, c: Comp, n: Node)
     ll_put(g, r + " = call " + rt + " " + fn + "(" + args + ")")
     return r
 
+// адрес tb_err (у каждого потока свой): через маленькую функцию из C, LTO её встраивает
+func ll_errp(g: LLGen)
+    r = ll_new(g, "%t")
+    ll_put(g, r + " = call ptr @tb_x_errp()")
+    return r
+
 // функция сломалась: выйти со значением по умолчанию (ошибка уже лежит в tb_err)
 func ll_bail(g: LLGen, c: Comp)
     if g.fn.name == "main"
         // в main ошибку некому передать: сообщение и выход, как tb_die в C
         e = ll_new(g, "%t")
-        ll_put(g, e + " = load ptr, ptr @tb_err")
-        ll_put(g, "call void @tb_die(ptr " + e + ")")
+        ll_put(g, e + " = load ptr, ptr " + ll_errp(g))
+        ll_put(g, "call void @tb_x_die(ptr " + e + ")")
         ll_term(g, "unreachable")
         return
     ll_fa_end(g)
@@ -1673,7 +1679,7 @@ func ll_bail(g: LLGen, c: Comp)
 // перед выходом из функции: отдать её временную память
 func ll_fa_end(g: LLGen)
     if g.fa != ""
-        ll_put(g, "call void @tb_fa_end(i32 " + g.fa + ", ptr %\"fm\")")
+        ll_put(g, "call void @tb_x_fa_end(i32 " + g.fa + ", ptr %\"fm\")")
 
 func ll_block(g: LLGen, c: Comp, b: Node)
     each s in b.kids
@@ -1717,7 +1723,7 @@ func ll_stmt(g: LLGen, c: Comp, n: Node)
         r = ""
         if ll_is_text(c, vt)
             r = ll_new(g, "%t")
-            ll_put(g, r + " = call ptr @tb_cat(ptr " + old + ", ptr " + v + ")")
+            ll_put(g, r + " = call ptr @tb_x_cat(ptr " + old + ", ptr " + v + ")")
         else
             r = ll_arith(g, c, cut(op, 0, 0), old, vt, v, n.kids[1].ty, vt, n.line)
         ll_store_val(g, c, vt, r, p)
@@ -1756,7 +1762,7 @@ func ll_stmt(g: LLGen, c: Comp, n: Node)
             old = ll_new(g, "%t")
             ll_put(g, old + " = load ptr, ptr " + fp)
             r = ll_new(g, "%t")
-            ll_put(g, r + " = call ptr @tb_cat(ptr " + old + ", ptr " + v + ")")
+            ll_put(g, r + " = call ptr @tb_x_cat(ptr " + old + ", ptr " + v + ")")
         else if op != "="
             old = ll_new(g, "%t")
             ll_put(g, old + " = load " + mt + ", ptr " + fp)
@@ -1789,15 +1795,14 @@ func ll_stmt(g: LLGen, c: Comp, n: Node)
                     each part in ll_app_parts(c, value)
                         ll_app(g, c, t.name, n.ty, part)
                     return
-                // s += x: дописать x в конец s
-                xv = ll_as_text(g, c, value)
-                ll_put(g, "call void @tb_app(ptr " + slot + ", ptr " + ll_rl(g, t.name) + ", ptr " + ll_rc(g, t.name) + ", ptr " + xv + ")")
+                // s += x: дописать x в конец s (число — цифрами сразу, готовый текст — с известной длиной)
+                ll_app(g, c, t.name, n.ty, value)
                 return
             xv = ll_as_text(g, c, value)
             old = ll_new(g, "%t")
             ll_put(g, old + " = load ptr, ptr " + slot)
             r = ll_new(g, "%t")
-            ll_put(g, r + " = call ptr @tb_cat(ptr " + old + ", ptr " + xv + ")")
+            ll_put(g, r + " = call ptr @tb_x_cat(ptr " + old + ", ptr " + xv + ")")
             ll_put(g, "store ptr " + r + ", ptr " + slot)
             return
         // x += y: как  x = x + y
@@ -1942,7 +1947,7 @@ func ll_stmt(g: LLGen, c: Comp, n: Node)
         ll_label(g, out)
     else if k == "fail"
         msg = ll_expr(g, c, n.kids[0])
-        ll_put(g, "store ptr " + msg + ", ptr @tb_err")
+        ll_put(g, "store ptr " + msg + ", ptr " + ll_errp(g))
         ll_bail(g, c)
     else if k == "match"
         // цепочка сравнений, как if / else if в C (LLVM сам сделает из неё switch)
@@ -1996,13 +2001,13 @@ func ll_stmt(g: LLGen, c: Comp, n: Node)
         v = ll_as(g, c, e.kids[1].kids[0], c.types[lt].elem)
         base = ll_expr(g, c, e.kids[0])
         p = ll_new(g, "%t")
-        ll_put(g, p + " = call ptr @tb_grow(ptr " + base + ")")
+        ll_put(g, p + " = call ptr @tb_x_grow(ptr " + base + ")")
         ll_put(g, "store " + ll_elem_ty(c, lt) + " " + v + ", ptr " + p + ll_elem_tag(c, lt))
     else if k == "expr_stmt" and n.kids[0].kind == "method" and n.kids[0].name == "clear" and ll_dict(c, n.kids[0].kids[0].ty)
         ignored = ll_expr(g, c, n.kids[0])
     else if k == "expr_stmt" and n.kids[0].kind == "method" and n.kids[0].name == "clear"
         base = ll_expr(g, c, n.kids[0].kids[0])
-        ll_put(g, "call void @tb_lclear(ptr " + base + ", i32 " + n.kids[0].line + ")")
+        ll_put(g, "call void @tb_x_lclear(ptr " + base + ", i32 " + n.kids[0].line + ")")
     else if k == "expr_stmt"
         ignored = ll_expr(g, c, n.kids[0])
 
@@ -2024,7 +2029,7 @@ func ll_func(c: Comp, f: Node, all: list text, decls: list text)
         // всё, что функция создаёт, — во временной области; отдаётся при каждом return
         g.allocas.add("  %\"fm\" = alloca [2 x i64]\n")
         g.fa = "%\"fa\""
-        g.out.add("  %\"fa\" = call i32 @tb_fa_begin(ptr %\"fm\")\n")
+        g.out.add("  %\"fa\" = call i32 @tb_x_fa_begin(ptr %\"fm\")\n")
     each b in g.blds
         // длина своей памяти (-1: своей нет) и сколько там места
         g.allocas.add("  " + ll_rl(g, b) + " = alloca i64\n  " + ll_rc(g, b) + " = alloca i64\n")
@@ -2079,12 +2084,12 @@ modpub func emit_ll(c: Comp, program: Node, target: text, cpu: text)
                 ps = ps + ll_ty(c, p.ty) + " " + ll_ext(c, p.ty)
             all.add("declare " + ll_ext(c, top.ty) + ll_ty(c, top.ty) + " @\"" + ll_fname(top) + "\"(" + ps + ")\n")
     // библиотека Tachbit (runtime.h): с TB_LL её функции видны отсюда
-    all.add("declare void @tb_ps(ptr)\ndeclare ptr @tb_itos(i64)\ndeclare ptr @tb_dtos(double)\ndeclare ptr @tb_btos(i32)\n")
-    all.add("declare ptr @tb_digits(i64, ptr, ptr)\ndeclare ptr @tb_mem_np(i64)\ndeclare i64 @tb_tlen(ptr)\ndeclare ptr @tb_char_at(ptr, i64, i64, i32)\n")
-    all.add("declare ptr @tb_cat(ptr, ptr)\ndeclare void @tb_app(ptr, ptr, ptr, ptr)\ndeclare void @tb_app_i(ptr, ptr, ptr, i64)\ndeclare void @tb_app_n(ptr, ptr, ptr, ptr, i64)\n")
-    all.add("@tb_err = external hidden thread_local global ptr, align 8\ndeclare void @tb_die(ptr) noreturn cold\n")
-    all.add("declare ptr @tb_grow(ptr)\ndeclare ptr @tb_pop(ptr, i32)\ndeclare void @tb_lclear(ptr, i32)\ndeclare ptr @tb_list_new_np(i64)\ndeclare ptr @tb_list_from_np(i64, i64, ptr)\ndeclare ptr @tb_dict_new(i32, i64)\ndeclare ptr @tb_dict_from(i32, i64, i64, ptr, ptr)\ndeclare ptr @tb_dget(ptr, ptr, i32)\ndeclare ptr @tb_dput(ptr, ptr, ptr)\ndeclare i32 @tb_dhas(ptr, ptr)\ndeclare void @tb_dremove(ptr, ptr)\ndeclare void @tb_dclear(ptr, i32)\ndeclare i64 @tb_dlen(ptr)\ndeclare ptr @tb_dkeys_copy(ptr)\ndeclare ptr @tb_dvals_copy(ptr)\ndeclare ptr @tb_list_new(i64)\ndeclare ptr @tb_list_from(i64, i64, ptr)\n")
-    all.add("declare void @tb_temp_begin_p(ptr)\ndeclare void @tb_temp_end_p(ptr)\ndeclare i32 @tb_fa_begin(ptr)\ndeclare void @tb_fa_end(i32, ptr)\n")
+    all.add("declare void @tb_x_ps(ptr)\ndeclare ptr @tb_x_itos(i64)\ndeclare ptr @tb_x_dtos(double)\ndeclare ptr @tb_x_btos(i32)\n")
+    all.add("declare ptr @tb_x_digits(i64, ptr, ptr)\ndeclare ptr @tb_x_mem_np(i64)\ndeclare i64 @tb_x_tlen(ptr)\ndeclare ptr @tb_x_char_at(ptr, i64, i64, i32)\n")
+    all.add("declare ptr @tb_x_cat(ptr, ptr)\ndeclare void @tb_x_app(ptr, ptr, ptr, ptr)\ndeclare void @tb_x_app_i(ptr, ptr, ptr, i64)\ndeclare void @tb_x_app_n(ptr, ptr, ptr, ptr, i64)\n")
+    all.add("declare ptr @tb_x_errp()\ndeclare void @tb_x_die(ptr) noreturn cold\n")
+    all.add("declare ptr @tb_x_grow(ptr)\ndeclare ptr @tb_x_pop(ptr, i32)\ndeclare void @tb_x_lclear(ptr, i32)\ndeclare ptr @tb_x_list_new_np(i64)\ndeclare ptr @tb_x_list_from_np(i64, i64, ptr)\ndeclare ptr @tb_x_dict_new(i32, i64)\ndeclare ptr @tb_x_dict_from(i32, i64, i64, ptr, ptr)\ndeclare ptr @tb_x_dget(ptr, ptr, i32)\ndeclare ptr @tb_x_dput(ptr, ptr, ptr)\ndeclare i32 @tb_x_dhas(ptr, ptr)\ndeclare void @tb_x_dremove(ptr, ptr)\ndeclare void @tb_x_dclear(ptr, i32)\ndeclare i64 @tb_x_dlen(ptr)\ndeclare ptr @tb_x_dkeys_copy(ptr)\ndeclare ptr @tb_x_dvals_copy(ptr)\ndeclare ptr @tb_x_list_new(i64)\ndeclare ptr @tb_x_list_from(i64, i64, ptr)\n")
+    all.add("declare void @tb_x_temp_begin_p(ptr)\ndeclare void @tb_x_temp_end_p(ptr)\ndeclare i32 @tb_x_fa_begin(ptr)\ndeclare void @tb_x_fa_end(i32, ptr)\n")
     all.add("declare i64 @strlen(ptr)\ndeclare i32 @strcmp(ptr, ptr)\ndeclare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)\n")
     all.add("\n")
     decls = list text

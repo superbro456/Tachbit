@@ -250,13 +250,32 @@ func emit_builtin(c: Comp, n: Node)
         i += 3
     put(c, "/* неизвестная встроенная " + name + " */0")
 
+// --llvm: файл .ll зовёт библиотеку через эти обёртки (сама библиотека — static,
+// так clang лучше её встраивает); LTO встраивает обёртки в код из .ll
+func ll_exports()
+    x = list text
+    x.add("#define TB_X(r, n, p, a) r tb_x_##n p { return tb_##n a; }\n#define TB_XV(n, p, a) void tb_x_##n p { tb_##n a; }\n")
+    x.add("TB_XV(ps, (const char *s), (s))\nTB_X(const char *, itos, (long long v), (v))\nTB_X(const char *, dtos, (double v), (v))\nTB_X(const char *, btos, (int v), (v))\n")
+    x.add("TB_X(const char *, digits, (long long v, char *d, long long *n), (v, d, n))\nTB_X(void *, mem_np, (long long n), (n))\nTB_X(long long, tlen, (const char *s), (s))\n")
+    x.add("TB_X(const char *, char_at, (const char *s, long long i, long long n, int line), (s, i, n, line))\nTB_X(const char *, cat, (const char *a, const char *b), (a, b))\n")
+    x.add("TB_XV(app, (const char **p, long long *rl, long long *rc, const char *b), (p, rl, rc, b))\nTB_XV(app_i, (const char **p, long long *rl, long long *rc, long long v), (p, rl, rc, v))\n")
+    x.add("TB_XV(app_n, (const char **p, long long *rl, long long *rc, const char *b, long long n), (p, rl, rc, b, n))\n")
+    x.add("TB_XV(temp_begin_p, (tb_mark *m), (m))\nTB_XV(temp_end_p, (tb_mark *m), (m))\nTB_X(int, fa_begin, (tb_mark *m), (m))\nTB_XV(fa_end, (int fa, tb_mark *m), (fa, m))\n")
+    x.add("TB_X(void *, grow, (tb_list *l), (l))\nTB_X(void *, pop, (tb_list *l, int line), (l, line))\nTB_XV(lclear, (tb_list *l, int line), (l, line))\n")
+    x.add("TB_X(tb_list *, list_new_np, (long long n), (n))\nTB_X(tb_list *, list_new, (long long n), (n))\nTB_X(tb_list *, list_from_np, (long long n, long long s, const void *p), (n, s, p))\nTB_X(tb_list *, list_from, (long long n, long long s, const void *p), (n, s, p))\n")
+    x.add("TB_X(tb_dict *, dict_new, (int t, long long v), (t, v))\nTB_X(tb_dict *, dict_from, (int t, long long v, long long n, const void *k, const void *vs), (t, v, n, k, vs))\n")
+    x.add("TB_X(void *, dget, (tb_dict *d, const void *k, int line), (d, k, line))\nTB_X(void *, dput, (tb_dict *d, const void *k, const void *def), (d, k, def))\nTB_X(int, dhas, (tb_dict *d, const void *k), (d, k))\n")
+    x.add("TB_XV(dremove, (tb_dict *d, const void *k), (d, k))\nTB_XV(dclear, (tb_dict *d, int line), (d, line))\nTB_X(long long, dlen, (tb_dict *d), (d))\nTB_X(tb_list *, dkeys_copy, (tb_dict *d), (d))\nTB_X(tb_list *, dvals_copy, (tb_dict *d), (d))\n")
+    x.add("TB_XV(die, (const char *m), (m))\nconst char **tb_x_errp(void) { return &tb_err; }\n")
+    return join(x, "")
+
 // обёртка tb_llb_N для встроенной функции из .ll: параметры a0, a1 ... вместо выражений,
 // тело — то же, что вывод C написал бы прямо на месте вызова (с тем же номером строки)
 func emit_ll_builtin(c: Comp, n: Node, id: int)
     rt = "void"
     if kind_of(c, n.ty) != "none"
         rt = c_type(c, n.ty)
-    put(c, "TB_API " + rt + " tb_llb_" + id + "(")
+    put(c, "TB_LLV " + rt + " tb_llb_" + id + "(")
     if len(n.kids) == 0
         put(c, "void")
     saved = list Node
@@ -2387,19 +2406,19 @@ func emit_show(c: Comp, t: Type)
     if k == "none" or k == "multi" or k == "unknown"
         return
     if k == "task"
-        put(c, "TB_API void tb_show_" + t.id + "(tb_task *x) { (void)x; tb_ps(\"<background>\"); }\n")
+        put(c, "TB_LLV void tb_show_" + t.id + "(tb_task *x) { (void)x; tb_ps(\"<background>\"); }\n")
         return
     if k == "channel"
-        put(c, "TB_API void tb_show_" + t.id + "(tb_chan *x) { (void)x; tb_ps(\"<channel>\"); }\n")
+        put(c, "TB_LLV void tb_show_" + t.id + "(tb_chan *x) { (void)x; tb_ps(\"<channel>\"); }\n")
         return
     if k == "enum"
         // печать варианта enum — его имя
-        put(c, "TB_API void tb_show_" + t.id + "(long long x) {\n    static const char *names[] = {")
+        put(c, "TB_LLV void tb_show_" + t.id + "(long long x) {\n    static const char *names[] = {")
         each v in t.obj_node.kids
             put(c, "\"" + v.name + "\", ")
         put(c, "0};\n    tb_ps(names[x]);\n}\n")
         return
-    put(c, "TB_API void tb_show_" + t.id + "(" + c_type(c, t.id) + " x) {\n")
+    put(c, "TB_LLV void tb_show_" + t.id + "(" + c_type(c, t.id) + " x) {\n")
     if k == "int"
         put(c, "    printf(\"%lld\", x);\n")
     else if k == "dec"
@@ -2563,7 +2582,7 @@ func emit_constructor(c: Comp, o: Node)
     if o.by_cols
         emit_cols_helpers(c, o)
         return
-    put(c, "TB_API tb_o_" + o.name + " *tb_new_" + o.name + "(")
+    put(c, "TB_LLV tb_o_" + o.name + " *tb_new_" + o.name + "(")
     if len(o.kids) == 0
         put(c, "void")
     count i from 0 to len(o.kids) - 1
@@ -2605,12 +2624,14 @@ modpub func emit_c(c: Comp, program: Node)
     if c.ll
         put(c, "#define TB_LL 1\n")
     put(c, runtime_text())
+    if c.ll
+        put(c, ll_exports())
     // shared снаружи функций; в ядре volatile: их меняют прерывания и задачи
     each g in c.globals
         if c.bare
-            put(c, "TB_API volatile " + c_type(c, g.ty) + " v_" + g.name + " = ")
+            put(c, "TB_LLV volatile " + c_type(c, g.ty) + " v_" + g.name + " = ")
         else
-            put(c, "TB_API " + c_type(c, g.ty) + " v_" + g.name + " = ")
+            put(c, "TB_LLV " + c_type(c, g.ty) + " v_" + g.name + " = ")
         emit_as(c, g.kids[0], g.ty)
         put(c, ";\n")
 
@@ -2638,7 +2659,7 @@ modpub func emit_c(c: Comp, program: Node)
     each t in c.types
         k = t.kind
         if k != "none" and k != "multi" and k != "unknown"
-            put(c, "TB_API void tb_show_" + t.id + "(" + c_type(c, t.id) + " x);\n")
+            put(c, "TB_LLV void tb_show_" + t.id + "(" + c_type(c, t.id) + " x);\n")
     count i from 1 to len(c.temp_types) - 1
         put(c, "TB_API _Thread_local " + c_type(c, c.temp_types[i]) + " tb_t" + i + ";   // для  f() or запасное\n")
     each top in program.kids

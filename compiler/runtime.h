@@ -1,10 +1,12 @@
-// --llvm: функции библиотеки видны из файла .ll (без static), LTO всё равно встраивает их
-#ifdef TB_LL
-#define TB_API __attribute__((visibility("hidden")))
-#define TB_INL __attribute__((visibility("hidden")))
-#else
+// функции библиотеки: внутри файла (static). Для --llvm файл .ll зовёт их через
+// маленькие обёртки tb_x_* (их пишет компилятор в конце библиотеки), LTO встраивает всё обратно
 #define TB_API static
 #define TB_INL static inline
+// то, что видно из .ll (shared, tb_show_N, tb_new_X, обёртки): с --llvm без static
+#ifdef TB_LL
+#define TB_LLV
+#else
+#define TB_LLV static
 #endif
 // Библиотека, которую Tachbit кладёт в начало каждой программы на C.
 // Это обычный C. Компилятор на Tachbit встраивает этот текст через runtime_text.tb,
