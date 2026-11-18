@@ -197,3 +197,14 @@ modpub func func_arena_ok(c: Comp, f: Node)
     c.at_ret_ok = false
     return not bad
 
+// узлы-аргументы обёртки tb_llb_N: у вызова — значения аргументов, у background — аргументы
+// его вызова, у t.wait — сама задача
+modpub func ll_bi_args(n: Node) gives r: list Node
+    if n.kind == "field"
+        r.add(n.kids[0])
+        return
+    src = n
+    if n.kind == "background"
+        src = n.kids[0]
+    each a in src.kids
+        r.add(a.kids[0])

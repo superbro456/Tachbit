@@ -34,6 +34,11 @@ obj LLGen
     // выходы gives: имена; при нескольких выходах их места — адреса из параметров (f__ll)
     outs: list text
     multi_out: bool
+    // ячейки с флагом замка (lock), самый внутренний — последний
+    locks: list text
+    // by vec: имя общей переменной → ячейка-копилка
+    vec_names: list text
+    vec_slots: list text
 
 // имя функции: то же, что у вывода C
 func ll_fname(f: Node)
@@ -56,9 +61,29 @@ func ll_simple(c: Comp, t: int)
     k = kind_of(c, t)
     return k == "int" or k == "dec" or k == "bool" or k == "enum"
 
-// значение, которое LLVM держит в регистре: число, bool, enum или текст (указатель)
-func ll_val(c: Comp, t: int)
-    return ll_simple(c, t) or kind_of(c, t) == "text"
+// у функции нет ответа (у той, которую зовут только через background, тип ещё не выведен: -1)
+func ll_none(c: Comp, t: int)
+    return t < 0 or kind_of(c, t) == "none"
+
+// значение, которое LLVM держит в регистре: число, bool, enum, текст, задача, канал (указатели)
+func ll_val(c: Comp, t: int) gives r: bool
+    k = kind_of(c, t)
+    r = ll_simple(c, t) or k == "text" or k == "task" or ll_chan(c, t)
+
+// канал: указатель на tb_chan; значения — числа, тексты, коробки (кладутся по адресу, как в C)
+func ll_chan(c: Comp, t: int)
+    if kind_of(c, t) != "channel"
+        return false
+    e = c.types[t].elem
+    return ll_simple(c, e) or kind_of(c, e) == "text" or ll_box(c, e) or ll_row(c, e)
+
+// сколько байт значение занимает в памяти C
+func ll_size(c: Comp, t: int)
+    if kind_of(c, t) == "bool"
+        return 1
+    if ll_row(c, t)
+        return 16
+    return 8
 
 func ll_is_text(c: Comp, t: int)
     return kind_of(c, t) == "text"
@@ -114,6 +139,521 @@ func ll_cname(c: Comp, t: int)
     if kind_of(c, t) == "list"
         return c.types[c.types[t].elem].obj_node.name
     return c.types[t].obj_node.name
+
+func ll_lock_give(g: LLGen, name: text, fs: text)
+    fv = ll_new(g, "%t")
+    ll_put(g, fv + " = load i64, ptr " + fs)
+    ll_put(g, "call void @tb_x_lock_give(ptr @\"tb_lk_" + name + "\", i64 " + fv + ")")
+
+// ---------- each piece in data by N ----------
+// tb_list: data (0), len (8), cap (16), size (24). Кусок: cap = -1 (расти нельзя),
+// у самого списка на время цикла cap = -2 (тоже нельзя), потом прежний
+
+func ll_lfield(g: LLGen, base: text, off: int)
+    p = ll_new(g, "%t")
+    ll_put(g, p + " = getelementptr inbounds i8, ptr " + base + ", i64 " + off)
+    return p
+
+func ll_pieces(g: LLGen, c: Comp, n: Node)
+    l = ll_expr(g, c, n.kids[0])
+    m = ll_expr(g, c, n.piece_size)
+    bad = ll_new(g, "%t")
+    ll_put(g, bad + " = icmp sle i64 " + m + ", 0")
+    no = ll_new(g, "L")
+    ok = ll_new(g, "L")
+    ll_term(g, "br i1 " + bad + ", label %" + no + ", label %" + ok + ", !prof !0")
+    ll_label(g, no)
+    ll_crash(g, n.line, 7)
+    ll_label(g, ok)
+    pv = "%\"pc" + ll_new(g, "") + "\""
+    g.allocas.add("  " + pv + " = alloca [4 x i64], align 8\n")
+    ll_put(g, "store ptr null, ptr " + pv)
+    ll_put(g, "store i64 0, ptr " + ll_lfield(g, pv, 8))
+    ll_put(g, "store i64 -1, ptr " + ll_lfield(g, pv, 16))
+    sz = ll_new(g, "%t")
+    ll_put(g, sz + " = load i64, ptr " + ll_lfield(g, l, 24))
+    ll_put(g, "store i64 " + sz + ", ptr " + ll_lfield(g, pv, 24))
+    capp = ll_lfield(g, l, 16)
+    cap0 = ll_new(g, "%t")
+    ll_put(g, cap0 + " = load i64, ptr " + capp)
+    nneg = ll_new(g, "%t")
+    ll_put(g, nneg + " = icmp sge i64 " + cap0 + ", 0")
+    cap1 = ll_new(g, "%t")
+    ll_put(g, cap1 + " = select i1 " + nneg + ", i64 -2, i64 " + cap0)
+    ll_put(g, "store i64 " + cap1 + ", ptr " + capp)
+    islot = ll_slot(g, c, ll_new(g, "e"), 1)
+    ll_put(g, "store i64 0, ptr " + islot)
+    head = ll_new(g, "L")
+    body = ll_new(g, "L")
+    step = ll_new(g, "L")
+    out = ll_new(g, "L")
+    ll_term(g, "br label %" + head)
+    ll_label(g, head)
+    iv = ll_new(g, "%t")
+    ll_put(g, iv + " = load i64, ptr " + islot)
+    ln = ll_len(g, l)
+    cv = ll_new(g, "%t")
+    ll_put(g, cv + " = icmp slt i64 " + iv + ", " + ln)
+    ll_term(g, "br i1 " + cv + ", label %" + body + ", label %" + out)
+    ll_label(g, body)
+    d = ll_new(g, "%t")
+    ll_put(g, d + " = load ptr, ptr " + l)
+    off = ll_new(g, "%t")
+    ll_put(g, off + " = mul i64 " + iv + ", " + sz)
+    pd = ll_new(g, "%t")
+    ll_put(g, pd + " = getelementptr inbounds i8, ptr " + d + ", i64 " + off)
+    ll_put(g, "store ptr " + pd + ", ptr " + pv)
+    rest = ll_new(g, "%t")
+    ll_put(g, rest + " = sub i64 " + ln + ", " + iv)
+    small = ll_new(g, "%t")
+    ll_put(g, small + " = icmp slt i64 " + rest + ", " + m)
+    pl = ll_new(g, "%t")
+    ll_put(g, pl + " = select i1 " + small + ", i64 " + rest + ", i64 " + m)
+    ll_put(g, "store i64 " + pl + ", ptr " + ll_lfield(g, pv, 8))
+    ll_put(g, "store ptr " + pv + ", ptr " + ll_slot(g, c, n.name, n.kids[0].ty))
+    g.cont.add(step)
+    g.brk.add(out)
+    ll_block(g, c, n.kids[1])
+    gc1 = g.cont.pop()
+    gb1 = g.brk.pop()
+    if g.open
+        ll_term(g, "br label %" + step)
+    ll_label(g, step)
+    iv2 = ll_new(g, "%t")
+    ll_put(g, iv2 + " = load i64, ptr " + islot)
+    nx = ll_new(g, "%t")
+    ll_put(g, nx + " = add i64 " + iv2 + ", " + m)
+    ll_put(g, "store i64 " + nx + ", ptr " + islot)
+    ll_term(g, "br label %" + head)
+    ll_label(g, out)
+    ll_put(g, "store i64 " + cap0 + ", ptr " + capp)
+
+// asm: текст как у расширенного asm в C (%% — это %), в LLVM $ пишется как $$
+func ll_asm(g: LLGen, v: text)
+    bytes, ok = ll_str_bytes(v)
+    hex = "0123456789ABCDEF"
+    body = ""
+    i = 0
+    repeat while i < len(bytes)
+        b = bytes[i]
+        if b == 37 and i + 1 < len(bytes) and bytes[i + 1] == 37
+            body = body + "%"
+            i += 1
+        else if b == 36
+            body = body + "$$"
+        else if b >= 32 and b < 127 and b != 34 and b != 92
+            body = body + char(b)
+        else
+            body = body + "\\" + hex[b / 16] + hex[b % 16]
+        i += 1
+    ll_put(g, "call void asm sideeffect \"" + body + "\", \"~{memory},~{dirflag},~{fpsr},~{flags}\"()")
+
+// ---------- together ----------
+// подсказки памяти (как в C): сначала для всех d[key] / xs[i] просим принести место,
+// потом у dict — сами ключи и значения, потом обычные строки
+
+// можно посчитать лишний раз: ничего не меняет и не падает (как is_pure в C)
+func ll_pure(n: Node)
+    k = n.kind
+    if k == "number" or k == "decimal" or k == "string" or k == "bool" or k == "name"
+        return true
+    if k == "field" or k == "unary"
+        return ll_pure(n.kids[0])
+    if k == "binop"
+        if n.value == "/" or n.value == "%"
+            return false
+        return ll_pure(n.kids[0]) and ll_pure(n.kids[1])
+    return false
+
+func ll_together(g: LLGen, c: Comp, n: Node)
+    block = n.kids[0]
+    hs = list text
+    each st in block.kids
+        h = ""
+        if len(st.kids) > 0
+            v = st.kids[0]
+            if v.kind == "index" and ll_pure(v.kids[0]) and ll_pure(v.kids[1])
+                if ll_dict(c, v.kids[0].ty)
+                    d = ll_expr(g, c, v.kids[0])
+                    kp = ll_key_ptr(g, c, v.kids[0].ty, v.kids[1])
+                    h = ll_new(g, "%t")
+                    ll_put(g, h + " = call i64 @tb_x_dpre1(ptr " + d + ", ptr " + kp + ")")
+                else if ll_numlist(c, v.kids[0].ty)
+                    l = ll_expr(g, c, v.kids[0])
+                    ix = ll_expr(g, c, v.kids[1])
+                    ll_put(g, "call void @tb_x_lpre(ptr " + l + ", i64 " + ix + ")")
+        hs.add(h)
+    count j from 0 to len(block.kids) - 1
+        if hs[j] != ""
+            d2 = ll_expr(g, c, block.kids[j].kids[0].kids[0])
+            ll_put(g, "call void @tb_x_dpre2(ptr " + d2 + ", i64 " + hs[j] + ")")
+    ll_block(g, c, block)
+
+// ---------- by vec ----------
+
+func ll_vec(g: LLGen, c: Comp, n: Node)
+    lt = n.kids[0].ty
+    et = ll_elem_ty(c, lt)
+    base = ll_expr(g, c, n.kids[0])
+    data = ll_new(g, "%t")
+    ll_put(g, data + " = load ptr, ptr " + base + ", !tbaa !10")
+    ln = ll_len(g, base)
+    id = ll_new(g, "")
+    accs = list text
+    shs = list Var
+    each v in n.caps
+        if v.is_shared
+            shs.add(v)
+            count k from 0 to 7
+                a = "%\"va" + id + "." + v.name + "." + k + "\""
+                g.allocas.add("  " + a + " = alloca " + ll_ty(c, v.type) + "\n")
+                ll_put(g, "store " + ll_ty(c, v.type) + " " + ll_default(g, c, v.type) + ", ptr " + a)
+                accs.add(a)
+    islot = ll_slot(g, c, ll_new(g, "e"), 1)
+    ll_put(g, "store i64 0, ptr " + islot)
+    // 1) по 8 чисел: тело 8 раз подряд, у каждой копии свои копилки
+    h8 = ll_new(g, "L")
+    b8 = ll_new(g, "L")
+    tail = ll_new(g, "L")
+    ll_term(g, "br label %" + h8)
+    ll_label(g, h8)
+    iv = ll_new(g, "%t")
+    ll_put(g, iv + " = load i64, ptr " + islot)
+    i8 = ll_new(g, "%t")
+    ll_put(g, i8 + " = add i64 " + iv + ", 8")
+    c8 = ll_new(g, "%t")
+    ll_put(g, c8 + " = icmp sle i64 " + i8 + ", " + ln)
+    ll_term(g, "br i1 " + c8 + ", label %" + b8 + ", label %" + tail)
+    ll_label(g, b8)
+    count k from 0 to 7
+        ix = ll_new(g, "%t")
+        ll_put(g, ix + " = add i64 " + iv + ", " + k)
+        ep = ll_new(g, "%t")
+        ll_put(g, ep + " = getelementptr inbounds " + et + ", ptr " + data + ", i64 " + ix)
+        ev = ll_new(g, "%t")
+        ll_put(g, ev + " = load " + et + ", ptr " + ep + ll_elem_tag(c, lt))
+        ll_put(g, "store " + et + " " + ev + ", ptr " + ll_slot(g, c, n.name, c.types[lt].elem))
+        ll_vec_map(g, shs, accs, k)
+        after = ll_new(g, "L")
+        // skip и stop заканчивают только эту копию (как do { } while (0) в C)
+        g.cont.add(after)
+        g.brk.add(after)
+        ll_block(g, c, n.kids[1])
+        gc1 = g.cont.pop()
+        gb1 = g.brk.pop()
+        ll_vec_unmap(g)
+        if g.open
+            ll_term(g, "br label %" + after)
+        ll_label(g, after)
+    ll_put(g, "store i64 " + i8 + ", ptr " + islot)
+    ll_term(g, "br label %" + h8)
+    // 2) хвост: последние 0–7 чисел по одному, в копилку 0
+    ll_label(g, tail)
+    th = ll_new(g, "L")
+    tb = ll_new(g, "L")
+    ts = ll_new(g, "L")
+    done = ll_new(g, "L")
+    ll_term(g, "br label %" + th)
+    ll_label(g, th)
+    tv = ll_new(g, "%t")
+    ll_put(g, tv + " = load i64, ptr " + islot)
+    tc = ll_new(g, "%t")
+    ll_put(g, tc + " = icmp slt i64 " + tv + ", " + ln)
+    ll_term(g, "br i1 " + tc + ", label %" + tb + ", label %" + done)
+    ll_label(g, tb)
+    tp = ll_new(g, "%t")
+    ll_put(g, tp + " = getelementptr inbounds " + et + ", ptr " + data + ", i64 " + tv)
+    tval = ll_new(g, "%t")
+    ll_put(g, tval + " = load " + et + ", ptr " + tp + ll_elem_tag(c, lt))
+    ll_put(g, "store " + et + " " + tval + ", ptr " + ll_slot(g, c, n.name, c.types[lt].elem))
+    ll_vec_map(g, shs, accs, 0)
+    g.cont.add(ts)
+    g.brk.add(done)
+    ll_block(g, c, n.kids[1])
+    gc2 = g.cont.pop()
+    gb2 = g.brk.pop()
+    ll_vec_unmap(g)
+    if g.open
+        ll_term(g, "br label %" + ts)
+    ll_label(g, ts)
+    tv2 = ll_new(g, "%t")
+    ll_put(g, tv2 + " = load i64, ptr " + islot)
+    tn = ll_new(g, "%t")
+    ll_put(g, tn + " = add nsw i64 " + tv2 + ", 1")
+    ll_put(g, "store i64 " + tn + ", ptr " + islot)
+    ll_term(g, "br label %" + th)
+    ll_label(g, done)
+    // 3) сложить копилки деревом: ((0+1)+(2+3))+((4+5)+(6+7)), потом в общую
+    count q from 0 to len(shs) - 1
+        v = shs[q]
+        ty = ll_ty(c, v.type)
+        op = "add"
+        if ty == "double"
+            op = "fadd"
+        vals = list text
+        count k from 0 to 7
+            lv = ll_new(g, "%t")
+            ll_put(g, lv + " = load " + ty + ", ptr " + accs[q * 8 + k])
+            vals.add(lv)
+        repeat while len(vals) > 1
+            nv = list text
+            count p from 0 to len(vals) / 2 - 1
+                sv = ll_new(g, "%t")
+                ll_put(g, sv + " = " + op + " " + ty + " " + vals[2 * p] + ", " + vals[2 * p + 1])
+                nv.add(sv)
+            vals = nv
+        tslot = ll_slot(g, c, v.name, v.type)
+        old = ll_new(g, "%t")
+        ll_put(g, old + " = load " + ty + ", ptr " + tslot)
+        nw = ll_new(g, "%t")
+        ll_put(g, nw + " = " + op + " " + ty + " " + old + ", " + vals[0])
+        ll_put(g, "store " + ty + " " + nw + ", ptr " + tslot)
+
+func ll_vec_map(g: LLGen, shs: list Var, accs: list text, k: int)
+    count q from 0 to len(shs) - 1
+        g.vec_names.add(shs[q].name)
+        g.vec_slots.add(accs[q * 8 + k])
+
+func ll_vec_unmap(g: LLGen)
+    e1 = list text
+    e2 = list text
+    g.vec_names = e1
+    g.vec_slots = e2
+
+// ---------- on all cores ----------
+
+// задание для ядер: { lo, total, step, next, список, захваченные переменные... }
+func ll_job_ty(c: Comp, n: Node)
+    t = "{ i64, i64, i64, i64, ptr"
+    each v in n.caps
+        if v.is_shared or v.is_link
+            t = t + ", ptr"
+        else
+            t = t + ", " + ll_ty(c, v.type)
+    return t + " }"
+
+func ll_job_at(g: LLGen, jt: text, job: text, k: int)
+    p = ll_new(g, "%t")
+    ll_put(g, p + " = getelementptr inbounds " + jt + ", ptr " + job + ", i32 0, i32 " + k)
+    return p
+
+func ll_par(g: LLGen, c: Comp, n: Node)
+    is_each = n.kind == "each"
+    jt = ll_job_ty(c, n)
+    g.tmp += 1
+    wname = "@\"tb.work." + ll_fname(g.fn) + "." + g.tmp + "\""
+    // 1) работник: своя функция со своими ячейками
+    w = LLGen(tmp: g.tmp, open: true, fn: g.fn, decls: g.decls, fa: "")
+    count k from 0 to len(n.caps) - 1
+        v = n.caps[k]
+        at = "%\"jc" + k + "\""
+        w.out.add("  " + at + " = getelementptr inbounds " + jt + ", ptr %\"job\", i32 0, i32 " + (5 + k) + "\n")
+        if v.is_shared
+            ll_put(w, "store " + ll_ty(c, v.type) + " " + ll_default(w, c, v.type) + ", ptr " + ll_slot(w, c, v.name, v.type))
+            if ll_is_text(c, v.type)
+                // общий текст: у каждого ядра свой текст с запасом, += дописывает в его конец
+                w.blds.add(v.name)
+                w.allocas.add("  " + ll_rl(w, v.name) + " = alloca i64\n  " + ll_rc(w, v.name) + " = alloca i64\n")
+                ll_put(w, "store i64 -1, ptr " + ll_rl(w, v.name))
+                ll_put(w, "store i64 0, ptr " + ll_rc(w, v.name))
+        else if v.is_link
+            w.links.add(v.name)
+            w.out.add("  %\"p." + v.name + "\" = load ptr, ptr " + at + "\n")
+        else
+            lv = ll_new(w, "%t")
+            ll_put(w, lv + " = load " + ll_ty(c, v.type) + ", ptr " + at)
+            ll_put(w, "store " + ll_ty(c, v.type) + " " + lv + ", ptr " + ll_slot(w, c, v.name, v.type))
+    lo = ll_load_job(w, jt, 0)
+    total = ll_load_job(w, jt, 1)
+    stp = ll_load_job(w, jt, 2)
+    lst = ""
+    if is_each
+        lst = ll_load_job(w, jt, 4)
+    nxp = ll_job_at(w, jt, "%\"job\"", 3)
+    chunk = ll_new(w, "L")
+    work = ll_new(w, "L")
+    done = ll_new(w, "L")
+    ll_term(w, "br label %" + chunk)
+    ll_label(w, chunk)
+    st = ll_new(w, "%t")
+    ll_put(w, st + " = atomicrmw add ptr " + nxp + ", i64 " + stp + " monotonic")
+    over = ll_new(w, "%t")
+    ll_put(w, over + " = icmp sge i64 " + st + ", " + total)
+    ll_term(w, "br i1 " + over + ", label %" + done + ", label %" + work)
+    ll_label(w, work)
+    e0 = ll_new(w, "%t")
+    ll_put(w, e0 + " = add i64 " + st + ", " + stp)
+    big = ll_new(w, "%t")
+    ll_put(w, big + " = icmp sgt i64 " + e0 + ", " + total)
+    en = ll_new(w, "%t")
+    ll_put(w, en + " = select i1 " + big + ", i64 " + total + ", i64 " + e0)
+    islot = ll_slot(w, c, ll_new(w, "e"), 1)
+    ll_put(w, "store i64 " + st + ", ptr " + islot)
+    head = ll_new(w, "L")
+    body = ll_new(w, "L")
+    step = ll_new(w, "L")
+    ll_term(w, "br label %" + head)
+    ll_label(w, head)
+    iv = ll_new(w, "%t")
+    ll_put(w, iv + " = load i64, ptr " + islot)
+    cv = ll_new(w, "%t")
+    ll_put(w, cv + " = icmp slt i64 " + iv + ", " + en)
+    ll_term(w, "br i1 " + cv + ", label %" + body + ", label %" + chunk)
+    ll_label(w, body)
+    blk = n.kids[1]
+    if is_each
+        lt = n.kids[0].ty
+        et = c.types[lt].elem
+        if ll_colist(c, lt)
+            rv = ll_mkrow(w, lst, iv)
+            ll_put(w, "store { ptr, i64 } " + rv + ", ptr " + ll_slot(w, c, n.name, et))
+        else if ll_bits(c, lt)
+            bv = ll_new(w, "%t")
+            ll_put(w, bv + " = call zeroext i1 @tb_x_bget(ptr " + lst + ", i64 " + iv + ", i32 " + n.line + ")")
+            ll_put(w, "store i1 " + bv + ", ptr " + ll_slot(w, c, n.name, 3))
+        else
+            d = ll_new(w, "%t")
+            ll_put(w, d + " = load ptr, ptr " + lst + ", !tbaa !10")
+            ep = ll_new(w, "%t")
+            ll_put(w, ep + " = getelementptr inbounds " + ll_elem_ty(c, lt) + ", ptr " + d + ", i64 " + iv)
+            ev = ll_new(w, "%t")
+            ll_put(w, ev + " = load " + ll_elem_ty(c, lt) + ", ptr " + ep + ll_elem_tag(c, lt))
+            ll_put(w, "store " + ll_elem_ty(c, lt) + " " + ev + ", ptr " + ll_slot(w, c, n.name, et))
+    else
+        cnum = ll_new(w, "%t")
+        ll_put(w, cnum + " = add nsw i64 " + lo + ", " + iv)
+        ll_put(w, "store i64 " + cnum + ", ptr " + ll_slot(w, c, n.name, 1))
+        blk = n.kids[2]
+    // skip — к следующему номеру, stop — к следующему куску (как break во внутреннем for в C)
+    w.cont.add(step)
+    w.brk.add(chunk)
+    ll_block(w, c, blk)
+    gone_c = w.cont.pop()
+    gone_b = w.brk.pop()
+    if w.open
+        ll_term(w, "br label %" + step)
+    ll_label(w, step)
+    iv2 = ll_new(w, "%t")
+    ll_put(w, iv2 + " = load i64, ptr " + islot)
+    nx = ll_new(w, "%t")
+    ll_put(w, nx + " = add nsw i64 " + iv2 + ", 1")
+    ll_put(w, "store i64 " + nx + ", ptr " + islot)
+    ll_term(w, "br label %" + head)
+    ll_label(w, done)
+    shared_any = false
+    each v in n.caps
+        if v.is_shared
+            shared_any = true
+    if shared_any
+        // ядра по очереди кладут своё в общее (как tb_par_lock в C)
+        ll_put(w, "call void @tb_x_par_lock()")
+        count k from 0 to len(n.caps) - 1
+            v = n.caps[k]
+            if v.is_shared and ll_is_text(c, v.type)
+                // свой кусок — в конец общего (tb_app_take, как в C)
+                bp = ll_new(w, "%t")
+                ll_put(w, bp + " = load ptr, ptr %\"jc" + k + "\"")
+                mv = ll_new(w, "%t")
+                ll_put(w, mv + " = load ptr, ptr " + ll_slot(w, c, v.name, v.type))
+                rlv = ll_new(w, "%t")
+                ll_put(w, rlv + " = load i64, ptr " + ll_rl(w, v.name))
+                rcv = ll_new(w, "%t")
+                ll_put(w, rcv + " = load i64, ptr " + ll_rc(w, v.name))
+                ll_put(w, "call void @tb_x_app_take(ptr " + bp + ", ptr " + ll_lfield(w, bp, 8) + ", ptr " + ll_lfield(w, bp, 16) + ", ptr " + mv + ", i64 " + rlv + ", i64 " + rcv + ")")
+            else if v.is_shared
+                sp = ll_new(w, "%t")
+                ll_put(w, sp + " = load ptr, ptr %\"jc" + k + "\"")
+                old = ll_new(w, "%t")
+                ty = ll_ty(c, v.type)
+                ll_put(w, old + " = load " + ty + ", ptr " + sp)
+                mine = ll_new(w, "%t")
+                ll_put(w, mine + " = load " + ty + ", ptr " + ll_slot(w, c, v.name, v.type))
+                sum = ll_new(w, "%t")
+                if ty == "double"
+                    ll_put(w, sum + " = fadd double " + old + ", " + mine)
+                else
+                    ll_put(w, sum + " = add i64 " + old + ", " + mine)
+                ll_put(w, "store " + ty + " " + sum + ", ptr " + sp)
+        ll_put(w, "call void @tb_x_par_unlock()")
+    ll_term(w, "ret ptr null")
+    g.tmp = w.tmp
+    g.decls.add("define internal ptr " + wname + "(ptr %\"job\") #0 {\nentry:\n")
+    each a in w.allocas
+        g.decls.add(a)
+    each x in w.out
+        g.decls.add(x)
+    g.decls.add("}\n\n")
+    // 2) на месте цикла: заполнить задание и запустить ядра
+    job = "%\"job" + ll_new(g, "") + "\""
+    g.allocas.add("  " + job + " = alloca " + jt + "\n")
+    tot = ""
+    if is_each
+        lv = ll_expr(g, c, n.kids[0])
+        ll_put(g, "store ptr " + lv + ", ptr " + ll_job_at(g, jt, job, 4))
+        ln = ""
+        if ll_colist(c, n.kids[0].ty)
+            ln = ll_clen(g, lv)
+        else
+            ln = ll_len(g, lv)
+        ll_put(g, "store i64 0, ptr " + ll_job_at(g, jt, job, 0))
+        tot = ln
+    else
+        hi = ll_expr(g, c, n.kids[1])
+        lo0 = ll_expr(g, c, n.kids[0])
+        ll_put(g, "store i64 " + lo0 + ", ptr " + ll_job_at(g, jt, job, 0))
+        ll_put(g, "store ptr null, ptr " + ll_job_at(g, jt, job, 4))
+        d1 = ll_new(g, "%t")
+        ll_put(g, d1 + " = sub i64 " + hi + ", " + lo0)
+        d2 = ll_new(g, "%t")
+        ll_put(g, d2 + " = add i64 " + d1 + ", 1")
+        neg = ll_new(g, "%t")
+        ll_put(g, neg + " = icmp slt i64 " + hi + ", " + lo0)
+        tot = ll_new(g, "%t")
+        ll_put(g, tot + " = select i1 " + neg + ", i64 0, i64 " + d2)
+    ll_put(g, "store i64 " + tot + ", ptr " + ll_job_at(g, jt, job, 1))
+    ll_put(g, "store i64 0, ptr " + ll_job_at(g, jt, job, 3))
+    texts = list text
+    tnames = list text
+    count k from 0 to len(n.caps) - 1
+        v = n.caps[k]
+        at = ll_job_at(g, jt, job, 5 + k)
+        if v.is_shared and ll_is_text(c, v.type)
+            // общий текст: {текст, длина своей памяти, место} — ядра дописывают сюда
+            tbk = "%\"tx" + ll_new(g, "") + "\""
+            g.allocas.add("  " + tbk + " = alloca [3 x i64], align 8\n")
+            texts.add(tbk)
+            tnames.add(v.name)
+            cur = ll_new(g, "%t")
+            ll_put(g, cur + " = load ptr, ptr " + ll_slot(g, c, v.name, v.type))
+            ll_put(g, "store ptr " + cur + ", ptr " + tbk)
+            ll_put(g, "store i64 -1, ptr " + ll_lfield(g, tbk, 8))
+            ll_put(g, "store i64 0, ptr " + ll_lfield(g, tbk, 16))
+            ll_put(g, "store ptr " + tbk + ", ptr " + at)
+        else if v.is_shared
+            ll_put(g, "store ptr " + ll_slot(g, c, v.name, v.type) + ", ptr " + at)
+        else if v.is_link
+            ll_put(g, "store ptr " + ll_slot(g, c, v.name, v.type) + ", ptr " + at)
+        else
+            cvv = ll_new(g, "%t")
+            ll_put(g, cvv + " = load " + ll_ty(c, v.type) + ", ptr " + ll_slot(g, c, v.name, v.type))
+            ll_put(g, "store " + ll_ty(c, v.type) + " " + cvv + ", ptr " + at)
+    sv = ll_new(g, "%t")
+    ll_put(g, sv + " = call i64 @tb_x_par_step(i64 " + tot + ")")
+    ll_put(g, "store i64 " + sv + ", ptr " + ll_job_at(g, jt, job, 2))
+    ll_put(g, "call void @tb_x_par_run(ptr " + wname + ", ptr " + job + ", i64 " + tot + ")")
+    count q from 0 to len(texts) - 1
+        res = ll_new(g, "%t")
+        ll_put(g, res + " = load ptr, ptr " + texts[q])
+        ll_put(g, "store ptr " + res + ", ptr " + ll_slot(g, c, tnames[q], 4))
+
+func ll_load_job(w: LLGen, jt: text, k: int)
+    p = ll_job_at(w, jt, "%\"job\"", k)
+    r = ll_new(w, "%t")
+    ty = "i64"
+    if k == 4
+        ty = "ptr"
+    ll_put(w, r + " = load " + ty + ", ptr " + p)
+    return r
 
 // ---------- obj by columns ----------
 
@@ -189,7 +729,7 @@ func ll_row_field_ptr(g: LLGen, c: Comp, n: Node)
     ok = ll_new(g, "L")
     ll_term(g, "br i1 " + z + ", label %" + no + ", label %" + ok + ", !prof !0")
     ll_label(g, no)
-    ll_crash(g, n.line, 4)
+    ll_crash(g, n.line, 5)
     ll_label(g, ok)
     o = c.types[n.kids[0].ty].obj_node
     at = 0
@@ -337,6 +877,9 @@ func ll_value_ok(c: Comp, t: int, v: Node, names: list text)
         return ll_box(c, v.ty) and ll_box_ok(c, v, names)
     if ll_is_text(c, t)
         return ll_is_text(c, v.ty) and ll_expr_ok(c, v, names)
+    if not ll_simple(c, t)
+        // задача, канал: тот же тип
+        return v.ty == t and ll_val(c, t) and ll_expr_ok(c, v, names)
     return ll_simple(c, v.ty) and ll_expr_ok(c, v, names)
 
 // выражение-коробка, которое LLVM умеет посчитать: имя, [1, 2, 3], Ball(...), вызов, p.tags
@@ -404,13 +947,13 @@ func ll_ty(c: Comp, t: int)
     k = kind_of(c, t)
     if k == "obj" and is_cols_obj(c, t)
         return "{ ptr, i64 }"
-    if k == "list" or k == "obj" or k == "text" or k == "dict"
+    if k == "list" or k == "obj" or k == "text" or k == "dict" or k == "task" or k == "channel"
         return "ptr"
     if k == "dec"
         return "double"
     if k == "bool"
         return "i1"
-    if k == "none"
+    if k == "none" or k == "unknown"
         return "void"
     return "i64"
 
@@ -420,12 +963,13 @@ func ll_ext(c: Comp, t: int)
         return "zeroext "
     return ""
 
-// shared снаружи функций: из LLVM — та же переменная C (v_имя); пока только int и dec
+// shared снаружи функций: из LLVM — та же переменная C (v_имя); int, dec и bool
 func ll_global_ok(c: Comp, name: text, t: int)
     if not ll_is_global(c, name)
         return true
     k = kind_of(c, t)
-    return k == "int" or k == "dec"
+    // bool в C — байт 0/1; LLVM пишет i1 в байт с нулями сверху, читает так же
+    return k == "int" or k == "dec" or k == "bool"
 
 // ярлык (link) на число или текст: в LLVM — указатель на саму переменную того, кто позвал
 func ll_link_ok(c: Comp, t: int)
@@ -574,6 +1118,13 @@ func ll_expr_ok(c: Comp, n: Node, names: list text)
         if ll_row(c, n.ty)
             return ll_row_ok(c, n, names)
         return ll_new_ok(c, n, names)
+    if k == "method" and kind_of(c, n.kids[0].ty) == "channel"
+        b = n.kids[0]
+        if not (ll_chan(c, b.ty) and ll_expr_ok(c, b, names))
+            return false
+        if n.name == "send"
+            return len(n.kids) == 2 and ll_value_ok(c, c.types[b.ty].elem, n.kids[1].kids[0], names)
+        return n.name == "receive" or n.name == "close"
     if k == "method"
         b = n.kids[0]
         if ll_dict(c, b.ty)
@@ -583,7 +1134,7 @@ func ll_expr_ok(c: Comp, n: Node, names: list text)
             if n.name == "has" or n.name == "remove"
                 return len(n.kids) == 2 and ll_expr_ok(c, n.kids[1].kids[0], names)
             if n.name == "keys" or n.name == "values"
-                return ll_numlist(c, n.ty) or ll_colist(c, n.ty)
+                return ll_numlist(c, n.ty) or ll_colist(c, n.ty) or ll_bits(c, n.ty)
             return false
         // xs.pop(): последний элемент списка
         return n.name == "pop" and ll_list_name_ok(c, b, names)
@@ -651,11 +1202,30 @@ func ll_expr_ok(c: Comp, n: Node, names: list text)
             else if not (ll_val(c, v.ty) and ll_expr_ok(c, v, names))
                 return false
         return true
+    if k == "field" and kind_of(c, n.kids[0].ty) == "task"
+        // t.wait: ждать фоновую задачу (через обёртку tb_llb_N из C)
+        return (ll_none(c, n.ty) or ll_val(c, n.ty) or ll_box(c, n.ty)) and ll_expr_ok(c, n.kids[0], names)
+    if k == "background"
+        // background f(...): поток запускает обёртка из C (tb_bgN), аргументы — как у вызова
+        call = n.kids[0]
+        if not call.has_ref or call.ref.kind != "func"
+            return false
+        params = call.ref.kids[0]
+        count i from 0 to len(call.kids) - 1
+            a = call.kids[i]
+            if a.kind == "missing" or len(a.kids) == 0
+                return false
+            if not ll_value_ok(c, params.kids[i].ty, a.kids[0], names)
+                return false
+        return true
     if k == "field"
         return ll_field_ok(c, n, names)
     if k == "call" and not n.has_ref
         // остальные встроенные (to_int, split, cut, abs ...): через обёртку tb_llb_N из C
-        if ll_has(["asm", "len", "print", "show"], n.name)
+        if n.name == "asm"
+            // asm("..."): прямо в LLVM, как __asm__ volatile(... ::: "memory") в C
+            return len(n.kids) == 1 and n.kids[0].kids[0].kind == "string" and ll_str_ok(n.kids[0].kids[0].value)
+        if ll_has(["len", "print", "show"], n.name)
             return false
         if not (kind_of(c, n.ty) == "none" or ll_val(c, n.ty) or ll_box(c, n.ty))
             return false
@@ -841,19 +1411,38 @@ func ll_stmt_ok(c: Comp, n: Node, names: list text)
             else if not ll_expr_ok(c, x, names)
                 return false
         return true
+    if (k == "count" or k == "each") and n.is_par
+        return ll_par_ok(c, n, names)
     if k == "count"
         return not n.is_par and ll_expr_ok(c, n.kids[0], names) and ll_expr_ok(c, n.kids[1], names) and ll_block_ok(c, n.kids[2], names)
     if k == "repeat_times" or k == "repeat_while"
         return ll_expr_ok(c, n.kids[0], names) and ll_block_ok(c, n.kids[1], names)
+    if k == "each" and n.by_piece and not n.is_par and not n.by_vec
+        // each piece in data by N: кусок — вид на часть списка (свой tb_list на стеке)
+        return ll_numlist(c, n.kids[0].ty) and ll_box_ok(c, n.kids[0], names) and kind_of(c, n.piece_size.ty) == "int" and ll_expr_ok(c, n.piece_size, names) and ll_block_ok(c, n.kids[1], names)
+    if k == "each" and n.by_vec and not n.is_par
+        // by vec: 8 копилок вместо одной (как в C), список int или dec
+        lt = n.kids[0].ty
+        if not (ll_numlist(c, lt) and (c.types[lt].elem == 1 or c.types[lt].elem == 2) and ll_box_ok(c, n.kids[0], names))
+            return false
+        each v in n.caps
+            if v.is_shared
+                if not (ll_simple(c, v.type) and kind_of(c, v.type) != "bool") or ll_is_global(c, v.name)
+                    return false
+        if ll_has_kind(n.kids[1], ["return", "try", "fail"])
+            return false
+        return ll_block_ok(c, n.kids[1], names)
     if k == "each"
         if n.by_vec or n.is_par or n.by_piece or not ll_block_ok(c, n.kids[1], names)
             return false
         lt = n.kids[0].ty
-        if ll_is_text(c, lt)
+        if ll_is_text(c, lt) or ll_chan(c, lt)
             return ll_expr_ok(c, n.kids[0], names)
         return (ll_numlist(c, lt) or ll_bits(c, lt) or ll_colist(c, lt) or ll_dict(c, lt)) and ll_box_ok(c, n.kids[0], names)
-    if k == "skip" or k == "stop"
+    if k == "skip" or k == "stop" or k == "unlock"
         return true
+    if k == "danger" or k == "lock" or k == "together"
+        return ll_block_ok(c, n.kids[0], names)
     if k == "temp"
         return ll_block_ok(c, n.kids[0], names)
     if k == "linkdecl"
@@ -893,6 +1482,8 @@ func ll_stmt_ok(c: Comp, n: Node, names: list text)
         return len(n.kids) == 0 or ll_expr_ok(c, n.kids[0], names)
     if k == "expr_stmt"
         e = n.kids[0]
+        if e.kind == "method" and kind_of(c, e.kids[0].ty) == "channel"
+            return ll_expr_ok(c, e, names)
         if e.kind == "method" and ll_dict(c, e.kids[0].ty)
             if e.name == "clear"
                 return ll_box_ok(c, e.kids[0], names)
@@ -903,7 +1494,46 @@ func ll_stmt_ok(c: Comp, n: Node, names: list text)
             if e.name == "add"
                 return len(e.kids) == 2 and ll_elem_ok(c, e.kids[0].ty, e.kids[1].kids[0], names)
             return e.name == "pop" or e.name == "clear"
-        return (e.kind == "call" or e.kind == "try" or e.kind == "else_err") and ll_expr_ok(c, e, names)
+        return (e.kind == "call" or e.kind == "try" or e.kind == "else_err" or e.kind == "background" or (e.kind == "field" and kind_of(c, e.kids[0].ty) == "task")) and ll_expr_ok(c, e, names)
+    return false
+
+// each / count ... on all cores: тело — отдельная функция-работник в .ll (как tb_workN в C)
+func ll_par_ok(c: Comp, n: Node, names: list text)
+    if n.by_vec or n.by_piece
+        return false
+    body = n.kids[1]
+    if n.kind == "count"
+        if not (ll_expr_ok(c, n.kids[0], names) and ll_expr_ok(c, n.kids[1], names))
+            return false
+        body = n.kids[2]
+    else
+        lt = n.kids[0].ty
+        if not ((ll_numlist(c, lt) or ll_colist(c, lt) or ll_bits(c, lt)) and ll_box_ok(c, n.kids[0], names))
+            return false
+    each v in n.caps
+        if ll_is_global(c, v.name)
+            return false
+        if v.is_shared
+            // shared: у каждого ядра своё число, в конце складываются (текст — пока через C)
+            k = kind_of(c, v.type)
+            if not (k == "int" or k == "dec" or k == "text")
+                return false
+        else if v.is_link
+            if not ll_link_ok(c, v.type)
+                return false
+        else if not (ll_val(c, v.type) or ll_box(c, v.type) or ll_row(c, v.type))
+            return false
+    // try / fail / return внутри работника вышли бы из него, а не из функции — пока через C
+    if ll_has_kind(body, ["try", "fail", "return"])
+        return false
+    return ll_block_ok(c, body, names)
+
+func ll_has_kind(n: Node, kinds: list text)
+    if ll_has(kinds, n.kind)
+        return true
+    each k in n.kids
+        if ll_has_kind(k, kinds)
+            return true
     return false
 
 func ll_head_ok(c: Comp, f: Node)
@@ -914,7 +1544,7 @@ func ll_head_ok(c: Comp, f: Node)
         // выходы gives: числа, тексты, коробки
         if not (ll_val(c, o.ty) or ll_box(c, o.ty) or ll_row(c, o.ty))
             return false
-    if len(outs) <= 1 and not (kind_of(c, f.ty) == "none" or ll_val(c, f.ty) or ll_box(c, f.ty) or ll_row(c, f.ty))
+    if len(outs) <= 1 and not (ll_none(c, f.ty) or ll_val(c, f.ty) or ll_box(c, f.ty) or ll_row(c, f.ty))
         return false
     // строка by columns идёт в двух регистрах; если регистров не хватит, C кладёт её в стек
     // целиком — так что строки разрешаем, только пока всё влезает в 6 регистров
@@ -977,6 +1607,10 @@ modpub func ll_pick(c: Comp, program: Node)
                     changed = true
         names = keep
     c.ll_names = names
+    // замки из функций в LLVM: переменные tb_lk_имя пишет C (в конце файла)
+    each top in program.kids
+        if top.kind == "func" and ll_has(names, ll_fname(top))
+            ll_lock_names(top.kids[1], c.locks)
     // функции из C, которые зовут из LLVM: в C они без static
     ext = list text
     each top in program.kids
@@ -986,16 +1620,22 @@ modpub func ll_pick(c: Comp, program: Node)
     bis = list Node
     each top in program.kids
         if top.kind == "func" and ll_has(names, ll_fname(top))
-            ll_builtins(top.kids[1], bis)
+            ll_builtins(c, top.kids[1], bis)
     c.ll_bi = bis
 
+func ll_lock_names(n: Node, locks: list text)
+    if n.kind == "lock" and not ll_has(locks, n.name)
+        locks.add(n.name)
+    each k in n.kids
+        ll_lock_names(k, locks)
+
 // встроенные функции внутри функций для LLVM: каждой — свой номер обёртки
-func ll_builtins(n: Node, bis: list Node)
-    if n.kind == "call" and not n.has_ref and not ll_has(["asm", "len", "print", "show"], n.name)
+func ll_builtins(c: Comp, n: Node, bis: list Node)
+    if (n.kind == "call" and not n.has_ref and not ll_has(["asm", "len", "print", "show"], n.name)) or n.kind == "background" or (n.kind == "field" and kind_of(c, n.kids[0].ty) == "task")
         n.temp_no = len(bis)
         bis.add(n)
     each kid in n.kids
-        ll_builtins(kid, bis)
+        ll_builtins(c, kid, bis)
 
 func ll_calls(n: Node, names: list text, ext: list text)
     if n.kind == "call" and n.has_ref and n.ref.kind == "func"
@@ -1035,6 +1675,10 @@ func ll_slot(g: LLGen, c: Comp, name: text, t: int)
     if ll_has(g.links, name)
         // link-параметр: его «место» — адрес переменной того, кто позвал
         return "%\"p." + name + "\""
+    count vi from 0 to len(g.vec_names) - 1
+        if g.vec_names[vi] == name
+            // by vec: вместо общей переменной — своя копилка этой копии тела
+            return g.vec_slots[vi]
     if ll_has(g.ldecls, name)
         // ярлык внутри функции: адрес лежит в своей ячейке
         r = ll_new(g, "%t")
@@ -1042,7 +1686,7 @@ func ll_slot(g: LLGen, c: Comp, name: text, t: int)
         return r
     if ll_is_global(c, name)
         gs = "@\"v_" + name + "\""
-        ll_need(g, gs + " = external hidden global " + ll_ty(c, t) + "\n")
+        ll_need(g, gs + " = external hidden global " + ll_mem_ty(c, t) + "\n")
         return gs
     s = "%\"v." + name + "." + ll_ty(c, t) + "\""
     if not ll_has(g.slots, s)
@@ -1098,7 +1742,7 @@ func ll_call(g: LLGen, c: Comp, n: Node)
             args = args + ", "
         args = args + ll_arg(g, c, p, v)
     callee = ll_ext(c, f.ty) + ll_ty(c, f.ty) + " @\"" + ll_fname(f) + "\"(" + args + ")"
-    if kind_of(c, f.ty) == "none"
+    if ll_none(c, f.ty)
         ll_put(g, "call " + callee)
         return "0"
     r = ll_new(g, "%t")
@@ -1295,6 +1939,31 @@ func ll_expr(g: LLGen, c: Comp, n: Node)
         return ll_list_lit(g, c, n)
     if k == "dict"
         return ll_dict_lit(g, c, n)
+    if k == "method" and kind_of(c, n.kids[0].ty) == "channel"
+        ch = ll_expr(g, c, n.kids[0])
+        et = c.types[n.kids[0].ty].elem
+        if n.name == "close"
+            ll_put(g, "call void @tb_x_chan_close(ptr " + ch + ")")
+            return "0"
+        cell = "%\"cv" + ll_new(g, "") + "\""
+        g.allocas.add("  " + cell + " = alloca " + ll_mem_ty(c, et) + "\n")
+        if n.name == "send"
+            sv = ll_as(g, c, n.kids[1].kids[0], et)
+            ll_store_val(g, c, et, sv, cell)
+            ll_put(g, "call void @tb_x_chan_send(ptr " + ch + ", ptr " + cell + ", i32 " + n.line + ")")
+            return "0"
+        // receive(): закрыт и пуст — падаем, как TB_CH_RECV в C
+        got = ll_new(g, "%t")
+        ll_put(g, got + " = call i32 @tb_x_chan_take(ptr " + ch + ", ptr " + cell + ")")
+        bad = ll_new(g, "%t")
+        ll_put(g, bad + " = icmp eq i32 " + got + ", 0")
+        no = ll_new(g, "L")
+        ok = ll_new(g, "L")
+        ll_term(g, "br i1 " + bad + ", label %" + no + ", label %" + ok + ", !prof !0")
+        ll_label(g, no)
+        ll_crash(g, n.line, 6)
+        ll_label(g, ok)
+        return ll_load_val(g, c, et, cell)
     if k == "method" and ll_dict(c, n.kids[0].ty)
         base = ll_expr(g, c, n.kids[0])
         if n.name == "has"
@@ -1316,6 +1985,11 @@ func ll_expr(g: LLGen, c: Comp, n: Node)
         if n.name == "values"
             fn = "tb_x_dvals_copy"
         ll_put(g, r + " = call ptr @" + fn + "(ptr " + base + ")")
+        if ll_bits(c, n.ty)
+            // значения bool лежат байтами — в list bool их надо переложить в биты
+            rb = ll_new(g, "%t")
+            ll_put(g, rb + " = call ptr @tb_x_bits_of_bytes(ptr " + r + ")")
+            return rb
         if ll_colist(c, n.ty)
             // значения-строки лежат подряд по 16 байт: из них — список колонок
             cn = ll_cneed(g, c, n.ty)
@@ -1349,6 +2023,8 @@ func ll_expr(g: LLGen, c: Comp, n: Node)
         if ll_is_text(c, n.kids[0].ty)
             return ll_tcmp(g, c, n)
         return ll_binop(g, c, n)
+    if k == "background" or (k == "field" and kind_of(c, n.kids[0].ty) == "task")
+        return ll_builtin(g, c, n)
     if k == "field"
         fp = ll_field_ptr(g, c, n)
         r = ll_new(g, "%t")
@@ -1392,6 +2068,9 @@ func ll_expr(g: LLGen, c: Comp, n: Node)
         return r
     if k == "call" and not n.has_ref and (n.name == "print" or n.name == "show")
         ll_print(g, c, n, n.name == "print")
+        return "0"
+    if k == "call" and not n.has_ref and n.name == "asm"
+        ll_asm(g, n.kids[0].kids[0].value)
         return "0"
     if k == "call" and not n.has_ref and n.name != "len"
         return ll_builtin(g, c, n)
@@ -1693,6 +2372,10 @@ func ll_app_parts(c: Comp, v: Node) gives parts: list Node
 
 func ll_bld_scan(c: Comp, n: Node, cand: list text, bad: list text)
     k = n.kind
+    if k == "background" or k == "together" or ((k == "each" or k == "count") and (n.is_par or n.by_vec))
+        // как в C: внутри потоков и копий тела текст на месте не дописываем
+        ll_bld_bad_all(n, bad)
+        return
     if k == "each" or k == "count"
         bad.add(n.name)
     if k == "multi"
@@ -1735,6 +2418,15 @@ func ll_default(g: LLGen, c: Comp, t: int)
         return "0.0"
     if k == "bool"
         return "false"
+    if k == "channel"
+        r = ll_new(g, "%t")
+        ct = "0"
+        if c.types[t].elem == 4
+            ct = "1"
+        ll_put(g, r + " = call ptr @tb_x_chan_new(i64 " + ll_size(c, c.types[t].elem) + ", i32 " + ct + ")")
+        return r
+    if k == "task"
+        return "null"
     if k == "text"
         name, sn = ll_strconst(g, "\"\"")
         return name
@@ -2122,8 +2814,9 @@ func ll_loop_body(g: LLGen, c: Comp, body: Node, cont: text, out: text)
 func ll_builtin(g: LLGen, c: Comp, n: Node)
     args = ""
     tys = ""
-    count i from 0 to len(n.kids) - 1
-        a = n.kids[i].kids[0]
+    bargs = ll_bi_args(n)
+    count i from 0 to len(bargs) - 1
+        a = bargs[i]
         v = ll_expr(g, c, a)
         if i > 0
             args = args + ", "
@@ -2133,7 +2826,7 @@ func ll_builtin(g: LLGen, c: Comp, n: Node)
     fn = "@tb_llb_" + n.temp_no
     rt = ll_ext(c, n.ty) + ll_ty(c, n.ty)
     ll_need(g, "declare " + rt + " " + fn + "(" + tys + ")\n")
-    if kind_of(c, n.ty) == "none"
+    if ll_none(c, n.ty)
         ll_put(g, "call void " + fn + "(" + args + ")")
         return "0"
     r = ll_new(g, "%t")
@@ -2160,7 +2853,7 @@ func ll_bail(g: LLGen, c: Comp)
         ll_gives_ret(g, c)
         return
     ll_fa_end(g)
-    if kind_of(c, g.fn.ty) == "none"
+    if ll_none(c, g.fn.ty)
         ll_term(g, "ret void")
         return
     d = ll_default(g, c, g.fn.ty)
@@ -2257,6 +2950,29 @@ func ll_each_bits(g: LLGen, c: Comp, n: Node)
     nx = ll_new(g, "%t")
     ll_put(g, nx + " = add nsw i64 " + iv2 + ", 1")
     ll_put(g, "store i64 " + nx + ", ptr " + islot)
+    ll_term(g, "br label %" + head)
+    ll_label(g, out)
+
+// each x in ch: берём, пока канал не закрыт и не пуст
+func ll_each_chan(g: LLGen, c: Comp, n: Node)
+    ch = ll_expr(g, c, n.kids[0])
+    et = c.types[n.kids[0].ty].elem
+    cell = "%\"cv" + ll_new(g, "") + "\""
+    g.allocas.add("  " + cell + " = alloca " + ll_mem_ty(c, et) + "\n")
+    head = ll_new(g, "L")
+    body = ll_new(g, "L")
+    out = ll_new(g, "L")
+    ll_term(g, "br label %" + head)
+    ll_label(g, head)
+    got = ll_new(g, "%t")
+    ll_put(g, got + " = call i32 @tb_x_chan_take(ptr " + ch + ", ptr " + cell + ")")
+    more = ll_new(g, "%t")
+    ll_put(g, more + " = icmp ne i32 " + got + ", 0")
+    ll_term(g, "br i1 " + more + ", label %" + body + ", label %" + out)
+    ll_label(g, body)
+    v = ll_load_val(g, c, et, cell)
+    ll_put(g, "store " + ll_ty(c, et) + " " + v + ", ptr " + ll_slot(g, c, n.name, et))
+    ll_loop_body(g, c, n.kids[1], head, out)
     ll_term(g, "br label %" + head)
     ll_label(g, out)
 
@@ -2456,6 +3172,12 @@ func ll_stmt(g: LLGen, c: Comp, n: Node)
         if len(n.kids) % 2 == 1
             ll_block(g, c, n.kids[len(n.kids) - 1])
         ll_label(g, done)
+    else if (k == "count" or k == "each") and n.is_par
+        ll_par(g, c, n)
+    else if k == "each" and n.by_vec
+        ll_vec(g, c, n)
+    else if k == "each" and n.by_piece
+        ll_pieces(g, c, n)
     else if k == "count"
         // как в C: сначала конец, потом начало; конец считается один раз
         end = ll_expr(g, c, n.kids[1])
@@ -2533,6 +3255,9 @@ func ll_stmt(g: LLGen, c: Comp, n: Node)
         if ll_is_text(c, lt)
             ll_each_text(g, c, n)
             return
+        if ll_chan(c, lt)
+            ll_each_chan(g, c, n)
+            return
         if ll_bits(c, lt)
             ll_each_bits(g, c, n)
             return
@@ -2591,6 +3316,30 @@ func ll_stmt(g: LLGen, c: Comp, n: Node)
             g.ldecls.add(n.name)
             g.allocas.add("  %\"l." + n.name + "\" = alloca ptr\n")
         ll_put(g, "store ptr " + a + ", ptr %\"l." + n.name + "\"")
+    else if k == "danger"
+        ll_block(g, c, n.kids[0])
+    else if k == "together"
+        ll_together(g, c, n)
+    else if k == "lock"
+        // замок: атомарный обмен (tb_lock_take/give из C); unlock внутри — отпускает раньше
+        lk = "@\"tb_lk_" + n.name + "\""
+        ll_need(g, lk + " = external global i32\n")
+        fs = "%\"lf" + ll_new(g, "") + "\""
+        g.allocas.add("  " + fs + " = alloca i64\n")
+        fv = ll_new(g, "%t")
+        ll_put(g, fv + " = call i64 @tb_x_lock_take(ptr " + lk + ")")
+        ll_put(g, "store i64 " + fv + ", ptr " + fs)
+        g.locks.add(fs)
+        ll_block(g, c, n.kids[0])
+        gone = g.locks.pop()
+        freed = false
+        each st in n.kids[0].kids
+            if st.kind == "unlock"
+                freed = true
+        if not freed
+            ll_lock_give(g, n.name, fs)
+    else if k == "unlock"
+        ll_lock_give(g, n.name, g.locks[len(g.locks) - 1])
     else if k == "temp"
         // temp: всё, что создано внутри, отдаётся разом в конце (как tb_temp_begin/end в C)
         am = "%\"am" + ll_new(g, "") + "\""
@@ -2669,7 +3418,7 @@ func ll_stmt(g: LLGen, c: Comp, n: Node)
     else if k == "return" and len(g.outs) > 0 and (len(n.kids) == 0 or g.multi_out)
         ll_gives_ret(g, c)
     else if k == "return"
-        if len(n.kids) == 1 and kind_of(c, g.fn.ty) != "none"
+        if len(n.kids) == 1 and not ll_none(c, g.fn.ty)
             v = ll_as(g, c, n.kids[0], g.fn.ty)
             ll_fa_end(g)
             ll_term(g, "ret " + ll_ty(c, g.fn.ty) + " " + v)
@@ -2787,7 +3536,7 @@ func ll_func(c: Comp, f: Node, all: list text, decls: list text)
     if g.open
         if len(outs) > 0
             ll_gives_ret(g, c)
-        else if kind_of(c, f.ty) == "none"
+        else if ll_none(c, f.ty)
             ll_fa_end(g)
             ll_term(g, "ret void")
         else
@@ -2849,7 +3598,7 @@ modpub func emit_ll(c: Comp, program: Node, target: text, cpu: text)
     all.add("declare ptr @tb_x_cat(ptr, ptr)\ndeclare void @tb_x_app(ptr, ptr, ptr, ptr)\ndeclare void @tb_x_app_i(ptr, ptr, ptr, i64)\ndeclare void @tb_x_app_n(ptr, ptr, ptr, ptr, i64)\n")
     all.add("declare ptr @tb_x_errp()\ndeclare void @tb_x_die(ptr) noreturn cold\n")
     all.add("declare ptr @tb_x_grow(ptr)\ndeclare zeroext i1 @tb_x_bget(ptr, i64, i32)\ndeclare void @tb_x_bset(ptr, i64, i1 zeroext, i32)\ndeclare void @tb_x_badd(ptr, i1 zeroext)\ndeclare zeroext i1 @tb_x_bpop(ptr, i32)\ndeclare ptr @tb_x_bits_new()\ndeclare ptr @tb_x_bits_from(i64, ptr)\ndeclare ptr @tb_x_pop(ptr, i32)\ndeclare void @tb_x_lclear(ptr, i32)\ndeclare ptr @tb_x_list_new_np(i64)\ndeclare ptr @tb_x_list_from_np(i64, i64, ptr)\ndeclare ptr @tb_x_dict_new(i32, i64)\ndeclare ptr @tb_x_dict_from(i32, i64, i64, ptr, ptr)\ndeclare ptr @tb_x_dget(ptr, ptr, i32)\ndeclare ptr @tb_x_dput(ptr, ptr, ptr)\ndeclare i32 @tb_x_dhas(ptr, ptr)\ndeclare void @tb_x_dremove(ptr, ptr)\ndeclare void @tb_x_dclear(ptr, i32)\ndeclare i64 @tb_x_dlen(ptr)\ndeclare ptr @tb_x_dkeys_copy(ptr)\ndeclare ptr @tb_x_dvals_copy(ptr)\ndeclare ptr @tb_x_list_new(i64)\ndeclare ptr @tb_x_list_from(i64, i64, ptr)\n")
-    all.add("declare void @tb_x_temp_begin_p(ptr)\ndeclare void @tb_x_temp_end_p(ptr)\ndeclare i32 @tb_x_fa_begin(ptr)\ndeclare void @tb_x_fa_end(i32, ptr)\n")
+    all.add("declare void @tb_x_temp_begin_p(ptr)\ndeclare ptr @tb_x_bits_of_bytes(ptr)\ndeclare void @tb_x_app_take(ptr, ptr, ptr, ptr, i64, i64)\ndeclare i64 @tb_x_dpre1(ptr, ptr)\ndeclare void @tb_x_dpre2(ptr, i64)\ndeclare void @tb_x_lpre(ptr, i64)\ndeclare i64 @tb_x_lock_take(ptr)\ndeclare void @tb_x_lock_give(ptr, i64)\ndeclare ptr @tb_x_chan_new(i64, i32)\ndeclare void @tb_x_chan_send(ptr, ptr, i32)\ndeclare i32 @tb_x_chan_take(ptr, ptr)\ndeclare void @tb_x_chan_close(ptr)\ndeclare void @tb_x_par_run(ptr, ptr, i64)\ndeclare i64 @tb_x_par_step(i64)\ndeclare void @tb_x_par_lock()\ndeclare void @tb_x_par_unlock()\ndeclare void @tb_x_temp_end_p(ptr)\ndeclare i32 @tb_x_fa_begin(ptr)\ndeclare void @tb_x_fa_end(i32, ptr)\n")
     all.add("declare i64 @strlen(ptr)\ndeclare i32 @strcmp(ptr, ptr)\ndeclare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)\n")
     all.add("\n")
     decls = list text

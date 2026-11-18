@@ -266,7 +266,7 @@ func ll_exports()
     x.add("TB_X(tb_dict *, dict_new, (int t, long long v), (t, v))\nTB_X(tb_dict *, dict_from, (int t, long long v, long long n, const void *k, const void *vs), (t, v, n, k, vs))\n")
     x.add("TB_X(void *, dget, (tb_dict *d, const void *k, int line), (d, k, line))\nTB_X(void *, dput, (tb_dict *d, const void *k, const void *def), (d, k, def))\nTB_X(int, dhas, (tb_dict *d, const void *k), (d, k))\n")
     x.add("TB_XV(dremove, (tb_dict *d, const void *k), (d, k))\nTB_XV(dclear, (tb_dict *d, int line), (d, line))\nTB_X(long long, dlen, (tb_dict *d), (d))\nTB_X(tb_list *, dkeys_copy, (tb_dict *d), (d))\nTB_X(tb_list *, dvals_copy, (tb_dict *d), (d))\n")
-    x.add("TB_XV(die, (const char *m), (m))\nTB_X(const char *, chr, (long long c), (c))\nTB_X(_Bool, bget, (tb_list *l, long long i, int line), (l, i, line))\nTB_XV(bset, (tb_list *l, long long i, _Bool v, int line), (l, i, v, line))\nTB_XV(badd, (tb_list *l, _Bool v), (l, v))\nTB_X(_Bool, bpop, (tb_list *l, int line), (l, line))\nTB_X(tb_list *, bits_new, (void), ())\nTB_X(tb_list *, bits_from, (long long n, const unsigned char *s), (n, s))\nconst char **tb_x_errp(void) { return &tb_err; }\n")
+    x.add("TB_XV(die, (const char *m), (m))\nTB_X(const char *, chr, (long long c), (c))\nTB_X(tb_list *, bits_of_bytes, (tb_list *b), (b))\nTB_XV(app_take, (const char **p, long long *rl, long long *rc, const char *b, long long brl, long long brc), (p, rl, rc, b, brl, brc))\nTB_X(unsigned long long, dpre1, (tb_dict *d, const void *k), (d, k))\nTB_XV(dpre2, (tb_dict *d, unsigned long long i), (d, i))\nTB_XV(lpre, (tb_list *l, long long i), (l, i))\nTB_X(unsigned long, lock_take, (int *l), (l))\nTB_XV(lock_give, (int *l, unsigned long f), (l, f))\nTB_X(tb_chan *, chan_new, (long long size, int text), (size, text))\nTB_XV(chan_send, (tb_chan *ch, const void *v, int line), (ch, v, line))\nTB_X(int, chan_take, (tb_chan *ch, void *out), (ch, out))\nTB_XV(chan_close, (tb_chan *ch), (ch))\nTB_XV(par_run, (void *(*w)(void *), void *j, long long t), (w, j, t))\nTB_X(long long, par_step, (long long t), (t))\nvoid tb_x_par_lock(void) { pthread_mutex_lock(&tb_par_lock); }\nvoid tb_x_par_unlock(void) { pthread_mutex_unlock(&tb_par_lock); }\nTB_X(_Bool, bget, (tb_list *l, long long i, int line), (l, i, line))\nTB_XV(bset, (tb_list *l, long long i, _Bool v, int line), (l, i, v, line))\nTB_XV(badd, (tb_list *l, _Bool v), (l, v))\nTB_X(_Bool, bpop, (tb_list *l, int line), (l, line))\nTB_X(tb_list *, bits_new, (void), ())\nTB_X(tb_list *, bits_from, (long long n, const unsigned char *s), (n, s))\nconst char **tb_x_errp(void) { return &tb_err; }\n")
     return join(x, "")
 
 // in_ll: тело в .ll (f__ll), а C-шная f(...) собирает выходы в структуру;
@@ -314,23 +314,34 @@ func emit_ll_builtin(c: Comp, n: Node, id: int)
     if kind_of(c, n.ty) != "none"
         rt = c_type(c, n.ty)
     put(c, "TB_LLV " + rt + " tb_llb_" + id + "(")
-    if len(n.kids) == 0
+    args = ll_bi_args(n)
+    if len(args) == 0
         put(c, "void")
-    saved = list Node
-    count i from 0 to len(n.kids) - 1
-        a = n.kids[i].kids[0]
-        saved.add(a)
+    count i from 0 to len(args) - 1
         if i > 0
             put(c, ", ")
-        put(c, c_type(c, a.ty) + " v_a" + i)
-        n.kids[i].kids[0] = Node(kind: "name", line: a.line, name: "a" + i, ty: a.ty)
+        put(c, c_type(c, args[i].ty) + " v_a" + i)
+        ll_bi_set(n, i, Node(kind: "name", line: args[i].line, name: "a" + i, ty: args[i].ty))
     put(c, ") { ")
     if rt != "void"
         put(c, "return ")
-    emit_builtin(c, n)
+    if n.kind == "call"
+        emit_builtin(c, n)
+    else
+        // background f(...) и t.wait: тот же вывод C, что и на месте
+        emit_expr(c, n)
     put(c, "; }\n")
-    count i from 0 to len(n.kids) - 1
-        n.kids[i].kids[0] = saved[i]
+    count i from 0 to len(args) - 1
+        ll_bi_set(n, i, args[i])
+
+// поставить i-й аргумент обёртки на место (см. ll_bi_args)
+func ll_bi_set(n: Node, i: int, v: Node)
+    if n.kind == "field"
+        n.kids[0] = v
+    else if n.kind == "background"
+        n.kids[0].kids[i].kids[0] = v
+    else
+        n.kids[i].kids[0] = v
 
 func emit_call(c: Comp, n: Node)
     if not n.has_ref
@@ -2701,7 +2712,7 @@ modpub func emit_c(c: Comp, program: Node)
 
     if len(c.ll_names) > 0
         // для функций из .ll: остановка с номером строки (деление на ноль, нет return)
-        put(c, "void tb_ll_crash(int line, int what) { tb_crash(line, what == 0 ? \"деление на ноль\" : what == 1 ? \"остаток от деления на ноль\" : what == 3 ? \"номер за пределами списка\" : \"obj пустой: его ещё не создали\"); }\n")
+        put(c, "void tb_ll_crash(int line, int what) { tb_crash(line, what == 0 ? \"деление на ноль\" : what == 1 ? \"остаток от деления на ноль\" : what == 3 ? \"номер за пределами списка\" : what == 5 ? \"объект пустой: его ещё не создали\" : what == 6 ? \"канал закрыт и пуст: receive() нечего взять\" : what == 7 ? \"размер куска в by должен быть больше 0\" : \"obj пустой: его ещё не создали\"); }\n")
         put(c, "void tb_ll_noreturn(int line, const char *name) { char m[256]; snprintf(m, sizeof m, \"функция %s дошла до конца без return\", name); tb_crash(line, m); }\n")
     // obj: сначала имена, потом устройство (obj может хранить другой obj)
     each top in program.kids
@@ -2739,9 +2750,6 @@ modpub func emit_c(c: Comp, program: Node)
         if c.ll and t.kind == "obj" and is_cols_obj(c, t.id)
             // строку из .ll отдают по адресу (две части в регистрах у разных машин передаются по-разному)
             put(c, "TB_LLV void tb_lc_show_" + t.id + "(tb_row_" + t.obj_node.name + " *r) { tb_show_" + t.id + "(*r); }\n")
-    // --llvm: встроенные функции, которые зовут из .ll — обёртка с видом Tachbit
-    count i from 0 to len(c.ll_bi) - 1
-        emit_ll_builtin(c, c.ll_bi[i], i)
     // функции пишем в отдельный кусок: работники on all cores должны стоять перед ними
     saved = c.out
     funcs_out = list text
@@ -2749,11 +2757,19 @@ modpub func emit_c(c: Comp, program: Node)
     each top in program.kids
         if top.kind == "func" and not has_text(c.ll_names, fname(top))
             emit_func(c, top)
+    // --llvm: встроенные функции, background и .wait, которые зовут из .ll — обёртка с видом
+    // Tachbit; стоят после работников (background из обёртки тоже пишет своего)
+    llb_out = list text
+    c.out = llb_out
+    count i from 0 to len(c.ll_bi) - 1
+        emit_ll_builtin(c, c.ll_bi[i], i)
     c.out = saved
     each w in c.workers
         put(c, w)
     each f in funcs_out
         put(c, f)
+    each b in llb_out
+        put(c, b)
     // --llvm: gives с несколькими выходами ходит между C и .ll через адреса выходов (имя__ll)
     each top in program.kids
         if top.kind == "func" and len(top.kids[2].kids) > 1
