@@ -19,7 +19,7 @@ tmp="$(mktemp -d)"
 for f in tests/ok/*.tb tests/err/*.tb; do
     name="$(basename "$f" .tb)"
     cp "$f" "$tmp/$name.tb"
-    got="$( (cd "$tmp" && "$OLDPWD/$compiler" run "$name.tb") 2>&1)"
+    got="$( (cd "$tmp" && "$OLDPWD/$compiler" run --c "$name.tb") 2>&1)"
     case "$f" in
         tests/ok/*) want_file="${f%.tb}.out" ;;
         *) want_file="${f%.tb}.err" ;;
@@ -41,7 +41,7 @@ for d in tests/mod/*/; do
     name="$(basename "$d")"
     mkdir -p "$tmp/mod/$name"
     cp "$d"*.tb "$tmp/mod/$name/"
-    got="$( (cd "$tmp/mod/$name" && "$OLDPWD/$compiler" run main.tb) 2>&1)"
+    got="$( (cd "$tmp/mod/$name" && "$OLDPWD/$compiler" run --c main.tb) 2>&1)"
     if [ "$1" = "--update" ]; then
         printf '%s\n' "$got" > "${d}expected"
     fi

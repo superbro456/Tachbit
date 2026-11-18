@@ -184,6 +184,12 @@ func ll_probe(exe: text, native: bool) gives target: text, cpu: text
     remove(probe + ".ll") else err
         ignored = err
 
+// LLVM по умолчанию: не Windows, clang есть, CC пустой или clang
+func ll_default() gives r: bool
+    if on_windows()
+        return false
+    return run("command -v clang > /dev/null 2>&1 && case \"${CC:-clang}\" in *clang*) exit 0;; *) exit 1;; esac") == 0
+
 func build(c: Comp, path: text, exe: text, native: bool)
     c_path = exe + ".c"
     if is_dir_cmd(exe)
@@ -304,18 +310,21 @@ func usage()
     print("  tachbit check  файл.tb   только найти ошибки")
     print("  tachbit c      файл.tb   показать, какой C получился")
     print("  tachbit ll     файл.tb   показать LLVM IR числовых функций (опыт)")
-    print("  --llvm         к build / run: числовые функции собрать через LLVM IR")
+    print("  --llvm / --c   к build / run: собрать через LLVM (так и есть, если есть clang) или через C")
     print("  tachbit tree   файл.tb   показать дерево")
     print("  tachbit tokens файл.tb   показать токены")
 
 func main()
     all_args = args()
-    // --llvm где угодно в строке: числовые функции собрать через LLVM IR (опыт)
-    use_ll = false
+    // --llvm где угодно в строке: собрать через LLVM IR; --c: старый путь через C
+    force_ll = false
+    force_c = false
     a = list text
     each x in all_args
         if x == "--llvm"
-            use_ll = true
+            force_ll = true
+        else if x == "--c"
+            force_c = true
         else
             a.add(x)
     if len(a) < 1
@@ -344,6 +353,10 @@ func main()
     if len(a) > 1
         arg = a[1]
     path, exe = project_main(arg)
+    // build / run идут через LLVM сами, если есть clang (и CC не другой компилятор)
+    use_ll = force_ll
+    if not force_ll and not force_c and (mode == "run" or mode == "build")
+        use_ll = ll_default()
     c = Comp(file_name: path, ll: use_ll)
     if mode == "tokens"
         src = read_file(path) else err

@@ -962,10 +962,14 @@ SIMD (`vec`: сумма квадратов 10 млн дробей 20 раз, Lin
                                   типы
 ```
 
-## Путь через LLVM (опыт)
+## Путь через LLVM
+
+`tb run` и `tb build` идут через LLVM сами, если на машине есть `clang` (и `CC` не указывает на другой компилятор). Если `clang` нет или это Windows, программа тихо собирается через C, как раньше.
 
 ```
-tachbit run --llvm файл.tb      # собрать числовые функции через LLVM IR
+tachbit run файл.tb             # через LLVM, если есть clang
+tachbit run --c файл.tb         # старый путь через C
+tachbit run --llvm файл.tb      # через LLVM всегда
 tachbit ll файл.tb              # показать, что ушло в LLVM (текст .ll)
 ```
 
@@ -997,10 +1001,10 @@ mv compiler/main tachbit-tb2
 | `compiler/parser.tb` | токены → дерево |
 | `compiler/check.tb` | типы и ошибки |
 | `compiler/emit.tb` | дерево → C |
-| `compiler/emit_ll.tb` | функции с числами и текстами → LLVM IR (`--llvm`, опыт) |
+| `compiler/emit_ll.tb` | функции с числами и текстами → LLVM IR (по умолчанию, если есть clang) |
 | `compiler/memplan.tb` | какую память компилятор отдаёт сам (шаг цикла, функция): общий разбор для C и LLVM |
 | `compiler/runtime_text.tb` | библиотека `tb_*` (делается `python3 tools/embed_runtime.py`) |
-| `compiler/main.tb` | команды `new`, `start`, `run`, `build`, `check`, `c`, `ll`, `tree`, `tokens`, флаг `--llvm`; модули `use` |
+| `compiler/main.tb` | команды `new`, `start`, `run`, `build`, `check`, `c`, `ll`, `tree`, `tokens`, флаги `--llvm` и `--c`; модули `use` |
 
 Что пришлось добавить в язык, пока писали компилятор на нём самом:
 - `run("команда")`, `exit(код)`, `file_exists("путь")`;

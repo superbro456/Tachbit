@@ -12,5 +12,5 @@ $cc -O2 -w -o ./tachbit-seed compiler/seed/tb.c -lm -lpthread || { echo "не п
 mv compiler/main ./tachbit-tb2
 ./tachbit-tb2 build compiler/main.tb > /dev/null || exit 1
 mv compiler/main ./tachbit-tb
-rm -f ./tachbit-seed ./tachbit-tb2 compiler/main.c
+rm -f ./tachbit-seed ./tachbit-tb2 compiler/main.c compiler/main.ll
 echo "собран ./tachbit-tb"
