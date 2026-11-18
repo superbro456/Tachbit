@@ -1,0 +1,60 @@
+// ошибки (fail / try / or / else err) и match в функциях, которые идут через LLVM
+enum Color
+    red
+    green
+    blue
+
+func parse_age(s: text)
+    if s == ""
+        fail "пусто"
+    n = to_int(s) or -1
+    if n < 0
+        fail "не число: " + s
+    return n
+
+func twice(s: text)
+    a = try parse_age(s)
+    return a * 2
+
+func safe(s: text)
+    v = twice(s) or 0
+    return v
+
+func explain(s: text)
+    r = parse_age(s) else err
+        return "ошибка: " + err
+    return "лет: " + r
+
+func name(c: Color)
+    match c
+        red
+            return "красный"
+        green, blue
+            return "холодный"
+
+func kind(s: text)
+    out = ""
+    match s
+        "a", "b"
+            out = "буква"
+        "10"
+            out = "число"
+        else
+            out = "другое"
+    return out
+
+func grade(n: int)
+    match n
+        5
+            return "отлично"
+        4
+            return "хорошо"
+        else
+            return "так себе"
+
+func main()
+    print(safe("21"), safe("x"), safe(""))
+    print(explain("7"), explain("?"), explain(""))
+    print(name(Color.red), name(Color.blue))
+    print(kind("b"), kind("10"), kind("zz"))
+    print(grade(5), grade(4), grade(2))

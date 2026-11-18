@@ -335,10 +335,15 @@ func ll_expr_ok(c: Comp, n: Node, names: list text)
         return n.name == "pop" and ll_list_name_ok(c, b)
     if k == "unary"
         return ll_simple(c, n.ty) and ll_expr_ok(c, n.kids[0], names)
+    if k == "try"
+        return ll_expr_ok(c, n.kids[0], names)
+    if k == "else_err"
+        return ll_expr_ok(c, n.kids[0], names) and ll_block_ok(c, n.kids[1], names)
     if k == "binop"
         op = n.value
         if op == "orelse"
-            return false
+            // f() or запасное
+            return (ll_val(c, n.ty) or ll_box(c, n.ty)) and ll_expr_ok(c, n.kids[0], names) and ll_value_ok(c, n.ty, n.kids[1], names)
         if ll_is_text(c, n.ty)
             // a + b + 5: склеивание текста с числами и bool
             if op != "+"
@@ -508,6 +513,22 @@ func ll_stmt_ok(c: Comp, n: Node, names: list text)
         return not n.by_vec and not n.is_par and not n.by_piece and ll_numlist(c, n.kids[0].ty) and ll_box_ok(c, n.kids[0], names) and ll_block_ok(c, n.kids[1], names)
     if k == "skip" or k == "stop"
         return true
+    if k == "fail"
+        return ll_is_text(c, n.kids[0].ty) and ll_expr_ok(c, n.kids[0], names)
+    if k == "match"
+        subj = n.kids[0]
+        if not ((ll_simple(c, subj.ty) and kind_of(c, subj.ty) != "dec") or ll_is_text(c, subj.ty))
+            return false
+        if not ll_expr_ok(c, subj, names)
+            return false
+        count i from 1 to len(n.kids) - 1
+            cs = n.kids[i]
+            each v in cs.kids[0].kids
+                if not ll_expr_ok(c, v, names)
+                    return false
+            if not ll_block_ok(c, cs.kids[1], names)
+                return false
+        return true
     if k == "return"
         return len(n.kids) == 0 or ll_expr_ok(c, n.kids[0], names)
     if k == "expr_stmt"
@@ -520,11 +541,11 @@ func ll_stmt_ok(c: Comp, n: Node, names: list text)
             if e.name == "add"
                 return len(e.kids) == 2 and ll_elem_ok(c, e.kids[0].ty, e.kids[1].kids[0], names)
             return e.name == "pop" or e.name == "clear"
-        return e.kind == "call" and ll_expr_ok(c, e, names)
+        return (e.kind == "call" or e.kind == "try" or e.kind == "else_err") and ll_expr_ok(c, e, names)
     return false
 
 func ll_head_ok(c: Comp, f: Node)
-    if f.name == "main" or f.irq != 0 or f.can_fail or len(f.kids[2].kids) > 0
+    if f.name == "main" or f.irq != 0 or len(f.kids[2].kids) > 0
         return false
     if not (kind_of(c, f.ty) == "none" or ll_val(c, f.ty) or ll_box(c, f.ty))
         return false
@@ -777,6 +798,58 @@ func ll_expr(g: LLGen, c: Comp, n: Node)
             ll_put(g, r + " = fneg double " + v)
         else
             ll_put(g, r + " = sub nsw i64 0, " + v)
+        return r
+    if k == "try"
+        // try f(): сломалась — сразу выходим, ошибка остаётся в tb_err для того, кто нас звал
+        v = ll_expr(g, c, n.kids[0])
+        e = ll_new(g, "%t")
+        ll_put(g, e + " = load ptr, ptr @tb_err")
+        bad = ll_new(g, "%t")
+        ll_put(g, bad + " = icmp ne ptr " + e + ", null")
+        no = ll_new(g, "L")
+        ok = ll_new(g, "L")
+        ll_term(g, "br i1 " + bad + ", label %" + no + ", label %" + ok + ", !prof !0")
+        ll_label(g, no)
+        ll_bail(g, c)
+        ll_label(g, ok)
+        return v
+    if k == "else_err"
+        // v = f() else err: сломалась — блок с текстом ошибки в err, tb_err снова пустой
+        v = ll_expr(g, c, n.kids[0])
+        e = ll_new(g, "%t")
+        ll_put(g, e + " = load ptr, ptr @tb_err")
+        bad = ll_new(g, "%t")
+        ll_put(g, bad + " = icmp ne ptr " + e + ", null")
+        no = ll_new(g, "L")
+        ok = ll_new(g, "L")
+        ll_term(g, "br i1 " + bad + ", label %" + no + ", label %" + ok + ", !prof !0")
+        ll_label(g, no)
+        ll_put(g, "store ptr " + e + ", ptr " + ll_slot(g, c, n.name, 4))
+        ll_put(g, "store ptr null, ptr @tb_err")
+        ll_block(g, c, n.kids[1])
+        ll_label(g, ok)
+        return v
+    if k == "binop" and n.value == "orelse"
+        // f() or запасное: сломалась — tb_err снова пустой, берём запасное
+        a = ll_as(g, c, n.kids[0], n.ty)
+        e = ll_new(g, "%t")
+        ll_put(g, e + " = load ptr, ptr @tb_err")
+        bad = ll_new(g, "%t")
+        ll_put(g, bad + " = icmp ne ptr " + e + ", null")
+        here = ll_new(g, "L")
+        ll_label(g, here)
+        no = ll_new(g, "L")
+        done = ll_new(g, "L")
+        ll_term(g, "br i1 " + bad + ", label %" + no + ", label %" + done)
+        ll_label(g, no)
+        ll_put(g, "store ptr null, ptr @tb_err")
+        b = ll_as(g, c, n.kids[1], n.ty)
+        no_end = ll_new(g, "L")
+        ll_label(g, no_end)
+        ll_term(g, "br label %" + done)
+        ll_label(g, done)
+        r = ll_new(g, "%t")
+        ll_put(g, r + " = phi " + ll_ty(c, n.ty) + " [ " + a + ", %" + here + " ], [ " + b + ", %" + no_end + " ]")
         return r
     if k == "list"
         return ll_list_lit(g, c, n)
@@ -1518,6 +1591,15 @@ func ll_loop_body(g: LLGen, c: Comp, body: Node, cont: text, out: text)
     ll_put(g, "call void @tb_temp_end_p(ptr " + am + ")")
     ll_term(g, "br label %" + cont)
 
+// функция сломалась: выйти со значением по умолчанию (ошибка уже лежит в tb_err)
+func ll_bail(g: LLGen, c: Comp)
+    ll_fa_end(g)
+    if kind_of(c, g.fn.ty) == "none"
+        ll_term(g, "ret void")
+        return
+    d = ll_default(g, c, g.fn.ty)
+    ll_term(g, "ret " + ll_ty(c, g.fn.ty) + " " + d)
+
 // перед выходом из функции: отдать её временную память
 func ll_fa_end(g: LLGen)
     if g.fa != ""
@@ -1788,6 +1870,43 @@ func ll_stmt(g: LLGen, c: Comp, n: Node)
         ll_loop_body(g, c, n.kids[1], head, out)
         ll_term(g, "br label %" + head)
         ll_label(g, out)
+    else if k == "fail"
+        msg = ll_expr(g, c, n.kids[0])
+        ll_put(g, "store ptr " + msg + ", ptr @tb_err")
+        ll_bail(g, c)
+    else if k == "match"
+        // цепочка сравнений, как if / else if в C (LLVM сам сделает из неё switch)
+        subj = n.kids[0]
+        sv = ll_expr(g, c, subj)
+        done = ll_new(g, "L")
+        count i from 1 to len(n.kids) - 1
+            cs = n.kids[i]
+            if cs.name == "else"
+                ll_block(g, c, cs.kids[1])
+                if g.open
+                    ll_term(g, "br label %" + done)
+            else
+                yes = ll_new(g, "L")
+                no = ll_new(g, "L")
+                each v in cs.kids[0].kids
+                    vv = ll_expr(g, c, v)
+                    eq = ll_new(g, "%t")
+                    if ll_is_text(c, subj.ty)
+                        cr = ll_new(g, "%t")
+                        ll_put(g, cr + " = call i32 @strcmp(ptr " + sv + ", ptr " + vv + ")")
+                        ll_put(g, eq + " = icmp eq i32 " + cr + ", 0")
+                    else
+                        ll_put(g, eq + " = icmp eq " + ll_ty(c, subj.ty) + " " + sv + ", " + vv)
+                    nx = ll_new(g, "L")
+                    ll_term(g, "br i1 " + eq + ", label %" + yes + ", label %" + nx)
+                    ll_label(g, nx)
+                ll_term(g, "br label %" + no)
+                ll_label(g, yes)
+                ll_block(g, c, cs.kids[1])
+                if g.open
+                    ll_term(g, "br label %" + done)
+                ll_label(g, no)
+        ll_label(g, done)
     else if k == "skip"
         ll_term(g, "br label %" + g.cont[len(g.cont) - 1])
     else if k == "stop"
@@ -1893,6 +2012,7 @@ modpub func emit_ll(c: Comp, program: Node, target: text, cpu: text)
     all.add("declare void @tb_ps(ptr)\ndeclare ptr @tb_itos(i64)\ndeclare ptr @tb_dtos(double)\ndeclare ptr @tb_btos(i32)\n")
     all.add("declare ptr @tb_digits(i64, ptr, ptr)\ndeclare ptr @tb_mem_np(i64)\ndeclare i64 @tb_tlen(ptr)\ndeclare ptr @tb_char_at(ptr, i64, i64, i32)\n")
     all.add("declare ptr @tb_cat(ptr, ptr)\ndeclare void @tb_app(ptr, ptr, ptr, ptr)\ndeclare void @tb_app_i(ptr, ptr, ptr, i64)\ndeclare void @tb_app_n(ptr, ptr, ptr, ptr, i64)\n")
+    all.add("@tb_err = external hidden thread_local global ptr, align 8\n")
     all.add("declare ptr @tb_grow(ptr)\ndeclare ptr @tb_pop(ptr, i32)\ndeclare void @tb_lclear(ptr, i32)\ndeclare ptr @tb_list_new_np(i64)\ndeclare ptr @tb_list_from_np(i64, i64, ptr)\ndeclare ptr @tb_dict_new(i32, i64)\ndeclare ptr @tb_dict_from(i32, i64, i64, ptr, ptr)\ndeclare ptr @tb_dget(ptr, ptr, i32)\ndeclare ptr @tb_dput(ptr, ptr, ptr)\ndeclare i32 @tb_dhas(ptr, ptr)\ndeclare void @tb_dremove(ptr, ptr)\ndeclare void @tb_dclear(ptr, i32)\ndeclare i64 @tb_dlen(ptr)\ndeclare ptr @tb_dkeys_copy(ptr)\ndeclare ptr @tb_dvals_copy(ptr)\ndeclare ptr @tb_list_new(i64)\ndeclare ptr @tb_list_from(i64, i64, ptr)\n")
     all.add("declare void @tb_temp_begin_p(ptr)\ndeclare void @tb_temp_end_p(ptr)\ndeclare i32 @tb_fa_begin(ptr)\ndeclare void @tb_fa_end(i32, ptr)\n")
     all.add("declare i64 @strlen(ptr)\ndeclare i32 @strcmp(ptr, ptr)\ndeclare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)\n")
