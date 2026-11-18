@@ -2837,6 +2837,10 @@ func ll_builtin(g: LLGen, c: Comp, n: Node)
 
 // без C: встроенная функция — сразу функция библиотеки tb_xb_имя(..., строка)
 func ll_builtin_x(g: LLGen, c: Comp, n: Node)
+    if n.kind == "background"
+        return ll_bg(g, c, n)
+    if n.kind == "field"
+        return ll_wait(g, c, n)
     xn, xp = ll_xb(c, n)
     fn = "@tb_xb_" + xn
     args = ""
@@ -2901,7 +2905,7 @@ func ll_xb(c: Comp, n: Node) gives name: text, ps: text
         name = nm + "_d"
         ps = "dd"
         return
-    table = ["round:d", "char:i", "cut:pii", "code:p", "to_int:p", "to_dec:p", "read_file:p", "write_file:pp", "split:pp", "join:pp", "find:pp", "replace:ppp", "upper:p", "lower:p", "trim:p", "starts_with:pp", "ends_with:pp", "run:p", "exit:i", "file_exists:p", "list_dir:p", "is_folder:p", "make_folder:p", "move:pp", "remove:p", "env:p", "file_size:p", "rgb:iii", "random:ii", "bit_and:ii", "bit_or:ii", "bit_xor:ii", "bit_not:i", "shift_left:ii", "shift_right:ii", "wait_ms:i", "http_get:p", "json_get:pp", "json_text:p", "date_now:", "unix_time:", "time_ms:", "input:", "args:", "sqrt:d", "window_open:iip", "window_alive:", "clear_window:i", "draw_pixel:iii", "draw_rect:iiiii", "draw_circle:iiii", "draw_line:iiiii", "draw_text:iipii", "key_down:p", "mouse_x:", "mouse_y:", "mouse_down:"]
+    table = ["round:d", "char:i", "cut:pii", "code:p", "to_int:p", "to_dec:p", "read_file:p", "write_file:pp", "split:pp", "join:pp", "find:pp", "replace:ppp", "upper:p", "lower:p", "trim:p", "starts_with:pp", "ends_with:pp", "run:p", "exit:i", "file_exists:p", "list_dir:p", "is_folder:p", "make_folder:p", "move:pp", "remove:p", "env:p", "file_size:p", "rgb:iii", "random:ii", "bit_and:ii", "bit_or:ii", "bit_xor:ii", "bit_not:i", "shift_left:ii", "shift_right:ii", "wait_ms:i", "http_get:p", "json_get:pp", "json_text:p", "date_now:", "unix_time:", "time_ms:", "input:", "args:", "sqrt:d", "window_open:iip", "window_alive:", "clear_window:i", "draw_pixel:iii", "draw_rect:iiiii", "draw_circle:iiii", "draw_line:iiiii", "draw_text:iipii", "key_down:p", "mouse_x:", "mouse_y:", "mouse_down:", "read8:i", "read16:i", "read32:i", "read64:i", "write8:ii", "write16:ii", "write32:ii", "write64:ii", "address_of:p"]
     each e in table
         at = find(e, ":")
         if cut(e, 0, at - 1) == nm
@@ -3727,14 +3731,19 @@ func ll_pure_why(c: Comp, program: Node) gives why: text
     each top in program.kids
         if top.kind == "func" and not ll_has(c.ll_names, ll_fname(top))
             return "функция в C: " + top.name
-        if top.kind == "obj" and top.by_cols
-            return "by columns: " + top.name
     each t in c.types
-        if t.kind == "obj" and not ll_plainobj(c, t.id)
+        if t.kind == "obj" and not ll_plainobj(c, t.id) and not ll_row(c, t.id)
             return "obj: " + t.obj_name
     each n in c.ll_bi
+        if n.kind == "background"
+            each p in n.kids[0].ref.kids[0].kids
+                if p.is_link or ll_row(c, p.ty)
+                    return "background с link или строкой by columns"
+            if len(n.kids[0].ref.kids[2].kids) > 1
+                return "background у функции с несколькими выходами"
+            skip
         if n.kind != "call"
-            return "background / wait"
+            skip
         xn, xp = ll_xb(c, n)
         if xn == "" or len(xp) != len(ll_bi_args(n))
             return "встроенная: " + n.name
@@ -3893,6 +3902,70 @@ func ll_glue_show(c: Comp, t: Type, decls: list text, all: list text)
         ll_glue_ps(g, "false")
     else if k == "text"
         ll_put(g, "call void @tb_x_ps(ptr %x)")
+    else if k == "list" and ll_colist(c, t.id)
+        // список obj by columns: длина — первым словом, элемент — строка {список, номер}
+        ll_glue_ps(g, "[")
+        n0 = ll_new(g, "%t")
+        ll_put(g, n0 + " = load i64, ptr %x")
+        is = "%\"ci\""
+        g.allocas.add("  " + is + " = alloca i64\n")
+        ll_put(g, "store i64 0, ptr " + is)
+        head = ll_new(g, "L")
+        body = ll_new(g, "L")
+        done = ll_new(g, "L")
+        ll_term(g, "br label %" + head)
+        ll_label(g, head)
+        i = ll_new(g, "%t")
+        ll_put(g, i + " = load i64, ptr " + is)
+        lt = ll_new(g, "%t")
+        ll_put(g, lt + " = icmp slt i64 " + i + ", " + n0)
+        ll_term(g, "br i1 " + lt + ", label %" + body + ", label %" + done)
+        ll_label(g, body)
+        z = ll_new(g, "%t")
+        ll_put(g, z + " = icmp eq i64 " + i + ", 0")
+        sep = ll_new(g, "L")
+        go = ll_new(g, "L")
+        ll_term(g, "br i1 " + z + ", label %" + go + ", label %" + sep)
+        ll_label(g, sep)
+        ll_glue_ps(g, ", ")
+        ll_term(g, "br label %" + go)
+        ll_label(g, go)
+        r0 = ll_new(g, "%t")
+        ll_put(g, r0 + " = insertvalue { ptr, i64 } undef, ptr %x, 0")
+        r1 = ll_new(g, "%t")
+        ll_put(g, r1 + " = insertvalue { ptr, i64 } " + r0 + ", i64 " + i + ", 1")
+        ll_put(g, "call void @tb_show_" + t.elem + "({ ptr, i64 } " + r1 + ")")
+        i2 = ll_new(g, "%t")
+        ll_put(g, i2 + " = add i64 " + i + ", 1")
+        ll_put(g, "store i64 " + i2 + ", ptr " + is)
+        ll_term(g, "br label %" + head)
+        ll_label(g, done)
+        ll_glue_ps(g, "]")
+    else if k == "obj" and ll_row(c, t.id)
+        o = t.obj_node
+        rc = ll_new(g, "%t")
+        ll_put(g, rc + " = extractvalue { ptr, i64 } %x, 0")
+        ri = ll_new(g, "%t")
+        ll_put(g, ri + " = extractvalue { ptr, i64 } %x, 1")
+        z = ll_new(g, "%t")
+        ll_put(g, z + " = icmp eq ptr " + rc + ", null")
+        yes = ll_new(g, "L")
+        no = ll_new(g, "L")
+        ll_term(g, "br i1 " + z + ", label %" + yes + ", label %" + no)
+        ll_label(g, yes)
+        ll_glue_ps(g, "пусто")
+        ll_term(g, "ret void")
+        ll_label(g, no)
+        ll_glue_ps(g, o.name + "(")
+        count fi from 0 to len(o.kids) - 1
+            sep = ""
+            if fi > 0
+                sep = ", "
+            ll_glue_ps(g, sep + o.kids[fi].name + ": ")
+            fp = ll_glue_colf(g, c, o, rc, ri, fi)
+            fv = ll_glue_load(g, c, o.kids[fi].ty, fp)
+            ll_glue_show_call(g, c, o.kids[fi].ty, fv)
+        ll_glue_ps(g, ")")
     else if k == "list"
         ll_glue_ps(g, "[")
         i, done = ll_glue_loop(g, x)
@@ -4032,16 +4105,24 @@ func ll_glue(c: Comp, program: Node, decls: list text, all: list text) gives own
             ll_glue_show(c, t, decls, all)
             own.add("tb_show_" + t.id)
     each top in program.kids
-        if top.kind == "obj"
+        if top.kind == "obj" and top.by_cols
+            ll_glue_cols(c, top, decls, all)
+            each h in ["new", "add", "set", "from", "make", "push"]
+                own.add("tb_lc_" + h + "_" + top.name)
+        else if top.kind == "obj"
             ll_glue_new(c, top, decls, all)
             own.add("tb_new_" + top.name)
+    each t in c.types
+        if t.kind == "obj" and ll_row(c, t.id)
+            all.add("define internal void @tb_lc_show_" + t.id + "(ptr %r) #0 {\nentry:\n  %v = load { ptr, i64 }, ptr %r\n  call void @tb_show_" + t.id + "({ ptr, i64 } %v)\n  ret void\n}\n")
+            own.add("tb_lc_show_" + t.id)
     ll_glue_main(c, program, decls, all)
     each gl in c.globals
         own.add("\"v_" + gl.name + "\"")
     each l in c.locks
         own.add("\"tb_lk_" + l + "\"")
     all.add("declare void @tb_x_show_i(i64)\ndeclare void @tb_x_show_d(double)\ndeclare ptr @tb_x_obj_mem(i64)\ndeclare ptr @tb_x_obj_mem_np(i64)\ndeclare ptr @tb_x_cold_mem(i64)\ndeclare ptr @tb_x_cold_mem_np(i64)\n")
-    all.add("declare void @tb_x_start(i32, ptr, ptr)\ndeclare void @tb_x_gc_root(ptr, i64)\ndeclare void @tb_x_call_main(ptr)\n")
+    all.add("declare void @tb_x_start(i32, ptr, ptr)\ndeclare void @tb_x_gc_root(ptr, i64)\ndeclare void @tb_x_call_main(ptr)\ndeclare ptr @tb_x_mem(i64)\ndeclare ptr @tb_x_resize(ptr, i64, i64)\n")
 
 // объявление (declare @имя / @имя = external) того, что уже определено в этом файле
 func ll_glue_own(line: text, own: list text)
@@ -4051,3 +4132,270 @@ func ll_glue_own(line: text, own: list text)
         if starts_with(line, "@" + o + " = external")
             return true
     return false
+
+// a = background f(x, y): коробка задачи { tb_task, ответ, x, y } в памяти с уборкой;
+// поток tb.bg.N берёт из неё аргументы, зовёт f и кладёт ответ туда же (как tb_bgN в C)
+func ll_bg(g: LLGen, c: Comp, n: Node)
+    call = n.kids[0]
+    f = call.ref
+    params = f.kids[0].kids
+    rt = f.ty
+    has_r = not ll_none(c, rt)
+    ty = "{ { ptr, i32, ptr }"
+    if has_r
+        ty = ty + ", " + ll_mem_ty(c, rt)
+    else
+        ty = ty + ", i8"
+    each p in params
+        ty = ty + ", " + ll_mem_ty(c, p.ty)
+    ty = ty + " }"
+    g.tmp += 1
+    id = ll_fname(g.fn) + "." + g.tmp
+    run = "@\"tb.bg." + id + "\""
+    // поток: аргументы из коробки → f → ответ в коробку
+    w = ll_glue_gen(c, g.decls, "bg")
+    args = ""
+    count i from 0 to len(params) - 1
+        ap = ll_new(w, "%t")
+        ll_put(w, ap + " = getelementptr inbounds " + ty + ", ptr %j, i32 0, i32 " + (i + 2))
+        av = ll_glue_load(w, c, params[i].ty, ap)
+        if i > 0
+            args = args + ", "
+        args = args + ll_ty(c, params[i].ty) + " " + ll_ext(c, params[i].ty) + av
+    callee = "@\"" + ll_fname(f) + "\"(" + args + ")"
+    if has_r
+        rv = ll_new(w, "%t")
+        ll_put(w, rv + " = call " + ll_ext(c, rt) + ll_ty(c, rt) + " " + callee)
+        rp = ll_new(w, "%t")
+        ll_put(w, rp + " = getelementptr inbounds " + ty + ", ptr %j, i32 0, i32 1")
+        if kind_of(c, rt) == "bool"
+            rb = ll_new(w, "%t")
+            ll_put(w, rb + " = zext i1 " + rv + " to i8")
+            ll_put(w, "store i8 " + rb + ", ptr " + rp)
+        else
+            ll_put(w, "store " + ll_ty(c, rt) + " " + rv + ", ptr " + rp)
+    else
+        ll_put(w, "call void " + callee)
+    ll_term(w, "ret ptr null")
+    fn_text = list text
+    ll_glue_fn(w, "define internal ptr " + run + "(ptr %j) #0", fn_text)
+    g.decls.add(join(fn_text, ""))
+    // здесь: коробка, аргументы, запуск потока
+    sp = ll_new(g, "%t")
+    ll_put(g, sp + " = getelementptr " + ty + ", ptr null, i32 1")
+    sz = ll_new(g, "%t")
+    ll_put(g, sz + " = ptrtoint ptr " + sp + " to i64")
+    j = ll_new(g, "%t")
+    ll_put(g, j + " = call ptr @tb_x_gc_alloc(i64 " + sz + ")")
+    count i from 0 to len(params) - 1
+        v = ll_as(g, c, call.kids[i].kids[0], params[i].ty)
+        ap = ll_new(g, "%t")
+        ll_put(g, ap + " = getelementptr inbounds " + ty + ", ptr " + j + ", i32 0, i32 " + (i + 2))
+        if kind_of(c, params[i].ty) == "bool"
+            vb = ll_new(g, "%t")
+            ll_put(g, vb + " = zext i1 " + v + " to i8")
+            ll_put(g, "store i8 " + vb + ", ptr " + ap)
+        else
+            ll_put(g, "store " + ll_ty(c, params[i].ty) + " " + v + ", ptr " + ap)
+    resp = ll_new(g, "%t")
+    ll_put(g, resp + " = getelementptr inbounds { ptr, i32, ptr }, ptr " + j + ", i32 0, i32 2")
+    if has_r
+        rslot = ll_new(g, "%t")
+        ll_put(g, rslot + " = getelementptr inbounds " + ty + ", ptr " + j + ", i32 0, i32 1")
+        ll_put(g, "store ptr " + rslot + ", ptr " + resp)
+    else
+        ll_put(g, "store ptr null, ptr " + resp)
+    ll_need(g, "declare ptr @tb_x_gc_alloc(i64)\n")
+    ll_need(g, "declare void @tb_x_task_start(ptr, ptr, ptr)\n")
+    ll_put(g, "call void @tb_x_task_start(ptr " + j + ", ptr " + run + ", ptr " + j + ")")
+    return j
+
+// t.wait: дождаться потока; ответ — по адресу из задачи
+func ll_wait(g: LLGen, c: Comp, n: Node)
+    t = ll_expr(g, c, n.kids[0])
+    ll_need(g, "declare ptr @tb_x_wait(ptr)\n")
+    rp = ll_new(g, "%t")
+    ll_put(g, rp + " = call ptr @tb_x_wait(ptr " + t + ")")
+    rt = c.types[n.kids[0].ty].elem
+    if ll_none(c, rt) or ll_none(c, n.ty)
+        return "0"
+    return ll_glue_load(g, c, rt, rp)
+
+// obj by columns: адрес колонки номер fi, ячейка ri
+func ll_glue_colf(g: LLGen, c: Comp, o: Node, rc: text, ri: text, fi: int)
+    cp = ll_new(g, "%t")
+    ll_put(g, cp + " = getelementptr inbounds i8, ptr " + rc + ", i64 " + (16 + 8 * fi))
+    col = ll_new(g, "%t")
+    ll_put(g, col + " = load ptr, ptr " + cp)
+    ep = ll_new(g, "%t")
+    ll_put(g, ep + " = getelementptr inbounds " + ll_mem_ty(c, o.kids[fi].ty) + ", ptr " + col + ", i64 " + ri)
+    return ep
+
+// положить значение v (тип t) в память p: bool — байтом
+func ll_glue_store(g: LLGen, c: Comp, t: int, v: text, p: text)
+    if kind_of(c, t) == "bool"
+        b = ll_new(g, "%t")
+        ll_put(g, b + " = zext i1 " + v + " to i8")
+        ll_put(g, "store i8 " + b + ", ptr " + p)
+        return
+    ll_put(g, "store " + ll_ty(c, t) + " " + v + ", ptr " + p)
+
+func ll_glue_nn(g: LLGen, p: text, line: text, what: int)
+    z = ll_new(g, "%t")
+    ll_put(g, z + " = icmp eq ptr " + p + ", null")
+    no = ll_new(g, "L")
+    ok = ll_new(g, "L")
+    ll_term(g, "br i1 " + z + ", label %" + no + ", label %" + ok + ", !prof !0")
+    ll_label(g, no)
+    ll_put(g, "call void @tb_ll_crash(i32 " + line + ", i32 " + what + ")")
+    ll_term(g, "unreachable")
+    ll_label(g, ok)
+
+func ll_glue_es(c: Comp, t: int)
+    if kind_of(c, t) == "bool"
+        return 1
+    return 8
+
+// помощники obj by columns (то же, что emit_cols_helpers пишет на C):
+// {len, cap, колонки...}; новый список на 4, рост вдвое, add/set/push/из строк/одна строка
+func ll_glue_cols(c: Comp, o: Node, decls: list text, all: list text)
+    nm = o.name
+    nf = len(o.kids)
+    // новый пустой список колонок
+    g = ll_glue_gen(c, decls, "cn" + nm)
+    ll_put(g, "%l = call ptr @tb_x_mem(i64 " + (16 + 8 * nf) + ")")
+    ll_put(g, "store i64 0, ptr %l")
+    cp = ll_new(g, "%t")
+    ll_put(g, cp + " = getelementptr inbounds i8, ptr %l, i64 8")
+    ll_put(g, "store i64 4, ptr " + cp)
+    count fi from 0 to nf - 1
+        ft = o.kids[fi].ty
+        mem = "tb_x_mem"
+        if is_plain_ty(c, ft)
+            mem = "tb_x_mem_np"
+        col = ll_new(g, "%t")
+        ll_put(g, col + " = call ptr @" + mem + "(i64 " + (4 * ll_glue_es(c, ft)) + ")")
+        fp = ll_new(g, "%t")
+        ll_put(g, fp + " = getelementptr inbounds i8, ptr %l, i64 " + (16 + 8 * fi))
+        ll_put(g, "store ptr " + col + ", ptr " + fp)
+    ll_term(g, "ret ptr %l")
+    ll_glue_fn(g, "define internal ptr @tb_lc_new_" + nm + "() #0", all)
+    // рост: места нет — вдвое больше
+    g = ll_glue_gen(c, decls, "cg" + nm)
+    ll_put(g, "%n = load i64, ptr %l")
+    ll_put(g, "%cp = getelementptr inbounds i8, ptr %l, i64 8")
+    ll_put(g, "%cap = load i64, ptr %cp")
+    ll_put(g, "%full = icmp slt i64 %n, %cap")
+    ll_term(g, "br i1 %full, label %done, label %grow")
+    ll_label(g, "grow")
+    ll_put(g, "%cap2 = shl i64 %cap, 1")
+    ll_put(g, "store i64 %cap2, ptr %cp")
+    count fi from 0 to nf - 1
+        es = ll_glue_es(c, o.kids[fi].ty)
+        fp = ll_new(g, "%t")
+        ll_put(g, fp + " = getelementptr inbounds i8, ptr %l, i64 " + (16 + 8 * fi))
+        old = ll_new(g, "%t")
+        ll_put(g, old + " = load ptr, ptr " + fp)
+        a = ll_new(g, "%t")
+        ll_put(g, a + " = mul i64 %cap, " + es)
+        b = ll_new(g, "%t")
+        ll_put(g, b + " = mul i64 %cap2, " + es)
+        nw = ll_new(g, "%t")
+        ll_put(g, nw + " = call ptr @tb_x_resize(ptr " + old + ", i64 " + a + ", i64 " + b + ")")
+        ll_put(g, "store ptr " + nw + ", ptr " + fp)
+    ll_term(g, "br label %done")
+    ll_label(g, "done")
+    ll_term(g, "ret void")
+    ll_glue_fn(g, "define internal void @\"tb.colgrow." + nm + "\"(ptr %l) #0", all)
+    // push: значения качеств в конец (без временной строки)
+    g = ll_glue_gen(c, decls, "cp" + nm)
+    head = "define internal void @tb_lc_push_" + nm + "(ptr %l"
+    count fi from 0 to nf - 1
+        head = head + ", " + ll_ty(c, o.kids[fi].ty) + " " + ll_ext(c, o.kids[fi].ty) + "%a" + fi
+    head = head + ", i32 %line) #0"
+    ll_glue_nn(g, "%l", "%line", 4)
+    ll_glue_put_row(g, c, o, "%l", "%a")
+    ll_term(g, "ret void")
+    ll_glue_fn(g, head, all)
+    // add: строка (rc, ri) копией в конец
+    g = ll_glue_gen(c, decls, "ca" + nm)
+    ll_glue_nn(g, "%rc", "%line", 5)
+    count fi from 0 to nf - 1
+        fp = ll_glue_colf(g, c, o, "%rc", "%ri", fi)
+        v = ll_glue_load(g, c, o.kids[fi].ty, fp)
+        ll_put(g, "%v" + fi + " = " + ll_glue_same(c, o.kids[fi].ty, v))
+    ll_glue_nn(g, "%l", "%line", 4)
+    ll_glue_put_row(g, c, o, "%l", "%v")
+    ll_term(g, "ret void")
+    ll_glue_fn(g, "define internal void @tb_lc_add_" + nm + "(ptr %l, ptr %rc, i64 %ri, i32 %line) #0", all)
+    // set: l[i] = строка (rc, ri)
+    g = ll_glue_gen(c, decls, "cs" + nm)
+    ll_glue_nn(g, "%l", "%line", 4)
+    ll_put(g, "%n = load i64, ptr %l")
+    ll_put(g, "%bad = icmp uge i64 %i, %n")
+    ll_term(g, "br i1 %bad, label %out, label %in, !prof !0")
+    ll_label(g, "out")
+    ll_put(g, "call void @tb_ll_crash(i32 %line, i32 3)")
+    ll_term(g, "unreachable")
+    ll_label(g, "in")
+    ll_glue_nn(g, "%rc", "%line", 5)
+    count fi from 0 to nf - 1
+        sp = ll_glue_colf(g, c, o, "%rc", "%ri", fi)
+        v = ll_glue_load(g, c, o.kids[fi].ty, sp)
+        dp = ll_glue_colf(g, c, o, "%l", "%i", fi)
+        ll_glue_store(g, c, o.kids[fi].ty, v, dp)
+    ll_term(g, "ret void")
+    ll_glue_fn(g, "define internal void @tb_lc_set_" + nm + "(ptr %l, i64 %i, ptr %rc, i64 %ri, i32 %line) #0", all)
+    // make: одна новая строка — свой список из одного элемента
+    g = ll_glue_gen(c, decls, "cm" + nm)
+    head = "define internal ptr @tb_lc_make_" + nm + "("
+    count fi from 0 to nf - 1
+        if fi > 0
+            head = head + ", "
+        head = head + ll_ty(c, o.kids[fi].ty) + " " + ll_ext(c, o.kids[fi].ty) + "%a" + fi
+    head = head + ") #0"
+    ll_put(g, "%l = call ptr @tb_lc_new_" + nm + "()")
+    count fi from 0 to nf - 1
+        dp = ll_glue_colf(g, c, o, "%l", "0", fi)
+        ll_glue_store(g, c, o.kids[fi].ty, "%a" + fi, dp)
+    ll_put(g, "store i64 1, ptr %l")
+    ll_term(g, "ret ptr %l")
+    ll_glue_fn(g, head, all)
+    // from: n строк из массива {ptr, i64}
+    g = ll_glue_gen(c, decls, "cf" + nm)
+    ll_put(g, "%l = call ptr @tb_lc_new_" + nm + "()")
+    ll_put(g, "%is = alloca i64")
+    ll_put(g, "store i64 0, ptr %is")
+    ll_term(g, "br label %head")
+    ll_label(g, "head")
+    ll_put(g, "%i = load i64, ptr %is")
+    ll_put(g, "%lt = icmp slt i64 %i, %n")
+    ll_term(g, "br i1 %lt, label %body, label %done")
+    ll_label(g, "body")
+    ll_put(g, "%rp = getelementptr inbounds { ptr, i64 }, ptr %rows, i64 %i")
+    ll_put(g, "%r = load { ptr, i64 }, ptr %rp")
+    ll_put(g, "%rc = extractvalue { ptr, i64 } %r, 0")
+    ll_put(g, "%ri = extractvalue { ptr, i64 } %r, 1")
+    ll_put(g, "call void @tb_lc_add_" + nm + "(ptr %l, ptr %rc, i64 %ri, i32 0)")
+    ll_put(g, "%i2 = add i64 %i, 1")
+    ll_put(g, "store i64 %i2, ptr %is")
+    ll_term(g, "br label %head")
+    ll_label(g, "done")
+    ll_term(g, "ret ptr %l")
+    ll_glue_fn(g, "define internal ptr @tb_lc_from_" + nm + "(i64 %n, ptr %rows) #0", all)
+
+// v как есть (для %vN = ...): LLVM не умеет «присвоить», поэтому через select true
+func ll_glue_same(c: Comp, t: int, v: text)
+    return "select i1 true, " + ll_ty(c, t) + " " + v + ", " + ll_ty(c, t) + " " + v
+
+// вырастить список l и положить значения pfx0, pfx1 ... в конец
+func ll_glue_put_row(g: LLGen, c: Comp, o: Node, l: text, pfx: text)
+    ll_put(g, "call void @\"tb.colgrow." + o.name + "\"(ptr " + l + ")")
+    n = ll_new(g, "%t")
+    ll_put(g, n + " = load i64, ptr " + l)
+    count fi from 0 to len(o.kids) - 1
+        dp = ll_glue_colf(g, c, o, l, n, fi)
+        ll_glue_store(g, c, o.kids[fi].ty, pfx + fi, dp)
+    n2 = ll_new(g, "%t")
+    ll_put(g, n2 + " = add i64 " + n + ", 1")
+    ll_put(g, "store i64 " + n2 + ", ptr " + l)
