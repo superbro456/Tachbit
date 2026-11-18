@@ -1,0 +1,27 @@
+// встроенные функции в функциях, которые идут через LLVM
+func stats(line: text)
+    parts = split(line, ",")
+    total = 0
+    each p in parts
+        total += to_int(trim(p)) or 0
+    return join(parts, "+") + " = " + total
+
+func shapes(x: int, y: dec)
+    return abs(-x) + max(x, 3) + min(2, x) + round(sqrt(y * y))
+
+func words(s: text)
+    up = upper(cut(s, 0, 2)) + lower(cut(s, 3, len(s) - 1))
+    if starts_with(s, "при") and ends_with(s, "т")
+        return up + " " + find(s, "в") + " " + replace(s, "и", "у")
+    return up
+
+func sorted()
+    xs = [5, 3, 9, 1]
+    sort(xs)
+    return xs
+
+func main()
+    print(stats("1, 2 ,x, 40"))
+    print(shapes(7, 2.5))
+    print(words("привет"))
+    print(sorted(), code("A"), char(66))

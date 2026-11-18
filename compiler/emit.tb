@@ -250,6 +250,31 @@ func emit_builtin(c: Comp, n: Node)
         i += 3
     put(c, "/* неизвестная встроенная " + name + " */0")
 
+// обёртка tb_llb_N для встроенной функции из .ll: параметры a0, a1 ... вместо выражений,
+// тело — то же, что вывод C написал бы прямо на месте вызова (с тем же номером строки)
+func emit_ll_builtin(c: Comp, n: Node, id: int)
+    rt = "void"
+    if kind_of(c, n.ty) != "none"
+        rt = c_type(c, n.ty)
+    put(c, "TB_API " + rt + " tb_llb_" + id + "(")
+    if len(n.kids) == 0
+        put(c, "void")
+    saved = list Node
+    count i from 0 to len(n.kids) - 1
+        a = n.kids[i].kids[0]
+        saved.add(a)
+        if i > 0
+            put(c, ", ")
+        put(c, c_type(c, a.ty) + " v_a" + i)
+        n.kids[i].kids[0] = Node(kind: "name", line: a.line, name: "a" + i, ty: a.ty)
+    put(c, ") { ")
+    if rt != "void"
+        put(c, "return ")
+    emit_builtin(c, n)
+    put(c, "; }\n")
+    count i from 0 to len(n.kids) - 1
+        n.kids[i].kids[0] = saved[i]
+
 func emit_call(c: Comp, n: Node)
     if not n.has_ref
         emit_builtin(c, n)
@@ -2626,6 +2651,9 @@ modpub func emit_c(c: Comp, program: Node)
     put(c, "\n")
     each t in c.types
         emit_show(c, t)
+    // --llvm: встроенные функции, которые зовут из .ll — обёртка с видом Tachbit
+    count i from 0 to len(c.ll_bi) - 1
+        emit_ll_builtin(c, c.ll_bi[i], i)
     // функции пишем в отдельный кусок: работники on all cores должны стоять перед ними
     saved = c.out
     funcs_out = list text

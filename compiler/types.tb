@@ -242,3 +242,5 @@ obj Comp
     ll_names: list text
     // функции C, которые зовут из .ll: в C они без static
     ll_ext: list text
+    // встроенные функции (split, to_int ...), которые зовут из .ll: для каждой в C — обёртка tb_llb_N
+    ll_bi: list Node

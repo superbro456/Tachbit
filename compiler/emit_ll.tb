@@ -394,6 +394,21 @@ func ll_expr_ok(c: Comp, n: Node, names: list text)
         return true
     if k == "field"
         return ll_field_ok(c, n)
+    if k == "call" and not n.has_ref
+        // остальные встроенные (to_int, split, cut, abs ...): через обёртку tb_llb_N из C
+        if ll_has(["asm", "len", "print", "show"], n.name)
+            return false
+        if not (kind_of(c, n.ty) == "none" or ll_val(c, n.ty) or ll_box(c, n.ty))
+            return false
+        each a in n.kids
+            if a.kind == "missing" or len(a.kids) == 0
+                return false
+            v = a.kids[0]
+            if not (ll_val(c, v.ty) or ll_box(c, v.ty))
+                return false
+            if not ll_value_ok(c, v.ty, v, names)
+                return false
+        return true
     if k == "call"
         // звать можно любую функцию Tachbit с таким же простым видом: свою из LLVM или из C
         if not n.has_ref or n.ref.kind != "func" or not ll_head_ok(c, n.ref)
@@ -582,6 +597,19 @@ modpub func ll_pick(c: Comp, program: Node)
         if top.kind == "func" and ll_has(names, ll_fname(top))
             ll_calls(top.kids[1], names, ext)
     c.ll_ext = ext
+    bis = list Node
+    each top in program.kids
+        if top.kind == "func" and ll_has(names, ll_fname(top))
+            ll_builtins(top.kids[1], bis)
+    c.ll_bi = bis
+
+// встроенные функции внутри функций для LLVM: каждой — свой номер обёртки
+func ll_builtins(n: Node, bis: list Node)
+    if n.kind == "call" and not n.has_ref and not ll_has(["asm", "len", "print", "show"], n.name)
+        n.temp_no = len(bis)
+        bis.add(n)
+    each kid in n.kids
+        ll_builtins(kid, bis)
 
 func ll_calls(n: Node, names: list text, ext: list text)
     if n.kind == "call" and n.has_ref and n.ref.kind == "func"
@@ -929,6 +957,8 @@ func ll_expr(g: LLGen, c: Comp, n: Node)
     if k == "call" and not n.has_ref and (n.name == "print" or n.name == "show")
         ll_print(g, c, n, n.name == "print")
         return "0"
+    if k == "call" and not n.has_ref and n.name != "len"
+        return ll_builtin(g, c, n)
     if k == "call" and not n.has_ref
         a = n.kids[0].kids[0]
         if ll_is_text(c, a.ty)
@@ -1590,6 +1620,28 @@ func ll_loop_body(g: LLGen, c: Comp, body: Node, cont: text, out: text)
     ll_label(g, rel)
     ll_put(g, "call void @tb_temp_end_p(ptr " + am + ")")
     ll_term(g, "br label %" + cont)
+
+// встроенная функция: обёртка tb_llb_N в C (номер записан в n.temp_no при выборе)
+func ll_builtin(g: LLGen, c: Comp, n: Node)
+    args = ""
+    tys = ""
+    count i from 0 to len(n.kids) - 1
+        a = n.kids[i].kids[0]
+        v = ll_expr(g, c, a)
+        if i > 0
+            args = args + ", "
+            tys = tys + ", "
+        args = args + ll_ty(c, a.ty) + " " + ll_ext(c, a.ty) + v
+        tys = tys + ll_ty(c, a.ty) + " " + ll_ext(c, a.ty)
+    fn = "@tb_llb_" + n.temp_no
+    rt = ll_ext(c, n.ty) + ll_ty(c, n.ty)
+    ll_need(g, "declare " + rt + " " + fn + "(" + tys + ")\n")
+    if kind_of(c, n.ty) == "none"
+        ll_put(g, "call void " + fn + "(" + args + ")")
+        return "0"
+    r = ll_new(g, "%t")
+    ll_put(g, r + " = call " + rt + " " + fn + "(" + args + ")")
+    return r
 
 // функция сломалась: выйти со значением по умолчанию (ошибка уже лежит в tb_err)
 func ll_bail(g: LLGen, c: Comp)
