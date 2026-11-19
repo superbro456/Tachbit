@@ -132,7 +132,7 @@ func fits(want: int, got: int)
 // ---------- функции и obj ----------
 
 func is_builtin(name: text)
-    each b in ["print", "show", "len", "round", "code", "char", "cut", "to_int", "to_dec", "read_file", "write_file", "input", "args", "split", "join", "find", "replace", "upper", "lower", "trim", "starts_with", "ends_with", "sort", "abs", "min", "max", "sqrt", "run", "exit", "file_exists", "list_dir", "is_folder", "make_folder", "move", "remove", "env", "file_size", "window_open", "window_alive", "clear_window", "draw_pixel", "draw_rect", "draw_circle", "draw_triangle", "draw_line", "draw_text", "key_down", "mouse_x", "mouse_y", "mouse_down", "frame_ms", "fps", "set_fps", "window_w", "window_h", "load_image", "draw_image", "image_w", "image_h", "rgb", "random", "time_ms", "http_get", "json_get", "json_text", "date_now", "unix_time"]
+    each b in ["print", "show", "len", "round", "code", "char", "cut", "to_int", "to_dec", "read_file", "write_file", "input", "args", "split", "join", "find", "replace", "upper", "lower", "trim", "starts_with", "ends_with", "sort", "abs", "min", "max", "sqrt", "run", "exit", "file_exists", "list_dir", "is_folder", "make_folder", "move", "remove", "env", "file_size", "window_open", "window_alive", "clear_window", "draw_pixel", "draw_rect", "draw_circle", "draw_triangle", "mesh_new", "mesh_add", "draw_mesh", "camera", "draw_line", "draw_text", "key_down", "mouse_x", "mouse_y", "mouse_down", "frame_ms", "fps", "set_fps", "window_w", "window_h", "load_image", "draw_image", "image_w", "image_h", "rgb", "random", "time_ms", "http_get", "json_get", "json_text", "date_now", "unix_time"]
         if b == name
             return true
     each b in kernel_builtins()
@@ -164,14 +164,14 @@ func bare_only(name: text)
 
 // только в обычной программе (в ядре нет файлов и папок)
 func os_only(name: text)
-    each w in ["list_dir", "is_folder", "make_folder", "move", "remove", "env", "file_size", "window_open", "window_alive", "clear_window", "draw_pixel", "draw_rect", "draw_circle", "draw_triangle", "draw_line", "draw_text", "key_down", "mouse_x", "mouse_y", "mouse_down", "frame_ms", "fps", "set_fps", "window_w", "window_h", "load_image", "draw_image", "image_w", "image_h", "rgb", "random", "time_ms", "http_get", "json_get", "json_text", "date_now", "unix_time"]
+    each w in ["list_dir", "is_folder", "make_folder", "move", "remove", "env", "file_size", "window_open", "window_alive", "clear_window", "draw_pixel", "draw_rect", "draw_circle", "draw_triangle", "mesh_new", "mesh_add", "draw_mesh", "camera", "draw_line", "draw_text", "key_down", "mouse_x", "mouse_y", "mouse_down", "frame_ms", "fps", "set_fps", "window_w", "window_h", "load_image", "draw_image", "image_w", "image_h", "rgb", "random", "time_ms", "http_get", "json_get", "json_text", "date_now", "unix_time"]
         if name == w
             return true
     return false
 
 // окно и рисование
 func gfx_builtin(name: text)
-    each w in ["window_open", "window_alive", "clear_window", "draw_pixel", "draw_rect", "draw_circle", "draw_triangle", "draw_line", "draw_text", "key_down", "mouse_x", "mouse_y", "mouse_down", "frame_ms", "fps", "set_fps", "window_w", "window_h", "load_image", "draw_image", "image_w", "image_h"]
+    each w in ["window_open", "window_alive", "clear_window", "draw_pixel", "draw_rect", "draw_circle", "draw_triangle", "mesh_new", "mesh_add", "draw_mesh", "camera", "draw_line", "draw_text", "key_down", "mouse_x", "mouse_y", "mouse_down", "frame_ms", "fps", "set_fps", "window_w", "window_h", "load_image", "draw_image", "image_w", "image_h"]
         if name == w
             return true
     return false
@@ -917,6 +917,18 @@ func check_builtin(c: Comp, n: Node) gives r: int
         return 0
     if name == "draw_circle"
         builtin_args(c, n, "iiii", "draw_circle(x, y, радиус, цвет)")
+        return 0
+    if name == "mesh_new"
+        builtin_args(c, n, "", "mesh_new()  →  номер сетки")
+        return 1
+    if name == "mesh_add"
+        builtin_args(c, n, "innnnnnnnni", "mesh_add(сетка, x1, y1, z1, x2, y2, z2, x3, y3, z3, цвет)")
+        return 0
+    if name == "draw_mesh"
+        builtin_args(c, n, "innnn", "draw_mesh(сетка, x, y, z, поворот в градусах)")
+        return 0
+    if name == "camera"
+        builtin_args(c, n, "nnnnnn", "camera(x, y, z, куда x, куда y, куда z)")
         return 0
     if name == "draw_triangle"
         builtin_args(c, n, "iiiiiii", "draw_triangle(x1, y1, x2, y2, x3, y3, цвет)")

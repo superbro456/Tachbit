@@ -11,7 +11,7 @@ layout(location = 2) flat out ivec4 vq;
 void main() {
     int v = gl_VertexIndex;
     ivec4 b = q;
-    if (cm.y == 1u) {   // треугольник: углы q.xy, q.zw, o — рисуем квадрат вокруг, внутри решает tb.frag
+    if (cm.y != 0u && (cm.y >> 30) == 0u) {   // треугольник (2D и 3D): углы q.xy, q.zw, o — квадрат вокруг, внутри решает tb.frag
         b.xy = min(min(q.xy, q.zw), o);
         b.zw = max(max(q.xy, q.zw), o) + 1;
         b = clamp(b, ivec4(0), ivec4(ivec2(pc.size), ivec2(pc.size)));

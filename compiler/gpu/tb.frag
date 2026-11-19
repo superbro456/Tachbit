@@ -7,6 +7,7 @@ layout(location = 1) flat in uvec2 vcm;
 layout(location = 2) flat in ivec4 vq;
 layout(set = 0, binding = 0) uniform Font { uvec4 f[161]; } font;
 layout(std430, set = 0, binding = 1) readonly buffer Img { uint px[]; } img;   // все картинки подряд
+layout(std430, set = 0, binding = 2) readonly buffer Pl { uvec4 pl[]; } planes;  // плоскости глубины 3D
 layout(location = 0) out vec4 col;
 // сторона a→b треугольника: то же правило, что tb_tri_edge в runtime.h
 bool edge(ivec2 a, ivec2 b, ivec2 p) {
@@ -16,8 +17,14 @@ bool edge(ivec2 a, ivec2 b, ivec2 p) {
 void main() {
     ivec2 p = ivec2(gl_FragCoord.xy);
     uint m = vcm.y, k = m >> 30;
-    if (m == 1u) {
+    float depth = 0.0;
+    if (m != 0u && k == 0u) {   // треугольник: m = 1 — плоский, m = 2 | (место << 2) — из сетки (3D)
         if (!edge(vq.xy, vq.zw, p) || !edge(vq.zw, vo, p) || !edge(vo, vq.xy, p)) discard;
+        if ((m & 3u) == 2u) {   // глубина: та же целая формула, что tb_tri3_depth в runtime.h
+            uvec4 P = planes.pl[m >> 2];
+            uint kk = P.z + P.x * uint(2 * p.x + 1) + P.y * uint(2 * p.y + 1);
+            depth = float(clamp(int(kk) >> 6, 0, 16777215)) / 16777216.0;
+        }
     } else if (k == 1u) {
         int r = int(m & 0x3FFFFFu), i = p.x - vo.x, j = p.y - vo.y;
         if (i * i + j * j > r * r + r) discard;
@@ -33,5 +40,6 @@ void main() {
         if ((v >> 24) < 128u) discard;
         c = v;
     }
+    gl_FragDepth = depth;
     col = vec4(float((c >> 16) & 255u), float((c >> 8) & 255u), float(c & 255u), 255.0) / 255.0;
 }

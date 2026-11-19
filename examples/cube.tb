@@ -1,0 +1,62 @@
+// первый 3D: крутящиеся кубы на клетчатом полу.
+// Стрелки ← → — идти вокруг, ↑ ↓ — ближе и дальше. Esc — выход.
+//   tb run examples/cube.tb
+func main()
+    try window_open(800, 500, "Tachbit: 3D куб")
+    cube = mesh_new()
+    add_cube(cube, 1.0)
+    floor = mesh_new()
+    count i from -8 to 7
+        count j from -8 to 7
+            c = rgb(50, 52, 64)
+            if (i + j) % 2 == 0
+                c = rgb(80, 84, 100)
+            mesh_add(floor, i, -1, j, i + 1, -1, j, i + 1, -1, j + 1, c)
+            mesh_add(floor, i, -1, j, i + 1, -1, j + 1, i, -1, j + 1, c)
+    around = 0.6
+    far = 7.0
+    turn = 0.0
+    repeat while window_alive()
+        if key_down("escape")
+            stop
+        step = frame_ms() / 1000
+        if key_down("left")
+            around -= 1.5 * step
+        if key_down("right")
+            around += 1.5 * step
+        if key_down("up") and far > 2
+            far -= 4 * step
+        if key_down("down") and far < 20
+            far += 4 * step
+        turn += 60 * step
+        camera(far * cos_t(around), 2.5, far * sin_t(around), 0, 0, 0)
+        clear_window(rgb(16, 18, 28))
+        draw_mesh(floor, 0, 0, 0, 0)
+        draw_mesh(cube, 0, 0, 0, turn)
+        draw_mesh(cube, 3, 0, 2, -turn * 2)
+        draw_mesh(cube, -3, 0, -1, 45)
+        draw_text(10, 10, "окно " + window_w() + "x" + window_h() + "   кадров в секунду: " + fps() + "   стрелки — камера", 1, rgb(244, 243, 239))
+
+// куб со стороной 2*h: 6 граней по 2 треугольника, у каждой грани свой цвет
+func add_cube(m: int, h: dec)
+    face(m, -h, -h, -h, h, -h, -h, h, h, -h, -h, h, -h, rgb(230, 80, 80))
+    face(m, -h, -h, h, h, -h, h, h, h, h, -h, h, h, rgb(80, 200, 120))
+    face(m, -h, -h, -h, -h, h, -h, -h, h, h, -h, -h, h, rgb(80, 130, 230))
+    face(m, h, -h, -h, h, h, -h, h, h, h, h, -h, h, rgb(240, 200, 70))
+    face(m, -h, h, -h, h, h, -h, h, h, h, -h, h, h, rgb(200, 90, 200))
+    face(m, -h, -h, -h, h, -h, -h, h, -h, h, -h, -h, h, rgb(70, 200, 210))
+
+func face(m: int, x1: dec, y1: dec, z1: dec, x2: dec, y2: dec, z2: dec, x3: dec, y3: dec, z3: dec, x4: dec, y4: dec, z4: dec, c: int)
+    mesh_add(m, x1, y1, z1, x2, y2, z2, x3, y3, z3, c)
+    mesh_add(m, x1, y1, z1, x3, y3, z3, x4, y4, z4, c)
+
+func sin_t(x: dec)
+    repeat while x > 3.14159265
+        x -= 6.2831853
+    repeat while x < -3.14159265
+        x += 6.2831853
+    x2 = x * x
+    return x * (1 - x2 / 6 * (1 - x2 / 20 * (1 - x2 / 42 * (1 - x2 / 72 * (1 - x2 / 110)))))
+
+func cos_t(x: dec)
+    return sin_t(x + 1.57079633)
