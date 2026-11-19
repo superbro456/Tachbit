@@ -1,6 +1,6 @@
 // ui — кнопки, списки, полосы прокрутки и окна-вопросы для своих приложений.
 // Это обычная библиотека на самом Tachbit: она только рисует прямоугольники и буквы
-// (draw_rect, draw_text) и смотрит на мышь и клавиши. В компилятор ничего не встроено.
+// (draw_rect, draw_font или draw_text) и смотрит на мышь и клавиши. В компилятор ничего не встроено.
 //
 //   use ui
 //   func main()
@@ -50,6 +50,9 @@ obj Ui
     ask_no: text
     ask_answer: int      // 0 — ещё думают, 1 — да, 2 — нет
     ask_tick: int        // кадр, в котором вопрос открыли: тот же щелчок его не закроет
+    // шрифт: настоящий TTF (ui.start находит системный), -1 — встроенный пиксельный 8×16
+    font: int
+    fs: int              // размер букв в точках
     // цвета (можно поменять: u.accent = rgb(...))
     bg: int
     panel: int
@@ -62,7 +65,15 @@ obj Ui
     red: int
 
 modpub func start() gives u: Ui
-    u = Ui(active: "")
+    u = Ui(active: "", font: -1, fs: 14)
+    // шрифт системы: свой путь можно дать в TB_UI_FONT или потом ui.use_font(u, "шрифт.ttf")
+    paths = [env("TB_UI_FONT"), "/System/Library/Fonts/SFNS.ttf", "/System/Library/Fonts/Helvetica.ttc", "/System/Library/Fonts/Supplemental/Arial.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/TTF/DejaVuSans.ttf", "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf", "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf", "C:/Windows/Fonts/segoeui.ttf", "C:/Windows/Fonts/arial.ttf"]
+    each p in paths
+        if p != "" and file_exists(p)
+            got = load_font(p) else err
+                skip
+            u.font = got
+            stop
     u.bg = rgb(22, 23, 29)
     u.panel = rgb(31, 32, 40)
     u.line = rgb(50, 52, 63)
@@ -98,6 +109,13 @@ modpub func frame(u: Ui)
 modpub func end_frame(u: Ui)
     if u.ask_open
         draw_ask(u)
+
+// взять свой шрифт .ttf (false — не получилось, остаётся прежний)
+modpub func use_font(u: Ui, path: text)
+    got = load_font(path) else err
+        return false
+    u.font = got
+    return true
 
 // ---------- мелочи ----------
 
@@ -209,20 +227,42 @@ modpub func last_chars(s: text, n: int)
             seen += 1
     return s
 
-// текст в ширину w точек (буква — 8 точек): длинный обрезается и кончается на ..
-modpub func fit(s: text, w: int)
-    room = w / 8
-    if chars(s) <= room
+// ширина текста в точках: у шрифта TTF своя у каждой буквы, у встроенного — 8
+modpub func text_w(u: Ui, s: text)
+    if u.font >= 0
+        return text_width(u.font, s, u.fs)
+    return chars(s) * 8
+
+// текст: верх строки в y, строка высотой 16 точек (как у встроенного шрифта)
+modpub func txt(u: Ui, x: int, y: int, s: text, color: int)
+    if u.font >= 0
+        draw_font(u.font, x, y + (16 - u.fs * 5 / 4) / 2, s, u.fs, color)
+    else
+        draw_text(x, y, s, 1, color)
+
+// крупный текст (заголовок): size — размер букв в точках
+modpub func big_text(u: Ui, x: int, y: int, s: text, size: int, color: int)
+    if u.font >= 0
+        draw_font(u.font, x, y, s, size, color)
+    else
+        draw_text(x, y, s, max(1, size / 12), color)
+
+// текст в ширину w точек: длинный обрезается и кончается на ..
+modpub func fit(u: Ui, s: text, w: int)
+    if text_w(u, s) <= w
         return s
-    return first_chars(s, room - 2) + ".."
+    n = chars(s) * w / max(1, text_w(u, s))
+    repeat while n > 0 and text_w(u, first_chars(s, n) + "..") > w
+        n -= 1
+    return first_chars(s, n) + ".."
 
 modpub func label(u: Ui, x: int, y: int, s: text, color: int)
-    draw_text(x, y, s, 1, color)
+    txt(u, x, y, s, color)
 
 // текст по середине прямоугольника
-modpub func label_center(x: int, y: int, w: int, h: int, s: text, color: int)
-    t = fit(s, w - 8)
-    draw_text(x + (w - chars(t) * 8) / 2, y + (h - 16) / 2, t, 1, color)
+modpub func label_center(u: Ui, x: int, y: int, w: int, h: int, s: text, color: int)
+    t = fit(u, s, w - 8)
+    txt(u, x + (w - text_w(u, t)) / 2, y + (h - 16) / 2, t, color)
 
 // рамка из четырёх линий
 modpub func frame_rect(x: int, y: int, w: int, h: int, color: int)
@@ -248,14 +288,14 @@ modpub func button(u: Ui, x: int, y: int, w: int, h: int, s: text) gives hit: bo
         c = u.sel
     draw_rect(x, y, w, h, c)
     frame_rect(x, y, w, h, u.line)
-    label_center(x, y, w, h, s, u.ink)
+    label_center(u, x, y, w, h, s, u.ink)
     hit = over and u.press
 
 // кнопка, которую не нажать (серая)
 modpub func button_off(u: Ui, x: int, y: int, w: int, h: int, s: text)
     draw_rect(x, y, w, h, u.bg)
     frame_rect(x, y, w, h, u.line)
-    label_center(x, y, w, h, s, u.line)
+    label_center(u, x, y, w, h, s, u.line)
 
 // главная кнопка: цветная
 modpub func button_main(u: Ui, x: int, y: int, w: int, h: int, s: text) gives hit: bool
@@ -264,13 +304,13 @@ modpub func button_main(u: Ui, x: int, y: int, w: int, h: int, s: text) gives hi
     if over
         c = u.accent + rgb(10, 10, 10)
     draw_rect(x, y, w, h, c)
-    label_center(x, y, w, h, s, u.bg)
+    label_center(u, x, y, w, h, s, u.bg)
     hit = over and u.press
 
 // переключатель: [x] текст; отдаёт новое значение
 modpub func check(u: Ui, x: int, y: int, s: text, on: bool) gives now: bool
     now = on
-    w = 24 + chars(s) * 8
+    w = 24 + text_w(u, s)
     over = free(u) and inside(u, x, y, w, 18)
     frame_rect(x, y + 1, 16, 16, u.dim)
     if on
@@ -278,7 +318,7 @@ modpub func check(u: Ui, x: int, y: int, s: text, on: bool) gives now: bool
     color = u.ink
     if over
         color = u.accent
-    draw_text(x + 24, y + 1, s, 1, color)
+    txt(u, x + 24, y + 1, s, color)
     if over and u.press
         now = not on
 
@@ -293,7 +333,7 @@ modpub func row(u: Ui, id: text, x: int, y: int, w: int, h: int, s: text, select
     else if over
         draw_rect(x, y, w, h, u.hover)
     if s != ""
-        draw_text(x + 8, y + (h - 16) / 2, fit(s, w - 16), 1, u.ink)
+        txt(u, x + 8, y + (h - 16) / 2, fit(u, s, w - 16), u.ink)
     if over and u.press
         now = time_ms()
         res = 1
@@ -377,17 +417,20 @@ modpub func field(u: Ui, id: text, x: int, y: int, w: int, h: int, value: text, 
     else if over
         border = u.dim
     frame_rect(x, y, w, h, border)
-    room = (w - 20) / 8
+    room = w - 20
     ty = y + (h - 16) / 2
     if now == "" and not mine
-        draw_text(x + 8, ty, fit(hint, w - 16), 1, u.dim)
+        txt(u, x + 8, ty, fit(u, hint, w - 16), u.dim)
+    // не влезает — видно хвост (там, где печатают)
     shown = now
-    if chars(now) > room
-        shown = last_chars(now, room)
-    draw_text(x + 8, ty, shown, 1, u.ink)
+    k = chars(now)
+    repeat while k > 0 and text_w(u, shown) > room
+        k -= 1
+        shown = last_chars(now, k)
+    txt(u, x + 8, ty, shown, u.ink)
     // чёрточка мигает: полсекунды есть, полсекунды нет
     if mine and (time_ms() - u.focus_tick) % 1000 < 550
-        draw_rect(x + 9 + chars(shown) * 8, ty, 2, 16, u.accent)
+        draw_rect(x + 9 + text_w(u, shown), ty, 2, 16, u.accent)
 
 // ---------- окно-вопрос ----------
 
@@ -411,15 +454,15 @@ func draw_ask(u: Ui)
     W = window_w()
     H = window_h()
     // всё остальное темнее: полосками через точку не надо — просто тёмная рамка вокруг окна
-    w = min(W - 40, max(360, chars(u.ask_text) * 8 + 48))
+    w = min(W - 40, max(360, text_w(u, u.ask_text) + 48))
     h = 150
     x = (W - w) / 2
     y = (H - h) / 2
     draw_rect(x + 6, y + 6, w, h, rgb(8, 8, 12))
     panel(u, x, y, w, h)
     draw_rect(x, y, w, 3, u.accent)
-    draw_text(x + 20, y + 20, fit(u.ask_title, w - 40), 2, u.ink)
-    draw_text(x + 20, y + 62, fit(u.ask_text, w - 40), 1, u.dim)
+    big_text(u, x + 20, y + 18, u.ask_title, 24, u.ink)
+    txt(u, x + 20, y + 62, fit(u, u.ask_text, w - 40), u.dim)
     u.in_ask = u.tick != u.ask_tick
     if button_main(u, x + w - 140, y + h - 46, 120, 30, u.ask_yes) or key_pressed(u, "enter")
         u.ask_answer = 1

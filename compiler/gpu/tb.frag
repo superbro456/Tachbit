@@ -1,7 +1,8 @@
 #version 450
 // те же правила точек, что у рисования на процессоре (runtime.h):
 // вид 0 — прямоугольник (m = 1 — треугольник, углы в vq и vo), 1 — круг i*i + j*j <= r*r + r, 2 — буква 8×16 из шрифта, size — масштаб,
-// 3 — картинка: vcm.x — где её точки, ширина в m; точка видна, если прозрачность не меньше 128
+// 3 — картинка: vcm.x — где её точки, ширина в m; точка видна, если прозрачность не меньше 128;
+// 3 с битом 29 — буква шрифта: точка смешивается с фоном (a/255), как tb_draw_image_a
 layout(location = 0) flat in ivec2 vo;
 layout(location = 1) flat in uvec2 vcm;
 layout(location = 2) flat in ivec4 vq;
@@ -35,12 +36,17 @@ void main() {
         uint b = (font.f[g][ry >> 2] >> (uint(ry & 3) * 8u)) & 255u;
         if ((b & (0x80u >> uint(cx))) == 0u) discard;
     }
-    uint c = vcm.x;
+    uint c = vcm.x, a = 255u;
     if (k == 3u) {
         uint v = img.px[vcm.x + uint(p.y - vo.y) * (m & 0x3FFFFFu) + uint(p.x - vo.x)];
-        if ((v >> 24) < 128u) discard;
+        a = v >> 24;
+        if ((m & (1u << 29)) != 0u) { if (a == 0u) discard; }   // буква шрифта: смешать с фоном по прозрачности a
+        else { if (a < 128u) discard; a = 255u; }
         c = v;
     }
     gl_FragDepth = depth;
-    col = vec4(float((c >> 16) & 255u), float((c >> 8) & 255u), float(c & 255u), 255.0) / 255.0;
+    // смешивание ONE, ONE_MINUS_SRC_ALPHA: свою часть цвета (c * a / 255) считаем здесь целыми числами,
+    // тогда на любой видеокарте точка = своя часть + округлённая часть фона, как в tb_draw_image_a
+    uvec3 kk = (uvec3((c >> 16) & 255u, (c >> 8) & 255u, c & 255u) * a + 127u) / 255u;
+    col = vec4(vec3(kk), float(a)) / 255.0;
 }

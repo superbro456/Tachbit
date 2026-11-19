@@ -48,14 +48,18 @@ fragment TbOut tb_frag(TbV v [[stage_in]], constant uint4 *font [[buffer(0)]], c
         uint b = (font[g][ry >> 2] >> (uint(ry & 3) * 8u)) & 255u;
         if ((b & (0x80u >> uint(cx))) == 0u) discard_fragment();
     }
-    uint c = v.cm.x;
+    uint c = v.cm.x, a = 255u;
     if (k == 3u) {
         uint px = img[v.cm.x + uint(p.y - v.o.y) * (m & 0x3FFFFFu) + uint(p.x - v.o.x)];
-        if ((px >> 24) < 128u) discard_fragment();
+        a = px >> 24;
+        if ((m & (1u << 29)) != 0u) { if (a == 0u) discard_fragment(); }   // буква шрифта: смешать с фоном
+        else { if (a < 128u) discard_fragment(); a = 255u; }
         c = px;
     }
     TbOut o;
-    o.c = float4(float((c >> 16) & 255u), float((c >> 8) & 255u), float(c & 255u), 255.0) / 255.0;
+    // смешивание One, OneMinusSourceAlpha: своя часть цвета (c * a / 255) — целыми числами здесь, как tb_draw_image_a
+    uint3 kk = (uint3((c >> 16) & 255u, (c >> 8) & 255u, c & 255u) * a + 127u) / 255u;
+    o.c = float4(float3(kk), float(a)) / 255.0;
     o.d = depth;
     return o;
 }

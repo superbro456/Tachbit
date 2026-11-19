@@ -385,12 +385,12 @@ func draw_preview(u: Ui, f: Fm, x: int, y: int, w: int, h: int)
     ui.panel(u, x, y, w, h)
     if f.sel < 0
         ui.label(u, x + 14, y + 14, "Ничего не выбрано", u.dim)
-        ui.label(u, x + 14, y + 40, ui.fit(base_name(f.dir), w - 28), u.ink)
+        ui.label(u, x + 14, y + 40, ui.fit(u, base_name(f.dir), w - 28), u.ink)
         ui.label(u, x + 14, y + 60, "папок " + f.folders + ", файлов " + f.files, u.dim)
         return
     it = f.items[f.sel]
     icon(u, it, x + 14, y + 14, 2)
-    draw_text(x + 14, y + 66, ui.fit(it.name, w - 28), 1, u.ink)
+    ui.txt(u, x + 14, y + 66, ui.fit(u, it.name, w - 28), u.ink)
     ui.label(u, x + 14, y + 86, it.kind + ", " + f.pv_info, u.dim)
     top = y + 116
     draw_rect(x + 1, top - 8, w - 2, 1, u.line)
@@ -408,7 +408,7 @@ func draw_preview(u: Ui, f: Fm, x: int, y: int, w: int, h: int)
         c = u.ink
         if starts_with(trim(line), "//") or starts_with(trim(line), "#")
             c = u.dim
-        draw_text(x + 14, top + i * 18, ui.fit(line, w - 28), 1, c)
+        ui.txt(u, x + 14, top + i * 18, ui.fit(u, line, w - 28), c)
 
 // ---------- рисование ----------
 
@@ -448,7 +448,7 @@ func crumbs(u: Ui, f: Fm, x: int, y: int, w: int)
     used = 0
     first = 0
     count i from 0 to len(parts) - 1
-        bw = min(200, ui.chars(parts[i]) * 8 + 20)
+        bw = min(200, ui.text_w(u, parts[i]) + 20)
         if used + bw + 12 > w - 30
             first = i
             stop
@@ -460,10 +460,10 @@ func crumbs(u: Ui, f: Fm, x: int, y: int, w: int)
         cx += 20
     i = first - 1
     repeat while i >= 0
-        bw = min(200, ui.chars(parts[i]) * 8 + 20)
+        bw = min(200, ui.text_w(u, parts[i]) + 20)
         if i == 0
             draw_rect(cx, y, bw, 30, u.sel)
-            ui.label_center(cx, y, bw, 30, parts[i], u.ink)
+            ui.label_center(u, cx, y, bw, 30, parts[i], u.ink)
         else if ui.button(u, cx, y, bw, 30, parts[i])
             go(f, paths[i])
             return
@@ -487,7 +487,7 @@ func places(u: Ui, f: Fm, x: int, y: int, w: int, h: int)
         it = Item(folder: true)
         r = ui.row(u, "place" + i, x + 6, ry, w - 12, 30, "", f.dir == d)
         icon(u, it, x + 14, ry + 7, 1)
-        draw_text(x + 40, ry + 7, ui.fit(names[i], w - 52), 1, u.ink)
+        ui.txt(u, x + 40, ry + 7, ui.fit(u, names[i], w - 52), u.ink)
         if r > 0
             go(f, d)
         ry += 32
@@ -534,7 +534,7 @@ func status(u: Ui, f: Fm, x: int, y: int, w: int, h: int)
         f.hidden = now
         load(f)
         return
-    ui.label(u, x + 14, y + 11, ui.fit(s, bx - x - 30), c)
+    ui.label(u, x + 14, y + 11, ui.fit(u, s, bx - x - 30), c)
 
 func ask_delete(u: Ui, f: Fm)
     it = f.items[f.sel]
@@ -607,10 +607,10 @@ func list_view(u: Ui, f: Fm, x: int, y: int, w: int, h: int)
             if u.focus != "rename"
                 f.renaming = false
         else
-            draw_text(x + 44, ry + 6, ui.fit(it.name, name_room), 1, u.ink)
+            ui.txt(u, x + 44, ry + 6, ui.fit(u, it.name, name_room), u.ink)
         if not it.folder
-            draw_text(x + lw - size_w - kind_w, ry + 6, human(it.size), 1, u.dim)
-        draw_text(x + lw - kind_w + 10, ry + 6, ui.fit(it.kind, kind_w - 14), 1, kind_color(u, it.kind))
+            ui.txt(u, x + lw - size_w - kind_w, ry + 6, human(it.size), u.dim)
+        ui.txt(u, x + lw - kind_w + 10, ry + 6, ui.fit(u, it.kind, kind_w - 14), kind_color(u, it.kind))
         if r == 1 and not (f.renaming and i == f.sel)
             f.sel = i
         else if r == 2 and not f.renaming
