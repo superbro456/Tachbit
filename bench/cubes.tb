@@ -1,0 +1,59 @@
+// Замер 3D: сетка кубов N × N (по 12 треугольников), 600 кадров без ожидания экрана.
+//   TB_FPS_FREE=1 tb run bench/cubes.tb          (20 × 20 = 400 кубов, 4 800 треугольников)
+//   TB_FPS_FREE=1 tb run bench/cubes.tb 60       (60 × 60 = 3 600 кубов, 43 200 треугольников)
+// Окно можно растянуть мышью во весь экран прямо во время замера: размер пишется в конце.
+func main()
+    n = 20
+    a = args()
+    if len(a) > 0
+        n = to_int(a[len(a) - 1]) or 20
+    try window_open(1280, 720, "Замер 3D")
+    set_fps(0)
+    cube = mesh_new()
+    add_cube(cube, 0.4)
+    frames = 0
+    show_ms = 0
+    t0 = time_ms()
+    repeat while frames < 600
+        ts = time_ms()
+        alive = window_alive()
+        show_ms += time_ms() - ts
+        if not alive
+            stop
+        frames += 1
+        far = n * 1.2 + 4
+        camera(far * cos_t(frames * 0.01), n * 0.6, far * sin_t(frames * 0.01), 0, 0, 0)
+        clear_window(rgb(16, 18, 28))
+        count i from 0 to n - 1
+            count j from 0 to n - 1
+                draw_mesh(cube, i - n / 2.0, 0, j - n / 2.0, frames + i * 7 + j * 3)
+        draw_text(10, 10, "кадр " + frames + "   кубов " + n * n, 2, rgb(255, 255, 255))
+    ms = time_ms() - t0
+    print("окно:", window_w(), "x", window_h(), "  кубов:", n * n, "  треугольников в кадре:", n * n * 12)
+    print("кадров:", frames, " время:", ms, "мс")
+    print("кадров в секунду:", frames * 1000 / max(ms, 1))
+    print("треугольников в секунду:", n * n * 12 * frames * 1000 / max(ms, 1))
+    print("из них расчёт и рисование:", ms - show_ms, "мс, показ на экране:", show_ms, "мс")
+
+func add_cube(m: int, h: dec)
+    face(m, -h, -h, -h, h, -h, -h, h, h, -h, -h, h, -h, rgb(230, 80, 80))
+    face(m, -h, -h, h, h, -h, h, h, h, h, -h, h, h, rgb(80, 200, 120))
+    face(m, -h, -h, -h, -h, h, -h, -h, h, h, -h, -h, h, rgb(80, 130, 230))
+    face(m, h, -h, -h, h, h, -h, h, h, h, h, -h, h, rgb(240, 200, 70))
+    face(m, -h, h, -h, h, h, -h, h, h, h, -h, h, h, rgb(200, 90, 200))
+    face(m, -h, -h, -h, h, -h, -h, h, -h, h, -h, -h, h, rgb(70, 200, 210))
+
+func face(m: int, x1: dec, y1: dec, z1: dec, x2: dec, y2: dec, z2: dec, x3: dec, y3: dec, z3: dec, x4: dec, y4: dec, z4: dec, c: int)
+    mesh_add(m, x1, y1, z1, x2, y2, z2, x3, y3, z3, c)
+    mesh_add(m, x1, y1, z1, x3, y3, z3, x4, y4, z4, c)
+
+func sin_t(x: dec)
+    repeat while x > 3.14159265
+        x -= 6.2831853
+    repeat while x < -3.14159265
+        x += 6.2831853
+    x2 = x * x
+    return x * (1 - x2 / 6 * (1 - x2 / 20 * (1 - x2 / 42 * (1 - x2 / 72 * (1 - x2 / 110)))))
+
+func cos_t(x: dec)
+    return sin_t(x + 1.57079633)
