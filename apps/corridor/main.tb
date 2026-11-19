@@ -1,0 +1,227 @@
+// Звёздный коридор — 3D-игра на Tachbit.
+// Корабль летит по тоннелю всё быстрее. Стрелки — уворачиваться от блоков и ловить кристаллы.
+// Пробел — заново, Esc — выход. Окно можно растянуть мышью.
+//   tb start apps/corridor
+//   tb run apps/corridor/main.tb demo     — летит сам 900 кадров (показ и проверка TB_GPU_CHECK=1)
+// Всё 3D считает видеокарта: тоннель — одна большая сетка (по кускам), блоки и кристаллы — по сетке на вид
+
+obj Thing
+    x: dec
+    y: dec
+    z: dec
+    spin: dec
+    gem: bool      // true — кристалл, false — блок
+    gone: bool     // уже поймали или уже врезались
+
+shared SEG = int 40       // длина куска тоннеля
+shared FAR = int 170      // как далеко вперёд видно
+
+func main()
+    try window_open(960, 600, "Звёздный коридор")
+    set_fps(60)
+    tunnel = make_tunnel()
+    block = mesh_new()
+    add_box(block, 0.8)
+    gem = mesh_new()
+    add_gem(gem, 0.5)
+    ship = make_ship()
+
+    // игра
+    sx = 0.0
+    sy = 0.0
+    sz = 0.0
+    tilt = 0.0
+    speed = 0.3
+    score = 0
+    best = 0
+    lives = 3
+    safe = 0            // кадры неуязвимости после удара
+    over = false
+    frame = 0
+    next_z = 30.0
+    things = list Thing
+    a = args()
+    demo = len(a) > 0 and a[len(a) - 1] == "demo"
+
+    repeat while window_alive()
+        if key_down("escape") or (demo and frame >= 900)
+            stop
+        frame += 1
+        W = window_w()
+        H = window_h()
+
+        if not over
+            // управление
+            dx = 0.0
+            if key_down("left")
+                dx = -0.18
+            if key_down("right")
+                dx = 0.18
+            if key_down("up")
+                sy += 0.15
+            if key_down("down")
+                sy -= 0.15
+            if demo   // сам: к ближайшему кристаллу, от ближайшего блока
+                ax = 0.0
+                ay = 0.0
+                each t in things
+                    if not t.gone and t.z > sz and t.z < sz + 14
+                        if t.gem
+                            ax += (t.x - sx) * 0.3
+                            ay += (t.y - sy) * 0.3
+                        else if abs(t.x - sx) < 2.2 and abs(t.y - sy) < 2.0
+                            ax -= (t.x - sx) + 0.4
+                            ay -= (t.y - sy) + 0.3
+                dx = max(-0.18, min(0.18, ax * 0.2))
+                sy += max(-0.15, min(0.15, ay * 0.2))
+            sx = max(-5.0, min(5.0, sx + dx))
+            sy = max(-3.2, min(3.2, sy))
+            tilt = tilt * 0.8 + dx * 60
+            speed = min(1.4, speed + 0.0004)
+            sz += speed
+            if safe > 0
+                safe -= 1
+
+            // впереди новые блоки и кристаллы
+            repeat while next_z < sz + FAR
+                n = random(1, 3)
+                repeat n times
+                    things.add(Thing(x: random(-50, 50) / 10.0, y: random(-32, 32) / 10.0, z: next_z, spin: random(0, 359), gem: false, gone: false))
+                if random(0, 2) == 0
+                    things.add(Thing(x: random(-45, 45) / 10.0, y: random(-28, 28) / 10.0, z: next_z + 3, spin: 0, gem: true, gone: false))
+                next_z += random(60, 110) / 10.0 + speed * 4
+
+            // столкновения: корабль — коробка 1.0 × 0.5 × 1.8
+            each t in things
+                if not t.gone and abs(t.z - sz) < 1.4
+                    if t.gem and abs(t.x - sx) < 1.2 and abs(t.y - sy) < 1.0
+                        t.gone = true
+                        score += 10
+                    if not t.gem and safe == 0 and abs(t.x - sx) < 1.3 and abs(t.y - sy) < 1.05
+                        t.gone = true
+                        lives -= 1
+                        safe = 90
+                        if lives == 0
+                            over = true
+                            best = max(best, score)
+            // что осталось позади — убрать
+            keep = list Thing
+            each t in things
+                if t.z > sz - 8 and not t.gone
+                    keep.add(t)
+            things = keep
+            if frame % 6 == 0
+                score += 1
+        else if key_down("space") or demo
+            over = false
+            sx = 0.0
+            sy = 0.0
+            sz = 0.0
+            speed = 0.3
+            score = 0
+            lives = 3
+            safe = 90
+            next_z = 30.0
+            things.clear()
+
+        // кадр: камера чуть сзади и выше корабля, смотрит вперёд
+        clear_window(rgb(6, 6, 14))
+        camera(sx * 0.6, sy * 0.6 + 1.3, sz - 6, sx * 0.8, sy * 0.8, sz + 10)
+        k = to_int_down(sz / SEG) - 1
+        repeat while k * SEG < sz + FAR
+            draw_mesh(tunnel, 0, 0, k * SEG, 0)
+            k += 1
+        each t in things
+            if t.gem
+                draw_mesh(gem, t.x, t.y, t.z, t.spin + frame * 6)
+            else
+                draw_mesh(block, t.x, t.y, t.z, t.spin + frame * 2)
+        if safe / 6 % 2 == 0 and not over
+            draw_mesh(ship, sx, sy, sz, tilt)
+
+        // надписи поверх
+        draw_rect(0, 0, W, 34, rgb(14, 14, 26))
+        draw_text(12, 9, "Очки: " + score + "   Лучший: " + best, 1, rgb(240, 240, 250))
+        draw_text(W / 2 - 60, 9, "Жизни: " + hearts(lives), 1, rgb(255, 110, 140))
+        draw_text(W - 230, 9, "Скорость " + round(speed * 100) + "   кадров/с " + fps(), 1, rgb(120, 220, 200))
+        if over
+            draw_text(W / 2 - 216, H / 2 - 50, "Игра окончена", 4, rgb(255, 110, 140))
+            draw_text(W / 2 - 136, H / 2 + 20, "Пробел — ещё раз", 2, rgb(240, 240, 250))
+    print("счёт:", score, "  лучший:", max(best, score))
+
+func hearts(n: int)
+    s = ""
+    repeat n times
+        s = s + "<3 "
+    return s
+
+// целая часть вниз (и для отрицательных)
+func to_int_down(x: dec)
+    k = round(x)
+    if k > x
+        k -= 1
+    return k
+
+// тоннель длиной SEG: пол, потолок и стены из плиток 2 × 2, грани смотрят внутрь.
+// Каждые 10 шагов — светлое кольцо. Треугольников 800: сетка сама режется на куски
+func make_tunnel()
+    m = mesh_new()
+    count r from 0 to SEG / 2 - 1
+        z = r * 2
+        count i from 0 to 5
+            x = -6 + i * 2
+            c = tile(r, i, rgb(40, 44, 70))
+            quad(m, x, -4, z, x + 2, -4, z, x + 2, -4, z + 2, x, -4, z + 2, c)    // пол
+            quad(m, x, 4, z, x, 4, z + 2, x + 2, 4, z + 2, x + 2, 4, z, tile(r, i, rgb(30, 30, 52)))   // потолок
+        count i from 0 to 3
+            y = -4 + i * 2
+            quad(m, -6, y, z, -6, y, z + 2, -6, y + 2, z + 2, -6, y + 2, z, tile(r, i, rgb(60, 40, 90)))   // левая стена
+            quad(m, 6, y, z, 6, y + 2, z, 6, y + 2, z + 2, 6, y, z + 2, tile(r, i, rgb(40, 70, 100)))    // правая
+    return m
+
+func tile(r: int, i: int, c: int)
+    if r % 5 == 0
+        return rgb(90, 220, 255)   // светлое кольцо
+    if (r + i) % 2 == 0
+        return c + rgb(10, 10, 14)
+    return c
+
+func quad(m: int, x1: int, y1: int, z1: int, x2: int, y2: int, z2: int, x3: int, y3: int, z3: int, x4: int, y4: int, z4: int, c: int)
+    mesh_add(m, x1, y1, z1, x2, y2, z2, x3, y3, z3, c)
+    mesh_add(m, x1, y1, z1, x3, y3, z3, x4, y4, z4, c)
+
+// блок: куб, грани по кругу против часовой стрелки снаружи (закрытая сетка: задние грани не считаются)
+func add_box(m: int, h: dec)
+    face(m, -h, -h, -h, -h, h, -h, h, h, -h, h, -h, -h, rgb(255, 90, 80))
+    face(m, -h, -h, h, h, -h, h, h, h, h, -h, h, h, rgb(200, 60, 60))
+    face(m, -h, -h, -h, -h, -h, h, -h, h, h, -h, h, -h, rgb(230, 120, 60))
+    face(m, h, -h, -h, h, h, -h, h, h, h, h, -h, h, rgb(230, 120, 60))
+    face(m, -h, h, -h, -h, h, h, h, h, h, h, h, -h, rgb(255, 170, 90))
+    face(m, -h, -h, -h, h, -h, -h, h, -h, h, -h, -h, h, rgb(140, 40, 40))
+
+func face(m: int, x1: dec, y1: dec, z1: dec, x2: dec, y2: dec, z2: dec, x3: dec, y3: dec, z3: dec, x4: dec, y4: dec, z4: dec, c: int)
+    mesh_add(m, x1, y1, z1, x2, y2, z2, x3, y3, z3, c)
+    mesh_add(m, x1, y1, z1, x3, y3, z3, x4, y4, z4, c)
+
+// кристалл: два пирамидки остриями вверх и вниз (8 граней)
+func add_gem(m: int, h: dec)
+    t = h * 1.6
+    mesh_add(m, 0, t, 0, h, 0, 0, 0, 0, h, rgb(120, 255, 220))
+    mesh_add(m, 0, t, 0, 0, 0, h, -h, 0, 0, rgb(80, 220, 255))
+    mesh_add(m, 0, t, 0, -h, 0, 0, 0, 0, -h, rgb(120, 255, 220))
+    mesh_add(m, 0, t, 0, 0, 0, -h, h, 0, 0, rgb(80, 220, 255))
+    mesh_add(m, 0, -t, 0, 0, 0, h, h, 0, 0, rgb(40, 160, 200))
+    mesh_add(m, 0, -t, 0, -h, 0, 0, 0, 0, h, rgb(60, 190, 170))
+    mesh_add(m, 0, -t, 0, 0, 0, -h, -h, 0, 0, rgb(40, 160, 200))
+    mesh_add(m, 0, -t, 0, h, 0, 0, 0, 0, -h, rgb(60, 190, 170))
+
+// корабль: острый нос вперёд, крылья в стороны
+func make_ship()
+    m = mesh_new()
+    mesh_add(m, 0, 0, 1.3, -1.0, -0.1, -0.6, 0, 0.35, -0.5, rgb(230, 230, 255))
+    mesh_add(m, 0, 0, 1.3, 0, 0.35, -0.5, 1.0, -0.1, -0.6, rgb(200, 210, 255))
+    mesh_add(m, 0, 0, 1.3, 1.0, -0.1, -0.6, 0, -0.25, -0.5, rgb(120, 130, 200))
+    mesh_add(m, 0, 0, 1.3, 0, -0.25, -0.5, -1.0, -0.1, -0.6, rgb(140, 150, 220))
+    mesh_add(m, -1.0, -0.1, -0.6, 0, -0.25, -0.5, 0, 0.35, -0.5, rgb(255, 150, 60))
+    mesh_add(m, 1.0, -0.1, -0.6, 0, 0.35, -0.5, 0, -0.25, -0.5, rgb(255, 150, 60))
+    return m
