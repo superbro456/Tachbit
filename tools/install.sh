@@ -10,6 +10,8 @@ mkdir -p "$bin" || exit 1
 ./tools/build_tb.sh || exit 1
 cp ./tachbit-tb "$bin/tb"
 echo "стоит компилятор на Tachbit (собран сам собой)"
+# общие библиотеки (use ui): lib/*.tb → ~/.tachbit/lib
+mkdir -p "$HOME/.tachbit/lib" && cp lib/*.tb "$HOME/.tachbit/lib/" && echo "библиотеки: $HOME/.tachbit/lib"
 
 line='export PATH="$HOME/.tachbit/bin:$PATH"'
 added=""

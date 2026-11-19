@@ -50,6 +50,10 @@ Write-Host 'собран tachbit-tb.exe (компилятор собран са�
 $bin = Join-Path $env:USERPROFILE '.tachbit\bin'
 New-Item -ItemType Directory -Force -Path $bin | Out-Null
 Copy-Item -Force tachbit-tb.exe (Join-Path $bin 'tb.exe')
+# общие библиотеки (use ui): lib\*.tb → %USERPROFILE%\.tachbit\lib
+$lib = Join-Path $env:USERPROFILE '.tachbit\lib'
+New-Item -ItemType Directory -Force -Path $lib | Out-Null
+Copy-Item -Force lib\*.tb $lib
 
 # 5) эта папка — в PATH пользователя, чтобы tb работал в любом терминале
 $path = [Environment]::GetEnvironmentVariable('Path', 'User')

@@ -1,0 +1,14 @@
+// obj(поле: ...) с пропущенными полями внутри быстрого count по списку
+obj Item
+    name: text
+    folder: bool
+    size: int
+
+func main()
+    dirs = ["/", "/tmp", "/home"]
+    n = 0
+    count i from 0 to len(dirs) - 1
+        it = Item(folder: true)
+        if it.folder and it.name == ""
+            n += len(dirs[i]) + it.size
+    print(n)

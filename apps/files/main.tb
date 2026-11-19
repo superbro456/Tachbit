@@ -1,0 +1,723 @@
+// Файлы — файловый менеджер в окне, написан на Tachbit.
+// Все кнопки, списки и окна-вопросы берёт из библиотеки lib/ui.tb (тоже на Tachbit).
+//   tb start apps/files              собрать и запустить
+//   apps/files/build/files ~/Desktop открыть нужную папку
+//
+// Мышь: щелчок — выбрать, двойной щелчок — открыть, колёсико — листать. Клавиши: ↑ ↓ — по списку,
+// Enter — открыть, Backspace — папка выше, ← → и боковые кнопки мыши — назад и вперёд. Начни печатать — это поиск.
+
+use ui
+
+obj Item
+    name: text
+    folder: bool
+    size: int
+    kind: text
+
+obj Fm
+    dir: text
+    home: text
+    items: list Item
+    folders: int
+    files: int
+    sel: int
+    top: int
+    back: list text
+    ahead: list text
+    hidden: bool
+    by_size: bool
+    note: text
+    note_at: int
+    // просмотр выбранного
+    pv_name: text
+    pv_lines: list text
+    pv_info: text
+    pv_img: int
+    imgs: dict text int
+    // что удаляем, пока висит вопрос
+    doomed: text
+    // поиск и новое имя
+    find: text
+    renaming: bool
+    new_name: text
+    follow: bool         // прокрутить список к выбранному (после стрелок), колёсико это не трогает
+
+// ---------- пути ----------
+
+func join_path(dir: text, name: text)
+    if dir == "/"
+        return "/" + name
+    return dir + "/" + name
+
+func parent(dir: text)
+    last = -1
+    count i from 0 to len(dir) - 1
+        if dir[i] == "/"
+            last = i
+    if last <= 0
+        return "/"
+    return cut(dir, 0, last - 1)
+
+func base_name(path: text)
+    if path == "/"
+        return "/"
+    up = parent(path)
+    if up == "/"
+        return cut(path, 1, len(path) - 1)
+    return cut(path, len(up) + 1, len(path) - 1)
+
+func quote(s: text)
+    return "'" + replace(s, "'", "'\\''") + "'"
+
+func human(size: int)
+    if size < 1024
+        return "" + size + " Б"
+    if size < 1024 * 1024
+        return "" + (size / 1024) + " КБ"
+    if size < 1024 * 1024 * 1024
+        tenths = size * 10 / (1024 * 1024)
+        return "" + (tenths / 10) + "," + (tenths % 10) + " МБ"
+    tenths = size * 10 / (1024 * 1024 * 1024)
+    return "" + (tenths / 10) + "," + (tenths % 10) + " ГБ"
+
+// расширение без точки, маленькими буквами: "Фото.PNG" → "png"
+func ext_of(name: text)
+    at = -1
+    count i from 0 to len(name) - 1
+        if name[i] == "."
+            at = i
+    if at <= 0 or at == len(name) - 1
+        return ""
+    return lower(cut(name, at + 1, len(name) - 1))
+
+func kind_of(ext: text)
+    if ext == "tb"
+        return "Tachbit"
+    if ext == "png" or ext == "jpg" or ext == "jpeg" or ext == "gif" or ext == "webp" or ext == "heic"
+        return "картинка"
+    if ext == "mp4" or ext == "mov" or ext == "mkv" or ext == "avi"
+        return "видео"
+    if ext == "mp3" or ext == "wav" or ext == "m4a" or ext == "flac" or ext == "ogg"
+        return "звук"
+    if ext == "pdf"
+        return "PDF"
+    if ext == "zip" or ext == "gz" or ext == "tar" or ext == "7z" or ext == "dmg"
+        return "архив"
+    if is_text(ext)
+        return "текст"
+    if ext == ""
+        return "файл"
+    return upper(ext)
+
+func is_text(ext: text)
+    each e in ["tb", "txt", "md", "c", "h", "py", "js", "ts", "json", "html", "css", "sh", "ps1", "yml", "yaml", "toml", "csv", "log", "ini", "cfg", "xml", "go", "rs", "swift", "java", "sql", "metal", "vert", "frag"]
+        if ext == e
+            return true
+    return false
+
+func kind_color(u: Ui, kind: text)
+    if kind == "Tachbit"
+        return u.accent
+    if kind == "картинка"
+        return rgb(120, 170, 255)
+    if kind == "видео" or kind == "звук"
+        return rgb(200, 130, 240)
+    if kind == "PDF"
+        return u.red
+    if kind == "архив"
+        return rgb(230, 170, 90)
+    if kind == "текст"
+        return rgb(190, 195, 210)
+    return u.dim
+
+// ---------- папка ----------
+
+func load(f: Fm)
+    names = list_dir(f.dir) else err
+        say(f, err)
+        return
+    f.items.clear()
+    f.folders = 0
+    f.files = 0
+    want = lower(f.find)
+    each n in names
+        if not f.hidden and starts_with(n, ".")
+            skip
+        if want != "" and find(lower(n), want) < 0
+            skip
+        it = Item()
+        if ends_with(n, "/")
+            it.name = cut(n, 0, len(n) - 2)
+            it.folder = true
+            it.kind = "папка"
+            f.folders += 1
+        else
+            it.name = n
+            it.size = file_size(join_path(f.dir, n))
+            it.kind = kind_of(ext_of(n))
+            f.files += 1
+        f.items.add(it)
+    if f.by_size
+        sort_by_size(f.items)
+    f.sel = -1
+    f.top = 0
+    f.pv_name = "?"
+    f.renaming = false
+
+// папки сначала, потом файлы от больших к маленьким (вставками: файлов в папке немного)
+func sort_by_size(items: list Item)
+    count i from 1 to len(items) - 1
+        it = items[i]
+        j = i - 1
+        repeat while j >= 0 and bigger(it, items[j])
+            items[j + 1] = items[j]
+            j -= 1
+        items[j + 1] = it
+
+func bigger(a: Item, b: Item)
+    if a.folder != b.folder
+        return a.folder
+    return not a.folder and a.size > b.size
+
+func go(f: Fm, dir: text)
+    if not is_folder(dir)
+        say(f, "нет такой папки: " + dir)
+        return
+    if dir == f.dir
+        return
+    f.back.add(f.dir)
+    f.ahead.clear()
+    f.find = ""
+    came_from(f, dir)
+
+func go_back(f: Fm)
+    if len(f.back) == 0
+        return
+    f.ahead.add(f.dir)
+    came_from(f, f.back.pop())
+
+func go_ahead(f: Fm)
+    if len(f.ahead) == 0
+        return
+    f.back.add(f.dir)
+    came_from(f, f.ahead.pop())
+
+// перейти в dir; если поднялись выше — выбрать папку, из которой пришли
+func came_from(f: Fm, dir: text)
+    old = f.dir
+    f.dir = dir
+    load(f)
+    if old != "/" and parent(old) == dir
+        name = base_name(old)
+        count i from 0 to len(f.items) - 1
+            if f.items[i].name == name
+                f.sel = i
+                f.follow = true
+
+func say(f: Fm, s: text)
+    f.note = s
+    f.note_at = time_ms()
+
+// открыть выбранное: папку — здесь, файл — программой, которая для него в системе
+func open_item(f: Fm, it: Item)
+    path = join_path(f.dir, it.name)
+    if it.folder
+        go(f, path)
+        return
+    code = 0
+    if env("OS") == "Windows_NT"
+        code = run("start \"\" \"" + path + "\"")
+    else if file_exists("/usr/bin/open")
+        code = run("open " + quote(path))
+    else
+        code = run("xdg-open " + quote(path) + " >/dev/null 2>&1 &")
+    if code != 0
+        say(f, "не нашлось программы для " + it.name)
+    else
+        say(f, "открываю " + it.name)
+
+func new_folder(u: Ui, f: Fm)
+    name = "Новая папка"
+    k = 2
+    repeat while is_folder(join_path(f.dir, name)) or file_exists(join_path(f.dir, name))
+        name = "Новая папка " + k
+        k += 1
+    make_folder(join_path(f.dir, name)) else err
+        say(f, err)
+        return
+    f.find = ""
+    load(f)
+    count i from 0 to len(f.items) - 1
+        if f.items[i].name == name
+            f.sel = i
+            f.follow = true
+    say(f, "создана: " + name + ". Напиши имя и нажми Enter")
+
+func start_rename(u: Ui, f: Fm)
+    if f.sel < 0
+        return
+    f.renaming = true
+    f.new_name = f.items[f.sel].name
+    ui.focus_on(u, "rename")
+
+func finish_rename(f: Fm)
+    f.renaming = false
+    if f.sel < 0
+        return
+    old = f.items[f.sel].name
+    name = trim(f.new_name)
+    if name == "" or name == old
+        return
+    if find(name, "/") >= 0 or name == "." or name == ".."
+        say(f, "в имени не может быть /")
+        return
+    dest = join_path(f.dir, name)
+    if file_exists(dest) or is_folder(dest)
+        say(f, "уже есть: " + name)
+        return
+    move(join_path(f.dir, old), dest) else err
+        say(f, err)
+        return
+    load(f)
+    count i from 0 to len(f.items) - 1
+        if f.items[i].name == name
+            f.sel = i
+            f.follow = true
+    say(f, "теперь " + name)
+
+// куда класть удалённое: Корзина на Mac, ~/.local/share/Trash на Linux; на Windows — пусто
+func trash_dir(f: Fm)
+    if f.home == "" or env("OS") == "Windows_NT"
+        return ""
+    if is_folder(f.home + "/.Trash")
+        return f.home + "/.Trash"
+    t = f.home + "/.local/share/Trash"
+    each p in [f.home + "/.local", f.home + "/.local/share", t, t + "/files", t + "/info"]
+        if not is_folder(p)
+            make_folder(p) else err
+                return ""
+    return t + "/files"
+
+func to_trash(f: Fm, name: text)
+    src = join_path(f.dir, name)
+    trash = trash_dir(f)
+    if trash == ""
+        remove(src) else err
+            say(f, err)
+            return
+        load(f)
+        say(f, "удалено: " + name)
+        return
+    target = join_path(trash, name)
+    pick = name
+    k = 2
+    repeat while file_exists(target) or is_folder(target)
+        pick = name + " " + k
+        target = join_path(trash, pick)
+        k += 1
+    move(src, target) else err
+        say(f, err)
+        return
+    // Linux хочет записку, откуда файл: тогда «Восстановить» в Корзине вернёт его на место
+    if ends_with(trash, "/Trash/files")
+        when = replace(date_now(), " ", "T")
+        note = "[Trash Info]\nPath=" + src + "\nDeletionDate=" + when + "\n"
+        write_file(parent(trash) + "/info/" + pick + ".trashinfo", note) else err
+            say(f, "в Корзине, но без записки: " + err)
+    load(f)
+    say(f, "в Корзине: " + name)
+
+// ---------- просмотр выбранного ----------
+
+func preview(f: Fm)
+    name = ""
+    if f.sel >= 0
+        name = f.items[f.sel].name
+    if name == f.pv_name
+        return
+    f.pv_name = name
+    f.pv_lines.clear()
+    f.pv_info = ""
+    f.pv_img = -1
+    if name == ""
+        return
+    it = f.items[f.sel]
+    path = join_path(f.dir, name)
+    if it.folder
+        content = list_dir(path) else err
+            f.pv_info = "нет доступа"
+            return
+        f.pv_info = "внутри: " + len(content)
+        n = 0
+        each x in content
+            if n >= 30
+                stop
+            if f.hidden or not starts_with(x, ".")
+                f.pv_lines.add(x)
+                n += 1
+        return
+    f.pv_info = human(it.size)
+    ext = ext_of(name)
+    if ext == "png" and it.size < 8 * 1024 * 1024
+        if not f.imgs.has(path)
+            img = load_image(path) else err
+                f.pv_info = human(it.size) + ", не читается"
+                return
+            f.imgs[path] = img
+        f.pv_img = f.imgs[path]
+        f.pv_info = human(it.size) + ", " + image_w(f.pv_img) + "×" + image_h(f.pv_img)
+        return
+    if is_text(ext) and it.size < 200 * 1024
+        s = read_file(path) else err
+            return
+        n = 0
+        each line in split(s, "\n")
+            if n >= 60
+                stop
+            f.pv_lines.add(replace(line, "\t", "    "))
+            n += 1
+
+func draw_preview(u: Ui, f: Fm, x: int, y: int, w: int, h: int)
+    ui.panel(u, x, y, w, h)
+    if f.sel < 0
+        ui.label(u, x + 14, y + 14, "Ничего не выбрано", u.dim)
+        ui.label(u, x + 14, y + 40, ui.fit(base_name(f.dir), w - 28), u.ink)
+        ui.label(u, x + 14, y + 60, "папок " + f.folders + ", файлов " + f.files, u.dim)
+        return
+    it = f.items[f.sel]
+    icon(u, it, x + 14, y + 14, 2)
+    draw_text(x + 14, y + 66, ui.fit(it.name, w - 28), 1, u.ink)
+    ui.label(u, x + 14, y + 86, it.kind + ", " + f.pv_info, u.dim)
+    top = y + 116
+    draw_rect(x + 1, top - 8, w - 2, 1, u.line)
+    if f.pv_img >= 0
+        iw = image_w(f.pv_img)
+        ih = image_h(f.pv_img)
+        if iw <= w - 28 and ih <= y + h - top - 10
+            draw_image(f.pv_img, x + (w - iw) / 2, top)
+        else
+            ui.label(u, x + 14, top, "картинка больше окна просмотра", u.dim)
+        return
+    rows = (y + h - top - 8) / 18
+    count i from 0 to min(rows, len(f.pv_lines)) - 1
+        line = f.pv_lines[i]
+        c = u.ink
+        if starts_with(trim(line), "//") or starts_with(trim(line), "#")
+            c = u.dim
+        draw_text(x + 14, top + i * 18, ui.fit(line, w - 28), 1, c)
+
+// ---------- рисование ----------
+
+// значок: папка — жёлтая с ушком, файл — листок с загнутым углом цвета своего вида
+func icon(u: Ui, it: Item, x: int, y: int, s: int)
+    if it.folder
+        c = rgb(240, 196, 90)
+        draw_rect(x, y + 2 * s, 7 * s, 3 * s, c)
+        draw_rect(x, y + 4 * s, 16 * s, 10 * s, c)
+        draw_rect(x, y + 6 * s, 16 * s, 1 * s, rgb(214, 168, 66))
+        return
+    c = kind_color(u, it.kind)
+    draw_rect(x + 2 * s, y, 9 * s, 16 * s, c)
+    draw_rect(x + 11 * s, y + 4 * s, 3 * s, 12 * s, c)
+    draw_rect(x + 11 * s, y, 3 * s, 4 * s, u.bg)
+    draw_rect(x + 11 * s, y + 3 * s, 3 * s, 1 * s, u.line)
+    draw_rect(x + 4 * s, y + 7 * s, 8 * s, 1 * s, u.bg)
+    draw_rect(x + 4 * s, y + 10 * s, 8 * s, 1 * s, u.bg)
+
+// маленькая стрелка › между папками пути (такой буквы в шрифте нет — рисуем линиями)
+func chevron(x: int, y: int, c: int)
+    draw_line(x, y, x + 4, y + 4, c)
+    draw_line(x + 4, y + 4, x, y + 8, c)
+
+// путь сверху: каждая папка — кнопка; не влезает — показываем хвост
+func crumbs(u: Ui, f: Fm, x: int, y: int, w: int)
+    parts = list text
+    paths = list text
+    p = f.dir
+    repeat while true
+        parts.add(base_name(p))
+        paths.add(p)
+        if p == "/"
+            stop
+        p = parent(p)
+    // считаем с конца (последняя папка справа), пока влезает
+    used = 0
+    first = 0
+    count i from 0 to len(parts) - 1
+        bw = min(200, ui.chars(parts[i]) * 8 + 20)
+        if used + bw + 12 > w - 30
+            first = i
+            stop
+        used += bw + 12
+        first = i + 1
+    cx = x
+    if first < len(parts)
+        ui.label(u, cx, y + 7, "..", u.dim)
+        cx += 20
+    i = first - 1
+    repeat while i >= 0
+        bw = min(200, ui.chars(parts[i]) * 8 + 20)
+        if i == 0
+            draw_rect(cx, y, bw, 30, u.sel)
+            ui.label_center(cx, y, bw, 30, parts[i], u.ink)
+        else if ui.button(u, cx, y, bw, 30, parts[i])
+            go(f, paths[i])
+            return
+        cx += bw
+        if i > 0
+            chevron(cx + 3, y + 11, u.dim)
+        cx += 12
+        i -= 1
+
+func places(u: Ui, f: Fm, x: int, y: int, w: int, h: int)
+    draw_rect(x, y, w, h, u.panel)
+    draw_rect(x + w - 1, y, 1, h, u.line)
+    ui.label(u, x + 14, y + 12, "Места", u.dim)
+    names = ["Дом", "Рабочий стол", "Документы", "Загрузки", "Картинки", "Корень диска"]
+    dirs = [f.home, f.home + "/Desktop", f.home + "/Documents", f.home + "/Downloads", f.home + "/Pictures", "/"]
+    ry = y + 38
+    count i from 0 to len(names) - 1
+        d = dirs[i]
+        if d == "" or not is_folder(d)
+            skip
+        it = Item(folder: true)
+        r = ui.row(u, "place" + i, x + 6, ry, w - 12, 30, "", f.dir == d)
+        icon(u, it, x + 14, ry + 7, 1)
+        draw_text(x + 40, ry + 7, ui.fit(names[i], w - 52), 1, u.ink)
+        if r > 0
+            go(f, d)
+        ry += 32
+
+func status(u: Ui, f: Fm, x: int, y: int, w: int, h: int)
+    draw_rect(x, y, w, h, u.panel)
+    draw_rect(x, y, w, 1, u.line)
+    s = "папок " + f.folders + ", файлов " + f.files
+    c = u.dim
+    if f.note != "" and time_ms() - f.note_at < 4000
+        s = f.note
+        c = u.accent
+    // кнопки справа налево
+    bx = x + w - 10
+    can = f.sel >= 0
+    bx -= 110
+    if can
+        if ui.button_main(u, bx, y + 6, 100, 26, "Открыть")
+            open_item(f, f.items[f.sel])
+            return
+    else
+        ui.button_off(u, bx, y + 6, 100, 26, "Открыть")
+    bx -= 120
+    if can
+        if ui.button(u, bx, y + 6, 110, 26, "В корзину")
+            ask_delete(u, f)
+    else
+        ui.button_off(u, bx, y + 6, 110, 26, "В корзину")
+    bx -= 130
+    if ui.button(u, bx, y + 6, 120, 26, "Новая папка")
+        new_folder(u, f)
+        if f.sel >= 0
+            start_rename(u, f)
+        return
+    bx -= 160
+    if can
+        if ui.button(u, bx, y + 6, 150, 26, "Переименовать")
+            start_rename(u, f)
+    else
+        ui.button_off(u, bx, y + 6, 150, 26, "Переименовать")
+    bx -= 110
+    now = ui.check(u, bx, y + 10, "Скрытые", f.hidden)
+    if now != f.hidden
+        f.hidden = now
+        load(f)
+        return
+    ui.label(u, x + 14, y + 11, ui.fit(s, bx - x - 30), c)
+
+func ask_delete(u: Ui, f: Fm)
+    it = f.items[f.sel]
+    f.doomed = it.name
+    if trash_dir(f) == ""
+        ui.ask(u, "Удалить насовсем?", it.name + " — вернуть будет нельзя", "Удалить", "Отмена")
+    else
+        ui.ask(u, "В корзину?", it.name, "В корзину", "Отмена")
+
+// список файлов с шапкой и полосой прокрутки
+func list_view(u: Ui, f: Fm, x: int, y: int, w: int, h: int)
+    rh = 28
+    size_w = 100
+    kind_w = 110
+    lw = w - 14
+    // шапка: щёлкни «Имя» или «Размер» — так и отсортируется
+    draw_rect(x, y, w, 28, u.bg)
+    draw_rect(x, y + 27, w, 1, u.line)
+    name_c = u.dim
+    size_c = u.dim
+    if f.by_size
+        size_c = u.accent
+    else
+        name_c = u.accent
+    ui.label(u, x + 44, y + 6, "Имя", name_c)
+    ui.label(u, x + lw - size_w - kind_w, y + 6, "Размер", size_c)
+    ui.label(u, x + lw - kind_w + 10, y + 6, "Вид", u.dim)
+    if ui.clicked(u, x, y, lw - size_w - kind_w - 10, 28) and f.by_size
+        f.by_size = false
+        load(f)
+        return
+    if ui.clicked(u, x + lw - size_w - kind_w - 10, y, size_w, 28) and not f.by_size
+        f.by_size = true
+        load(f)
+        return
+    ly = y + 28
+    lh = h - 28
+    shown = lh / rh
+    n = len(f.items)
+    // после стрелок выбранная строка должна быть видна; колёсико листает свободно
+    if f.sel >= 0 and f.follow
+        if f.sel < f.top
+            f.top = f.sel
+        if f.sel >= f.top + shown
+            f.top = f.sel - shown + 1
+    f.follow = false
+    f.top = ui.wheel_scroll(u, x, ly, w, lh, n, shown, f.top)
+    f.top = max(0, min(f.top, n - shown))
+    if n == 0
+        if f.find != ""
+            ui.label(u, x + 44, ly + 20, "ничего не нашлось", u.dim)
+        else
+            ui.label(u, x + 44, ly + 20, "пусто", u.dim)
+    count k from 0 to shown - 1
+        i = f.top + k
+        if i >= n
+            stop
+        it = f.items[i]
+        ry = ly + k * rh
+        r = ui.row(u, f.dir + "/" + it.name, x, ry, lw, rh, "", i == f.sel)
+        icon(u, it, x + 14, ry + 6, 1)
+        name_room = lw - size_w - kind_w - 54
+        if f.renaming and i == f.sel
+            f.new_name = ui.field(u, "rename", x + 38, ry + 1, name_room + 10, rh - 2, f.new_name, "")
+            if u.entered
+                finish_rename(f)
+                u.focus = ""
+                return
+            if u.focus != "rename"
+                f.renaming = false
+        else
+            draw_text(x + 44, ry + 6, ui.fit(it.name, name_room), 1, u.ink)
+        if not it.folder
+            draw_text(x + lw - size_w - kind_w, ry + 6, human(it.size), 1, u.dim)
+        draw_text(x + lw - kind_w + 10, ry + 6, ui.fit(it.kind, kind_w - 14), 1, kind_color(u, it.kind))
+        if r == 1 and not (f.renaming and i == f.sel)
+            f.sel = i
+        else if r == 2 and not f.renaming
+            f.sel = i
+            open_item(f, it)
+            return
+    f.top = ui.scrollbar(u, "list", x + w - 12, ly, 12, lh, n, shown, f.top)
+
+func keys(u: Ui, f: Fm)
+    // боковые кнопки мыши — как в браузере
+    if u.back_press
+        go_back(f)
+    if u.fwd_press
+        go_ahead(f)
+    if ui.typing(u)
+        return
+    // начали печатать мимо полей — это поиск
+    if u.typed != "" and not u.ask_open and window_w() >= 700
+        f.find += u.typed
+        ui.focus_on(u, "find")
+        u.typed = ""
+        load(f)
+        return
+    n = len(f.items)
+    if ui.key_repeat(u, "down") and n > 0
+        f.sel = min(n - 1, f.sel + 1)
+        f.follow = true
+    if ui.key_repeat(u, "up") and n > 0
+        f.sel = max(0, f.sel - 1)
+        f.follow = true
+    if ui.key_pressed(u, "enter") and f.sel >= 0
+        open_item(f, f.items[f.sel])
+    if ui.key_pressed(u, "backspace")
+        go(f, parent(f.dir))
+    if ui.key_pressed(u, "left")
+        go_back(f)
+    if ui.key_pressed(u, "right")
+        go_ahead(f)
+
+func main()
+    f = Fm(sel: -1, pv_img: -1)
+    f.home = env("HOME")
+    if f.home == ""
+        // Windows: C:\Users\имя → C:/Users/имя (косая черта вперёд там тоже работает)
+        f.home = replace(env("USERPROFILE"), "\\", "/")
+    f.dir = f.home
+    a = args()
+    if len(a) > 0
+        f.dir = a[0]
+        if starts_with(f.dir, "~")
+            f.dir = f.home + cut(f.dir, 1, len(f.dir) - 1)
+        if not starts_with(f.dir, "/")
+            f.dir = join_path(env("PWD"), f.dir)
+    if f.dir == ""
+        f.dir = "/"
+    repeat while len(f.dir) > 1 and ends_with(f.dir, "/")
+        f.dir = cut(f.dir, 0, len(f.dir) - 2)
+    load(f)
+    try window_open(1000, 620, "Файлы")
+    u = ui.start()
+    repeat while window_alive()
+        ui.frame(u)
+        W = window_w()
+        H = window_h()
+        clear_window(u.bg)
+        // ответ на вопрос «удалить?»
+        if ui.answer(u) == 1 and f.doomed != ""
+            to_trash(f, f.doomed)
+        if not u.ask_open
+            f.doomed = ""
+        keys(u, f)
+        // верхняя полоса: назад, вперёд, выше, путь
+        draw_rect(0, 0, W, 48, u.panel)
+        draw_rect(0, 47, W, 1, u.line)
+        if len(f.back) > 0
+            if ui.button(u, 10, 9, 32, 30, "<")
+                go_back(f)
+        else
+            ui.button_off(u, 10, 9, 32, 30, "<")
+        if len(f.ahead) > 0
+            if ui.button(u, 46, 9, 32, 30, ">")
+                go_ahead(f)
+        else
+            ui.button_off(u, 46, 9, 32, 30, ">")
+        if f.dir != "/"
+            if ui.button(u, 82, 9, 32, 30, "^")
+                go(f, parent(f.dir))
+        else
+            ui.button_off(u, 82, 9, 32, 30, "^")
+        sw = 0
+        if W >= 700
+            sw = 220
+            was = f.find
+            f.find = ui.field(u, "find", W - sw - 10, 9, sw, 30, f.find, "Поиск в этой папке")
+            if f.find != was
+                load(f)
+            if u.entered
+                u.focus = ""
+                if len(f.items) > 0
+                    f.sel = 0
+                    f.follow = true
+        crumbs(u, f, 128, 9, W - 138 - sw - 10)
+        // слева места, справа просмотр (если окно широкое), в середине список
+        side = 180
+        pw = 0
+        if W >= 860
+            pw = 280
+        places(u, f, 0, 48, side, H - 48 - 38)
+        preview(f)
+        list_view(u, f, side, 48, W - side - pw, H - 48 - 38)
+        if pw > 0
+            preview(f)
+            draw_preview(u, f, W - pw, 48, pw, H - 48 - 38)
+        status(u, f, 0, H - 38, W, 38)
+        ui.end_frame(u)

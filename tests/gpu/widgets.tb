@@ -1,0 +1,28 @@
+// библиотека lib/ui.tb: кнопки, галочка, список, полоса прокрутки, поле ввода, окно-вопрос
+use ui
+
+func main()
+    try window_open(640, 420, "GPU: ui")
+    u = ui.start()
+    sel = 2
+    pos = 5
+    on = true
+    name = "Привет, мир"
+    frames = 0
+    repeat while window_alive() and frames < 8
+        ui.frame(u)
+        clear_window(u.bg)
+        b1 = ui.button(u, 20, 20, 140, 30, "Кнопка")
+        b2 = ui.button_main(u, 180, 20, 140, 30, "Главная")
+        ui.button_off(u, 340, 20, 140, 30, "Нельзя")
+        on = ui.check(u, 20, 70, "Галочка", on)
+        name = ui.field(u, "name", 200, 66, 260, 26, name, "имя")
+        count i from 0 to 7
+            r = ui.row(u, "r" + i, 20, 110 + i * 28, 400, 28, "Строка номер " + i, i == sel)
+        pos = ui.scrollbar(u, "sb", 420, 110, 12, 224, 40, 8, pos)
+        ui.panel(u, 450, 110, 170, 224)
+        ui.label_center(450, 110, 170, 30, "очень длинный заголовок панели", u.ink)
+        if frames == 3
+            ui.ask(u, "Удалить?", "Файл уйдёт в корзину", "Да", "Нет")
+        ui.end_frame(u)
+        frames += 1

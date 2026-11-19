@@ -54,7 +54,25 @@ func load_module(c: Comp, program: Node, path: text, line_of_use: int, used_from
     each u in part.kids
         if u.kind == "use"
             next_path = folder_of(path) + u.name + ".tb"
+            if not file_exists(next_path)
+                next_path = lib_path(u.name, next_path)
             load_module(c, program, next_path, u.line, path, loaded)
+
+// общая библиотека: нет модуля рядом — ищем в $TB_LIB, потом в ~/.tachbit/lib (туда кладёт tools/install.sh)
+func lib_path(name: text, near: text)
+    dirs = list text
+    if env("TB_LIB") != ""
+        dirs.add(env("TB_LIB"))
+    home = env("HOME")
+    if home == ""
+        home = env("USERPROFILE")
+    if home != ""
+        dirs.add(home + "/.tachbit/lib")
+    each d in dirs
+        p = d + "/" + name + ".tb"
+        if file_exists(p)
+            return p
+    return near
 
 func load_program(c: Comp, path: text)
     program = new_node("program", 1)

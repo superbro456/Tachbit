@@ -11,6 +11,7 @@ if [ "$(uname)" != Darwin ] && [ -z "$DISPLAY" ]; then
     export DISPLAY=:93
     sleep 1
 fi
+export TB_LIB="$PWD/lib"   # use ui: библиотека из этой папки, даже если install.sh ещё не запускали
 ok=0; bad=0
 for f in tests/gpu/*.tb; do
     exe=${f%.tb}

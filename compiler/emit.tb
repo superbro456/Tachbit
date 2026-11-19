@@ -177,8 +177,8 @@ func emit_builtin(c: Comp, n: Node)
     if name == "asm"
         put(c, "__asm__ volatile(" + n.kids[0].kids[0].value + " ::: \"memory\")")
         return
-    k_names = ["page_new", "uptime_ms", "interrupts_on", "interrupts_off", "yield", "read_key", "window_alive", "mouse_x", "mouse_y", "mouse_down", "time_ms", "date_now", "unix_time", "frame_ms", "fps", "window_w", "window_h", "mesh_new"]
-    k_c = ["tb_page_new", "tb_uptime_ms", "tb_irq_on", "tb_irq_off", "tb_yield", "tb_read_key", "tb_window_alive", "tb_mouse_x", "tb_mouse_y", "tb_mouse_down", "tb_time_ms", "tb_date_now", "tb_unix_time", "tb_frame_ms", "tb_fps", "tb_window_w", "tb_window_h", "tb_mesh_new"]
+    k_names = ["page_new", "uptime_ms", "interrupts_on", "interrupts_off", "yield", "read_key", "window_alive", "mouse_x", "mouse_y", "mouse_down", "mouse_wheel", "typed_text", "mouse_back", "mouse_forward", "time_ms", "date_now", "unix_time", "frame_ms", "fps", "window_w", "window_h", "mesh_new"]
+    k_c = ["tb_page_new", "tb_uptime_ms", "tb_irq_on", "tb_irq_off", "tb_yield", "tb_read_key", "tb_window_alive", "tb_mouse_x", "tb_mouse_y", "tb_mouse_down", "tb_mouse_wheel", "tb_typed_text", "tb_mouse_back", "tb_mouse_forward", "tb_time_ms", "tb_date_now", "tb_unix_time", "tb_frame_ms", "tb_fps", "tb_window_w", "tb_window_h", "tb_mesh_new"]
     count j from 0 to len(k_names) - 1
         if k_names[j] == name
             put(c, k_c[j] + "()")
@@ -1809,6 +1809,9 @@ func fast_body_ok(c: Comp, n: Node, var_name: text, names: list text)
         if n.ref.kind != "func" and n.ref.kind != "obj"
             return false
         each arg in n.kids
+            // у obj(...) поля без значения — пустые аргументы
+            if len(arg.kids) == 0
+                skip
             if not is_plain_ty(c, arg.kids[0].ty)
                 return false
     if k == "assign" and (n.name == var_name or has_text(names, n.name))

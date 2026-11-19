@@ -1905,15 +1905,32 @@ TB_COLD TB_API void tb_die(const char *msg) {
 }
 
 // ---------- текст ----------
+// большие и маленькие буквы: латиница и русские (русская буква в UTF-8 — 2 байта, длина та же)
 TB_API const char *tb_upper(const char *s) {
-    size_t n = strlen(s); char *r = tb_tmem(n + 1);
-    for (size_t i = 0; i <= n; i++) r[i] = (s[i] >= 'a' && s[i] <= 'z') ? s[i] - 32 : s[i];
-    return r;
+    size_t n = strlen(s); unsigned char *r = (unsigned char *)tb_tmem(n + 1);
+    memcpy(r, s, n + 1);
+    for (size_t i = 0; i < n; i++) {
+        unsigned char a = r[i], b = r[i + 1];
+        if (a >= 'a' && a <= 'z') r[i] = a - 32;
+        else if (a == 0xD0 && b >= 0xB0 && b <= 0xBF) { r[i + 1] = b - 0x20; i++; }              // а..п → А..П
+        else if (a == 0xD1 && b >= 0x80 && b <= 0x8F) { r[i] = 0xD0; r[i + 1] = b + 0x20; i++; } // р..я → Р..Я
+        else if (a == 0xD1 && b == 0x91) { r[i] = 0xD0; r[i + 1] = 0x81; i++; }                  // ё → Ё
+        else if (a >= 0xC0 && b) i++;
+    }
+    return (const char *)r;
 }
 TB_API const char *tb_lower(const char *s) {
-    size_t n = strlen(s); char *r = tb_tmem(n + 1);
-    for (size_t i = 0; i <= n; i++) r[i] = (s[i] >= 'A' && s[i] <= 'Z') ? s[i] + 32 : s[i];
-    return r;
+    size_t n = strlen(s); unsigned char *r = (unsigned char *)tb_tmem(n + 1);
+    memcpy(r, s, n + 1);
+    for (size_t i = 0; i < n; i++) {
+        unsigned char a = r[i], b = r[i + 1];
+        if (a >= 'A' && a <= 'Z') r[i] = a + 32;
+        else if (a == 0xD0 && b >= 0x90 && b <= 0x9F) { r[i + 1] = b + 0x20; i++; }              // А..П → а..п
+        else if (a == 0xD0 && b >= 0xA0 && b <= 0xAF) { r[i] = 0xD1; r[i + 1] = b - 0x20; i++; } // Р..Я → р..я
+        else if (a == 0xD0 && b == 0x81) { r[i] = 0xD1; r[i + 1] = 0x91; i++; }                  // Ё → ё
+        else if (a >= 0xC0 && b) i++;
+    }
+    return (const char *)r;
 }
 TB_API int tb_space(char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r'; }
 TB_API const char *tb_trim(const char *s) {
@@ -3022,7 +3039,46 @@ TB_API const unsigned char tb_font[161][16] = {
 };
 TB_API uint32_t *tb_px = 0;
 TB_API int tb_gw = 0, tb_gh = 0, tb_gclosed = 0, tb_mx = 0, tb_my = 0, tb_mdown = 0;
+// короткий щелчок (касание тачпада): нажали и отпустили между двумя кадрами — mouse_down() всё равно разок скажет «да»
+TB_API int tb_mtap = 0;
+// колёсико: шагов с прошлого mouse_wheel() (+ вперёд, от себя; − назад); у тачпада шаги дробные — копим
+TB_API int tb_wheel = 0;
+// боковые кнопки мыши: [0] назад, [1] вперёд; tap — нажали и отпустили между кадрами
+TB_API int tb_mside[2], tb_mside_tap[2];
+TB_API void tb_side(int b, int down) { tb_mside[b] = down; if (down) tb_mside_tap[b] = 1; }
+TB_API double tb_wheel_f = 0;
+TB_API void tb_wheel_add(double d) {
+    tb_wheel_f += d;
+    int n = (int)tb_wheel_f;
+    tb_wheel += n;
+    tb_wheel_f -= n;
+}
+// буквы, набранные с прошлого typed_text(), в UTF-8 (стрелки, Enter и прочие не буквы не попадают)
+TB_API char tb_typed[512];
+TB_API int tb_ntyped = 0;
+TB_API void tb_type_cp(unsigned u) {
+    if (u < 32 || u == 127 || (u >= 0xF700 && u <= 0xF8FF) || u > 0x10FFFF) return;
+    if (tb_ntyped + 4 >= (int)sizeof tb_typed) return;
+    char *o = tb_typed + tb_ntyped;
+    if (u < 0x80) { o[0] = (char)u; tb_ntyped += 1; }
+    else if (u < 0x800) { o[0] = (char)(0xC0 | (u >> 6)); o[1] = (char)(0x80 | (u & 63)); tb_ntyped += 2; }
+    else if (u < 0x10000) { o[0] = (char)(0xE0 | (u >> 12)); o[1] = (char)(0x80 | ((u >> 6) & 63)); o[2] = (char)(0x80 | (u & 63)); tb_ntyped += 3; }
+    else { o[0] = (char)(0xF0 | (u >> 18)); o[1] = (char)(0x80 | ((u >> 12) & 63)); o[2] = (char)(0x80 | ((u >> 6) & 63)); o[3] = (char)(0x80 | (u & 63)); tb_ntyped += 4; }
+}
+TB_API void tb_type_utf8(const char *s) {
+    const unsigned char *p = (const unsigned char *)s;
+    while (p && *p) {
+        unsigned u = *p++;
+        if (u >= 0x80) {
+            int more = u >= 0xF0 ? 3 : u >= 0xE0 ? 2 : u >= 0xC0 ? 1 : 0;
+            u &= 0x3F >> more;
+            while (more-- > 0 && (*p & 0xC0) == 0x80) u = (u << 6) | (*p++ & 0x3F);
+        }
+        tb_type_cp(u);
+    }
+}
 TB_API unsigned char tb_keys[256];
+TB_API unsigned char tb_ktap[256];   // клавишу нажали и отпустили между кадрами: key_down() разок скажет «да»
 TB_API long long tb_last_frame = 0;
 // клавиши: буквы и цифры — свой код ASCII (A..Z, 0..9), остальные:
 enum { TB_K_ENTER = 10, TB_K_ESC = 27, TB_K_SPACE = 32, TB_K_BACK = 8, TB_K_TAB = 9,
@@ -5385,7 +5441,7 @@ TB_API void tb_gfx_events(void) {
             sel_getUid("nextEventMatchingMask:untilDate:inMode:dequeue:"), ~0ULL, 0, mode, YES);
         if (!ev) break;
         unsigned long t = TB_MSG(unsigned long, ev, "type");
-        if (t == 1) tb_mdown = 1;
+        if (t == 1) tb_mdown = tb_mtap = 1;
         else if (t == 2) tb_mdown = 0;
         if (t == 1 || t == 2 || t == 5 || t == 6) {
             CGPoint p = TB_MSG(CGPoint, ev, "locationInWindow");
@@ -5393,8 +5449,17 @@ TB_API void tb_gfx_events(void) {
         }
         if (t == 10 || t == 11) {
             unsigned short k = TB_MSG(unsigned short, ev, "keyCode");
-            if (k < 128 && tb_mac_keys[k]) tb_keys[tb_mac_keys[k]] = t == 10;
+            if (k < 128 && tb_mac_keys[k]) { tb_keys[tb_mac_keys[k]] = t == 10; if (t == 10) tb_ktap[tb_mac_keys[k]] = 1; }
+            if (t == 10 && !(TB_MSG(unsigned long, ev, "modifierFlags") & ((1UL << 20) | (1UL << 18)))) {   // без Cmd и Ctrl
+                id chars = TB_MSG(id, ev, "characters");
+                if (chars) tb_type_utf8(TB_MSG(const char *, chars, "UTF8String"));
+            }
             continue;   // клавиши не отдаём окну: иначе Mac пищит
+        }
+        if (t == 22) tb_wheel_add(TB_MSG(double, ev, "deltaY"));   // колёсико и два пальца на тачпаде
+        if (t == 25 || t == 26) {   // другие кнопки мыши: 3 — назад, 4 — вперёд
+            long n = TB_MSG(long, ev, "buttonNumber");
+            if (n == 3 || n == 4) tb_side((int)n - 3, t == 25);
         }
         if (t == 12) {  // Shift
             unsigned long m = TB_MSG(unsigned long, ev, "modifierFlags");
@@ -5437,12 +5502,22 @@ TB_API LRESULT CALLBACK tb_win_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_CLOSE: tb_gclosed = 1; return 0;   // окно закроет сама программа: window_alive() вернёт false
     case WM_KEYDOWN: case WM_SYSKEYDOWN: case WM_KEYUP: case WM_SYSKEYUP: {
         int k = tb_win_key(wp);
-        if (k) tb_keys[k] = msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN;
+        if (k) { tb_keys[k] = msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN; if (tb_keys[k]) tb_ktap[k] = 1; }
         if (wp != VK_F4) return 0;   // Alt+F4 пусть закрывает окно
         break;
     }
     case WM_MOUSEMOVE: tb_mx = (short)LOWORD(lp); tb_my = (short)HIWORD(lp); return 0;
-    case WM_LBUTTONDOWN: tb_mdown = 1; tb_mx = (short)LOWORD(lp); tb_my = (short)HIWORD(lp); SetCapture(h); return 0;
+    case WM_MOUSEWHEEL: tb_wheel_add((short)HIWORD(wp) / 120.0); return 0;
+    case WM_XBUTTONDOWN: case WM_XBUTTONUP: tb_side(HIWORD(wp) == 2, msg == WM_XBUTTONDOWN); return TRUE;
+    case WM_CHAR: {   // буква из TranslateMessage, в UTF-16: русские тоже, пары для смайликов
+        static unsigned hi = 0;
+        unsigned u = (unsigned)wp;
+        if (u >= 0xD800 && u < 0xDC00) { hi = u; return 0; }
+        if (u >= 0xDC00 && u < 0xE000) { if (hi) tb_type_cp(0x10000 + ((hi - 0xD800) << 10) + (u - 0xDC00)); hi = 0; return 0; }
+        tb_type_cp(u);
+        return 0;
+    }
+    case WM_LBUTTONDOWN: tb_mdown = tb_mtap = 1; tb_mx = (short)LOWORD(lp); tb_my = (short)HIWORD(lp); SetCapture(h); return 0;
     case WM_LBUTTONUP: tb_mdown = 0; tb_mx = (short)LOWORD(lp); tb_my = (short)HIWORD(lp); ReleaseCapture(); return 0;
     case WM_KILLFOCUS: memset(tb_keys, 0, sizeof tb_keys); return 0;
     case WM_SIZE: if (wp != SIZE_MINIMIZED && LOWORD(lp) && HIWORD(lp)) { tb_new_w = LOWORD(lp); tb_new_h = HIWORD(lp); } return 0;
@@ -5549,6 +5624,16 @@ TB_API int tb_gfx_open(const char *title) {
     if (!tb_gpu_on) tb_gpu_say("процессор");
     return 1;
 }
+// знак клавиши → буква Unicode (русская раскладка в X11 — свои старые номера 0x6c0..0x6ff)
+TB_API unsigned tb_x_uni(KeySym s) {
+    static const unsigned short cyr[64] = { 0x44e, 0x430, 0x431, 0x446, 0x434, 0x435, 0x444, 0x433, 0x445, 0x438, 0x439, 0x43a, 0x43b, 0x43c, 0x43d, 0x43e, 0x43f, 0x44f, 0x440, 0x441, 0x442, 0x443, 0x436, 0x432, 0x44c, 0x44b, 0x437, 0x448, 0x44d, 0x449, 0x447, 0x44a, 0x42e, 0x410, 0x411, 0x426, 0x414, 0x415, 0x424, 0x413, 0x425, 0x418, 0x419, 0x41a, 0x41b, 0x41c, 0x41d, 0x41e, 0x41f, 0x42f, 0x420, 0x421, 0x422, 0x423, 0x416, 0x412, 0x42c, 0x42b, 0x417, 0x428, 0x42d, 0x429, 0x427, 0x42a };
+    if ((s >= 0x20 && s <= 0x7e) || (s >= 0xa0 && s <= 0xff)) return (unsigned)s;
+    if ((s & 0xff000000) == 0x01000000) return (unsigned)(s & 0xffffff);
+    if (s >= 0x6c0 && s <= 0x6ff) return cyr[s - 0x6c0];
+    if (s == 0x6a3) return 0x451;
+    if (s == 0x6b3) return 0x401;
+    return 0;
+}
 TB_API int tb_x_key(KeySym s) {
     if (s >= XK_a && s <= XK_z) return 'A' + (int)(s - XK_a);
     if (s >= XK_A && s <= XK_Z) return 'A' + (int)(s - XK_A);
@@ -5569,9 +5654,17 @@ TB_API void tb_gfx_events(void) {
         if (e.type == ClientMessage && (Atom)e.xclient.data.l[0] == tb_wm_del) tb_gclosed = 1;
         else if (e.type == KeyPress || e.type == KeyRelease) {
             int k = tb_x_key(XLookupKeysym(&e.xkey, 0));
-            if (k) tb_keys[k] = e.type == KeyPress;
+            if (k) { tb_keys[k] = e.type == KeyPress; if (tb_keys[k]) tb_ktap[k] = 1; }
+            if (e.type == KeyPress) {
+                char buf[16]; KeySym ks = 0;
+                XLookupString(&e.xkey, buf, sizeof buf, &ks, 0);
+                if (!(e.xkey.state & ControlMask)) tb_type_cp(tb_x_uni(ks));
+            }
         } else if (e.type == ButtonPress || e.type == ButtonRelease) {
-            if (e.xbutton.button == 1) tb_mdown = e.type == ButtonPress;
+            if (e.xbutton.button == 1) { tb_mdown = e.type == ButtonPress; if (tb_mdown) tb_mtap = 1; }
+            if (e.xbutton.button == 8 || e.xbutton.button == 9) tb_side(e.xbutton.button - 8, e.type == ButtonPress);
+            if (e.type == ButtonPress && e.xbutton.button == 4) tb_wheel_add(1);
+            if (e.type == ButtonPress && e.xbutton.button == 5) tb_wheel_add(-1);
             tb_mx = e.xbutton.x; tb_my = e.xbutton.y;
         } else if (e.type == MotionNotify) { tb_mx = e.xmotion.x; tb_my = e.xmotion.y; }
         else if (e.type == ConfigureNotify && (e.xconfigure.width != tb_gw || e.xconfigure.height != tb_gh)) {
@@ -6291,21 +6384,32 @@ TB_API void tb_draw_mesh(long long id, double x, double y, double z, double turn
         else if (cs == 2) tb_draw_mesh_d(m, x, y, z, turn, t0, t0 + tn);
     }
 }
+static int tb_key_at(int k) { int d = tb_keys[k] || tb_ktap[k]; tb_ktap[k] = 0; return d; }
 TB_API int tb_key_down(const char *name) {
     static const struct { const char *n; int k; } names[] = {
         {"left", TB_K_LEFT}, {"right", TB_K_RIGHT}, {"up", TB_K_UP}, {"down", TB_K_DOWN}, {"space", TB_K_SPACE},
         {"enter", TB_K_ENTER}, {"escape", TB_K_ESC}, {"backspace", TB_K_BACK}, {"tab", TB_K_TAB}, {"shift", TB_K_SHIFT} };
-    for (unsigned i = 0; i < sizeof names / sizeof names[0]; i++) if (strcmp(name, names[i].n) == 0) return tb_keys[names[i].k];
+    for (unsigned i = 0; i < sizeof names / sizeof names[0]; i++) if (strcmp(name, names[i].n) == 0) return tb_key_at(names[i].k);
     if (name[0] && !name[1]) {
         int ch = (unsigned char)name[0];
         if (ch >= 'a' && ch <= 'z') ch -= 32;
-        return tb_keys[ch];
+        return tb_key_at(ch);
     }
     return 0;
 }
 TB_API long long tb_mouse_x(void) { return tb_mx; }
 TB_API long long tb_mouse_y(void) { return tb_my; }
-TB_API int tb_mouse_down(void) { return tb_mdown; }
+TB_API int tb_mouse_down(void) { int d = tb_mdown || tb_mtap; tb_mtap = 0; return d; }
+TB_API long long tb_mouse_wheel(void) { int w = tb_wheel; tb_wheel = 0; return w; }
+TB_API int tb_mouse_back(void) { int d = tb_mside[0] || tb_mside_tap[0]; tb_mside_tap[0] = 0; return d; }
+TB_API int tb_mouse_forward(void) { int d = tb_mside[1] || tb_mside_tap[1]; tb_mside_tap[1] = 0; return d; }
+TB_API const char *tb_typed_text(void) {
+    char *s = tb_tmem((size_t)tb_ntyped + 1);
+    memcpy(s, tb_typed, (size_t)tb_ntyped);
+    s[tb_ntyped] = 0;
+    tb_ntyped = 0;
+    return s;
+}
 #endif
 // ---------- для файла .ll (TB_LL): библиотека видна снаружи через tb_x_* ----------
 // Сама библиотека — static: так её лучше встраивать. Эти обёртки — её «дверь» для LLVM.
@@ -6474,6 +6578,10 @@ TB_B(_Bool, key_down, (const char *s, int line), tb_key_down(s))
 TB_B(long long, mouse_x, (int line), tb_mouse_x())
 TB_B(long long, mouse_y, (int line), tb_mouse_y())
 TB_B(_Bool, mouse_down, (int line), tb_mouse_down())
+TB_B(long long, mouse_wheel, (int line), tb_mouse_wheel())
+TB_B(_Bool, mouse_back, (int line), tb_mouse_back())
+TB_B(_Bool, mouse_forward, (int line), tb_mouse_forward())
+TB_B(const char *, typed_text, (int line), tb_typed_text())
 TB_B(double, frame_ms, (int line), tb_frame_ms())
 TB_B(long long, fps, (int line), tb_fps())
 TB_BV(set_fps, (long long n, int line), tb_set_fps(n))
