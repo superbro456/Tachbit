@@ -1,0 +1,34 @@
+// треугольники — первый кирпич 3D. Веер крутится, мышь тянет один угол.
+//   tb run examples/triangles.tb      (Esc — выход)
+func main()
+    try window_open(640, 400, "Tachbit: треугольники")
+    turn = 0.0
+    repeat while window_alive()
+        if key_down("escape")
+            stop
+        w = window_w()
+        h = window_h()
+        cx = w / 2
+        cy = h / 2
+        r = min(w, h) / 2 - 20
+        turn += frame_ms() / 1000
+        clear_window(rgb(16, 18, 28))
+        n = 12
+        count k from 0 to n - 1
+            a = turn + k * 6.2831853 / n
+            b = turn + (k + 1) * 6.2831853 / n
+            draw_triangle(cx, cy, cx + round(r * cos_t(a)), cy + round(r * sin_t(a)), cx + round(r * cos_t(b)), cy + round(r * sin_t(b)), rgb(40 + k * 18, 209 - k * 12, 191))
+        draw_triangle(20, h - 20, 120, h - 20, mouse_x(), mouse_y(), rgb(255, 210, 90))
+        draw_text(10, 10, "кадров в секунду: " + fps(), 1, rgb(244, 243, 239))
+
+// синус и косинус: ряд Тейлора
+func sin_t(x: dec)
+    repeat while x > 3.14159265
+        x -= 6.2831853
+    repeat while x < -3.14159265
+        x += 6.2831853
+    x2 = x * x
+    return x * (1 - x2 / 6 * (1 - x2 / 20 * (1 - x2 / 42 * (1 - x2 / 72 * (1 - x2 / 110)))))
+
+func cos_t(x: dec)
+    return sin_t(x + 1.57079633)

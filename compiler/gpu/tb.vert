@@ -7,10 +7,18 @@ layout(location = 2) in uvec2 cm;
 layout(push_constant) uniform P { vec2 size; } pc;
 layout(location = 0) flat out ivec2 vo;
 layout(location = 1) flat out uvec2 vcm;
+layout(location = 2) flat out ivec4 vq;
 void main() {
     int v = gl_VertexIndex;
-    vec2 p = vec2((v & 1) != 0 ? q.z : q.x, (v & 2) != 0 ? q.w : q.y);
+    ivec4 b = q;
+    if (cm.y == 1u) {   // треугольник: углы q.xy, q.zw, o — рисуем квадрат вокруг, внутри решает tb.frag
+        b.xy = min(min(q.xy, q.zw), o);
+        b.zw = max(max(q.xy, q.zw), o) + 1;
+        b = clamp(b, ivec4(0), ivec4(ivec2(pc.size), ivec2(pc.size)));
+    }
+    vec2 p = vec2((v & 1) != 0 ? b.z : b.x, (v & 2) != 0 ? b.w : b.y);
     gl_Position = vec4(p / pc.size * 2.0 - 1.0, 0.0, 1.0);
     vo = o;
     vcm = cm;
+    vq = q;
 }
