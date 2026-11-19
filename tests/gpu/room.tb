@@ -1,0 +1,67 @@
+// 3D: камера ходит внутри большой комнаты (закрытая сетка, грани смотрят внутрь, 2 240 треугольников).
+// Комната всегда задевает камеру: дальние куски считает видеокарта, ближние — старый путь с обрезкой,
+// куски за спиной не считаются вовсе. TB_GPU_CHECK=1 (tests/run_gpu.sh) сверяет кадры точка в точку
+func main()
+    try window_open(320, 200, "GPU комната")
+    room = mesh_new()
+    wall(room, -10, 0, -10, 0, 0, 1, 1, 0, 0, 20, 20, rgb(90, 90, 100))    // пол
+    wall(room, -10, 4, -10, 1, 0, 0, 0, 0, 1, 20, 20, rgb(200, 200, 210))  // потолок
+    wall(room, -10, 0, -10, 0, 1, 0, 0, 0, 1, 4, 20, rgb(180, 90, 80))     // стены
+    wall(room, 10, 0, -10, 0, 0, 1, 0, 1, 0, 20, 4, rgb(80, 160, 90))
+    wall(room, -10, 0, -10, 1, 0, 0, 0, 1, 0, 20, 4, rgb(80, 110, 180))
+    wall(room, -10, 0, 10, 0, 1, 0, 1, 0, 0, 4, 20, rgb(200, 180, 70))
+    cube = mesh_new()
+    add_cube(cube, 0.5)
+    frame = 0
+    repeat while window_alive()
+        frame += 1
+        if frame > 40
+            stop
+        clear_window(rgb(16, 18, 28))
+        x = -8 + frame * 0.4
+        a = frame * 0.2
+        y = 1.2
+        if frame > 30
+            y = 3.9   // почти у потолка
+        camera(x, y, 0, x + cos_t(a), y - 0.2, sin_t(a))
+        draw_mesh(room, 0, 0, 0, 0)
+        draw_mesh(cube, 0, 0.5, 0, frame * 5)
+        draw_mesh(cube, x + 0.6, y, 0, 0)   // куб у самой камеры: обрезка
+    print("кадров:", frame)
+
+// стена из клеток nu × nv: от (ox, oy, oz) по шагам u и v; грани смотрят туда, куда u × v
+func wall(m: int, ox: int, oy: int, oz: int, ux: int, uy: int, uz: int, vx: int, vy: int, vz: int, nu: int, nv: int, c: int)
+    count i from 0 to nu - 1
+        count j from 0 to nv - 1
+            k = c
+            if (i + j) % 2 == 0
+                k = c + rgb(20, 20, 20)
+            ax = ox + ux * i + vx * j
+            ay = oy + uy * i + vy * j
+            az = oz + uz * i + vz * j
+            mesh_add(m, ax, ay, az, ax + ux, ay + uy, az + uz, ax + ux + vx, ay + uy + vy, az + uz + vz, k)
+            mesh_add(m, ax, ay, az, ax + ux + vx, ay + uy + vy, az + uz + vz, ax + vx, ay + vy, az + vz, k)
+
+// грани по кругу против часовой стрелки, если смотреть снаружи
+func add_cube(m: int, h: dec)
+    face(m, -h, -h, -h, -h, h, -h, h, h, -h, h, -h, -h, rgb(230, 80, 80))
+    face(m, -h, -h, h, h, -h, h, h, h, h, -h, h, h, rgb(80, 200, 120))
+    face(m, -h, -h, -h, -h, -h, h, -h, h, h, -h, h, -h, rgb(80, 130, 230))
+    face(m, h, -h, -h, h, h, -h, h, h, h, h, -h, h, rgb(240, 200, 70))
+    face(m, -h, h, -h, -h, h, h, h, h, h, h, h, -h, rgb(200, 90, 200))
+    face(m, -h, -h, -h, h, -h, -h, h, -h, h, -h, -h, h, rgb(70, 200, 210))
+
+func face(m: int, x1: dec, y1: dec, z1: dec, x2: dec, y2: dec, z2: dec, x3: dec, y3: dec, z3: dec, x4: dec, y4: dec, z4: dec, c: int)
+    mesh_add(m, x1, y1, z1, x2, y2, z2, x3, y3, z3, c)
+    mesh_add(m, x1, y1, z1, x3, y3, z3, x4, y4, z4, c)
+
+func sin_t(x: dec)
+    repeat while x > 3.14159265
+        x -= 6.2831853
+    repeat while x < -3.14159265
+        x += 6.2831853
+    x2 = x * x
+    return x * (1 - x2 / 6 * (1 - x2 / 20 * (1 - x2 / 42 * (1 - x2 / 72 * (1 - x2 / 110)))))
+
+func cos_t(x: dec)
+    return sin_t(x + 1.57079633)

@@ -5866,7 +5866,8 @@ TB_API void tb_draw_text(long long x, long long y, const char *s, long long size
 // cull — какие грани не видны (0 — сетка не закрытая, считать все), cullok — cull уже посчитан;
 // gv, gt — где углы и треугольники сетки в памяти видеокарты; gused — в какой пачке видеокарта её рисует
 typedef struct { double *v; long long nv, capv; uint32_t *t, *c; long long n, cap; long long *hk; long long hcap;
-    int32_t *vi; double bb[6]; int big, cull, cullok; long long gv, gt, gused; } tb_mesh;
+    int32_t *vi; double bb[6]; int big, cull, cullok; long long gv, gt, gused;
+    long long nch, *chr; double *chs, bs[4]; int chok; } tb_mesh;   // куски: chr — (первый треугольник, сколько), chs и bs — шары (центр, радиус)
 TB_API tb_mesh *tb_meshes = 0;
 TB_API long long tb_nmesh = 0, tb_capmesh = 0;
 TB_API double tb_cam[9] = { 0, 0, -5,  1, 0, 0,  0, 1, 0 };   // где камера, вправо, вверх
@@ -5929,6 +5930,7 @@ TB_API void tb_mesh_add(long long id, double x1, double y1, double z1, double x2
     if (tb_gpu_on && m->gused == tb_gbatch) tb_gpu_flush(0);
     tb_mesh_gdirty = 1;
     m->cullok = 0;
+    m->chok = 0;
     if (m->n == m->cap) {
         m->cap = m->cap ? m->cap * 2 : 16;
         m->t = (uint32_t *)realloc(m->t, sizeof(uint32_t) * 3 * m->cap);
@@ -5975,15 +5977,25 @@ typedef struct { double cx, cy, cz, sx, sy, dd; long long rx, ry; int front, nea
 TB_API tb_3v *tb_3vs = 0;
 TB_API long long tb_3vcap = 0;
 // старый путь (дроби): сетка задевает камеру или край, где целые не годятся — обрезка у камеры и рамкой
-static void tb_draw_mesh_d(tb_mesh *m, double x, double y, double z, double turn) {
-    if (m->nv > tb_3vcap) { tb_3vcap = m->nv * 2; tb_3vs = (tb_3v *)realloc(tb_3vs, sizeof(tb_3v) * tb_3vcap); }
+TB_API long long *tb_3vst = 0, tb_3vgen = 0;   // какой угол уже посчитан в этом вызове
+static void tb_draw_mesh_d(tb_mesh *m, double x, double y, double z, double turn, long long t0, long long t1) {
+    if (m->nv > tb_3vcap) {
+        tb_3vcap = m->nv * 2;
+        tb_3vs = (tb_3v *)realloc(tb_3vs, sizeof(tb_3v) * tb_3vcap);
+        tb_3vst = (long long *)realloc(tb_3vst, sizeof(long long) * tb_3vcap);
+        memset(tb_3vst, 0, sizeof(long long) * tb_3vcap);
+    }
+    long long gen = ++tb_3vgen;
     double a = turn * 3.14159265358979323846 / 180, ca = cos(a), sa = sin(a);
     double f = tb_gh / 2.0 / tan(30 * 3.14159265358979323846 / 180), zn = 205.0 / 4096, hw = tb_gw / 2.0, hh = tb_gh / 2.0;
     double gx0 = -2048, gy0 = -2048, gx1 = tb_gw + 2048.0, gy1 = tb_gh + 2048.0;   // та же рамка, что в tb_poly_draw
     if (gx1 > 8192) gx1 = 8192;
     if (gy1 > 8192) gy1 = 8192;
-    // 1) каждый угол: поворот, место в мире, взгляд камеры, экран
-    for (long long k = 0; k < m->nv; k++) {
+    // 1) каждый угол нужных треугольников (один раз): поворот, место в мире, взгляд камеры, экран
+    for (long long t = t0; t < t1; t++) for (int i = 0; i < 3; i++) {
+        long long k = m->t[3 * t + i];
+        if (tb_3vst[k] == gen) continue;
+        tb_3vst[k] = gen;
         const double *p = m->v + 3 * k;
         tb_3v *v = &tb_3vs[k];
         double wx = p[0] * ca + p[2] * sa + x - tb_cam[0], wy = p[1] + y - tb_cam[1], wz = -p[0] * sa + p[2] * ca + z - tb_cam[2];
@@ -6002,7 +6014,7 @@ static void tb_draw_mesh_d(tb_mesh *m, double x, double y, double z, double turn
         }
     }
     // 2) треугольники
-    for (long long t = 0; t < m->n; t++) {
+    for (long long t = t0; t < t1; t++) {
         const uint32_t *ti = m->t + 3 * t;
         tb_3v *v0 = &tb_3vs[ti[0]], *v1 = &tb_3vs[ti[1]], *v2 = &tb_3vs[ti[2]];
         uint32_t pl[3];
@@ -6069,9 +6081,9 @@ TB_INL int tb_m3_tri(const long long *a, const long long *b, const long long *c,
     t[0] = a[0]; t[1] = a[1]; t[2] = b[0]; t[3] = b[1]; t[4] = c[0]; t[5] = c[1];
     return 1;
 }
-// закрытая сетка (каждая сторона треугольника есть и в обратную сторону у соседа): изнутри её не видно,
-// поэтому грани, повёрнутые от камеры, можно не рисовать. Знак объёма говорит, куда смотрят грани.
-// 0 — рисовать все, -1 — пропускать треугольники с площадью < 0 на экране, 1 — с площадью > 0
+// закрытая сетка (каждая сторона треугольника есть и в обратную сторону у соседа): грань, повёрнутая
+// от камеры, всегда закрыта другими гранями — и у куба снаружи, и у комнаты изнутри (грани внутрь).
+// Повёрнута от камеры = на экране по часовой стрелке (площадь < 0). 0 — рисовать все, -1 — пропускать такие
 static int tb_cmp_u64(const void *a, const void *b) {
     uint64_t x = *(const uint64_t *)a, y = *(const uint64_t *)b;
     return x < y ? -1 : x > y;
@@ -6096,7 +6108,7 @@ static int tb_mesh_cull(tb_mesh *m) {
         if ((uint32_t)e[i] == (uint32_t)(e[i] >> 32) || !bsearch(&back, e, (size_t)ne, sizeof(uint64_t), tb_cmp_u64)) closed = 0;
     }
     free(e);
-    if (closed && fabs(vol) > 1e-12) m->cull = vol > 0 ? -1 : 1;
+    if (closed && fabs(vol) > 1e-12) m->cull = -1;
     return m->cull;
 }
 // сетки для видеокарты: у каждой сначала углы (x, y, z, 0), потом треугольники (номера углов, цвет)
@@ -6120,11 +6132,125 @@ TB_API long long tb_mesh_pack(int32_t *dst) {
 TB_API void tb_mesh_gpc(const tb_ginst *g, int slot, tb_gpc *pc) {
     tb_mesh *m = &tb_meshes[g->x0];
     pc->size[0] = (float)tb_gw; pc->size[1] = (float)tb_gh;
-    pc->tbase = (int32_t)m->gt; pc->ntri = (int32_t)m->n; pc->rbase = (slot * TB_GR_CAP + g->x1) * 3;
+    pc->tbase = (int32_t)(m->gt + g->ox); pc->ntri = g->oy; pc->rbase = (slot * TB_GR_CAP + g->x1) * 3;
     pc->f = (int32_t)tb_m3_f(); pc->gw = tb_gw; pc->gh = tb_gh; pc->cull = g->y0;
 }
 TB_API long long *tb_3i = 0;   // углы сетки после камеры в целых: x, y, D
 TB_API long long tb_3icap = 0;
+// шар сетки или куска (центр в сетке, радиус) после камеры: 0 — не видно совсем (за камерой или вне экрана
+// с запасом 2 точки), 1 — целые годятся (весь перед камерой, на экране не дальше ±8100 точек), 2 — старый путь
+static int tb_m3_test(const double *sp, double M[3][3], const double *T, double f, int big) {
+    double cc[3], rad = sp[3];
+    for (int k = 0; k < 3; k++) cc[k] = M[k][0] * sp[0] + M[k][1] * sp[1] + M[k][2] * sp[2] + T[k];
+    if (cc[2] + rad < 205.0 / 4096) return 0;
+    double hw = tb_gw / 2.0 + 2, hh = tb_gh / 2.0 + 2, lx = sqrt(f * f + hw * hw), ly = sqrt(f * f + hh * hh);
+    if ((f * cc[0] - hw * cc[2]) / lx > rad || (-f * cc[0] - hw * cc[2]) / lx > rad) return 0;
+    if ((f * cc[1] - hh * cc[2]) / ly > rad || (-f * cc[1] - hh * cc[2]) / ly > rad) return 0;
+    double zmin = cc[2] - rad;
+    int ok = !big && zmin >= 0.12 && fabs(T[0]) < 400000 && fabs(T[1]) < 400000 && fabs(T[2]) < 400000 &&
+             fabs(cc[0]) + rad < 400000 && fabs(cc[1]) + rad < 400000 && cc[2] + rad < 400000;
+    if (ok) ok = tb_gw / 2.0 + f * (fabs(cc[0]) + rad) / zmin < 8100 && tb_gh / 2.0 + f * (fabs(cc[1]) + rad) / zmin < 8100;
+    return ok ? 1 : 2;
+}
+// один draw_mesh в целых: запись (одна на вызов, в текущем наборе) и куски треугольников
+typedef struct { tb_mesh *m; long long id; int cull; long long ri, rbatch; tb_grec rec; } tb_m3_go;
+TB_API long long *tb_3ist = 0, tb_3igen = 0;   // какой угол уже посчитан в этом вызове (процессор)
+static void tb_m3_draw(tb_m3_go *go, long long t0, long long tn) {
+    tb_mesh *m = go->m;
+    if (tb_gpu_on && tb_gpu_mesh) {   // видеокарта считает сама: только запись и «нарисуй треугольники t0.. из сетки»
+        if (tb_gin == TB_GI_CAP || (go->rbatch != tb_gbatch && tb_grn == TB_GR_CAP)) tb_gpu_flush(0);
+        if (go->rbatch != tb_gbatch) {   // запись этого вызова ещё не в текущем наборе
+            go->ri = tb_grn++;
+            go->rbatch = tb_gbatch;
+            tb_grec_p[tb_gslot * TB_GR_CAP + go->ri] = go->rec;
+        }
+        tb_ginst *g = tb_gin ? &tb_gi[tb_gin - 1] : 0;
+        if (g && g->m == 3u && g->x0 == (int32_t)go->id && g->y0 == go->cull && g->ox == t0 && g->oy == tn &&
+            g->x1 + g->y1 == go->ri && (long long)(g->y1 + 1) * tn < 2000000000) g->y1++;   // та же сетка подряд: одним вызовом
+        else tb_gpu_add(go->id, go->cull, go->ri, 1, t0, tn, 0, 3u);
+        m->gused = tb_gbatch;
+        if (!TB_CPU_DRAW) return;
+    }
+    // процессор: та же целая формула (кадр для сверки, или видеокарта без своего 3D, или без видеокарты)
+    int gpu = tb_gpu_on && !tb_gpu_mesh, cpu = TB_CPU_DRAW;
+    if (m->nv * 3 > tb_3icap) {
+        tb_3icap = m->nv * 6;
+        tb_3i = (long long *)realloc(tb_3i, sizeof(long long) * tb_3icap);
+        tb_3ist = (long long *)realloc(tb_3ist, sizeof(long long) * tb_3icap / 3);
+        memset(tb_3ist, 0, sizeof(long long) * (tb_3icap / 3));
+    }
+    long long fq = tb_m3_f(), gen = ++tb_3igen;
+    for (long long t = t0; t < t0 + tn; t++) {
+        const uint32_t *ti = m->t + 3 * t;
+        for (int i = 0; i < 3; i++)
+            if (tb_3ist[ti[i]] != gen) { tb_3ist[ti[i]] = gen; tb_m3_corner(go->rec.r, m->vi + 4 * ti[i], fq, tb_3i + 3 * ti[i]); }
+        long long q[6];
+        uint32_t pl[3];
+        if (tb_m3_tri(tb_3i + 3 * ti[0], tb_3i + 3 * ti[1], tb_3i + 3 * ti[2], go->cull, q, pl)) tb_tri_draw_x(q, m->c[t], pl, gpu, cpu);
+    }
+}
+// куски сетки: треугольники делятся пополам по самой длинной стороне, пока в куске не больше 256.
+// Треугольники переставляются так, чтобы каждый кусок шёл подряд; у каждого куска свой шар
+static int tb_kd_ax;
+static const float *tb_kd_c;
+static int tb_kd_cmp(const void *a, const void *b) {
+    float x = tb_kd_c[3 * *(const uint32_t *)a + tb_kd_ax], y = tb_kd_c[3 * *(const uint32_t *)b + tb_kd_ax];
+    return x < y ? -1 : x > y;
+}
+static void tb_kd(tb_mesh *m, uint32_t *ix, long long n, const float *cen, long long *at) {
+    if (n <= 256) {
+        long long c = m->nch++;
+        m->chr[2 * c] = *at; m->chr[2 * c + 1] = n; *at += n;
+        return;
+    }
+    float lo[3] = { 1e30f, 1e30f, 1e30f }, hi[3] = { -1e30f, -1e30f, -1e30f };
+    for (long long i = 0; i < n; i++) for (int k = 0; k < 3; k++) {
+        float v = cen[3 * ix[i] + k];
+        if (v < lo[k]) lo[k] = v;
+        if (v > hi[k]) hi[k] = v;
+    }
+    int ax = 0;
+    for (int k = 1; k < 3; k++) if (hi[k] - lo[k] > hi[ax] - lo[ax]) ax = k;
+    tb_kd_ax = ax; tb_kd_c = cen;
+    qsort(ix, (size_t)n, sizeof(uint32_t), tb_kd_cmp);
+    tb_kd(m, ix, n / 2, cen, at);
+    tb_kd(m, ix + n / 2, n - n / 2, cen, at);
+}
+static void tb_sphere(const tb_mesh *m, long long t0, long long tn, double *sp) {
+    double lo[3] = { 1e300, 1e300, 1e300 }, hi[3] = { -1e300, -1e300, -1e300 }, r = 0;
+    for (long long t = t0; t < t0 + tn; t++) for (int i = 0; i < 3; i++) {
+        const double *p = m->v + 3 * m->t[3 * t + i];
+        for (int k = 0; k < 3; k++) { if (p[k] < lo[k]) lo[k] = p[k]; if (p[k] > hi[k]) hi[k] = p[k]; }
+    }
+    for (int k = 0; k < 3; k++) { sp[k] = (lo[k] + hi[k]) / 2; r += (hi[k] - sp[k]) * (hi[k] - sp[k]); }
+    sp[3] = sqrt(r) * (1 + 1e-9) + 1e-3;
+}
+static void tb_mesh_chunks(tb_mesh *m) {
+    if (m->chok) return;
+    m->chok = 1;
+    free(m->chr); free(m->chs);
+    m->chr = (long long *)malloc(sizeof(long long) * 2 * (size_t)(m->n / 64 + 2));
+    m->nch = 0;
+    long long at = 0;
+    if (m->n > 256) {
+        uint32_t *ix = (uint32_t *)malloc(sizeof(uint32_t) * (size_t)m->n);
+        float *cen = (float *)malloc(sizeof(float) * 3 * (size_t)m->n);
+        for (long long t = 0; t < m->n; t++) {
+            ix[t] = (uint32_t)t;
+            for (int k = 0; k < 3; k++)
+                cen[3 * t + k] = (float)((m->v[3 * m->t[3 * t] + k] + m->v[3 * m->t[3 * t + 1] + k] + m->v[3 * m->t[3 * t + 2] + k]) / 3);
+        }
+        tb_kd(m, ix, m->n, cen, &at);
+        uint32_t *nt = (uint32_t *)malloc(sizeof(uint32_t) * 3 * (size_t)m->cap), *nc = (uint32_t *)malloc(sizeof(uint32_t) * (size_t)m->cap);
+        for (long long t = 0; t < m->n; t++) { memcpy(nt + 3 * t, m->t + 3 * ix[t], 12); nc[t] = m->c[ix[t]]; }
+        free(m->t); free(m->c); m->t = nt; m->c = nc;
+        free(ix); free(cen);
+        tb_mesh_gdirty = 1;   // порядок треугольников поменялся: видеокарте залить заново
+    } else if (m->n > 0) { m->chr[0] = 0; m->chr[1] = m->n; m->nch = 1; }
+    m->chs = (double *)malloc(sizeof(double) * 4 * (size_t)(m->nch ? m->nch : 1));
+    for (long long c = 0; c < m->nch; c++) tb_sphere(m, m->chr[2 * c], m->chr[2 * c + 1], m->chs + 4 * c);
+    tb_sphere(m, 0, m->n, m->bs);
+}
 TB_API void tb_draw_mesh(long long id, double x, double y, double z, double turn) {
     if (!tb_px || id < 0 || id >= tb_nmesh) return;
     if (TB_CPU_DRAW && tb_zb_n != (long long)tb_gw * tb_gh) {   // глубина процессора: размер как у окна
@@ -6145,43 +6271,24 @@ TB_API void tb_draw_mesh(long long id, double x, double y, double z, double turn
         M[k][0] = row[0] * ca - row[2] * sa; M[k][1] = row[1]; M[k][2] = row[0] * sa + row[2] * ca;
         T[k] = row[0] * d[0] + row[1] * d[1] + row[2] * d[2];
     }
-    // целые годятся, если вся сетка (шар вокруг коробки) перед камерой и на экране не дальше ±8100 точек
-    double bc[3], rad = 0, cc[3];
-    for (int i = 0; i < 3; i++) { bc[i] = (m->bb[i] + m->bb[3 + i]) / 2; rad += (m->bb[3 + i] - bc[i]) * (m->bb[3 + i] - bc[i]); }
-    rad = sqrt(rad) + 1e-3;
-    for (int k = 0; k < 3; k++) cc[k] = M[k][0] * bc[0] + M[k][1] * bc[1] + M[k][2] * bc[2] + T[k];
-    double f = tb_gh / 2.0 / tan(30 * 3.14159265358979323846 / 180), zmin = cc[2] - rad;
-    int ok = !m->big && zmin >= 0.12 && fabs(T[0]) < 400000 && fabs(T[1]) < 400000 && fabs(T[2]) < 400000 &&
-             fabs(cc[0]) + rad < 400000 && fabs(cc[1]) + rad < 400000 && cc[2] + rad < 400000;
-    if (ok) ok = tb_gw / 2.0 + f * (fabs(cc[0]) + rad) / zmin < 8100 && tb_gh / 2.0 + f * (fabs(cc[1]) + rad) / zmin < 8100;
-    if (!ok) { tb_draw_mesh_d(m, x, y, z, turn); return; }
-    tb_grec rec;
-    for (int k = 0; k < 3; k++) {
-        for (int j = 0; j < 3; j++) rec.r[4 * k + j] = (int32_t)tb_rnd(M[k][j] * 1073741824.0);   // |M| <= 1: в 2^30 влезает
-        rec.r[4 * k + 3] = (int32_t)tb_rnd(T[k] * 4096);
-    }
+    tb_mesh_chunks(m);
     int cull = tb_mesh_cull(m);
-    if (tb_gpu_on && tb_gpu_mesh) {   // видеокарта считает сама: только запись
-        if (tb_grn == TB_GR_CAP || tb_gin == TB_GI_CAP) tb_gpu_flush(0);
-        tb_grec_p[tb_gslot * TB_GR_CAP + tb_grn] = rec;
-        tb_ginst *g = tb_gin ? &tb_gi[tb_gin - 1] : 0;
-        if (g && g->m == 3u && g->x0 == (int32_t)id && g->y0 == cull && g->x1 + g->y1 == tb_grn &&
-            (long long)(g->y1 + 1) * m->n < 2000000000) g->y1++;   // та же сетка подряд: одним вызовом
-        else tb_gpu_add(id, cull, tb_grn, 1, 0, 0, 0, 3u);
-        tb_grn++;
-        m->gused = tb_gbatch;
-        if (!TB_CPU_DRAW) return;
+    double f = tb_gh / 2.0 / tan(30 * 3.14159265358979323846 / 180);
+    int st = tb_m3_test(m->bs, M, T, f, m->big);
+    if (st == 0) return;   // вся сетка за камерой или вне экрана
+    tb_m3_go go = { m, id, cull, -1, -1, 0 };
+    for (int k = 0; k < 3; k++) {
+        for (int j = 0; j < 3; j++) go.rec.r[4 * k + j] = (int32_t)tb_rnd(M[k][j] * 1073741824.0);   // |M| <= 1: в 2^30 влезает
+        go.rec.r[4 * k + 3] = fabs(T[k]) < 400000 ? (int32_t)tb_rnd(T[k] * 4096) : 0;   // дальше — только старый путь
     }
-    // процессор: та же целая формула (кадр для сверки, или видеокарта без своего 3D, или без видеокарты)
-    int gpu = tb_gpu_on && !tb_gpu_mesh, cpu = TB_CPU_DRAW;
-    if (m->nv * 3 > tb_3icap) { tb_3icap = m->nv * 6; tb_3i = (long long *)realloc(tb_3i, sizeof(long long) * tb_3icap); }
-    long long fq = tb_m3_f();
-    for (long long k = 0; k < m->nv; k++) tb_m3_corner(rec.r, m->vi + 4 * k, fq, tb_3i + 3 * k);
-    for (long long t = 0; t < m->n; t++) {
-        const uint32_t *ti = m->t + 3 * t;
-        long long q[6];
-        uint32_t pl[3];
-        if (tb_m3_tri(tb_3i + 3 * ti[0], tb_3i + 3 * ti[1], tb_3i + 3 * ti[2], cull, q, pl)) tb_tri_draw_x(q, m->c[t], pl, gpu, cpu);
+    if (st == 1) { tb_m3_draw(&go, 0, m->n); return; }
+    if (m->nch <= 1) { tb_draw_mesh_d(m, x, y, z, turn, 0, m->n); return; }
+    // сетка большая и задевает камеру или край: по кускам — дальние на видеокарте, ближние старым путём
+    for (long long c = 0; c < m->nch; c++) {
+        long long t0 = m->chr[2 * c], tn = m->chr[2 * c + 1];
+        int cs = tb_m3_test(m->chs + 4 * c, M, T, f, m->big);
+        if (cs == 1) tb_m3_draw(&go, t0, tn);
+        else if (cs == 2) tb_draw_mesh_d(m, x, y, z, turn, t0, t0 + tn);
     }
 }
 TB_API int tb_key_down(const char *name) {
