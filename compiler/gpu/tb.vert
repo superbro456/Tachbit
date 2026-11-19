@@ -8,6 +8,7 @@ layout(push_constant) uniform P { vec2 size; } pc;
 layout(location = 0) flat out ivec2 vo;
 layout(location = 1) flat out uvec2 vcm;
 layout(location = 2) flat out ivec4 vq;
+layout(location = 3) flat out uvec4 vp;   // плоскость глубины сетки на видеокарте (tb3.vert); здесь не нужна
 void main() {
     int v = gl_VertexIndex;
     ivec4 b = q;
@@ -21,4 +22,5 @@ void main() {
     vo = o;
     vcm = cm;
     vq = q;
+    vp = uvec4(0u);
 }

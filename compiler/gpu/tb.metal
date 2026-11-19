@@ -2,7 +2,7 @@
 using namespace metal;
 // то же, что tb.vert и tb.frag (Vulkan), только для Metal на Mac
 struct TbInst { int4 q; int2 o; uint2 cm; };
-struct TbV { float4 pos [[position]]; int2 o [[flat]]; uint2 cm [[flat]]; int4 q [[flat]]; };
+struct TbV { float4 pos [[position]]; int2 o [[flat]]; uint2 cm [[flat]]; int4 q [[flat]]; uint4 p [[flat]]; };   // p — плоскость глубины (tb_vert3)
 vertex TbV tb_vert(uint vid [[vertex_id]], uint iid [[instance_id]],
                    const device TbInst *ins [[buffer(0)]], constant float2 &size [[buffer(1)]]) {
     TbInst t = ins[iid];
@@ -18,6 +18,7 @@ vertex TbV tb_vert(uint vid [[vertex_id]], uint iid [[instance_id]],
     out.o = t.o;
     out.cm = t.cm;
     out.q = t.q;
+    out.p = uint4(0u);
     return out;
 }
 // сторона a→b треугольника: то же правило, что tb_tri_edge в runtime.h
@@ -31,10 +32,10 @@ fragment TbOut tb_frag(TbV v [[stage_in]], constant uint4 *font [[buffer(0)]], c
     int2 p = int2(v.pos.xy);
     uint m = v.cm.y, k = m >> 30;
     float depth = 0.0;
-    if (m != 0u && k == 0u) {   // треугольник: m = 1 — плоский, m = 2 | (место << 2) — из сетки (3D)
+    if (m != 0u && k == 0u) {   // треугольник: m = 1 — плоский, m = 2 | (место << 2) — из сетки (3D), m = 3 — сетка с видеокарты (tb_vert3)
         if (!tb_edge(v.q.xy, v.q.zw, p) || !tb_edge(v.q.zw, v.o, p) || !tb_edge(v.o, v.q.xy, p)) discard_fragment();
-        if ((m & 3u) == 2u) {   // глубина: та же целая формула, что tb_tri3_depth в runtime.h
-            uint4 P = pl[m >> 2];
+        if ((m & 2u) != 0u) {   // глубина: та же целая формула, что tb_tri3_depth в runtime.h
+            uint4 P = m == 3u ? v.p : pl[m >> 2];
             uint kk = P.z + P.x * uint(2 * p.x + 1) + P.y * uint(2 * p.y + 1);
             depth = float(clamp(as_type<int>(kk) >> 6, 0, 16777215)) / 16777216.0;
         }

@@ -38,12 +38,14 @@ func main()
         draw_text(10, 10, "окно " + window_w() + "x" + window_h() + "   кадров в секунду: " + fps() + "   стрелки — камера", 1, rgb(244, 243, 239))
 
 // куб со стороной 2*h: 6 граней по 2 треугольника, у каждой грани свой цвет
+// грани по кругу против часовой стрелки, если смотреть снаружи: сетка закрытая,
+// и задние грани (их всё равно не видно) не считаются
 func add_cube(m: int, h: dec)
-    face(m, -h, -h, -h, h, -h, -h, h, h, -h, -h, h, -h, rgb(230, 80, 80))
+    face(m, -h, -h, -h, -h, h, -h, h, h, -h, h, -h, -h, rgb(230, 80, 80))
     face(m, -h, -h, h, h, -h, h, h, h, h, -h, h, h, rgb(80, 200, 120))
-    face(m, -h, -h, -h, -h, h, -h, -h, h, h, -h, -h, h, rgb(80, 130, 230))
+    face(m, -h, -h, -h, -h, -h, h, -h, h, h, -h, h, -h, rgb(80, 130, 230))
     face(m, h, -h, -h, h, h, -h, h, h, h, h, -h, h, rgb(240, 200, 70))
-    face(m, -h, h, -h, h, h, -h, h, h, h, -h, h, h, rgb(200, 90, 200))
+    face(m, -h, h, -h, -h, h, h, h, h, h, h, h, -h, rgb(200, 90, 200))
     face(m, -h, -h, -h, h, -h, -h, h, -h, h, -h, -h, h, rgb(70, 200, 210))
 
 func face(m: int, x1: dec, y1: dec, z1: dec, x2: dec, y2: dec, z2: dec, x3: dec, y3: dec, z3: dec, x4: dec, y4: dec, z4: dec, c: int)

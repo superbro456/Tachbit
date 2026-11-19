@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Шейдеры видеокарты: compiler/gpu/tb.vert, tb.frag (Vulkan, GLSL) и tb.metal (Mac).
+# Шейдеры видеокарты: compiler/gpu/tb.vert, tb.frag, tb3.vert (Vulkan, GLSL) и tb.metal, tb3.metal (Mac).
 # Поменял шейдер — запусти: python3 tools/gpu_shaders.py  (нужен glslangValidator)
 # Он переводит GLSL в SPIR-V и кладёт всё в compiler/runtime.h между метками @@...@@,
 # потом запусти python3 tools/embed_runtime.py.
@@ -20,9 +20,9 @@ def spirv(name, var):
     lines.append("};")
     return lines
 
-def msl():
-    lines = ["TB_API const char tb_msl[] ="]
-    for l in open(os.path.join(gpu, "tb.metal")).read().splitlines():
+def msl(name="tb.metal", var="tb_msl"):
+    lines = ["TB_API const char %s[] =" % var]
+    for l in open(os.path.join(gpu, name)).read().splitlines():
         lines.append('    "' + l.replace("\\", "\\\\").replace('"', '\\"') + '\\n"')
     lines[-1] += ";"
     return lines
@@ -33,7 +33,7 @@ def put(text, tag, body):
     return text[:i + len(a)] + "\n" + "\n".join(body) + "\n" + text[j:]
 
 text = open(rt).read()
-text = put(text, "SPIRV", spirv("tb.vert", "tb_spv_vert") + spirv("tb.frag", "tb_spv_frag"))
-text = put(text, "MSL", msl())
+text = put(text, "SPIRV", spirv("tb.vert", "tb_spv_vert") + spirv("tb.frag", "tb_spv_frag") + spirv("tb3.vert", "tb_spv_vert3"))
+text = put(text, "MSL", msl() + msl("tb3.metal", "tb_msl3"))
 open(rt, "w").write(text)
 print("шейдеры обновлены в compiler/runtime.h")

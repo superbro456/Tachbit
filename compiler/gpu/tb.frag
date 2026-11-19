@@ -5,6 +5,7 @@
 layout(location = 0) flat in ivec2 vo;
 layout(location = 1) flat in uvec2 vcm;
 layout(location = 2) flat in ivec4 vq;
+layout(location = 3) flat in uvec4 vp;
 layout(set = 0, binding = 0) uniform Font { uvec4 f[161]; } font;
 layout(std430, set = 0, binding = 1) readonly buffer Img { uint px[]; } img;   // все картинки подряд
 layout(std430, set = 0, binding = 2) readonly buffer Pl { uvec4 pl[]; } planes;  // плоскости глубины 3D
@@ -18,10 +19,10 @@ void main() {
     ivec2 p = ivec2(gl_FragCoord.xy);
     uint m = vcm.y, k = m >> 30;
     float depth = 0.0;
-    if (m != 0u && k == 0u) {   // треугольник: m = 1 — плоский, m = 2 | (место << 2) — из сетки (3D)
+    if (m != 0u && k == 0u) {   // треугольник: m = 1 — плоский, m = 2 | (место << 2) — из сетки (3D), m = 3 — сетка с видеокарты (tb3.vert)
         if (!edge(vq.xy, vq.zw, p) || !edge(vq.zw, vo, p) || !edge(vo, vq.xy, p)) discard;
-        if ((m & 3u) == 2u) {   // глубина: та же целая формула, что tb_tri3_depth в runtime.h
-            uvec4 P = planes.pl[m >> 2];
+        if ((m & 2u) != 0u) {   // глубина: та же целая формула, что tb_tri3_depth в runtime.h
+            uvec4 P = m == 3u ? vp : planes.pl[m >> 2];
             uint kk = P.z + P.x * uint(2 * p.x + 1) + P.y * uint(2 * p.y + 1);
             depth = float(clamp(int(kk) >> 6, 0, 16777215)) / 16777216.0;
         }
