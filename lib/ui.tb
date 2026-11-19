@@ -140,6 +140,35 @@ modpub func key_pressed(u: Ui, name: text)
     look(u, name)
     return free(u) and u.keys[name] and not u.was[name]
 
+// сочетание клавиш: ui.shortcut(u, "cmd+shift+n"). cmd — Command на Mac, Ctrl на Linux и Windows.
+// Срабатывает, когда нажали последнюю клавишу, а cmd, shift и alt держат ровно те, что написаны
+modpub func shortcut(u: Ui, combo: text)
+    parts = split(lower(combo), "+")
+    key = parts[len(parts) - 1]
+    want_cmd = false
+    want_shift = false
+    want_alt = false
+    want_ctrl = false
+    count i from 0 to len(parts) - 2
+        m = parts[i]
+        if m == "cmd"
+            want_cmd = true
+        else if m == "shift"
+            want_shift = true
+        else if m == "alt"
+            want_alt = true
+        else if m == "ctrl"
+            want_ctrl = true
+    if key_down("cmd") != want_cmd or key_down("shift") != want_shift or key_down("alt") != want_alt
+        return false
+    if want_ctrl and not key_down("ctrl")
+        return false
+    return key_pressed(u, key)
+
+// без cmd и alt: стрелки, Enter и Backspace сами по себе (а не cmd+стрелка)
+modpub func plain(u: Ui)
+    return not key_down("cmd") and not key_down("alt") and not key_down("ctrl")
+
 // как key_pressed, но если держать — повторяется (стрелки по списку)
 modpub func key_repeat(u: Ui, name: text)
     look(u, name)

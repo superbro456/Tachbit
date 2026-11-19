@@ -3082,7 +3082,9 @@ TB_API unsigned char tb_ktap[256];   // клавишу нажали и отпу�
 TB_API long long tb_last_frame = 0;
 // клавиши: буквы и цифры — свой код ASCII (A..Z, 0..9), остальные:
 enum { TB_K_ENTER = 10, TB_K_ESC = 27, TB_K_SPACE = 32, TB_K_BACK = 8, TB_K_TAB = 9,
-       TB_K_UP = 17, TB_K_DOWN = 18, TB_K_RIGHT = 19, TB_K_LEFT = 20, TB_K_SHIFT = 21 };
+       TB_K_UP = 17, TB_K_DOWN = 18, TB_K_RIGHT = 19, TB_K_LEFT = 20, TB_K_SHIFT = 21,
+       TB_K_CMD = 1, TB_K_CTRL = 2, TB_K_ALT = 3, TB_K_DEL = 4, TB_K_HOME = 5, TB_K_END = 6, TB_K_PGUP = 7,
+       TB_K_PGDN = 11, TB_K_F1 = 128 };   // F1..F12 — 128..139
 // ---------- картинки PNG (load_image) ----------
 // Свой маленький разбор PNG: распаковка deflate (как zlib) и фильтры строк.
 // Картинка хранится точками 0xAARRGGBB; точка видна, если её прозрачность (A) не меньше 128.
@@ -5057,7 +5059,11 @@ TB_API const unsigned char tb_mac_keys[128] = {
     [14]='E',[15]='R',[16]='Y',[17]='T',[18]='1',[19]='2',[20]='3',[21]='4',[22]='6',[23]='5',[25]='9',[26]='7',
     [28]='8',[29]='0',[31]='O',[32]='U',[34]='I',[35]='P',[36]=TB_K_ENTER,[37]='L',[38]='J',[40]='K',[45]='N',
     [46]='M',[48]=TB_K_TAB,[49]=TB_K_SPACE,[51]=TB_K_BACK,[53]=TB_K_ESC,[56]=TB_K_SHIFT,[60]=TB_K_SHIFT,
-    [76]=TB_K_ENTER,[123]=TB_K_LEFT,[124]=TB_K_RIGHT,[125]=TB_K_DOWN,[126]=TB_K_UP };
+    [76]=TB_K_ENTER,[123]=TB_K_LEFT,[124]=TB_K_RIGHT,[125]=TB_K_DOWN,[126]=TB_K_UP,
+    [27]='-',[24]='=',[33]='[',[30]=']',[41]=';',[39]='\'',[43]=',',[47]='.',[44]='/',[50]='`',[42]='\\',
+    [117]=TB_K_DEL,[115]=TB_K_HOME,[119]=TB_K_END,[116]=TB_K_PGUP,[121]=TB_K_PGDN,
+    [122]=TB_K_F1,[120]=TB_K_F1+1,[99]=TB_K_F1+2,[118]=TB_K_F1+3,[96]=TB_K_F1+4,[97]=TB_K_F1+5,
+    [98]=TB_K_F1+6,[100]=TB_K_F1+7,[101]=TB_K_F1+8,[109]=TB_K_F1+9,[103]=TB_K_F1+10,[111]=TB_K_F1+11 };
 // кадр отдаём слою окна готовой картинкой: масштаб под Retina делает видеокарта,
 // цвета в пространстве экрана — без пересчёта каждой точки
 // CGBitmapContextCreateImage делал копию при записи: каждая новая точка в кадре
@@ -5464,6 +5470,13 @@ TB_API void tb_gfx_events(void) {
         if (t == 12) {  // Shift
             unsigned long m = TB_MSG(unsigned long, ev, "modifierFlags");
             tb_keys[TB_K_SHIFT] = (m & (1UL << 17)) != 0;
+            int was_cmd = tb_keys[TB_K_CMD], was_ctrl = tb_keys[TB_K_CTRL], was_alt = tb_keys[TB_K_ALT];
+            tb_keys[TB_K_CTRL] = (m & (1UL << 18)) != 0;
+            tb_keys[TB_K_ALT] = (m & (1UL << 19)) != 0;   // Option
+            tb_keys[TB_K_CMD] = (m & (1UL << 20)) != 0;   // Command
+            if (tb_keys[TB_K_CMD] && !was_cmd) tb_ktap[TB_K_CMD] = 1;
+            if (tb_keys[TB_K_CTRL] && !was_ctrl) tb_ktap[TB_K_CTRL] = 1;
+            if (tb_keys[TB_K_ALT] && !was_alt) tb_ktap[TB_K_ALT] = 1;
         }
         TB_MSG1(void, tb_nsapp, "sendEvent:", id, ev);
     }
@@ -5491,7 +5504,15 @@ TB_API int tb_win_key(WPARAM v) {
     case VK_BACK: return TB_K_BACK; case VK_TAB: return TB_K_TAB; case VK_UP: return TB_K_UP;
     case VK_DOWN: return TB_K_DOWN; case VK_LEFT: return TB_K_LEFT; case VK_RIGHT: return TB_K_RIGHT;
     case VK_SHIFT: case VK_LSHIFT: case VK_RSHIFT: return TB_K_SHIFT;
+    case VK_CONTROL: case VK_LCONTROL: case VK_RCONTROL: return TB_K_CTRL;
+    case VK_MENU: case VK_LMENU: case VK_RMENU: return TB_K_ALT;
+    case VK_DELETE: return TB_K_DEL; case VK_HOME: return TB_K_HOME; case VK_END: return TB_K_END;
+    case VK_PRIOR: return TB_K_PGUP; case VK_NEXT: return TB_K_PGDN;
+    case VK_OEM_4: return '['; case VK_OEM_6: return ']'; case VK_OEM_PERIOD: return '.'; case VK_OEM_COMMA: return ',';
+    case VK_OEM_MINUS: return '-'; case VK_OEM_PLUS: return '='; case VK_OEM_2: return '/'; case VK_OEM_1: return ';';
+    case VK_OEM_7: return '\''; case VK_OEM_3: return '`'; case VK_OEM_5: return '\\';
     }
+    if (v >= VK_F1 && v <= VK_F12) return TB_K_F1 + (int)(v - VK_F1);
     return 0;
 }
 TB_API void tb_win_blit(HDC dc) {
@@ -5643,7 +5664,13 @@ TB_API int tb_x_key(KeySym s) {
     case XK_BackSpace: return TB_K_BACK; case XK_Tab: return TB_K_TAB; case XK_Up: return TB_K_UP;
     case XK_Down: return TB_K_DOWN; case XK_Left: return TB_K_LEFT; case XK_Right: return TB_K_RIGHT;
     case XK_Shift_L: case XK_Shift_R: return TB_K_SHIFT;
+    case XK_Control_L: case XK_Control_R: return TB_K_CTRL;
+    case XK_Alt_L: case XK_Alt_R: return TB_K_ALT;
+    case XK_Delete: return TB_K_DEL; case XK_Home: return TB_K_HOME; case XK_End: return TB_K_END;
+    case XK_Prior: return TB_K_PGUP; case XK_Next: return TB_K_PGDN;
     }
+    if (s >= XK_F1 && s <= XK_F12) return TB_K_F1 + (int)(s - XK_F1);
+    if (s > 0x20 && s < 0x7f) return (int)s;   // знаки [ ] . , / - = : у X11 номер знака — это его код
     return 0;
 }
 TB_API void tb_gfx_events(void) {
@@ -6388,7 +6415,16 @@ static int tb_key_at(int k) { int d = tb_keys[k] || tb_ktap[k]; tb_ktap[k] = 0; 
 TB_API int tb_key_down(const char *name) {
     static const struct { const char *n; int k; } names[] = {
         {"left", TB_K_LEFT}, {"right", TB_K_RIGHT}, {"up", TB_K_UP}, {"down", TB_K_DOWN}, {"space", TB_K_SPACE},
-        {"enter", TB_K_ENTER}, {"escape", TB_K_ESC}, {"backspace", TB_K_BACK}, {"tab", TB_K_TAB}, {"shift", TB_K_SHIFT} };
+        {"enter", TB_K_ENTER}, {"escape", TB_K_ESC}, {"backspace", TB_K_BACK}, {"tab", TB_K_TAB}, {"shift", TB_K_SHIFT},
+#ifdef __APPLE__
+        {"cmd", TB_K_CMD},        // Command на Mac
+#else
+        {"cmd", TB_K_CTRL},       // на Linux и Windows вместо Command — Ctrl: одна программа для всех
+#endif
+        {"ctrl", TB_K_CTRL}, {"alt", TB_K_ALT}, {"delete", TB_K_DEL}, {"home", TB_K_HOME}, {"end", TB_K_END},
+        {"pageup", TB_K_PGUP}, {"pagedown", TB_K_PGDN},
+        {"f1", TB_K_F1}, {"f2", TB_K_F1 + 1}, {"f3", TB_K_F1 + 2}, {"f4", TB_K_F1 + 3}, {"f5", TB_K_F1 + 4}, {"f6", TB_K_F1 + 5},
+        {"f7", TB_K_F1 + 6}, {"f8", TB_K_F1 + 7}, {"f9", TB_K_F1 + 8}, {"f10", TB_K_F1 + 9}, {"f11", TB_K_F1 + 10}, {"f12", TB_K_F1 + 11} };
     for (unsigned i = 0; i < sizeof names / sizeof names[0]; i++) if (strcmp(name, names[i].n) == 0) return tb_key_at(names[i].k);
     if (name[0] && !name[1]) {
         int ch = (unsigned char)name[0];

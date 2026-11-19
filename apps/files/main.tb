@@ -41,6 +41,10 @@ obj Fm
     renaming: bool
     new_name: text
     follow: bool         // прокрутить список к выбранному (после стрелок), колёсико это не трогает
+    page: int            // сколько строк видно (для Page Up / Page Down)
+    // Cmd+C / Cmd+X: что скопировали или вырезали
+    clip: text
+    clip_cut: bool
 
 // ---------- пути ----------
 
@@ -569,6 +573,7 @@ func list_view(u: Ui, f: Fm, x: int, y: int, w: int, h: int)
     ly = y + 28
     lh = h - 28
     shown = lh / rh
+    f.page = shown
     n = len(f.items)
     // после стрелок выбранная строка должна быть видна; колёсико листает свободно
     if f.sel >= 0 and f.follow
@@ -620,6 +625,10 @@ func keys(u: Ui, f: Fm)
         go_back(f)
     if u.fwd_press
         go_ahead(f)
+    // Cmd+F — в поиск, даже если печатали в другом месте
+    if ui.shortcut(u, "cmd+f") and window_w() >= 700
+        ui.focus_on(u, "find")
+        return
     if ui.typing(u)
         return
     // начали печатать мимо полей — это поиск
@@ -630,11 +639,69 @@ func keys(u: Ui, f: Fm)
         load(f)
         return
     n = len(f.items)
+    if ui.shortcut(u, "cmd+up")
+        go(f, parent(f.dir))
+        return
+    if ui.shortcut(u, "cmd+down") and f.sel >= 0
+        open_item(f, f.items[f.sel])
+        return
+    if ui.shortcut(u, "cmd+[")
+        go_back(f)
+        return
+    if ui.shortcut(u, "cmd+]")
+        go_ahead(f)
+        return
+    if ui.shortcut(u, "cmd+shift+n")
+        new_folder(u, f)
+        if f.sel >= 0
+            start_rename(u, f)
+        return
+    if ui.shortcut(u, "cmd+shift+.")
+        f.hidden = not f.hidden
+        load(f)
+        return
+    if ui.shortcut(u, "cmd+c") and f.sel >= 0
+        f.clip = join_path(f.dir, f.items[f.sel].name)
+        f.clip_cut = false
+        say(f, "скопировано: " + f.items[f.sel].name + ". Cmd+V — вставить")
+        return
+    if ui.shortcut(u, "cmd+x") and f.sel >= 0
+        f.clip = join_path(f.dir, f.items[f.sel].name)
+        f.clip_cut = true
+        say(f, "вырезано: " + f.items[f.sel].name + ". Cmd+V — перенести сюда")
+        return
+    if ui.shortcut(u, "cmd+v")
+        paste(f)
+        return
+    if f.sel >= 0 and (ui.shortcut(u, "cmd+backspace") or ui.shortcut(u, "delete"))
+        ask_delete(u, f)
+        return
+    if ui.shortcut(u, "f2") and f.sel >= 0
+        start_rename(u, f)
+        return
+    if ui.shortcut(u, "escape") and f.find != ""
+        f.find = ""
+        load(f)
+        return
+    if not ui.plain(u)
+        return
     if ui.key_repeat(u, "down") and n > 0
         f.sel = min(n - 1, f.sel + 1)
         f.follow = true
     if ui.key_repeat(u, "up") and n > 0
         f.sel = max(0, f.sel - 1)
+        f.follow = true
+    if ui.key_repeat(u, "pagedown") and n > 0
+        f.sel = min(n - 1, max(0, f.sel) + max(1, f.page - 1))
+        f.follow = true
+    if ui.key_repeat(u, "pageup") and n > 0
+        f.sel = max(0, f.sel - max(1, f.page - 1))
+        f.follow = true
+    if ui.key_pressed(u, "home") and n > 0
+        f.sel = 0
+        f.follow = true
+    if ui.key_pressed(u, "end") and n > 0
+        f.sel = n - 1
         f.follow = true
     if ui.key_pressed(u, "enter") and f.sel >= 0
         open_item(f, f.items[f.sel])
@@ -644,6 +711,66 @@ func keys(u: Ui, f: Fm)
         go_back(f)
     if ui.key_pressed(u, "right")
         go_ahead(f)
+
+// «фото.png» → «фото копия.png», потом «фото копия 2.png» ...
+func free_name(dir: text, name: text, folder: bool)
+    if not file_exists(join_path(dir, name)) and not is_folder(join_path(dir, name))
+        return name
+    stem = name
+    ext = ext_of(name)
+    tail = ""
+    if ext != "" and not folder
+        stem = cut(name, 0, len(name) - len(ext) - 2)
+        tail = "." + cut(name, len(name) - len(ext), len(name) - 1)
+    pick = stem + " копия" + tail
+    k = 2
+    repeat while file_exists(join_path(dir, pick)) or is_folder(join_path(dir, pick))
+        pick = stem + " копия " + k + tail
+        k += 1
+    return pick
+
+// Cmd+V: вставить скопированное (копия) или вырезанное (перенос) в эту папку
+func paste(f: Fm)
+    if f.clip == ""
+        say(f, "сначала Cmd+C или Cmd+X на файле")
+        return
+    src = f.clip
+    if not file_exists(src) and not is_folder(src)
+        say(f, "его уже нет: " + base_name(src))
+        f.clip = ""
+        return
+    folder = is_folder(src)
+    if folder and (f.dir == src or starts_with(f.dir, src + "/"))
+        say(f, "нельзя положить папку саму в себя")
+        return
+    if f.clip_cut and parent(src) == f.dir
+        say(f, "он и так в этой папке")
+        return
+    name = free_name(f.dir, base_name(src), folder)
+    dest = join_path(f.dir, name)
+    if f.clip_cut
+        move(src, dest) else err
+            say(f, err)
+            return
+        f.clip = ""
+    else
+        code = 0
+        if env("OS") == "Windows_NT"
+            code = run("powershell -NoProfile -Command Copy-Item -Recurse -LiteralPath " + quote(src) + " -Destination " + quote(dest))
+        else
+            code = run("cp -R " + quote(src) + " " + quote(dest))
+        if code != 0
+            say(f, "не получилось скопировать " + base_name(src))
+            return
+    load(f)
+    count i from 0 to len(f.items) - 1
+        if f.items[i].name == name
+            f.sel = i
+            f.follow = true
+    if f.clip_cut
+        say(f, "перенесено: " + name)
+    else
+        say(f, "вставлено: " + name)
 
 func main()
     f = Fm(sel: -1, pv_img: -1)
