@@ -37,10 +37,10 @@ rm -f build/tachbit.vsix
 rm -rf "$work"
 echo "собрано: build/tachbit.vsix"
 
-# старые копии, поставленные простым копированием, убираем: они мешают
-for dir in "$HOME/.vscode/extensions" "$HOME/.vscode-insiders/extensions" "$HOME/.cursor/extensions"; do
-    rm -rf "$dir"/tachbit.tachbit-* 2>/dev/null
-done
+# Папки расширения руками НЕ удаляем: VS Code помнит расширение в своём списке,
+# и если папку стереть, он думает «уже стоит» и не ставит заново
+# (ошибка «Unable to read file ...tachbit.tachbit-0.9.0/package.json»).
+# Вместо этого ниже: сначала убрать через code --uninstall-extension, потом поставить.
 
 # команда code: в PATH или внутри приложения на Mac
 installed=""
@@ -49,9 +49,12 @@ for code in code code-insiders cursor \
     "/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/bin/code-insiders" \
     "/Applications/Cursor.app/Contents/Resources/app/bin/cursor"; do
     if command -v "$code" >/dev/null 2>&1 || [ -x "$code" ]; then
-        if "$code" --install-extension "$root/build/tachbit.vsix" --force >/dev/null 2>&1; then
+        "$code" --uninstall-extension tachbit.tachbit >/dev/null 2>&1
+        if out=$("$code" --install-extension "$root/build/tachbit.vsix" --force 2>&1); then
             echo "поставлено через: $code"
             installed="yes"
+        else
+            echo "$code не смог поставить: $out"
         fi
     fi
 done
