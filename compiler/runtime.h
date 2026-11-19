@@ -5173,6 +5173,12 @@ static void tb_tri_draw_i(long long *t, long long c, const uint32_t *pl) {
 // многоугольник с углами-дробями (3D после проекции, огромные треугольники): обрезаем рамкой
 // вокруг окна (±2048 точек, но не дальше ±8192), углы округляем, режем веером из первого угла.
 // Общие углы округляются одинаково, поэтому соседние треугольники стыкуются без щелей
+// округление до ближайшего целого (половина — вверх); быстрее llround, одно и то же везде
+TB_INL long long tb_rnd(double x) {
+    long long r = (long long)(x + 0.5);
+    if ((double)r > x + 0.5) r--;
+    return r;
+}
 static void tb_poly_draw(double *px, double *py, int n, long long c, const uint32_t *pl) {
     double gx0 = -2048, gy0 = -2048, gx1 = tb_gw + 2048.0, gy1 = tb_gh + 2048.0;
     if (gx1 > 8192) gx1 = 8192;
@@ -5196,7 +5202,7 @@ static void tb_poly_draw(double *px, double *py, int n, long long c, const uint3
     }
     if (n < 3) return;
     long long rx[16], ry[16];
-    for (int i = 0; i < n; i++) { rx[i] = llround(ax[i]); ry[i] = llround(ay[i]); }
+    for (int i = 0; i < n; i++) { rx[i] = tb_rnd(ax[i]); ry[i] = tb_rnd(ay[i]); }
     for (int i = 1; i + 1 < n; i++) {
         long long t[6] = { rx[0], ry[0], rx[i], ry[i], rx[i + 1], ry[i + 1] };
         tb_tri_draw_i(t, c, pl);
@@ -5266,7 +5272,9 @@ TB_API void tb_draw_text(long long x, long long y, const char *s, long long size
 // буфер глубины на видеокарте). Углы, обрезка и плоскость глубины считаются на процессоре,
 // а глубину каждой точки видеокарта и процессор считают одной и той же целой формулой:
 // кадры совпадают точка в точку.
-typedef struct { double *v; uint32_t *c; long long n, cap; } tb_mesh;
+// сетка: свои углы без повторов (у куба 8, а не 36) и треугольники как три номера угла.
+// Каждый угол поворачивается и проецируется один раз на draw_mesh, а не в каждом своём треугольнике
+typedef struct { double *v; long long nv, capv; uint32_t *t, *c; long long n, cap; long long *hk; long long hcap; } tb_mesh;
 TB_API tb_mesh *tb_meshes = 0;
 TB_API long long tb_nmesh = 0, tb_capmesh = 0;
 TB_API double tb_cam[9] = { 0, 0, -5,  1, 0, 0,  0, 1, 0 };   // где камера, вправо, вверх
@@ -5276,9 +5284,41 @@ TB_API long long tb_mesh_new(void) {
         tb_capmesh = tb_capmesh ? tb_capmesh * 2 : 16;
         tb_meshes = (tb_mesh *)realloc(tb_meshes, sizeof(tb_mesh) * tb_capmesh);
     }
-    tb_mesh *m = &tb_meshes[tb_nmesh];
-    m->v = 0; m->c = 0; m->n = 0; m->cap = 0;
+    memset(&tb_meshes[tb_nmesh], 0, sizeof(tb_mesh));
     return tb_nmesh++;
+}
+TB_INL uint64_t tb_vhash(const double *p) {
+    uint64_t h = 1469598103934665603ULL, w[3];
+    memcpy(w, p, 24);
+    for (int i = 0; i < 3; i++) { h ^= w[i]; h *= 1099511628211ULL; h ^= h >> 29; }
+    return h;
+}
+// номер угла (x, y, z) в сетке: такой же уже есть — тот же номер (таблица с открытой адресацией)
+static uint32_t tb_mesh_vertex(tb_mesh *m, double x, double y, double z) {
+    double p[3] = { x + 0.0, y + 0.0, z + 0.0 };   // + 0.0: -0 и 0 — один угол
+    if (m->nv * 2 >= m->hcap) {
+        long long nc = m->hcap ? m->hcap * 2 : 64;
+        long long *nk = (long long *)malloc(sizeof(long long) * nc);
+        for (long long i = 0; i < nc; i++) nk[i] = -1;
+        for (long long v = 0; v < m->nv; v++) {
+            uint64_t h = tb_vhash(m->v + 3 * v) & (uint64_t)(nc - 1);
+            while (nk[h] >= 0) h = (h + 1) & (uint64_t)(nc - 1);
+            nk[h] = v;
+        }
+        free(m->hk); m->hk = nk; m->hcap = nc;
+    }
+    uint64_t h = tb_vhash(p) & (uint64_t)(m->hcap - 1);
+    while (m->hk[h] >= 0) {
+        if (memcmp(m->v + 3 * m->hk[h], p, 24) == 0) return (uint32_t)m->hk[h];
+        h = (h + 1) & (uint64_t)(m->hcap - 1);
+    }
+    if (m->nv == m->capv) {
+        m->capv = m->capv ? m->capv * 2 : 16;
+        m->v = (double *)realloc(m->v, sizeof(double) * 3 * m->capv);
+    }
+    memcpy(m->v + 3 * m->nv, p, 24);
+    m->hk[h] = m->nv;
+    return (uint32_t)m->nv++;
 }
 TB_API void tb_mesh_add(long long id, double x1, double y1, double z1, double x2, double y2, double z2,
                         double x3, double y3, double z3, long long c) {
@@ -5286,11 +5326,13 @@ TB_API void tb_mesh_add(long long id, double x1, double y1, double z1, double x2
     tb_mesh *m = &tb_meshes[id];
     if (m->n == m->cap) {
         m->cap = m->cap ? m->cap * 2 : 16;
-        m->v = (double *)realloc(m->v, sizeof(double) * 9 * m->cap);
+        m->t = (uint32_t *)realloc(m->t, sizeof(uint32_t) * 3 * m->cap);
         m->c = (uint32_t *)realloc(m->c, sizeof(uint32_t) * m->cap);
     }
-    double *v = m->v + 9 * m->n;
-    v[0] = x1; v[1] = y1; v[2] = z1; v[3] = x2; v[4] = y2; v[5] = z2; v[6] = x3; v[7] = y3; v[8] = z3;
+    uint32_t *t = m->t + 3 * m->n;
+    t[0] = tb_mesh_vertex(m, x1, y1, z1);
+    t[1] = tb_mesh_vertex(m, x2, y2, z2);
+    t[2] = tb_mesh_vertex(m, x3, y3, z3);
     m->c[m->n++] = (uint32_t)c;
 }
 TB_API void tb_camera(double x, double y, double z, double lx, double ly, double lz) {
@@ -5306,9 +5348,30 @@ TB_API void tb_camera(double x, double y, double z, double lx, double ly, double
     tb_cam[0] = x; tb_cam[1] = y; tb_cam[2] = z;
     for (int i = 0; i < 3; i++) { tb_cam[3 + i] = r[i]; tb_cam[6 + i] = u[i]; tb_camf[i] = f[i]; }
 }
+// плоскость глубины по трём точкам экрана (x, y, D); 0 — треугольник ребром к нам, рисовать нечего
+TB_INL int tb_tri3_plane(const double *sx, const double *sy, const double *dd, uint32_t *pl) {
+    double e1x = sx[1] - sx[0], e1y = sy[1] - sy[0], e2x = sx[2] - sx[0], e2y = sy[2] - sy[0];
+    double area = e1x * e2y - e1y * e2x;
+    if (fabs(area) < 0.5) return 0;   // смотрит на нас ребром: точек почти нет
+    double ia = 1 / area;
+    double ax = ((dd[1] - dd[0]) * e2y - (dd[2] - dd[0]) * e1y) * ia;
+    double by = ((dd[2] - dd[0]) * e1x - (dd[1] - dd[0]) * e2x) * ia;
+    if (ax > 1e9) ax = 1e9;
+    if (ax < -1e9) ax = -1e9;
+    if (by > 1e9) by = 1e9;
+    if (by < -1e9) by = -1e9;
+    double c0 = dd[0] - ax * sx[0] - by * sy[0];
+    // в целые: точка берётся по центру (2x + 1) / 2, поэтому ax / 2; ещё × 64 для точности
+    pl[0] = (uint32_t)tb_rnd(ax * 32); pl[1] = (uint32_t)tb_rnd(by * 32); pl[2] = (uint32_t)tb_rnd(c0 * 64);
+    return 1;
+}
+// углы сетки после камеры: место перед камерой и на экране (округлённое), глубина D
+typedef struct { double cx, cy, cz, sx, sy, dd; long long rx, ry; int front, near_ok; } tb_3v;
+TB_API tb_3v *tb_3vs = 0;
+TB_API long long tb_3vcap = 0;
 TB_API void tb_draw_mesh(long long id, double x, double y, double z, double turn) {
     if (!tb_px || id < 0 || id >= tb_nmesh) return;
-    if (tb_zb_n != (long long)tb_gw * tb_gh) {   // глубина процессора: размер как у окна
+    if (TB_CPU_DRAW && tb_zb_n != (long long)tb_gw * tb_gh) {   // глубина процессора: размер как у окна
         free(tb_zb);
         tb_zb_n = (long long)tb_gw * tb_gh;
         tb_zb = (uint32_t *)malloc((size_t)tb_zb_n * 4);
@@ -5317,49 +5380,66 @@ TB_API void tb_draw_mesh(long long id, double x, double y, double z, double turn
     if (tb_zclr && TB_CPU_DRAW) { for (long long i = 0; i < tb_zb_n; i++) tb_zb[i] = 16777216u; }
     tb_zclr = 0;
     tb_mesh *m = &tb_meshes[id];
+    if (m->nv > tb_3vcap) { tb_3vcap = m->nv * 2; tb_3vs = (tb_3v *)realloc(tb_3vs, sizeof(tb_3v) * tb_3vcap); }
     double a = turn * 3.14159265358979323846 / 180, ca = cos(a), sa = sin(a);
-    double f = tb_gh / 2.0 / tan(30 * 3.14159265358979323846 / 180), zn = 0.05;
-    for (long long t = 0; t < m->n; t++) {
-        double cx[3], cy[3], cz[3];
-        for (int k = 0; k < 3; k++) {
-            const double *p = m->v + 9 * t + 3 * k;
-            double wx = p[0] * ca + p[2] * sa + x - tb_cam[0], wy = p[1] + y - tb_cam[1], wz = -p[0] * sa + p[2] * ca + z - tb_cam[2];
-            cx[k] = wx * tb_cam[3] + wy * tb_cam[4] + wz * tb_cam[5];
-            cy[k] = wx * tb_cam[6] + wy * tb_cam[7] + wz * tb_cam[8];
-            cz[k] = wx * tb_camf[0] + wy * tb_camf[1] + wz * tb_camf[2];
+    double f = tb_gh / 2.0 / tan(30 * 3.14159265358979323846 / 180), zn = 0.05, hw = tb_gw / 2.0, hh = tb_gh / 2.0;
+    double gx0 = -2048, gy0 = -2048, gx1 = tb_gw + 2048.0, gy1 = tb_gh + 2048.0;   // та же рамка, что в tb_poly_draw
+    if (gx1 > 8192) gx1 = 8192;
+    if (gy1 > 8192) gy1 = 8192;
+    // 1) каждый угол: поворот, место в мире, взгляд камеры, экран
+    for (long long k = 0; k < m->nv; k++) {
+        const double *p = m->v + 3 * k;
+        tb_3v *v = &tb_3vs[k];
+        double wx = p[0] * ca + p[2] * sa + x - tb_cam[0], wy = p[1] + y - tb_cam[1], wz = -p[0] * sa + p[2] * ca + z - tb_cam[2];
+        v->cx = wx * tb_cam[3] + wy * tb_cam[4] + wz * tb_cam[5];
+        v->cy = wx * tb_cam[6] + wy * tb_cam[7] + wz * tb_cam[8];
+        v->cz = wx * tb_camf[0] + wy * tb_camf[1] + wz * tb_camf[2];
+        v->front = v->cz >= zn;
+        v->near_ok = 0;
+        if (v->front) {
+            double iz = 1 / v->cz;
+            v->sx = hw + f * v->cx * iz;
+            v->sy = hh - f * v->cy * iz;
+            v->dd = (1 - zn * iz) * 16777216.0;   // D = (1 - zn / z) * 2^24 — по экрану меняется ровно по плоскости
+            v->near_ok = v->sx >= gx0 && v->sx <= gx1 && v->sy >= gy0 && v->sy <= gy1;
+            if (v->near_ok) { v->rx = tb_rnd(v->sx); v->ry = tb_rnd(v->sy); }
         }
-        // обрезаем всё ближе zn: из треугольника выходит 0, 3 или 4 угла
+    }
+    // 2) треугольники
+    for (long long t = 0; t < m->n; t++) {
+        const uint32_t *ti = m->t + 3 * t;
+        tb_3v *v0 = &tb_3vs[ti[0]], *v1 = &tb_3vs[ti[1]], *v2 = &tb_3vs[ti[2]];
+        uint32_t pl[3];
+        if (v0->front && v1->front && v2->front) {
+            double sx[3] = { v0->sx, v1->sx, v2->sx }, sy[3] = { v0->sy, v1->sy, v2->sy }, dd[3] = { v0->dd, v1->dd, v2->dd };
+            if (!tb_tri3_plane(sx, sy, dd, pl)) continue;
+            if (v0->near_ok && v1->near_ok && v2->near_ok) {   // обычный случай: целиком в рамке
+                long long q[6] = { v0->rx, v0->ry, v1->rx, v1->ry, v2->rx, v2->ry };
+                tb_tri_draw_i(q, m->c[t], pl);
+            } else tb_poly_draw(sx, sy, 3, m->c[t], pl);
+            continue;
+        }
+        // часть треугольника за камерой: обрезаем всё ближе zn — выходит 0, 3 или 4 угла
+        tb_3v *vs[3] = { v0, v1, v2 };
         double qx[4], qy[4], qz[4];
         int n = 0;
         for (int i = 0; i < 3; i++) {
-            int j = (i + 1) % 3;
-            if (cz[i] >= zn) { qx[n] = cx[i]; qy[n] = cy[i]; qz[n] = cz[i]; n++; }
-            if ((cz[i] >= zn) != (cz[j] >= zn)) {
-                double k = (zn - cz[i]) / (cz[j] - cz[i]);
-                qx[n] = cx[i] + (cx[j] - cx[i]) * k; qy[n] = cy[i] + (cy[j] - cy[i]) * k; qz[n] = zn; n++;
+            const tb_3v *p = vs[i], *q = vs[(i + 1) % 3];
+            if (p->front) { qx[n] = p->cx; qy[n] = p->cy; qz[n] = p->cz; n++; }
+            if (p->front != q->front) {
+                double k = (zn - p->cz) / (q->cz - p->cz);
+                qx[n] = p->cx + (q->cx - p->cx) * k; qy[n] = p->cy + (q->cy - p->cy) * k; qz[n] = zn; n++;
             }
         }
         if (n < 3) continue;
-        // на экран; глубина угла D = (1 - zn / z) * 2^24 — она меняется по экрану ровно по плоскости
         double sx[4], sy[4], dd[4];
         for (int i = 0; i < n; i++) {
-            sx[i] = tb_gw / 2.0 + f * qx[i] / qz[i];
-            sy[i] = tb_gh / 2.0 - f * qy[i] / qz[i];
-            dd[i] = (1 - zn / qz[i]) * 16777216.0;
+            double iz = 1 / qz[i];
+            sx[i] = hw + f * qx[i] * iz;
+            sy[i] = hh - f * qy[i] * iz;
+            dd[i] = (1 - zn * iz) * 16777216.0;
         }
-        // плоскость D = c0 + ax * x + by * y по трём углам
-        double e1x = sx[1] - sx[0], e1y = sy[1] - sy[0], e2x = sx[2] - sx[0], e2y = sy[2] - sy[0];
-        double area = e1x * e2y - e1y * e2x;
-        if (fabs(area) < 0.5) continue;   // треугольник смотрит на нас ребром: точек почти нет
-        double ax = ((dd[1] - dd[0]) * e2y - (dd[2] - dd[0]) * e1y) / area;
-        double by = ((dd[2] - dd[0]) * e1x - (dd[1] - dd[0]) * e2x) / area;
-        if (ax > 1e9) ax = 1e9;
-        if (ax < -1e9) ax = -1e9;
-        if (by > 1e9) by = 1e9;
-        if (by < -1e9) by = -1e9;
-        double c0 = dd[0] - ax * sx[0] - by * sy[0];
-        // в целые: точка берётся по центру (2x + 1) / 2, поэтому ax / 2; ещё × 64 для точности
-        uint32_t pl[3] = { (uint32_t)(int64_t)llround(ax * 32), (uint32_t)(int64_t)llround(by * 32), (uint32_t)(int64_t)llround(c0 * 64) };
+        if (!tb_tri3_plane(sx, sy, dd, pl)) continue;
         tb_poly_draw(sx, sy, n, m->c[t], pl);
     }
 }

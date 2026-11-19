@@ -9,6 +9,7 @@ func main()
         n = to_int(a[len(a) - 1]) or 20
     try window_open(1280, 720, "Замер 3D")
     set_fps(0)
+    print("окно сначала:", window_w(), "x", window_h())   // спросить размер = окно можно тянуть мышью
     cube = mesh_new()
     add_cube(cube, 0.4)
     frames = 0
