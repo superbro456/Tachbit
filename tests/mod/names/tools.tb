@@ -1,0 +1,5 @@
+modpub func title(s: text)
+    return "== " + s + " =="
+
+modpub func total(a: int, b: int)
+    return a + b

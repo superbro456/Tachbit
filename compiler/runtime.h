@@ -3220,6 +3220,10 @@ TB_API void tb_wheel_add(double d) {
 // буквы, набранные с прошлого typed_text(), в UTF-8 (стрелки, Enter и прочие не буквы не попадают)
 TB_API char tb_typed[512];
 TB_API int tb_ntyped = 0;
+TB_API char *tb_gfx_clip_get(void);          // свои у каждой системы: текст (malloc) или 0
+TB_API void tb_gfx_clip_set(const char *s);
+TB_API void tb_gfx_cursor(int k);              // 0 стрелка, 1 рука, 2 текст, 3 двигать, 4 ↔, 5 ↕, 6 ждать, 7 спрятать
+TB_API int tb_cursor_want = 0;                 // курсор, который просили до window_open
 TB_API void tb_type_cp(unsigned u) {
     if (u < 32 || u == 127 || (u >= 0xF700 && u <= 0xF8FF) || u > 0x10FFFF) return;
     if (tb_ntyped + 4 >= (int)sizeof tb_typed) return;
@@ -3877,6 +3881,8 @@ TB_API int tb_gpu_nosync = 0;
 TB_API int tb_gpu_resize(int ow, int oh);   // окно поменяло размер
 // окно можно тянуть мышью, если программа спросила его размер (window_w, window_h)
 TB_API int tb_resizable = 0, tb_new_w = 0, tb_new_h = 0;
+TB_API int tb_sharp = 0;       // window_sharp(): окно в настоящих точках экрана
+TB_API double tb_sc = 1;        // во сколько раз точек больше (Retina — 2)
 TB_API void tb_gfx_resizable(void);   // свои у каждой системы
 TB_API void tb_gfx_reimage(void);            // 1: не ждать обновления экрана (set_fps(0), TB_FPS_FREE=1)
 TB_API int tb_gpu_want(void) {
@@ -5629,6 +5635,48 @@ TB_API uint32_t *tb_pres[3];
 TB_API int tb_pres_i = 0;
 TB_API id tb_layer = 0;
 TB_API BOOL tb_nswnd_close(id v, SEL s, id w) { (void)v; (void)s; (void)w; tb_gclosed = 1; return YES; }
+TB_API double tb_gfx_scale(void) {
+    id scr = TB_MSG(id, TB_CLS("NSScreen"), "mainScreen");
+    return scr ? TB_MSG(double, scr, "backingScaleFactor") : 1;
+}
+// буфер обмена Mac: NSPasteboard, текст UTF-8
+extern void *objc_autoreleasePoolPush(void);
+extern void objc_autoreleasePoolPop(void *);
+TB_API id tb_ns_str(const char *s) { return TB_MSG1(id, TB_CLS("NSString"), "stringWithUTF8String:", const char *, s); }
+TB_API char *tb_gfx_clip_get(void) {
+    void *pool = objc_autoreleasePoolPush();
+    id pb = TB_MSG(id, TB_CLS("NSPasteboard"), "generalPasteboard");
+    id str = pb ? TB_MSG1(id, pb, "stringForType:", id, tb_ns_str("public.utf8-plain-text")) : 0;
+    const char *u = str ? TB_MSG(const char *, str, "UTF8String") : 0;
+    char *out = u ? strdup(u) : 0;
+    objc_autoreleasePoolPop(pool);
+    return out;
+}
+TB_API void tb_gfx_clip_set(const char *s) {
+    void *pool = objc_autoreleasePoolPush();
+    id pb = TB_MSG(id, TB_CLS("NSPasteboard"), "generalPasteboard");
+    if (pb) {
+        TB_MSG(long, pb, "clearContents");
+        ((BOOL (*)(id, SEL, id, id))objc_msgSend)(pb, sel_getUid("setString:forType:"), tb_ns_str(s), tb_ns_str("public.utf8-plain-text"));
+    }
+    objc_autoreleasePoolPop(pool);
+}
+// курсор Mac: ставится заново каждый кадр (AppKit сам возвращает стрелку, когда мышь входит в окно)
+TB_API int tb_mac_cur = 0, tb_mac_hidden = 0;
+TB_API void tb_mac_cursor_apply(void) {
+    static const char *names[7] = { "arrowCursor", "pointingHandCursor", "IBeamCursor", "openHandCursor", "resizeLeftRightCursor", "resizeUpDownCursor", "arrowCursor" };
+    if (tb_mac_cur == 7) { if (!tb_mac_hidden) { TB_MSG(void, TB_CLS("NSCursor"), "hide"); tb_mac_hidden = 1; } return; }
+    if (tb_mac_hidden) { TB_MSG(void, TB_CLS("NSCursor"), "unhide"); tb_mac_hidden = 0; }
+    if (tb_mac_cur == 0) return;   // обычная стрелка — её ставит сам Mac
+    id c = TB_MSG(id, TB_CLS("NSCursor"), names[tb_mac_cur]);
+    if (c) TB_MSG(void, c, "set");
+}
+TB_API void tb_gfx_cursor(int k) {
+    int was = tb_mac_cur;
+    tb_mac_cur = k;
+    if (k == 0 && was != 0 && was != 7) TB_MSG(void, TB_MSG(id, TB_CLS("NSCursor"), "arrowCursor"), "set");
+    tb_mac_cursor_apply();
+}
 // ---------- Metal (Mac) ----------
 // Metal зовём так же, как Cocoa: через objc_msgSend. Шейдер (tb_msl выше, compiler/gpu/tb.metal)
 // Mac переводит сам при запуске. Сама библиотека Metal грузится через dlopen: нет её — процессор.
@@ -5820,6 +5868,7 @@ TB_API int tb_mtl_init(id view) {
     TB_MSG1(void, layer, "setFramebufferOnly:", BOOL, NO);     // в кадр окна копируем (blit)
     TB_MSG1(void, layer, "setDrawableSize:", CGSize, CGSizeMake(tb_gw, tb_gh));
     TB_MSG1(void, layer, "setMagnificationFilter:", id, tb_nsstr("nearest"));
+    TB_MSG1(void, layer, "setContentsScale:", double, tb_sc);   // window_sharp: точка кадра = точка экрана
     TB_MSG1(void, layer, "setColorspace:", CGColorSpaceRef, tb_cgspace);
     // кадр показывается вместе с обновлением экрана (без разрывов картинки).
     // TB_FPS_FREE=1 (замеры скорости): не ждать экран
@@ -5946,7 +5995,7 @@ TB_API int tb_gfx_open(const char *title) {
     TB_MSG1(void, tb_nsapp, "setActivationPolicy:", long, 0);
     tb_wnd = ((id(*)(id, SEL, CGRect, unsigned long, unsigned long, BOOL))objc_msgSend)(
         TB_MSG(id, TB_CLS("NSWindow"), "alloc"), sel_getUid("initWithContentRect:styleMask:backing:defer:"),
-        CGRectMake(0, 0, tb_gw, tb_gh), 1 | 2 | 4, 2, NO);
+        CGRectMake(0, 0, tb_gw / tb_sc, tb_gh / tb_sc), 1 | 2 | 4, 2, NO);
     if (!tb_wnd) return 0;
     Class dc = objc_allocateClassPair((Class)TB_CLS("NSObject"), "TachbitWindowDelegate", 0);
     class_addMethod(dc, sel_getUid("windowShouldClose:"), (IMP)tb_nswnd_close, "c@:@");
@@ -5958,12 +6007,14 @@ TB_API int tb_gfx_open(const char *title) {
     if (!space) space = CGColorSpaceCreateDeviceRGB();
     tb_cgspace = space;
     if (tb_gpu_want()) tb_gpu_on = tb_mtl_init(view);
+    tb_mac_cur = tb_cursor_want;
     if (!tb_gpu_on) {
         tb_gpu_say("процессор");
         TB_MSG1(void, view, "setWantsLayer:", BOOL, YES);
         tb_layer = TB_MSG(id, view, "layer");
         id nearest = TB_MSG1(id, TB_CLS("NSString"), "stringWithUTF8String:", const char *, "nearest");
         TB_MSG1(void, tb_layer, "setMagnificationFilter:", id, nearest);
+        TB_MSG1(void, tb_layer, "setContentsScale:", double, tb_sc);
         for (int i = 0; i < 3; i++) {
             tb_pres[i] = malloc((size_t)tb_gw * tb_gh * 4);
             if (!tb_pres[i]) return 0;
@@ -6000,6 +6051,7 @@ TB_API void tb_gfx_events(void) {
         TB_MSG(void, TB_CLS("CATransaction"), "flush");
     }
     id mode = TB_MSG1(id, TB_CLS("NSString"), "stringWithUTF8String:", const char *, "kCFRunLoopDefaultMode");
+    if (tb_mac_cur) tb_mac_cursor_apply();
     while (1) {
         id ev = ((id(*)(id, SEL, unsigned long long, id, id, BOOL))objc_msgSend)(tb_nsapp,
             sel_getUid("nextEventMatchingMask:untilDate:inMode:dequeue:"), ~0ULL, 0, mode, YES);
@@ -6009,7 +6061,7 @@ TB_API void tb_gfx_events(void) {
         else if (t == 2) tb_mdown = 0;
         if (t == 1 || t == 2 || t == 5 || t == 6) {
             CGPoint p = TB_MSG(CGPoint, ev, "locationInWindow");
-            tb_mx = (int)p.x; tb_my = (int)(tb_gh - p.y);
+            tb_mx = (int)(p.x * tb_sc); tb_my = (int)(tb_gh - p.y * tb_sc);
         }
         if (t == 10 || t == 11) {
             unsigned short k = TB_MSG(unsigned short, ev, "keyCode");
@@ -6046,7 +6098,7 @@ TB_API void tb_gfx_events(void) {
 #else
         r = TB_MSG(CGRect, view, "bounds");
 #endif
-        int w = (int)r.size.width, h = (int)r.size.height;
+        int w = (int)(r.size.width * tb_sc + 0.5), h = (int)(r.size.height * tb_sc + 0.5);
         if (w > 0 && h > 0 && (w != tb_gw || h != tb_gh)) { tb_new_w = w; tb_new_h = h; }
     }
     objc_autoreleasePoolPop(pool);
@@ -6076,9 +6128,13 @@ TB_API int tb_win_key(WPARAM v) {
 TB_API void tb_win_blit(HDC dc) {
     StretchDIBits(dc, 0, 0, tb_gw, tb_gh, 0, 0, tb_gw, tb_gh, tb_px, &tb_bmi, DIB_RGB_COLORS, SRCCOPY);
 }
+TB_API int tb_win_cur;
 TB_API LRESULT CALLBACK tb_win_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
     case WM_CLOSE: tb_gclosed = 1; return 0;   // окно закроет сама программа: window_alive() вернёт false
+    case WM_SETCURSOR:   // над окном — курсор, который выбрала программа (set_cursor)
+        if (LOWORD(lp) == HTCLIENT) { tb_gfx_cursor(tb_win_cur); return TRUE; }
+        break;
     case WM_KEYDOWN: case WM_SYSKEYDOWN: case WM_KEYUP: case WM_SYSKEYUP: {
         int k = tb_win_key(wp);
         if (k) { tb_keys[k] = msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN; if (tb_keys[k]) tb_ktap[k] = 1; }
@@ -6117,6 +6173,14 @@ TB_API int tb_win_surface(void) {
         (VkResult (TBVK_CALL *)(VkInstance, const void *, const void *, VkSurfaceKHR *))tbvk_gipa(tb_vk.inst, "vkCreateWin32SurfaceKHR");
     return mk && mk(tb_vk.inst, &ci, 0, &tb_vk.surf) == 0;
 }
+// window_sharp на Windows: программа сама отвечает за масштаб (150%, 200%) — окно в настоящих точках
+TB_API double tb_gfx_scale(void) {
+    SetProcessDPIAware();
+    HDC dc = GetDC(0);
+    int dpi = dc ? GetDeviceCaps(dc, LOGPIXELSX) : 96;
+    if (dc) ReleaseDC(0, dc);
+    return dpi / 96.0;
+}
 TB_API int tb_gfx_open(const char *title) {
     HINSTANCE inst = GetModuleHandleW(0);
     WNDCLASSW wc;
@@ -6143,9 +6207,43 @@ TB_API int tb_gfx_open(const char *title) {
     tb_bmi.bmiHeader.biCompression = BI_RGB;
     ShowWindow(tb_hwnd, SW_SHOW);
     SetForegroundWindow(tb_hwnd);
+    tb_win_cur = tb_cursor_want;
     if (tb_gpu_want()) tb_gpu_on = tb_vk_init("VK_KHR_win32_surface", tb_win_surface);
     if (!tb_gpu_on) tb_gpu_say("процессор");
     return 1;
+}
+// буфер обмена Windows: текст в UTF-16
+TB_API char *tb_gfx_clip_get(void) {
+    if (!OpenClipboard(tb_hwnd)) return 0;
+    char *out = 0;
+    HANDLE h = GetClipboardData(CF_UNICODETEXT);
+    const wchar_t *w = h ? (const wchar_t *)GlobalLock(h) : 0;
+    if (w) {
+        int n = WideCharToMultiByte(CP_UTF8, 0, w, -1, 0, 0, 0, 0);
+        if (n > 0 && (out = malloc((size_t)n))) WideCharToMultiByte(CP_UTF8, 0, w, -1, out, n, 0, 0);
+        GlobalUnlock(h);
+    }
+    CloseClipboard();
+    return out;
+}
+TB_API void tb_gfx_clip_set(const char *s) {
+    int n = MultiByteToWideChar(CP_UTF8, 0, s, -1, 0, 0);
+    if (n <= 0 || !OpenClipboard(tb_hwnd)) return;
+    EmptyClipboard();
+    HGLOBAL g = GlobalAlloc(GMEM_MOVEABLE, (size_t)n * sizeof(wchar_t));
+    wchar_t *w = g ? (wchar_t *)GlobalLock(g) : 0;
+    if (w) {
+        MultiByteToWideChar(CP_UTF8, 0, s, -1, w, n);
+        GlobalUnlock(g);
+        if (!SetClipboardData(CF_UNICODETEXT, g)) GlobalFree(g);
+    }
+    CloseClipboard();
+}
+TB_API int tb_win_cur = 0;
+TB_API void tb_gfx_cursor(int k) {
+    static const LPCTSTR ids[7] = { IDC_ARROW, IDC_HAND, IDC_IBEAM, IDC_SIZEALL, IDC_SIZEWE, IDC_SIZENS, IDC_WAIT };
+    tb_win_cur = k;
+    SetCursor(k == 7 ? 0 : LoadCursor(0, ids[k]));
 }
 TB_API void tb_gfx_events(void) {
     if (tb_gpu_on) tb_gpu_flush(1);
@@ -6158,6 +6256,7 @@ TB_API void tb_gfx_events(void) {
 #include <X11/Xutil.h>
 #include <X11/keysym.h>
 #include <X11/XKBlib.h>
+#include <X11/Xatom.h>
 TB_API Display *tb_dpy = 0;
 TB_API Window tb_xw;
 TB_API GC tb_xgc;
@@ -6185,8 +6284,16 @@ TB_API int tb_x_surface(void) {
         (VkResult (TBVK_CALL *)(VkInstance, const void *, const void *, VkSurfaceKHR *))tbvk_gipa(tb_vk.inst, "vkCreateXlibSurfaceKHR");
     return mk && mk(tb_vk.inst, &ci, 0, &tb_vk.surf) == 0;
 }
+// window_sharp в X11: масштаб из настройки Xft.dpi (её ставят GNOME и KDE), иначе 1
+TB_API double tb_gfx_scale(void) {
+    if (!tb_dpy) tb_dpy = XOpenDisplay(0);
+    if (!tb_dpy) return 1;
+    const char *v = XGetDefault(tb_dpy, "Xft", "dpi");
+    double dpi = v ? atof(v) : 96;
+    return dpi > 0 ? dpi / 96.0 : 1;
+}
 TB_API int tb_gfx_open(const char *title) {
-    tb_dpy = XOpenDisplay(0);
+    if (!tb_dpy) tb_dpy = XOpenDisplay(0);
     if (!tb_dpy) return 0;
     int scr = DefaultScreen(tb_dpy);
     tb_xw = XCreateSimpleWindow(tb_dpy, RootWindow(tb_dpy, scr), 0, 0, tb_gw, tb_gh, 0, 0, 0);
@@ -6201,6 +6308,7 @@ TB_API int tb_gfx_open(const char *title) {
     tb_ximg = XCreateImage(tb_dpy, DefaultVisual(tb_dpy, scr), 24, ZPixmap, 0, (char *)tb_px, tb_gw, tb_gh, 32, 0);
     if (tb_gpu_want()) tb_gpu_on = tb_vk_init("VK_KHR_xlib_surface", tb_x_surface);
     if (!tb_gpu_on) tb_gpu_say("процессор");
+    if (tb_cursor_want) tb_gfx_cursor(tb_cursor_want);
     return 1;
 }
 // знак клавиши → буква Unicode (русская раскладка в X11 — свои старые номера 0x6c0..0x6ff)
@@ -6231,12 +6339,82 @@ TB_API int tb_x_key(KeySym s) {
     if (s > 0x20 && s < 0x7f) return (int)s;   // знаки [ ] . , / - = : у X11 номер знака — это его код
     return 0;
 }
+// буфер обмена X11: текст держит сама программа-владелец и отдаёт его по просьбе (SelectionRequest)
+TB_API char *tb_x_clip = 0;
+TB_API void tb_x_clip_answer(XSelectionRequestEvent *r) {
+    Atom utf8 = XInternAtom(tb_dpy, "UTF8_STRING", False), targets = XInternAtom(tb_dpy, "TARGETS", False);
+    XSelectionEvent ev;
+    memset(&ev, 0, sizeof ev);
+    ev.type = SelectionNotify; ev.display = r->display; ev.requestor = r->requestor;
+    ev.selection = r->selection; ev.target = r->target; ev.time = r->time; ev.property = None;
+    Atom prop = r->property ? r->property : r->target;
+    if (r->target == targets) {
+        Atom list[3] = { targets, utf8, XA_STRING };
+        XChangeProperty(tb_dpy, r->requestor, prop, XA_ATOM, 32, PropModeReplace, (unsigned char *)list, 3);
+        ev.property = prop;
+    } else if ((r->target == utf8 || r->target == XA_STRING) && tb_x_clip) {
+        XChangeProperty(tb_dpy, r->requestor, prop, r->target, 8, PropModeReplace, (unsigned char *)tb_x_clip, (int)strlen(tb_x_clip));
+        ev.property = prop;
+    }
+    XSendEvent(tb_dpy, r->requestor, False, 0, (XEvent *)&ev);
+}
+TB_API void tb_gfx_clip_set(const char *s) {
+    free(tb_x_clip);
+    tb_x_clip = strdup(s);
+    if (!tb_dpy) return;
+    XSetSelectionOwner(tb_dpy, XInternAtom(tb_dpy, "CLIPBOARD", False), tb_xw, CurrentTime);
+    XFlush(tb_dpy);
+}
+TB_API char *tb_gfx_clip_get(void) {
+    if (!tb_dpy) return tb_x_clip ? strdup(tb_x_clip) : 0;
+    Atom clip = XInternAtom(tb_dpy, "CLIPBOARD", False), utf8 = XInternAtom(tb_dpy, "UTF8_STRING", False);
+    Window owner = XGetSelectionOwner(tb_dpy, clip);
+    if (owner == tb_xw) return tb_x_clip ? strdup(tb_x_clip) : 0;
+    if (owner == None) return 0;
+    Atom prop = XInternAtom(tb_dpy, "TACHBIT_CLIP", False);
+    XConvertSelection(tb_dpy, clip, utf8, prop, tb_xw, CurrentTime);
+    XFlush(tb_dpy);
+    // ждём ответ владельца не дольше полсекунды; чужие события по дороге не теряем
+    long long until = tb_time_ms() + 500;
+    while (tb_time_ms() < until) {
+        XEvent e;
+        if (XCheckTypedWindowEvent(tb_dpy, tb_xw, SelectionNotify, &e)) {
+            if (e.xselection.property == None) return 0;
+            Atom type; int fmt; unsigned long n = 0, rest = 0; unsigned char *data = 0;
+            XGetWindowProperty(tb_dpy, tb_xw, prop, 0, 1 << 24, True, AnyPropertyType, &type, &fmt, &n, &rest, &data);
+            char *out = 0;
+            if (data && fmt == 8) { out = malloc(n + 1); if (out) { memcpy(out, data, n); out[n] = 0; } }
+            if (data) XFree(data);
+            return out;
+        }
+        if (XCheckTypedEvent(tb_dpy, SelectionRequest, &e)) tb_x_clip_answer(&e.xselectionrequest);
+        struct timespec ts = { 0, 2000000 };
+        nanosleep(&ts, 0);
+    }
+    return 0;
+}
+TB_API void tb_gfx_cursor(int k) {
+    static Cursor cache[8];
+    static const unsigned shape[8] = { 68, 60, 152, 52, 108, 116, 150, 0 };   // XC_left_ptr, hand2, xterm, fleur, sb_h, sb_v, watch
+    if (!cache[k]) {
+        if (k == 7) {   // спрятать: пустая картинка 1×1
+            static char none = 0;
+            Pixmap pm = XCreateBitmapFromData(tb_dpy, tb_xw, &none, 1, 1);
+            XColor black; memset(&black, 0, sizeof black);
+            cache[k] = XCreatePixmapCursor(tb_dpy, pm, pm, &black, &black, 0, 0);
+            XFreePixmap(tb_dpy, pm);
+        } else cache[k] = XCreateFontCursor(tb_dpy, shape[k]);
+    }
+    XDefineCursor(tb_dpy, tb_xw, cache[k]);
+    XFlush(tb_dpy);
+}
 TB_API void tb_gfx_events(void) {
     if (tb_gpu_on) tb_gpu_flush(1);
     else XPutImage(tb_dpy, tb_xw, tb_xgc, tb_ximg, 0, 0, 0, 0, tb_gw, tb_gh);
     while (XPending(tb_dpy)) {
         XEvent e; XNextEvent(tb_dpy, &e);
-        if (e.type == ClientMessage && (Atom)e.xclient.data.l[0] == tb_wm_del) tb_gclosed = 1;
+        if (e.type == SelectionRequest) tb_x_clip_answer(&e.xselectionrequest);
+        else if (e.type == ClientMessage && (Atom)e.xclient.data.l[0] == tb_wm_del) tb_gclosed = 1;
         else if (e.type == KeyPress || e.type == KeyRelease) {
             int k = tb_x_key(XLookupKeysym(&e.xkey, 0));
             if (k) { tb_keys[k] = e.type == KeyPress; if (tb_keys[k]) tb_ktap[k] = 1; }
@@ -6314,9 +6492,22 @@ TB_API void tb_gpu_blend_probe(void) {
         fprintf(stderr, "TB_GPU_CHECK: смешивание на этой видеокарте не как округление к ближайшему: %lld из %d\n", diff, 1 << 24);
     }
 }
+// window_sharp(): окно в настоящих точках экрана (Retina, 150% и 200% на Windows). Размер в window_open
+// остаётся в «обычных» точках, а кадр, window_w/h и мышь — в настоящих; window_scale() — во сколько раз
+TB_API double tb_gfx_scale(void);   // своя у каждой системы
+TB_API void tb_window_sharp(void) { if (!tb_px) tb_sharp = 1; }
+TB_API double tb_window_scale(void) { return tb_sc; }
 TB_API void tb_window_open(long long w, long long h, const char *title) {
     if (tb_px) { tb_err = "окно уже открыто"; return; }
     if (w < 1 || h < 1 || w > 8192 || h > 8192) { tb_err = "размер окна от 1 до 8192"; return; }
+    if (tb_sharp) {
+        tb_sc = tb_gfx_scale();
+        if (tb_sc < 1) tb_sc = 1;
+        if (tb_sc > 4) tb_sc = 4;
+        w = (long long)(w * tb_sc + 0.5); h = (long long)(h * tb_sc + 0.5);
+        if (w > 8192) w = 8192;
+        if (h > 8192) h = 8192;
+    }
     tb_gw = (int)w; tb_gh = (int)h;
     tb_px = calloc((size_t)tb_gw * tb_gh, 4);
     if (!tb_gfx_open(title)) { free(tb_px); tb_px = 0; tb_err = "не могу открыть окно: нет экрана"; return; }
@@ -7084,6 +7275,26 @@ TB_API const char *tb_typed_text(void) {
     tb_ntyped = 0;
     return s;
 }
+// буфер обмена системы: текст, который копируют и вставляют между программами (Cmd/Ctrl+C, V)
+TB_API const char *tb_clipboard_get(void) {
+    char *got = tb_gfx_clip_get();   // malloc или 0
+    size_t n = got ? strlen(got) : 0;
+    char *s = tb_tmem(n + 1);
+    if (n) memcpy(s, got, n);
+    s[n] = 0;
+    free(got);
+    return s;
+}
+TB_API void tb_clipboard_set(const char *s) { tb_gfx_clip_set(s ? s : ""); }
+// вид стрелки мыши над окном
+TB_API void tb_set_cursor(const char *name, int line) {
+    static const char *names[] = { "arrow", "hand", "text", "move", "resize_x", "resize_y", "wait", "none" };
+    for (int i = 0; i < 8; i++)
+        if (strcmp(name, names[i]) == 0) { if (tb_px) tb_gfx_cursor(i); else tb_cursor_want = i; return; }
+    char buf[200];
+    snprintf(buf, sizeof buf, "set_cursor: нет курсора «%s»; есть arrow, hand, text, move, resize_x, resize_y, wait, none", name);
+    tb_crash(line, buf);
+}
 #endif
 // ---------- для файла .ll (TB_LL): библиотека видна снаружи через tb_x_* ----------
 // Сама библиотека — static: так её лучше встраивать. Эти обёртки — её «дверь» для LLVM.
@@ -7261,6 +7472,11 @@ TB_B(long long, mouse_wheel, (int line), tb_mouse_wheel())
 TB_B(_Bool, mouse_back, (int line), tb_mouse_back())
 TB_B(_Bool, mouse_forward, (int line), tb_mouse_forward())
 TB_B(const char *, typed_text, (int line), tb_typed_text())
+TB_B(const char *, clipboard_get, (int line), tb_clipboard_get())
+TB_BV(clipboard_set, (const char *s, int line), tb_clipboard_set(s))
+TB_BV(set_cursor, (const char *s, int line), tb_set_cursor(s, line))
+TB_BV(window_sharp, (int line), tb_window_sharp())
+TB_B(double, window_scale, (int line), tb_window_scale())
 TB_B(double, frame_ms, (int line), tb_frame_ms())
 TB_B(long long, fps, (int line), tb_fps())
 TB_BV(set_fps, (long long n, int line), tb_set_fps(n))

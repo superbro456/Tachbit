@@ -1,0 +1,8 @@
+// имя функции из другого модуля можно взять для своей переменной: вызов всё равно идёт в модуль
+use tools
+
+func main()
+    title = tools.title("отчёт")
+    total = total(a: 2, b: 3)
+    print(title)
+    print(total)

@@ -1,0 +1,52 @@
+// все элементы ui: вкладки, меню, список, ползунок, многострочное поле, подсказка, окно внутри программы
+use ui
+
+func main()
+    window_sharp()
+    try window_open(760, 480, "элементы")
+    u = ui.start()
+    tab = 0
+    lang = 1
+    vol = 40
+    name = "Назокат"
+    notes = "первая строка\nвторая строка\nтретья"
+    on = true
+    frames = 0
+    limit = 6
+    if env("TB_DEMO") != ""
+        limit = 100000
+    ui.window_show(u, "about")
+    repeat while window_alive() and frames < limit
+        ui.frame(u)
+        clear_window(u.bg)
+        ui.pad(u, 12)
+        ui.hbox(u, 30, 8)
+        m = ui.menu(u, "file", "Файл", ["Новый", "Открыть", "Выход"])
+        if m == 2
+            stop
+        tab = ui.tabs(u, ["Главная", "Настройки", "О программе"], tab)
+        ui.done(u)
+        ui.divider(u)
+        ui.hbox(u, 0, 12)
+        ui.card(u, 300)
+        ui.heading(u, "Профиль")
+        name = ui.edit(u, "name", name, "Имя")
+        ui.tip(u, "Как вас зовут")
+        lang = ui.pick(u, "lang", ["English", "Русский", "Oʻzbek"], lang)
+        vol = ui.slide(u, "vol", vol, 0, 100)
+        ui.note(u, "Громкость: " + vol)
+        on = ui.toggle(u, "Уведомления", on)
+        if ui.btn_main(u, "Сохранить")
+            print("сохранено")
+        ui.done(u)
+        ui.vbox(u, 0, 8)
+        ui.lbl(u, "Заметки")
+        notes = ui.area(u, "notes", notes, 0)
+        ui.done(u)
+        ui.done(u)
+        if ui.window(u, "about", "О программе", 280, 150)
+            ui.lbl(u, "Tachbit ui")
+            ui.note(u, "окно можно двигать за заголовок")
+            ui.window_end(u)
+        ui.end_frame(u)
+        frames += 1

@@ -132,7 +132,7 @@ func fits(want: int, got: int)
 // ---------- функции и obj ----------
 
 func is_builtin(name: text)
-    each b in ["print", "show", "len", "round", "code", "char", "cut", "to_int", "to_dec", "read_file", "write_file", "input", "args", "split", "join", "find", "replace", "upper", "lower", "trim", "starts_with", "ends_with", "sort", "abs", "min", "max", "sqrt", "run", "exit", "file_exists", "list_dir", "is_folder", "make_folder", "move", "remove", "env", "file_size", "window_open", "window_alive", "clear_window", "draw_pixel", "draw_rect", "draw_circle", "draw_triangle", "mesh_new", "mesh_add", "draw_mesh", "camera", "draw_line", "draw_text", "key_down", "mouse_x", "mouse_y", "mouse_down", "mouse_wheel", "typed_text", "mouse_back", "mouse_forward", "frame_ms", "fps", "set_fps", "window_w", "window_h", "load_image", "draw_image", "image_w", "image_h", "load_font", "draw_font", "text_width", "rgb", "random", "time_ms", "http_get", "json_get", "json_text", "date_now", "unix_time"]
+    each b in ["print", "show", "len", "round", "code", "char", "cut", "to_int", "to_dec", "read_file", "write_file", "input", "args", "split", "join", "find", "replace", "upper", "lower", "trim", "starts_with", "ends_with", "sort", "abs", "min", "max", "sqrt", "run", "exit", "file_exists", "list_dir", "is_folder", "make_folder", "move", "remove", "env", "file_size", "window_open", "window_alive", "clear_window", "draw_pixel", "draw_rect", "draw_circle", "draw_triangle", "mesh_new", "mesh_add", "draw_mesh", "camera", "draw_line", "draw_text", "key_down", "mouse_x", "mouse_y", "mouse_down", "mouse_wheel", "typed_text", "mouse_back", "mouse_forward", "clipboard_get", "clipboard_set", "set_cursor", "window_sharp", "window_scale", "frame_ms", "fps", "set_fps", "window_w", "window_h", "load_image", "draw_image", "image_w", "image_h", "load_font", "draw_font", "text_width", "rgb", "random", "time_ms", "http_get", "json_get", "json_text", "date_now", "unix_time"]
         if b == name
             return true
     each b in kernel_builtins()
@@ -164,14 +164,14 @@ func bare_only(name: text)
 
 // только в обычной программе (в ядре нет файлов и папок)
 func os_only(name: text)
-    each w in ["list_dir", "is_folder", "make_folder", "move", "remove", "env", "file_size", "window_open", "window_alive", "clear_window", "draw_pixel", "draw_rect", "draw_circle", "draw_triangle", "mesh_new", "mesh_add", "draw_mesh", "camera", "draw_line", "draw_text", "key_down", "mouse_x", "mouse_y", "mouse_down", "mouse_wheel", "typed_text", "mouse_back", "mouse_forward", "frame_ms", "fps", "set_fps", "window_w", "window_h", "load_image", "draw_image", "image_w", "image_h", "load_font", "draw_font", "text_width", "rgb", "random", "time_ms", "http_get", "json_get", "json_text", "date_now", "unix_time"]
+    each w in ["list_dir", "is_folder", "make_folder", "move", "remove", "env", "file_size", "window_open", "window_alive", "clear_window", "draw_pixel", "draw_rect", "draw_circle", "draw_triangle", "mesh_new", "mesh_add", "draw_mesh", "camera", "draw_line", "draw_text", "key_down", "mouse_x", "mouse_y", "mouse_down", "mouse_wheel", "typed_text", "mouse_back", "mouse_forward", "clipboard_get", "clipboard_set", "set_cursor", "window_sharp", "window_scale", "frame_ms", "fps", "set_fps", "window_w", "window_h", "load_image", "draw_image", "image_w", "image_h", "load_font", "draw_font", "text_width", "rgb", "random", "time_ms", "http_get", "json_get", "json_text", "date_now", "unix_time"]
         if name == w
             return true
     return false
 
 // окно и рисование
 func gfx_builtin(name: text)
-    each w in ["window_open", "window_alive", "clear_window", "draw_pixel", "draw_rect", "draw_circle", "draw_triangle", "mesh_new", "mesh_add", "draw_mesh", "camera", "draw_line", "draw_text", "key_down", "mouse_x", "mouse_y", "mouse_down", "mouse_wheel", "typed_text", "mouse_back", "mouse_forward", "frame_ms", "fps", "set_fps", "window_w", "window_h", "load_image", "draw_image", "image_w", "image_h", "load_font", "draw_font", "text_width"]
+    each w in ["window_open", "window_alive", "clear_window", "draw_pixel", "draw_rect", "draw_circle", "draw_triangle", "mesh_new", "mesh_add", "draw_mesh", "camera", "draw_line", "draw_text", "key_down", "mouse_x", "mouse_y", "mouse_down", "mouse_wheel", "typed_text", "mouse_back", "mouse_forward", "clipboard_get", "clipboard_set", "set_cursor", "window_sharp", "window_scale", "frame_ms", "fps", "set_fps", "window_w", "window_h", "load_image", "draw_image", "image_w", "image_h", "load_font", "draw_font", "text_width"]
         if name == w
             return true
     return false
@@ -289,8 +289,8 @@ func find_var(c: Comp, name: text)
 func name_is_free(c: Comp, name: text, line: int)
     if find_var(c, name) >= 0
         error_at(c, line, "такое имя уже есть, возьми другое", name)
-    // имя встроенной функции (code, len ...) для переменной можно: вызов code(...) всё равно работает
-    if find_func(c, name) >= 0
+    // имя встроенной функции (code, len ...) и функции другого модуля для переменной можно: вызов code(...) всё равно работает
+    if find_func_in(c, name, c.cur_mod) >= 0
         error_at(c, line, "так уже называется функция", name)
     if find_obj(c, name) >= 0
         error_at(c, line, "так уже называется obj", name)
@@ -909,6 +909,21 @@ func check_builtin(c: Comp, n: Node) gives r: int
     if name == "typed_text"
         builtin_args(c, n, "", "typed_text()  →  буквы, набранные с прошлого раза (\"\" — ничего)")
         return 4
+    if name == "clipboard_get"
+        builtin_args(c, n, "", "clipboard_get()  →  текст из буфера обмена (\"\" — пусто)")
+        return 4
+    if name == "clipboard_set"
+        builtin_args(c, n, "t", "clipboard_set(\"текст\")")
+        return 0
+    if name == "window_sharp"
+        builtin_args(c, n, "", "window_sharp()  —  до window_open: окно в настоящих точках экрана (Retina)")
+        return 0
+    if name == "window_scale"
+        builtin_args(c, n, "", "window_scale()  →  во сколько раз точек больше (1.0, 1.5, 2.0)")
+        return 2
+    if name == "set_cursor"
+        builtin_args(c, n, "t", "set_cursor(\"hand\")  —  arrow, hand, text, move, resize_x, resize_y, wait, none")
+        return 0
     if name == "mouse_x" or name == "mouse_y" or name == "time_ms" or name == "fps" or name == "window_w" or name == "window_h"
         builtin_args(c, n, "", name + "()")
         return 1

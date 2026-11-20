@@ -381,39 +381,44 @@ func preview(f: Fm)
             f.pv_lines.add(replace(line, "\t", "    "))
             n += 1
 
-func draw_preview(u: Ui, f: Fm, x: int, y: int, w: int, h: int)
+func draw_preview(u: Ui, f: Fm)
+    x, y, w, h = ui.take(u, 0)
     ui.panel(u, x, y, w, h)
+    m = ui.px(u, 14)
+    lh = u.line_h + ui.px(u, 4)
     if f.sel < 0
-        ui.label(u, x + 14, y + 14, "Ничего не выбрано", u.dim)
-        ui.label(u, x + 14, y + 40, ui.fit(u, base_name(f.dir), w - 28), u.ink)
-        ui.label(u, x + 14, y + 60, "папок " + f.folders + ", файлов " + f.files, u.dim)
+        ui.label(u, x + m, y + m, "Ничего не выбрано", u.dim)
+        ui.label(u, x + m, y + m + 2 * lh, ui.fit(u, base_name(f.dir), w - 2 * m), u.ink)
+        ui.label(u, x + m, y + m + 3 * lh, "папок " + f.folders + ", файлов " + f.files, u.dim)
         return
     it = f.items[f.sel]
-    icon(u, it, x + 14, y + 14, 2)
-    ui.txt(u, x + 14, y + 66, ui.fit(u, it.name, w - 28), u.ink)
-    ui.label(u, x + 14, y + 86, it.kind + ", " + f.pv_info, u.dim)
-    top = y + 116
-    draw_rect(x + 1, top - 8, w - 2, 1, u.line)
+    icon(u, it, x + m, y + m, 2)
+    ty = y + m + ui.px(u, 40)
+    ui.txt(u, x + m, ty, ui.fit(u, it.name, w - 2 * m), u.ink)
+    ui.label(u, x + m, ty + lh, ui.fit(u, it.kind + ", " + f.pv_info, w - 2 * m), u.dim)
+    top = ty + 2 * lh + ui.px(u, 10)
+    draw_rect(x + 1, top - ui.px(u, 8), w - 2, 1, u.line)
     if f.pv_img >= 0
         iw = image_w(f.pv_img)
         ih = image_h(f.pv_img)
-        if iw <= w - 28 and ih <= y + h - top - 10
+        if iw <= w - 2 * m and ih <= y + h - top - ui.px(u, 10)
             draw_image(f.pv_img, x + (w - iw) / 2, top)
         else
-            ui.label(u, x + 14, top, "картинка больше окна просмотра", u.dim)
+            ui.label(u, x + m, top, "картинка больше окна просмотра", u.dim)
         return
-    rows = (y + h - top - 8) / 18
-    count i from 0 to min(rows, len(f.pv_lines)) - 1
+    lines = (y + h - top - ui.px(u, 8)) / lh
+    count i from 0 to min(lines, len(f.pv_lines)) - 1
         line = f.pv_lines[i]
         c = u.ink
         if starts_with(trim(line), "//") or starts_with(trim(line), "#")
             c = u.dim
-        ui.txt(u, x + 14, top + i * 18, ui.fit(u, line, w - 28), c)
+        ui.txt(u, x + m, top + i * lh, ui.fit(u, line, w - 2 * m), c)
 
 // ---------- рисование ----------
 
 // значок: папка — жёлтая с ушком, файл — листок с загнутым углом цвета своего вида
-func icon(u: Ui, it: Item, x: int, y: int, s: int)
+func icon(u: Ui, it: Item, x: int, y: int, s0: int)
+    s = s0 * max(1, ui.px(u, 1))
     if it.folder
         c = rgb(240, 196, 90)
         draw_rect(x, y + 2 * s, 7 * s, 3 * s, c)
@@ -429,12 +434,14 @@ func icon(u: Ui, it: Item, x: int, y: int, s: int)
     draw_rect(x + 4 * s, y + 10 * s, 8 * s, 1 * s, u.bg)
 
 // маленькая стрелка › между папками пути (такой буквы в шрифте нет — рисуем линиями)
-func chevron(x: int, y: int, c: int)
-    draw_line(x, y, x + 4, y + 4, c)
-    draw_line(x + 4, y + 4, x, y + 8, c)
+func chevron(u: Ui, x: int, y: int, c: int)
+    s = ui.px(u, 4)
+    draw_line(x, y, x + s, y + s, c)
+    draw_line(x + s, y + s, x, y + 2 * s, c)
 
-// путь сверху: каждая папка — кнопка; не влезает — показываем хвост
-func crumbs(u: Ui, f: Fm, x: int, y: int, w: int)
+// путь сверху: каждая папка — кнопка; не влезает — показываем хвост. Занимает остаток ряда
+func crumbs(u: Ui, f: Fm)
+    x, y, w, h = ui.take(u, 0)
     parts = list text
     paths = list text
     p = f.dir
@@ -444,97 +451,96 @@ func crumbs(u: Ui, f: Fm, x: int, y: int, w: int)
         if p == "/"
             stop
         p = parent(p)
+    gap = ui.px(u, 12)
+    most = ui.px(u, 200)
     // считаем с конца (последняя папка справа), пока влезает
     used = 0
     first = 0
     count i from 0 to len(parts) - 1
-        bw = min(200, ui.text_w(u, parts[i]) + 20)
-        if used + bw + 12 > w - 30
+        bw = min(most, ui.text_w(u, parts[i]) + ui.px(u, 20))
+        if used + bw + gap > w - ui.px(u, 30)
             first = i
             stop
-        used += bw + 12
+        used += bw + gap
         first = i + 1
     cx = x
     if first < len(parts)
-        ui.label(u, cx, y + 7, "..", u.dim)
-        cx += 20
+        ui.label(u, cx, y + (h - u.line_h) / 2, "..", u.dim)
+        cx += ui.px(u, 20)
     i = first - 1
     repeat while i >= 0
-        bw = min(200, ui.text_w(u, parts[i]) + 20)
+        bw = min(most, ui.text_w(u, parts[i]) + ui.px(u, 20))
         if i == 0
-            draw_rect(cx, y, bw, 30, u.sel)
-            ui.label_center(u, cx, y, bw, 30, parts[i], u.ink)
-        else if ui.button(u, cx, y, bw, 30, parts[i])
+            ui.rbox(u, cx, y, bw, h, u.radius, u.sel)
+            ui.label_center(u, cx, y, bw, h, parts[i], u.ink)
+        else if ui.button(u, cx, y, bw, h, parts[i])
             go(f, paths[i])
             return
         cx += bw
         if i > 0
-            chevron(cx + 3, y + 11, u.dim)
-        cx += 12
+            chevron(u, cx + ui.px(u, 3), y + h / 2 - ui.px(u, 4), u.dim)
+        cx += gap
         i -= 1
 
-func places(u: Ui, f: Fm, x: int, y: int, w: int, h: int)
+// слева: места (столбец)
+func places(u: Ui, f: Fm)
+    x, y, w, h = ui.box_rect(u)
     draw_rect(x, y, w, h, u.panel)
     draw_rect(x + w - 1, y, 1, h, u.line)
-    ui.label(u, x + 14, y + 12, "Места", u.dim)
+    ui.pad(u, 6)
+    ui.vbox(u, 0, 2)
+    ui.note(u, "  Места")
     names = ["Дом", "Рабочий стол", "Документы", "Загрузки", "Картинки", "Корень диска"]
     dirs = [f.home, f.home + "/Desktop", f.home + "/Documents", f.home + "/Downloads", f.home + "/Pictures", "/"]
-    ry = y + 38
     count i from 0 to len(names) - 1
         d = dirs[i]
         if d == "" or not is_folder(d)
             skip
+        rx, ry, rw, rh = ui.take(u, 30)
         it = Item(folder: true)
-        r = ui.row(u, "place" + i, x + 6, ry, w - 12, 30, "", f.dir == d)
-        icon(u, it, x + 14, ry + 7, 1)
-        ui.txt(u, x + 40, ry + 7, ui.fit(u, names[i], w - 52), u.ink)
+        r = ui.row(u, "place" + i, rx, ry, rw, rh, "", f.dir == d)
+        icon(u, it, rx + ui.px(u, 8), ry + (rh - ui.px(u, 16)) / 2, 1)
+        ui.txt(u, rx + ui.px(u, 34), ry + (rh - u.line_h) / 2, ui.fit(u, names[i], rw - ui.px(u, 42)), u.ink)
         if r > 0
             go(f, d)
-        ry += 32
+            ui.done(u)
+            return
+    ui.done(u)
 
-func status(u: Ui, f: Fm, x: int, y: int, w: int, h: int)
-    draw_rect(x, y, w, h, u.panel)
-    draw_rect(x, y, w, 1, u.line)
+// нижняя полоса: слева «Скрытые» и что в папке, справа кнопки
+func status(u: Ui, f: Fm)
+    now = ui.toggle(u, "Скрытые", f.hidden)
+    if now != f.hidden
+        f.hidden = now
+        load(f)
+        return
+    ui.at_end(u)
+    can = f.sel >= 0
+    hit = false
+    if can
+        hit = ui.btn_main(u, "Открыть")
+    else
+        hit = ui.btn_if(u, "Открыть", false)
+    if hit
+        open_item(f, f.items[f.sel])
+        return
+    if ui.btn_if(u, "В корзину", can)
+        ask_delete(u, f)
+    if ui.btn(u, "Новая папка")
+        new_folder(u, f)
+        if f.sel >= 0
+            start_rename(u, f)
+        return
+    if ui.btn_if(u, "Переименовать", can)
+        start_rename(u, f)
+    // что осталось посередине — надпись
+    x, y, w, h = ui.take(u, 0)
     s = "папок " + f.folders + ", файлов " + f.files
     c = u.dim
     if f.note != "" and time_ms() - f.note_at < 4000
         s = f.note
         c = u.accent
-    // кнопки справа налево
-    bx = x + w - 10
-    can = f.sel >= 0
-    bx -= 110
-    if can
-        if ui.button_main(u, bx, y + 6, 100, 26, "Открыть")
-            open_item(f, f.items[f.sel])
-            return
-    else
-        ui.button_off(u, bx, y + 6, 100, 26, "Открыть")
-    bx -= 120
-    if can
-        if ui.button(u, bx, y + 6, 110, 26, "В корзину")
-            ask_delete(u, f)
-    else
-        ui.button_off(u, bx, y + 6, 110, 26, "В корзину")
-    bx -= 130
-    if ui.button(u, bx, y + 6, 120, 26, "Новая папка")
-        new_folder(u, f)
-        if f.sel >= 0
-            start_rename(u, f)
-        return
-    bx -= 160
-    if can
-        if ui.button(u, bx, y + 6, 150, 26, "Переименовать")
-            start_rename(u, f)
-    else
-        ui.button_off(u, bx, y + 6, 150, 26, "Переименовать")
-    bx -= 110
-    now = ui.check(u, bx, y + 10, "Скрытые", f.hidden)
-    if now != f.hidden
-        f.hidden = now
-        load(f)
-        return
-    ui.label(u, x + 14, y + 11, ui.fit(u, s, bx - x - 30), c)
+    ui.txt(u, x + ui.px(u, 8), y + (h - u.line_h) / 2, ui.fit(u, s, w - ui.px(u, 8)), c)
 
 func ask_delete(u: Ui, f: Fm)
     it = f.items[f.sel]
@@ -544,35 +550,39 @@ func ask_delete(u: Ui, f: Fm)
     else
         ui.ask(u, "В корзину?", it.name, "В корзину", "Отмена")
 
-// список файлов с шапкой и полосой прокрутки
-func list_view(u: Ui, f: Fm, x: int, y: int, w: int, h: int)
-    rh = 28
-    size_w = 100
-    kind_w = 110
-    lw = w - 14
+// список файлов с шапкой и полосой прокрутки: занимает остаток места
+func list_view(u: Ui, f: Fm)
+    x, y, w, h = ui.take(u, 0)
+    k = ui.px(u, 1)
+    rh = ui.px(u, 28)
+    head = ui.px(u, 28)
+    size_w = ui.px(u, 100)
+    kind_w = ui.px(u, 110)
+    bar = ui.px(u, 12)
+    lw = w - bar - ui.px(u, 2)
+    ty = (rh - u.line_h) / 2
     // шапка: щёлкни «Имя» или «Размер» — так и отсортируется
-    draw_rect(x, y, w, 28, u.bg)
-    draw_rect(x, y + 27, w, 1, u.line)
+    draw_rect(x, y + head - 1, w, 1, u.line)
     name_c = u.dim
     size_c = u.dim
     if f.by_size
         size_c = u.accent
     else
         name_c = u.accent
-    ui.label(u, x + 44, y + 6, "Имя", name_c)
-    ui.label(u, x + lw - size_w - kind_w, y + 6, "Размер", size_c)
-    ui.label(u, x + lw - kind_w + 10, y + 6, "Вид", u.dim)
-    if ui.clicked(u, x, y, lw - size_w - kind_w - 10, 28) and f.by_size
+    ui.label(u, x + ui.px(u, 44), y + ty, "Имя", name_c)
+    ui.label(u, x + lw - size_w - kind_w, y + ty, "Размер", size_c)
+    ui.label(u, x + lw - kind_w + ui.px(u, 10), y + ty, "Вид", u.dim)
+    if ui.clicked(u, x, y, lw - size_w - kind_w - ui.px(u, 10), head) and f.by_size
         f.by_size = false
         load(f)
         return
-    if ui.clicked(u, x + lw - size_w - kind_w - 10, y, size_w, 28) and not f.by_size
+    if ui.clicked(u, x + lw - size_w - kind_w - ui.px(u, 10), y, size_w, head) and not f.by_size
         f.by_size = true
         load(f)
         return
-    ly = y + 28
-    lh = h - 28
-    shown = lh / rh
+    top_y = y + head
+    room = h - head
+    shown = max(1, room / rh)
     f.page = shown
     n = len(f.items)
     // после стрелок выбранная строка должна быть видна; колёсико листает свободно
@@ -582,24 +592,24 @@ func list_view(u: Ui, f: Fm, x: int, y: int, w: int, h: int)
         if f.sel >= f.top + shown
             f.top = f.sel - shown + 1
     f.follow = false
-    f.top = ui.wheel_scroll(u, x, ly, w, lh, n, shown, f.top)
+    f.top = ui.wheel_scroll(u, x, top_y, w, room, n, shown, f.top)
     f.top = max(0, min(f.top, n - shown))
     if n == 0
         if f.find != ""
-            ui.label(u, x + 44, ly + 20, "ничего не нашлось", u.dim)
+            ui.label(u, x + ui.px(u, 44), top_y + ui.px(u, 20), "ничего не нашлось", u.dim)
         else
-            ui.label(u, x + 44, ly + 20, "пусто", u.dim)
-    count k from 0 to shown - 1
-        i = f.top + k
+            ui.label(u, x + ui.px(u, 44), top_y + ui.px(u, 20), "пусто", u.dim)
+    count j from 0 to shown - 1
+        i = f.top + j
         if i >= n
             stop
         it = f.items[i]
-        ry = ly + k * rh
-        r = ui.row(u, f.dir + "/" + it.name, x, ry, lw, rh, "", i == f.sel)
-        icon(u, it, x + 14, ry + 6, 1)
-        name_room = lw - size_w - kind_w - 54
+        ry = top_y + j * rh
+        r = ui.row(u, f.dir + "/" + it.name, x + ui.px(u, 4), ry, lw - ui.px(u, 4), rh, "", i == f.sel)
+        icon(u, it, x + ui.px(u, 14), ry + (rh - ui.px(u, 16)) / 2, 1)
+        name_room = lw - size_w - kind_w - ui.px(u, 54)
         if f.renaming and i == f.sel
-            f.new_name = ui.field(u, "rename", x + 38, ry + 1, name_room + 10, rh - 2, f.new_name, "")
+            f.new_name = ui.field(u, "rename", x + ui.px(u, 38), ry + k, name_room + ui.px(u, 10), rh - 2 * k, f.new_name, "")
             if u.entered
                 finish_rename(f)
                 u.focus = ""
@@ -607,17 +617,17 @@ func list_view(u: Ui, f: Fm, x: int, y: int, w: int, h: int)
             if u.focus != "rename"
                 f.renaming = false
         else
-            ui.txt(u, x + 44, ry + 6, ui.fit(u, it.name, name_room), u.ink)
+            ui.txt(u, x + ui.px(u, 44), ry + ty, ui.fit(u, it.name, name_room), u.ink)
         if not it.folder
-            ui.txt(u, x + lw - size_w - kind_w, ry + 6, human(it.size), u.dim)
-        ui.txt(u, x + lw - kind_w + 10, ry + 6, ui.fit(u, it.kind, kind_w - 14), kind_color(u, it.kind))
+            ui.txt(u, x + lw - size_w - kind_w, ry + ty, human(it.size), u.dim)
+        ui.txt(u, x + lw - kind_w + ui.px(u, 10), ry + ty, ui.fit(u, it.kind, kind_w - ui.px(u, 14)), kind_color(u, it.kind))
         if r == 1 and not (f.renaming and i == f.sel)
             f.sel = i
         else if r == 2 and not f.renaming
             f.sel = i
             open_item(f, it)
             return
-    f.top = ui.scrollbar(u, "list", x + w - 12, ly, 12, lh, n, shown, f.top)
+    f.top = ui.scrollbar(u, "list", x + w - bar, top_y, bar, room, n, shown, f.top)
 
 func keys(u: Ui, f: Fm)
     // боковые кнопки мыши — как в браузере
@@ -791,12 +801,12 @@ func main()
     repeat while len(f.dir) > 1 and ends_with(f.dir, "/")
         f.dir = cut(f.dir, 0, len(f.dir) - 2)
     load(f)
+    window_sharp()
     try window_open(1000, 620, "Файлы")
     u = ui.start()
     repeat while window_alive()
         ui.frame(u)
         W = window_w()
-        H = window_h()
         clear_window(u.bg)
         // ответ на вопрос «удалить?»
         if ui.answer(u) == 1 and f.doomed != ""
@@ -804,29 +814,24 @@ func main()
         if not u.ask_open
             f.doomed = ""
         keys(u, f)
-        // верхняя полоса: назад, вперёд, выше, путь
-        draw_rect(0, 0, W, 48, u.panel)
-        draw_rect(0, 47, W, 1, u.line)
-        if len(f.back) > 0
-            if ui.button(u, 10, 9, 32, 30, "<")
-                go_back(f)
-        else
-            ui.button_off(u, 10, 9, 32, 30, "<")
-        if len(f.ahead) > 0
-            if ui.button(u, 46, 9, 32, 30, ">")
-                go_ahead(f)
-        else
-            ui.button_off(u, 46, 9, 32, 30, ">")
-        if f.dir != "/"
-            if ui.button(u, 82, 9, 32, 30, "^")
-                go(f, parent(f.dir))
-        else
-            ui.button_off(u, 82, 9, 32, 30, "^")
-        sw = 0
-        if W >= 700
-            sw = 220
+        // верхняя полоса: назад, вперёд, выше, путь, поиск
+        ui.hbox(u, 48, 4)
+        x, y, w, h = ui.box_rect(u)
+        draw_rect(x, y, w, h, u.panel)
+        draw_rect(x, y + h - 1, w, 1, u.line)
+        ui.pad(u, 9)
+        if ui.btn_if(u, "<", len(f.back) > 0)
+            go_back(f)
+        if ui.btn_if(u, ">", len(f.ahead) > 0)
+            go_ahead(f)
+        if ui.btn_if(u, "^", f.dir != "/")
+            go(f, parent(f.dir))
+        ui.space(u, 6)
+        if W >= ui.px(u, 700)
+            ui.at_end(u)
+            ui.hbox(u, 220, 0)
             was = f.find
-            f.find = ui.field(u, "find", W - sw - 10, 9, sw, 30, f.find, "Поиск в этой папке")
+            f.find = ui.edit(u, "find", f.find, "Поиск в этой папке")
             if f.find != was
                 load(f)
             if u.entered
@@ -834,17 +839,32 @@ func main()
                 if len(f.items) > 0
                     f.sel = 0
                     f.follow = true
-        crumbs(u, f, 128, 9, W - 138 - sw - 10)
+            ui.done(u)
+            ui.space(u, 10)
+        crumbs(u, f)
+        ui.done(u)
+        // нижняя полоса
+        ui.hbox_end(u, 38, 8)
+        x, y, w, h = ui.box_rect(u)
+        draw_rect(x, y, w, h, u.panel)
+        draw_rect(x, y, w, 1, u.line)
+        ui.pad(u, 5)
+        ui.space(u, 4)
+        status(u, f)
+        ui.done(u)
         // слева места, справа просмотр (если окно широкое), в середине список
-        side = 180
-        pw = 0
-        if W >= 860
-            pw = 280
-        places(u, f, 0, 48, side, H - 48 - 38)
+        ui.hbox(u, 0, 0)
+        ui.vbox(u, 180, 0)
+        places(u, f)
+        ui.done(u)
         preview(f)
-        list_view(u, f, side, 48, W - side - pw, H - 48 - 38)
-        if pw > 0
-            preview(f)
-            draw_preview(u, f, W - pw, 48, pw, H - 48 - 38)
-        status(u, f, 0, H - 38, W, 38)
+        if W >= ui.px(u, 860)
+            ui.at_end(u)
+            ui.vbox(u, 280, 0)
+            draw_preview(u, f)
+            ui.done(u)
+        ui.vbox(u, 0, 0)
+        list_view(u, f)
+        ui.done(u)
+        ui.done(u)
         ui.end_frame(u)
