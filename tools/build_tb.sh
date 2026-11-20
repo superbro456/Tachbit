@@ -13,5 +13,5 @@ $cc -O2 -w -o ./build/tb-seed compiler/seed/tb.c -lm -lpthread || { echo "не �
 mv compiler/main ./build/tb2
 ./build/tb2 build compiler/main.tb > /dev/null || exit 1
 mv compiler/main ./build/tb
-rm -f ./build/tb-seed ./build/tb2 compiler/main.c compiler/main.ll
+rm -f ./build/tb-seed ./build/tb2 compiler/main.c compiler/main.ll compiler/main.cc.log compiler/main.llvm.log
 echo "собран ./build/tb"
