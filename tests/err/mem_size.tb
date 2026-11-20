@@ -1,0 +1,4 @@
+// new_mem без else: может не получиться, значит нужен try или else
+func main()
+    danger
+        a = new_mem(8)

@@ -1,0 +1,7 @@
+// TB_MEM_CHECK=1: чтение после free_mem
+func main()
+    danger
+        a = new_mem(8) else err
+            return
+        free_mem(a)
+        print(read8(a))

@@ -19,7 +19,8 @@ tmp="$(mktemp -d)"
 for f in tests/ok/*.tb tests/err/*.tb; do
     name="$(basename "$f" .tb)"
     cp "$f" "$tmp/$name.tb"
-    got="$( (cd "$tmp" && "$OLDPWD/$compiler" run --c "$name.tb") 2>&1)"
+    chk=; case "$name" in memcheck_*) chk=1 ;; esac
+    got="$( (cd "$tmp" && TB_MEM_CHECK=$chk "$OLDPWD/$compiler" run --c "$name.tb") 2>&1)"
     case "$f" in
         tests/ok/*) want_file="${f%.tb}.out" ;;
         *) want_file="${f%.tb}.err" ;;

@@ -1,0 +1,6 @@
+// TB_MEM_CHECK=1: запись за краем блока
+func main()
+    danger
+        a = new_mem(8) else err
+            return
+        write32(a + 6, 1)

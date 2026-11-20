@@ -2742,15 +2742,179 @@ TB_INL long long tb_bnot(long long a) { return ~a; }
 TB_INL long long tb_shl(long long a, long long n) { return (long long)((unsigned long long)a << (n & 63)); }
 TB_INL long long tb_shr(long long a, long long n) { return (long long)((unsigned long long)a >> (n & 63)); }
 // чтение и запись по адресу: volatile — компилятор C не выкинет и не переставит их
-TB_INL long long tb_rd8(long long a) { return *(volatile uint8_t *)(uintptr_t)a; }
-TB_INL long long tb_rd16(long long a) { return *(volatile uint16_t *)(uintptr_t)a; }
-TB_INL long long tb_rd32(long long a) { return *(volatile uint32_t *)(uintptr_t)a; }
-TB_INL long long tb_rd64(long long a) { return (long long)*(volatile uint64_t *)(uintptr_t)a; }
-TB_INL void tb_wr8(long long a, long long v) { *(volatile uint8_t *)(uintptr_t)a = (uint8_t)v; }
-TB_INL void tb_wr16(long long a, long long v) { *(volatile uint16_t *)(uintptr_t)a = (uint16_t)v; }
-TB_INL void tb_wr32(long long a, long long v) { *(volatile uint32_t *)(uintptr_t)a = (uint32_t)v; }
-TB_INL void tb_wr64(long long a, long long v) { *(volatile uint64_t *)(uintptr_t)a = (uint64_t)v; }
+// ---------- память руками: new_mem, free_mem, grow_mem, copy_mem, fill_mem (только в danger) ----------
+// Перед каждым блоком 16 байт: размер и метка «живой» / «освобождён» — так free_mem ловит чужой
+// адрес и второе освобождение. TB_MEM_CHECK=1 (не в ядре): за блоком 16 байт-сторожей, освобождённые
+// блоки не отдаются обратно (их чтение и запись ловятся), read/write/copy_mem/fill_mem проверяют
+// адрес, а в конце программы печатается, что не освобождено
+#define TB_MEM_LIVE 0x4D454D4C49564521ULL
+#define TB_MEM_DEAD 0x4D454D4445414421ULL
+#define TB_MEM_GUARD 16
+typedef struct { uint64_t size, magic; } tb_memh;
+typedef struct { uintptr_t a; uint64_t n; int live, line, fline; } tb_memb;
+TB_API int tb_mem_check = -1;
+TB_API tb_memb *tb_mem_all = 0;
+TB_API long long tb_mem_n = 0, tb_mem_cap = 0;
+TB_API volatile int tb_mem_spin = 0;
+TB_API void tb_mem_report(void);
+TB_INL int tb_memchk(void) {
+    if (TB_RARE(tb_mem_check < 0)) {
+#ifdef TB_BARE
+        tb_mem_check = 0;
+#else
+        const char *e = getenv("TB_MEM_CHECK");
+        tb_mem_check = e && e[0] == '1';
+        if (tb_mem_check) atexit(tb_mem_report);
+#endif
+    }
+    return tb_mem_check;
+}
+static void tb_mem_lock(void) { while (__sync_lock_test_and_set(&tb_mem_spin, 1)) { } }
+static void tb_mem_unlock(void) { __sync_lock_release(&tb_mem_spin); }
+TB_COLD static void tb_mem_die(int line, const char *what, int at) {
+    char buf[200];
+    if (at > 0) snprintf(buf, sizeof buf, "%s (блок из new_mem в строке %d)", what, at);
+    else snprintf(buf, sizeof buf, "%s", what);
+    tb_mem_check = 0;   // программа падает: отчёт о неосвобождённом не нужен
+    tb_mem_unlock();
+    tb_crash(line, buf);
+}
+TB_API void tb_mem_report(void) {
+    long long n = 0, bytes = 0; int first = 0;
+    for (long long i = 0; i < tb_mem_n; i++)
+        if (tb_mem_all[i].live) { if (!n) first = tb_mem_all[i].line; n++; bytes += (long long)tb_mem_all[i].n; }
+    if (n && tb_mem_check) fprintf(stderr, "TB_MEM_CHECK: не освобождено блоков %lld (%lld байт), первый из new_mem в строке %d\n", n, bytes, first);
+}
+// TB_MEM_CHECK: можно ли трогать байты [a, a + n)
+static void tb_mem_touch(uintptr_t a, uint64_t n, int line) {
+    if (n == 0) return;
+    tb_mem_lock();
+    for (long long i = 0; i < tb_mem_n; i++) {
+        tb_memb *b = &tb_mem_all[i];
+        uintptr_t lo = b->a - sizeof(tb_memh), hi = b->a + b->n + TB_MEM_GUARD;
+        if (a + n <= lo || a >= hi) continue;
+        if (!b->live) {
+            char buf[160];
+            snprintf(buf, sizeof buf, "эта память уже освобождена: free_mem в строке %d", b->fline);
+            tb_mem_die(line, buf, b->line);
+        }
+        if (a < b->a || a + n > b->a + b->n) tb_mem_die(line, "чтение или запись за краем блока", b->line);
+    }
+    tb_mem_unlock();
+}
+static tb_memb *tb_mem_find(uintptr_t a) {
+    for (long long i = tb_mem_n - 1; i >= 0; i--) if (tb_mem_all[i].a == a) return &tb_mem_all[i];
+    return 0;
+}
+// чтение и запись по адресу: volatile — компилятор C не выкинет и не переставит их
+#define TB_TOUCH(a, n) if (TB_RARE(tb_memchk())) tb_mem_touch((uintptr_t)(a), (n), line)
+TB_INL long long tb_rd8(long long a, int line) { TB_TOUCH(a, 1); return *(volatile uint8_t *)(uintptr_t)a; }
+TB_INL long long tb_rd16(long long a, int line) { TB_TOUCH(a, 2); return *(volatile uint16_t *)(uintptr_t)a; }
+TB_INL long long tb_rd32(long long a, int line) { TB_TOUCH(a, 4); return *(volatile uint32_t *)(uintptr_t)a; }
+TB_INL long long tb_rd64(long long a, int line) { TB_TOUCH(a, 8); return (long long)*(volatile uint64_t *)(uintptr_t)a; }
+TB_INL void tb_wr8(long long a, long long v, int line) { TB_TOUCH(a, 1); *(volatile uint8_t *)(uintptr_t)a = (uint8_t)v; }
+TB_INL void tb_wr16(long long a, long long v, int line) { TB_TOUCH(a, 2); *(volatile uint16_t *)(uintptr_t)a = (uint16_t)v; }
+TB_INL void tb_wr32(long long a, long long v, int line) { TB_TOUCH(a, 4); *(volatile uint32_t *)(uintptr_t)a = (uint32_t)v; }
+TB_INL void tb_wr64(long long a, long long v, int line) { TB_TOUCH(a, 8); *(volatile uint64_t *)(uintptr_t)a = (uint64_t)v; }
 TB_INL long long tb_addr_of(tb_list *l) { return (long long)(uintptr_t)l->data; }
+// new_mem(байт): новый блок, заполнен нулями; адрес — число. Может не получиться (нет памяти)
+TB_API long long tb_new_mem(long long n, int line) {
+    if (n <= 0) { tb_err = "new_mem: размер должен быть больше нуля"; return 0; }
+    if ((unsigned long long)n > ((unsigned long long)1 << 46)) { tb_err = "new_mem: слишком большой блок"; return 0; }
+    int chk = tb_memchk();
+    tb_memh *h = malloc(sizeof(tb_memh) + (size_t)n + (chk ? TB_MEM_GUARD : 0));
+    if (!h) { tb_err = "new_mem: не хватило памяти"; return 0; }
+    h->size = (uint64_t)n; h->magic = TB_MEM_LIVE;
+    unsigned char *p = (unsigned char *)(h + 1);
+    memset(p, 0, (size_t)n);
+    if (chk) {
+        memset(p + n, 0xFB, TB_MEM_GUARD);
+        tb_mem_lock();
+        if (tb_mem_n == tb_mem_cap) {
+            long long nc = tb_mem_cap ? tb_mem_cap * 2 : 256;
+            tb_memb *all = realloc(tb_mem_all, (size_t)nc * sizeof(tb_memb));
+            if (!all) tb_mem_die(line, "не хватило памяти", 0);
+            tb_mem_all = all; tb_mem_cap = nc;
+        }
+        tb_memb b = { (uintptr_t)p, (uint64_t)n, 1, line, 0 };
+        tb_mem_all[tb_mem_n++] = b;
+        tb_mem_unlock();
+    }
+    return (long long)(uintptr_t)p;
+}
+// проверить адрес для free_mem / grow_mem; вернуть заголовок блока
+static tb_memh *tb_mem_own(long long a, int line, const char *who) {
+    char buf[120];
+    if (tb_memchk()) {
+        tb_mem_lock();
+        tb_memb *b = tb_mem_find((uintptr_t)a);
+        if (!b) { snprintf(buf, sizeof buf, "%s: это не адрес из new_mem", who); tb_mem_die(line, buf, 0); }
+        if (!b->live) {
+            snprintf(buf, sizeof buf, "%s: блок уже освобождён в строке %d", who, b->fline);
+            tb_mem_die(line, buf, b->line);
+        }
+        const unsigned char *g = (const unsigned char *)(uintptr_t)a + b->n;
+        for (int i = 0; i < TB_MEM_GUARD; i++)
+            if (g[i] != 0xFB) tb_mem_die(line, "кто-то писал за краем блока", b->line);
+        tb_mem_unlock();
+        return (tb_memh *)(uintptr_t)a - 1;
+    }
+    tb_memh *h = (tb_memh *)(uintptr_t)a - 1;
+    if (h->magic == TB_MEM_DEAD) { snprintf(buf, sizeof buf, "%s: блок уже освобождён", who); tb_crash(line, buf); }
+    if (h->magic != TB_MEM_LIVE) { snprintf(buf, sizeof buf, "%s: это не адрес из new_mem или блок уже освобождён (точнее покажет TB_MEM_CHECK=1)", who); tb_crash(line, buf); }
+    return h;
+}
+// TB_MEM_CHECK: блок не отдаётся обратно, а помечается — чтобы поймать чтение после free_mem
+static void tb_mem_bury(long long a, int line) {
+    tb_mem_lock();
+    tb_memb *b = tb_mem_find((uintptr_t)a);
+    b->live = 0; b->fline = line;
+    memset((void *)(uintptr_t)a, 0xDD, (size_t)b->n);
+    ((tb_memh *)(uintptr_t)a - 1)->magic = TB_MEM_DEAD;
+    tb_mem_unlock();
+}
+// free_mem(адрес): отдать блок; free_mem(0) ничего не делает
+TB_API void tb_free_mem(long long a, int line) {
+    if (a == 0) return;
+    tb_memh *h = tb_mem_own(a, line, "free_mem");
+    if (tb_memchk()) { tb_mem_bury(a, line); return; }
+    h->magic = TB_MEM_DEAD;
+    free(h);
+}
+// grow_mem(адрес, байт): блок нового размера (данные сохраняются, новое место — нули); адрес может стать другим
+TB_API long long tb_grow_mem(long long a, long long n, int line) {
+    if (a == 0) return tb_new_mem(n, line);
+    if (n <= 0) { tb_err = "grow_mem: размер должен быть больше нуля"; return 0; }
+    if ((unsigned long long)n > ((unsigned long long)1 << 46)) { tb_err = "grow_mem: слишком большой блок"; return 0; }
+    tb_memh *h = tb_mem_own(a, line, "grow_mem");
+    uint64_t old = h->size;
+    if (tb_memchk()) {
+        long long b = tb_new_mem(n, line);
+        if (!b) return 0;
+        memcpy((void *)(uintptr_t)b, (void *)(uintptr_t)a, (size_t)(old < (uint64_t)n ? old : (uint64_t)n));
+        tb_mem_bury(a, line);
+        return b;
+    }
+    tb_memh *q = realloc(h, sizeof(tb_memh) + (size_t)n);
+    if (!q) { tb_err = "grow_mem: не хватило памяти"; return 0; }
+    if ((uint64_t)n > old) memset((unsigned char *)(q + 1) + old, 0, (size_t)((uint64_t)n - old));
+    q->size = (uint64_t)n;
+    return (long long)(uintptr_t)(q + 1);
+}
+// copy_mem(куда, откуда, байт): блоки могут перекрываться
+TB_API void tb_copy_mem(long long dst, long long src, long long n, int line) {
+    if (n < 0) tb_crash(line, "copy_mem: число байт меньше нуля");
+    if (n == 0) return;
+    if (tb_memchk()) { tb_mem_touch((uintptr_t)src, (uint64_t)n, line); tb_mem_touch((uintptr_t)dst, (uint64_t)n, line); }
+    memmove((void *)(uintptr_t)dst, (const void *)(uintptr_t)src, (size_t)n);
+}
+// fill_mem(адрес, байт-значение, сколько)
+TB_API void tb_fill_mem(long long a, long long v, long long n, int line) {
+    if (n < 0) tb_crash(line, "fill_mem: число байт меньше нуля");
+    if (n == 0) return;
+    if (tb_memchk()) tb_mem_touch((uintptr_t)a, (uint64_t)n, line);
+    memset((void *)(uintptr_t)a, (int)(v & 255), (size_t)n);
+}
 #ifdef TB_BARE
 TB_INL long long tb_pin8(long long p) { return tb_inb((unsigned short)p); }
 TB_INL long long tb_pin16(long long p) { return tb_inw((unsigned short)p); }
@@ -7060,15 +7224,20 @@ TB_BV(sort_int, (tb_list *l, int line), tb_sort_list(l, tb_cmp_int))
 TB_BV(sort_dec, (tb_list *l, int line), tb_sort_list(l, tb_cmp_dec))
 TB_BV(sort_text, (tb_list *l, int line), tb_sort_list(l, tb_cmp_text))
 TB_B(double, sqrt, (double x, int line), tb_sqrt(x, line))
-TB_B(long long, read8, (long long a, int line), tb_rd8(a))
-TB_BV(write8, (long long a, long long v, int line), tb_wr8(a, v))
-TB_B(long long, read16, (long long a, int line), tb_rd16(a))
-TB_BV(write16, (long long a, long long v, int line), tb_wr16(a, v))
-TB_B(long long, read32, (long long a, int line), tb_rd32(a))
-TB_BV(write32, (long long a, long long v, int line), tb_wr32(a, v))
-TB_B(long long, read64, (long long a, int line), tb_rd64(a))
-TB_BV(write64, (long long a, long long v, int line), tb_wr64(a, v))
+TB_B(long long, read8, (long long a, int line), tb_rd8(a, line))
+TB_BV(write8, (long long a, long long v, int line), tb_wr8(a, v, line))
+TB_B(long long, read16, (long long a, int line), tb_rd16(a, line))
+TB_BV(write16, (long long a, long long v, int line), tb_wr16(a, v, line))
+TB_B(long long, read32, (long long a, int line), tb_rd32(a, line))
+TB_BV(write32, (long long a, long long v, int line), tb_wr32(a, v, line))
+TB_B(long long, read64, (long long a, int line), tb_rd64(a, line))
+TB_BV(write64, (long long a, long long v, int line), tb_wr64(a, v, line))
 TB_B(long long, address_of, (tb_list *l, int line), tb_addr_of(l))
+TB_B(long long, new_mem, (long long n, int line), tb_new_mem(n, line))
+TB_BV(free_mem, (long long a, int line), tb_free_mem(a, line))
+TB_B(long long, grow_mem, (long long a, long long n, int line), tb_grow_mem(a, n, line))
+TB_BV(copy_mem, (long long d, long long s, long long n, int line), tb_copy_mem(d, s, n, line))
+TB_BV(fill_mem, (long long a, long long v, long long n, int line), tb_fill_mem(a, v, n, line))
 TB_B(long long, abs_i, (long long x, int line), tb_absi(x))
 TB_B(double, abs_d, (double x, int line), fabs(x))
 TB_B(long long, min_i, (long long a, long long b, int line), tb_mini(a, b))

@@ -1,0 +1,4 @@
+// new_mem только внутри danger
+func main()
+    a = new_mem(8) else err
+        return

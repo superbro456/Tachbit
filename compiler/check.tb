@@ -142,12 +142,12 @@ func is_builtin(name: text)
 
 // для железа и ядер: биты (везде), адреса и порты (только в danger), время и клавиши (в ядре)
 func kernel_builtins() gives names: list text
-    names = ["bit_and", "bit_or", "bit_xor", "bit_not", "shift_left", "shift_right", "read8", "read16", "read32", "read64", "write8", "write16", "write32", "write64", "asm", "address_of", "port_in8", "port_in16", "port_in32", "port_out8", "port_out16", "port_out32", "page_new", "page_free", "interrupts_on", "interrupts_off", "uptime_ms", "wait_ms", "read_key", "yield"]
+    names = ["bit_and", "bit_or", "bit_xor", "bit_not", "shift_left", "shift_right", "read8", "read16", "read32", "read64", "write8", "write16", "write32", "write64", "asm", "address_of", "new_mem", "free_mem", "grow_mem", "copy_mem", "fill_mem", "port_in8", "port_in16", "port_in32", "port_out8", "port_out16", "port_out32", "page_new", "page_free", "interrupts_on", "interrupts_off", "uptime_ms", "wait_ms", "read_key", "yield"]
     return names
 
 // только внутри danger
 func danger_only(name: text)
-    each w in ["read8", "read16", "read32", "read64", "write8", "write16", "write32", "write64", "asm", "address_of"]
+    each w in ["read8", "read16", "read32", "read64", "write8", "write16", "write32", "write64", "asm", "address_of", "new_mem", "free_mem", "grow_mem", "copy_mem", "fill_mem"]
         if name == w
             return true
     each w in ["port_", "page_", "interrupts_"]
@@ -178,7 +178,7 @@ func gfx_builtin(name: text)
 
 // встроенные функции, которые могут закончиться ошибкой
 func builtin_can_fail(name: text)
-    if name == "list_dir" or name == "make_folder" or name == "move" or name == "remove" or name == "window_open" or name == "load_image" or name == "load_font"
+    if name == "list_dir" or name == "make_folder" or name == "move" or name == "remove" or name == "window_open" or name == "load_image" or name == "load_font" or name == "new_mem" or name == "grow_mem"
         return true
     return name == "to_int" or name == "to_dec" or name == "read_file" or name == "write_file" or name == "input" or name == "http_get" or name == "json_get"
 
@@ -766,6 +766,21 @@ func check_builtin(c: Comp, n: Node) gives r: int
         if not is_list(c, n.kids[0].ty)
             error_at(c, n.line, "address_of даёт адрес данных списка: address_of(buf)", "")
         return 1
+    if name == "new_mem"
+        builtin_args(c, n, "i", "new_mem(байт)  →  адрес нового блока (нули)")
+        return 1
+    if name == "free_mem"
+        builtin_args(c, n, "i", "free_mem(адрес)")
+        return 0
+    if name == "grow_mem"
+        builtin_args(c, n, "ii", "grow_mem(адрес, байт)  →  адрес блока нового размера")
+        return 1
+    if name == "copy_mem"
+        builtin_args(c, n, "iii", "copy_mem(куда, откуда, байт)")
+        return 0
+    if name == "fill_mem"
+        builtin_args(c, n, "iii", "fill_mem(адрес, значение байта, сколько байт)")
+        return 0
     if name == "page_new" or name == "uptime_ms"
         builtin_args(c, n, "", name + "()")
         return 1

@@ -1,0 +1,1 @@
+mem_outside_danger.tb, строка 3: new_mem трогает железо напрямую: пиши его внутри блока danger

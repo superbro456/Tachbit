@@ -1,0 +1,23 @@
+// память руками: new_mem, grow_mem (данные сохраняются, новое место — нули), copy_mem, fill_mem, free_mem
+func main()
+    danger
+        a = new_mem(16) else err
+            print("нет: " + err)
+            return
+        print(read64(a))
+        write32(a, 123456)
+        write8(a + 15, 7)
+        b = grow_mem(a, 64) else err
+            print(err)
+            return
+        print(read32(b))
+        print(read8(b + 15))
+        print(read8(b + 63))
+        fill_mem(b + 16, 9, 8)
+        print(read64(b + 16))
+        copy_mem(b + 32, b, 16)
+        print(read32(b + 32))
+        free_mem(b)
+        free_mem(0)
+        c = new_mem(0) else err
+            print(err)
