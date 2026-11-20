@@ -1,36 +1,31 @@
-# собранный компилятор
+# собранный компилятор и всё, что делают скрипты: build/tb, build/tachbit.vsix
+build/
+# старые имена собранного компилятора в корне (до чистки 2026-11)
 /tachbit
-# то, что делает tachbit build: файл .c и программа рядом с .tb
-examples/*
-!examples/*.tb
-!examples/*/
-examples/*/*
-!examples/*/*.tb
+/tachbit-tb
+/tb
 *.o
 .DS_Store
-bench/*
-!bench/*.tb
-!bench/*.py
-!bench/run.sh
-!bench/llvm/
-bench/llvm/*
-!bench/llvm/*.tb
-!bench/llvm/run.sh
-!bench/*_pure.c
-!bench/*_smart.c
-/tb
-build/
+.claude/
+
+# tachbit build кладёт рядом с .tb файл .c и программу: в git только сами .tb
+examples/**
+!examples/**/
+!examples/**/*.tb
+tests/bench/**
+!tests/bench/**/
+!tests/bench/**/*.tb
+!tests/bench/**/*.py
+!tests/bench/**/*.sh
+!tests/bench/*_pure.c
+!tests/bench/*_smart.c
+
+# в compiler/ только исходники компилятора, его runtime и семя
 compiler/*
 !compiler/*.tb
 !compiler/README.md
-/tachbit-tb
 !compiler/runtime.h
 !compiler/gpu/
-/tachbit-tb
 !compiler/seed/
 compiler/seed/*
 !compiler/seed/tb.c
-.claude/
-tests/gpu/*
-!tests/gpu/*.tb
-!tests/gpu/*.png

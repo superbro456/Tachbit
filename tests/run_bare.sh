@@ -6,12 +6,12 @@
 # Нужны qemu-system-i386 и python3 (на Mac: brew install qemu).
 cd "$(dirname "$0")/.." || exit 1
 command -v qemu-system-i386 > /dev/null || { echo "нет qemu-system-i386 (на Mac: brew install qemu)"; exit 1; }
-# компилятор собираем заново: после git pull старый ./tachbit-tb мог остаться
+# компилятор собираем заново: после git pull старый ./build/tb мог остаться
 ./tools/build_tb.sh > /dev/null || exit 1
 work=$(mktemp -d)
 pass=0; fail=0
 run_kernel() {
-    ./tachbit-tb bare "$1" > "$work/build.txt" 2>&1 || { cat "$work/build.txt"; return 1; }
+    ./build/tb bare "$1" > "$work/build.txt" 2>&1 || { cat "$work/build.txt"; return 1; }
     # адреса в сообщении об аварии меняются от сборки к сборке — их убираем
     # на Mac нет команды timeout: ограничение по времени через perl (он есть везде)
     perl -e 'alarm shift; exec @ARGV' 60 qemu-system-i386 -no-reboot -kernel "${1%.tb}.elf" -serial stdio -display none \

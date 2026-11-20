@@ -1,7 +1,7 @@
 // Папки — маленький файловый менеджер в терминале, написан на Tachbit.
 // Собирается в одну программу: файлы компилятора ей не нужны.
-//   tb start apps/folders            собрать и запустить
-//   apps/folders/build/folders ~/Desktop   открыть нужную папку
+//   tb start examples/apps/folders            собрать и запустить
+//   examples/apps/folders/build/folders ~/Desktop   открыть нужную папку
 
 func esc(s: text)
     return char(27) + "[" + s + "m"

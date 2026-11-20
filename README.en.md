@@ -29,7 +29,7 @@ cd Tachbit
 On Windows the easiest way is `Tachbit-Setup-<version>.exe`: it puts `tb.exe` in `%USERPROFILE%\.tachbit\bin`, adds it to PATH, installs a C compiler (LLVM-MinGW via winget) if none is found, and registers an uninstaller; no admin rights needed. Build it on Linux with `./tools/windows/make_installer.sh` (needs `mingw-w64` and `nsis`). By hand: install a MinGW-w64 C compiler (`winget install -e --id MartinStorsjo.LLVM-MinGW.UCRT`, or MSYS2 gcc), then in PowerShell run `powershell -ExecutionPolicy Bypass -File tools\install.ps1`. It builds `tb.exe`, copies it to `%USERPROFILE%\.tachbit\bin` and adds that folder to your PATH. Windows (`window_open`) are drawn by the GPU through Vulkan (GDI if there is no Vulkan driver); on Mac the GPU draws through Metal, on Linux through Vulkan (`TB_GPU=0` draws on the CPU, `TB_GPU_CHECK=1` compares every GPU frame with the CPU frame pixel by pixel); bare-metal kernels (`tachbit bare`) build only on Linux and Mac for now.
 
 ```
-tb run examples/hello.tb    # build and run
+tb run examples/basics/hello.tb    # build and run
 tb build file.tb            # make a program next to the file
 tb check file.tb            # only look for errors
 tb new shop && tb start shop
@@ -95,11 +95,11 @@ Not caught yet (honest list): integer overflow wraps silently; the same object p
 
 ## Speed
 
-On the authors' Mac (Intel i9) Tachbit is as fast as plain C or faster on all 18 tasks in `bench/` (fib is a tie). Where Tachbit wins thanks to a special word (`on all cores`, `temp`, `by vec`, ...), `bench/*_smart.c` gives C the same trick, and the README table shows both. Run `./bench/run.sh` to measure on your machine.
+On the authors' Mac (Intel i9) Tachbit is as fast as plain C or faster on all 18 tasks in `tests/bench/` (fib is a tie). Where Tachbit wins thanks to a special word (`on all cores`, `temp`, `by vec`, ...), `tests/bench/*_smart.c` gives C the same trick, and the README table shows both. Run `./tests/bench/run.sh` to measure on your machine.
 
 ### LLVM path (experimental)
 
-`tachbit run` and `tachbit build` go through LLVM by default when `clang` is installed (and `CC` is unset or clang); otherwise, and on Windows, they quietly use C. `--c` keeps the old C path, `--llvm` forces LLVM. The LLVM path writes functions with numbers and text (`int`, `dec`, `bool`, `text`, `print`, conditions, loops, calls) straight to LLVM IR (`compiler/emit_ll.tb`); everything else still goes through C, and `clang` links both. Speed is the same as the C path today; the point is to carry facts C cannot express (`move` = no aliasing, known number ranges) to custom LLVM passes later. `tachbit ll file.tb` prints the IR, `./bench/llvm/run.sh` compares the two paths.
+`tachbit run` and `tachbit build` go through LLVM by default when `clang` is installed (and `CC` is unset or clang); otherwise, and on Windows, they quietly use C. `--c` keeps the old C path, `--llvm` forces LLVM. The LLVM path writes functions with numbers and text (`int`, `dec`, `bool`, `text`, `print`, conditions, loops, calls) straight to LLVM IR (`compiler/emit_ll.tb`); everything else still goes through C, and `clang` links both. Speed is the same as the C path today; the point is to carry facts C cannot express (`move` = no aliasing, known number ranges) to custom LLVM passes later. `tachbit ll file.tb` prints the IR, `./tests/bench/llvm/run.sh` compares the two paths.
 
 ## Layout
 
@@ -108,9 +108,10 @@ On the authors' Mac (Intel i9) Tachbit is as fast as plain C or faster on all 18
 | `compiler/` | the compiler, written in Tachbit (`lexer`, `parser`, `check`, `emit`, `runtime.h`) |
 | `compiler/seed/tb.c` | the compiler's own C output, used to build the first `tb` on a new machine |
 | `tests/` | `./tests/run_tests.sh` and `./tests/run_bare.sh` |
-| `examples/`, `apps/` | examples, a step-by-step tutorial (`examples/learn`), a file manager, a game, a kernel |
-| `editor/vscode/` | VS Code extension |
-| `bench/` | benchmarks against C and Python |
+| `lib/` | shared libraries in Tachbit (`lib/ui.tb`: buttons, lists, dialogs) |
+| `examples/` | tutorial (`learn/`), small examples (`basics/`), apps (`apps/`: file manager, games), modules (`shop/`), a kernel (`kernel/`) |
+| `tests/bench/` | benchmarks against C and Python |
+| `tools/` | install and build scripts, VS Code extension (`tools/vscode/`), Windows installer |
 
 ## License
 

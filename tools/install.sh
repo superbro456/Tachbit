@@ -8,7 +8,7 @@ bin="$HOME/.tachbit/bin"
 mkdir -p "$bin" || exit 1
 # семя compiler/seed/tb.c собирает компилятор из compiler/*.tb
 ./tools/build_tb.sh || exit 1
-cp ./tachbit-tb "$bin/tb"
+cp ./build/tb "$bin/tb"
 echo "стоит компилятор на Tachbit (собран сам собой)"
 # общие библиотеки (use ui): lib/*.tb → ~/.tachbit/lib
 mkdir -p "$HOME/.tachbit/lib" && cp lib/*.tb "$HOME/.tachbit/lib/" && echo "библиотеки: $HOME/.tachbit/lib"

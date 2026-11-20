@@ -1,6 +1,6 @@
 // Колибри и нектар — маленькая игра на Tachbit.
 // Стрелки — лететь, собирай цветы, не попадайся пчёлам. Пробел — заново, Esc — выход.
-//   tb start apps/game
+//   tb start examples/apps/game
 
 obj Bee
     x: int

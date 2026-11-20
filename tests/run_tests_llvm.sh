@@ -9,7 +9,7 @@
 # Тесты гоняются через компилятор на Tachbit (он собирается из семени, без стартера на C).
 cd "$(dirname "$0")/.." || exit 1
 export LC_ALL=C.UTF-8 2>/dev/null
-compiler="tachbit-tb"
+compiler="build/tb"
 # без стартера: семя compiler/seed/tb.c → компилятор из compiler/*.tb → он же сам собой
 ./tools/build_tb.sh > /dev/null || exit 1
 

@@ -4,11 +4,11 @@
 # поэтому собираем файл build/tachbit.vsix и ставим его командой code.
 # После этого закрой VS Code полностью (Cmd+Q) и открой заново.
 cd "$(dirname "$0")/.." || exit 1
-version=$(grep '"version"' editor/vscode/package.json | head -1 | sed 's/.*"\([0-9.]*\)".*/\1/')
+version=$(grep '"version"' tools/vscode/package.json | head -1 | sed 's/.*"\([0-9.]*\)".*/\1/')
 root="$(pwd)"
 work="$(mktemp -d)"
 mkdir -p "$work/extension" build
-cp -R editor/vscode/. "$work/extension/"
+cp -R tools/vscode/. "$work/extension/"
 cat > "$work/extension.vsixmanifest" <<XML
 <?xml version="1.0" encoding="utf-8"?>
 <PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011" xmlns:d="http://schemas.microsoft.com/developer/vsx-schema-design/2011">

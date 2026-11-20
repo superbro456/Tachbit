@@ -1,5 +1,5 @@
 // окно для игр: тяни его мышью, смотри частоту кадров. Esc — выход, пробел — set_fps(0) / как у экрана
-//   tb run examples/window_demo.tb
+//   tb run examples/basics/window_demo.tb
 func main()
     try window_open(640, 400, "Tachbit: окно и видеокарта")
     x = 100.0

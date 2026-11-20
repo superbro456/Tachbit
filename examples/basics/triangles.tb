@@ -1,5 +1,5 @@
 // треугольники — первый кирпич 3D. Веер крутится, мышь тянет один угол.
-//   tb run examples/triangles.tb      (Esc — выход)
+//   tb run examples/basics/triangles.tb      (Esc — выход)
 func main()
     try window_open(640, 400, "Tachbit: треугольники")
     turn = 0.0

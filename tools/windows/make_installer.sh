@@ -8,14 +8,14 @@ cd "$(dirname "$0")/../.."
 command -v x86_64-w64-mingw32-gcc >/dev/null || { echo "нужен x86_64-w64-mingw32-gcc (apt install mingw-w64)"; exit 1; }
 command -v makensis >/dev/null || { echo "нужен makensis (apt install nsis)"; exit 1; }
 
-[ -x ./tachbit-tb ] || ./tools/build_tb.sh
-version=$(./tachbit-tb version | sed -n 's/^Tachbit \([0-9.]*\).*/\1/p')
+[ -x ./build/tb ] || ./tools/build_tb.sh
+version=$(./build/tb version | sed -n 's/^Tachbit \([0-9.]*\).*/\1/p')
 out=build/windows
 rm -rf "$out/stage"
 mkdir -p "$out/stage"
 
 # 1) компилятор Tachbit как C, потом tb.exe для Windows (без чужих .dll, стек 8 МБ)
-./tachbit-tb c compiler/main.tb > "$out/tb.c"
+./build/tb c compiler/main.tb > "$out/tb.c"
 x86_64-w64-mingw32-gcc -O2 -w -static -Wl,--stack,8388608 -o "$out/stage/tb.exe" "$out/tb.c" -lm -lpthread
 x86_64-w64-mingw32-strip "$out/stage/tb.exe"
 

@@ -1,11 +1,11 @@
 #!/bin/bash
 # Путь через C против пути через LLVM IR (--llvm) на числовых задачах.
 # Оба пути собирает clang, чтобы сравнивать вывод Tachbit, а не два разных компилятора C.
-# Запуск из корня репозитория:  ./bench/llvm/run.sh
-cd "$(dirname "$0")/../.." || exit 1
+# Запуск из корня репозитория:  ./tests/bench/llvm/run.sh
+cd "$(dirname "$0")/../../.." || exit 1
 ./tools/build_tb.sh > /dev/null || exit 1
-T="$PWD/tachbit-tb"
-cd bench/llvm || exit 1
+T="$PWD/build/tb"
+cd tests/bench/llvm || exit 1
 seconds() { local TIMEFORMAT=%R; { time "$@" > /dev/null 2>&1 ; } 2>&1; }
 best() {
     local b="" t

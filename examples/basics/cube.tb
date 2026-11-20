@@ -1,6 +1,6 @@
 // первый 3D: крутящиеся кубы на клетчатом полу.
 // Стрелки ← → — идти вокруг, ↑ ↓ — ближе и дальше. Esc — выход.
-//   tb run examples/cube.tb
+//   tb run examples/basics/cube.tb
 func main()
     try window_open(800, 500, "Tachbit: 3D куб")
     cube = mesh_new()

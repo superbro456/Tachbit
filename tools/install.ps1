@@ -31,25 +31,26 @@ if (-not $cc) {
 }
 Write-Host "компилятор C: $cc"
 
+New-Item -ItemType Directory -Force -Path build | Out-Null
 # 2) семя compiler\seed\tb.c -> программа «семя»
-& $cc -O2 -w -static '-Wl,--stack,8388608' -o tachbit-seed.exe compiler/seed/tb.c -lm -lpthread
+& $cc -O2 -w -static '-Wl,--stack,8388608' -o build\tb-seed.exe compiler/seed/tb.c -lm -lpthread
 if ($LASTEXITCODE -ne 0) { Fail 'не получилось собрать семя (compiler\seed\tb.c)' }
 
 # 3) семя собирает свежий компилятор из compiler\*.tb, а свежий — ещё раз сам себя
 $env:CC = $cc
-.\tachbit-seed.exe build compiler/main.tb
+.\build\tb-seed.exe build compiler/main.tb
 if ($LASTEXITCODE -ne 0) { Fail 'семя не смогло собрать компилятор' }
-Move-Item -Force compiler\main.exe tachbit-tb2.exe
-.\tachbit-tb2.exe build compiler/main.tb
+Move-Item -Force compiler\main.exe build\tb2.exe
+.\build\tb2.exe build compiler/main.tb
 if ($LASTEXITCODE -ne 0) { Fail 'компилятор не смог собрать сам себя' }
-Move-Item -Force compiler\main.exe tachbit-tb.exe
-Remove-Item -Force -ErrorAction SilentlyContinue tachbit-seed.exe, tachbit-tb2.exe, compiler\main.c
-Write-Host 'собран tachbit-tb.exe (компилятор собран сам собой)'
+Move-Item -Force compiler\main.exe build\tb.exe
+Remove-Item -Force -ErrorAction SilentlyContinue build\tb-seed.exe, build\tb2.exe, compiler\main.c
+Write-Host 'собран build\tb.exe (компилятор собран сам собой)'
 
 # 4) кладём tb.exe в %USERPROFILE%\.tachbit\bin
 $bin = Join-Path $env:USERPROFILE '.tachbit\bin'
 New-Item -ItemType Directory -Force -Path $bin | Out-Null
-Copy-Item -Force tachbit-tb.exe (Join-Path $bin 'tb.exe')
+Copy-Item -Force build\tb.exe (Join-Path $bin 'tb.exe')
 # общие библиотеки (use ui): lib\*.tb → %USERPROFILE%\.tachbit\lib
 $lib = Join-Path $env:USERPROFILE '.tachbit\lib'
 New-Item -ItemType Directory -Force -Path $lib | Out-Null

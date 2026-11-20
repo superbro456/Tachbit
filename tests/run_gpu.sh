@@ -3,7 +3,7 @@
 # а TB_GPU_CHECK=1 сверяет кадр видеокарты с кадром процессора точка в точку.
 # Linux без экрана: нужен Xvfb и Vulkan (на сервере без видеокарты — lavapipe из mesa-vulkan-drivers).
 cd "$(dirname "$0")/.." || exit 1
-[ -x ./tachbit-tb ] || ./tools/build_tb.sh > /dev/null || exit 1
+[ -x ./build/tb ] || ./tools/build_tb.sh > /dev/null || exit 1
 xvfb=
 if [ "$(uname)" != Darwin ] && [ -z "$DISPLAY" ]; then
     command -v Xvfb > /dev/null || { echo "нет экрана и нет Xvfb"; exit 1; }
@@ -16,7 +16,7 @@ ok=0; bad=0
 for f in tests/gpu/*.tb; do
     exe=${f%.tb}
     for mode in "" "--c"; do
-        ./tachbit-tb build $mode "$f" > /dev/null || { echo "НЕ СОБРАЛОСЬ: $f $mode"; bad=$((bad + 1)); continue; }
+        ./build/tb build $mode "$f" > /dev/null || { echo "НЕ СОБРАЛОСЬ: $f $mode"; bad=$((bad + 1)); continue; }
         if [ "$f" = tests/gpu/resize.tb ] && command -v xdotool > /dev/null && [ "$(uname)" != Darwin ]; then
             # окно тянут «мышью»: xdotool меняет размер, пока программа рисует
             TB_GPU_CHECK=1 "$exe" > /tmp/tb_gpu_resize.out 2>&1 &
