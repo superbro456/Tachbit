@@ -25,7 +25,7 @@ func main()
 - **основа:** функции, `int`, `dec`, `bool`, текст, списки, `dict`, `obj`, `enum` и `match`, ярлыки `link`, несколько ответов `gives`, ошибки `fail`, `try`, `or`, `else err`, модули `use`;
 - **скорость одним словом:** `on all cores` и `shared` (все ядра), `background` и `.wait`, каналы `channel`, `move`, `by columns`, `by vec` (SIMD), `temp`, `together`;
 - **защита:** компилятор сам ловит гонки между ядрами, вечные замки и ярлыки в пустоту; ненужная память убирается сама;
-- **окна и игры:** окно, мышь, клавиши, картинки, шрифты TTF, 2D и 3D на видеокарте (Metal на Mac, Vulkan на Linux и Windows); библиотека окон `lib/ui.tb` и файловый менеджер `examples/apps/files`;
+- **окна и игры:** окно, мышь, клавиши, картинки, шрифты TTF, 2D и 3D на видеокарте (Metal на Mac, Vulkan на Linux и Windows); библиотека окон `lib/ui.tb` (раскладка `ui.hbox` / `ui.vbox` без координат) и файловый менеджер `examples/apps/files`;
 - **своё ядро ОС:** `tb bare` делает ядро без ОС; `danger` для адресов, портов, `asm`, прерываний и памяти руками (`new_mem`, `free_mem`, `grow_mem`, `copy_mem`, `fill_mem`).
 
 Работает на Mac, Linux и Windows. Нужен только компилятор C (`clang` или `gcc`): Tachbit пишет LLVM или C, а он делает из этого программу.
@@ -71,7 +71,7 @@ func main()
 | `./tests/run_tests.sh` | программы через C: `tests/ok` (вывод), `tests/err` (ошибки), `tests/mod` (модули) | 202 из 202 |
 | `./tests/run_tests_llvm.sh` | те же программы через LLVM | 202 из 202 |
 | `./tests/run_bare.sh` | ядра без ОС в QEMU | 68 из 68 |
-| `./tests/run_gpu.sh` | видеокарта рисует точка в точку как процессор | 18 из 18 (в том числе на Mac с AMD) |
+| `./tests/run_gpu.sh` | видеокарта рисует точка в точку как процессор | 20 из 20 (на Mac с AMD было 18 из 18 до теста раскладки) |
 
 После намеренной правки эталоны обновляются флагом `--update`.
 

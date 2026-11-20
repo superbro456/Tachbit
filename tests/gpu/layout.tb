@@ -1,0 +1,37 @@
+// раскладка ui без координат: ui.cols / ui.rows / ui.take, кнопки и поле встают сами
+use ui
+
+func main()
+    try window_open(640, 400, "раскладка")
+    u = ui.start()
+    name = ""
+    dark = true
+    frames = 0
+    repeat while window_alive() and frames < 6
+        ui.frame(u)
+        clear_window(u.bg)
+        ui.pad(u, 12)
+        ui.hbox(u, 32, 8)
+        if ui.btn(u, "Назад")
+            print("назад")
+        if ui.btn(u, "Вперёд")
+            print("вперёд")
+        name = ui.edit(u, "имя", name, "Поиск")
+        ui.done(u)
+        ui.hbox_end(u, 32, 8)
+        dark = ui.toggle(u, "Тёмная тема", dark)
+        ui.space(u, 0)
+        ui.done(u)
+        ui.hbox(u, 0, 12)
+        ui.vbox(u, 180, 6)
+        ui.lbl(u, "Места")
+        if ui.btn(u, "Дом")
+            print("дом")
+        if ui.btn(u, "Документы")
+            print("док")
+        ui.done(u)
+        x, y, w, h = ui.take(u, 0)
+        ui.panel(u, x, y, w, h)
+        ui.done(u)
+        ui.end_frame(u)
+        frames += 1

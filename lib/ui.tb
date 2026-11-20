@@ -15,6 +15,10 @@
 //
 // Так устроено «немедленное» рисование: каждый кадр программа заново зовёт ui.button и т.п.,
 // а функция сразу и рисует, и отвечает, нажали ли. Хранить кнопки где-то не нужно.
+// Раскладка без координат: ui.vbox / ui.hbox делят место окна сами, а ui.btn, ui.lbl, ui.edit,
+// ui.toggle встают в следующее свободное место (смотри «раскладка» ниже). Старые функции
+// с x, y, w, h остаются для своих хитрых мест.
+//
 // Библиотека лежит в lib/ui.tb; tools/install.sh кладёт её в ~/.tachbit/lib, и `use ui` находит её из любой папки.
 
 obj Ui
@@ -63,6 +67,18 @@ obj Ui
     hover: int
     sel: int
     red: int
+    boxes: list Box      // раскладка: вложенные ряды и столбцы, последний — текущий
+
+// место раскладки: прямоугольник, который отдаёт себя по кускам
+obj Box
+    x: int
+    y: int
+    w: int
+    h: int
+    across: bool         // true — куски слева направо, false — сверху вниз
+    gap: int             // промежуток между кусками
+    used: int            // сколько занято с начала
+    used_end: int        // и с конца
 
 modpub func start() gives u: Ui
     u = Ui(active: "", font: -1, fs: 14)
@@ -102,6 +118,8 @@ modpub func frame(u: Ui)
     u.side_fwd = fw
     u.typed = typed_text()
     u.entered = false
+    u.boxes.clear()
+    u.boxes.add(Box(x: 0, y: 0, w: window_w(), h: window_h(), gap: 8))
     if u.release
         u.active = ""
 
@@ -431,6 +449,143 @@ modpub func field(u: Ui, id: text, x: int, y: int, w: int, h: int, value: text, 
     // чёрточка мигает: полсекунды есть, полсекунды нет
     if mine and (time_ms() - u.focus_tick) % 1000 < 550
         draw_rect(x + 9 + text_w(u, shown), ty, 2, 16, u.accent)
+
+// ---------- раскладка ----------
+// Окно — это столбец: куски идут сверху вниз. Пример:
+//   ui.pad(u, 12)
+//   ui.hbox(u, 32, 8)               // полоса 32 точки высотой, в ней всё в ряд
+//   if ui.btn(u, "Назад")
+//       ...
+//   name = ui.edit(u, "имя", name, "Имя")   // поле в ряду берёт весь остаток
+//   ui.done(u)
+//   ui.hbox_end(u, 32, 8)           // полоса внизу окна
+//   ...
+//   ui.done(u)
+//   x, y, w, h = ui.take(u, 0)      // 0 — всё, что осталось посередине
+// Размер куска: число точек; 0 — всё, что осталось.
+
+func cur(u: Ui) gives b: Box
+    b = u.boxes[len(u.boxes) - 1]
+
+// сколько ещё свободно вдоль текущего места
+modpub func space_left(u: Ui)
+    b = cur(u)
+    total = b.h
+    if b.across
+        total = b.w
+    return max(total - b.used - b.used_end, 0)
+
+// следующий кусок размером size (0 — весь остаток) с начала текущего места
+modpub func take(u: Ui, size: int) gives x: int, y: int, w: int, h: int
+    b = cur(u)
+    left = space_left(u)
+    n = size
+    if n <= 0 or n > left
+        n = left
+    if b.across
+        x = b.x + b.used
+        y = b.y
+        w = n
+        h = b.h
+    else
+        x = b.x
+        y = b.y + b.used
+        w = b.w
+        h = n
+    b.used += n + b.gap
+
+// кусок с конца текущего места (кнопки справа, полоса внизу)
+modpub func take_end(u: Ui, size: int) gives x: int, y: int, w: int, h: int
+    b = cur(u)
+    n = min(max(size, 0), space_left(u))
+    if b.across
+        x = b.x + b.w - b.used_end - n
+        y = b.y
+        w = n
+        h = b.h
+    else
+        x = b.x
+        y = b.y + b.h - b.used_end - n
+        w = b.w
+        h = n
+    b.used_end += n + b.gap
+
+// пропустить место
+modpub func space(u: Ui, size: int)
+    x, y, w, h = take(u, size)
+
+// отступ внутри текущего места со всех сторон
+modpub func pad(u: Ui, n: int)
+    b = cur(u)
+    b.x += n
+    b.y += n
+    b.w = max(b.w - 2 * n, 0)
+    b.h = max(b.h - 2 * n, 0)
+
+func open_box(u: Ui, size: int, gap: int, across: bool, at_end: bool)
+    x = 0
+    y = 0
+    w = 0
+    h = 0
+    if at_end
+        x, y, w, h = take_end(u, size)
+    else
+        x, y, w, h = take(u, size)
+    u.boxes.add(Box(x: x, y: y, w: w, h: h, across: across, gap: gap))
+
+// новый ряд (куски слева направо) размером size в текущем месте
+modpub func hbox(u: Ui, size: int, gap: int)
+    open_box(u, size, gap, true, false)
+
+// новый столбец (куски сверху вниз)
+modpub func vbox(u: Ui, size: int, gap: int)
+    open_box(u, size, gap, false, false)
+
+// то же, но с конца текущего места
+modpub func hbox_end(u: Ui, size: int, gap: int)
+    open_box(u, size, gap, true, true)
+
+modpub func vbox_end(u: Ui, size: int, gap: int)
+    open_box(u, size, gap, false, true)
+
+// закрыть ряд или столбец
+modpub func done(u: Ui)
+    if len(u.boxes) > 1
+        last = u.boxes.pop()
+
+// своя длина вдоль места: в ряду — ширина по тексту, в столбце — высота строки
+func auto(u: Ui, s: text, extra: int)
+    if cur(u).across
+        return text_w(u, s) + extra
+    return 30
+
+// кнопка на своём месте
+modpub func btn(u: Ui, s: text) gives hit: bool
+    x, y, w, h = take(u, auto(u, s, 28))
+    hit = button(u, x, y, w, h, s)
+
+// главная (цветная) кнопка на своём месте
+modpub func btn_main(u: Ui, s: text) gives hit: bool
+    x, y, w, h = take(u, auto(u, s, 28))
+    hit = button_main(u, x, y, w, h, s)
+
+// надпись на своём месте (по высоте — по середине)
+modpub func lbl(u: Ui, s: text)
+    x, y, w, h = take(u, auto(u, s, 4))
+    txt(u, x, y + (h - 16) / 2, fit(u, s, w), u.ink)
+
+// переключатель на своём месте
+modpub func toggle(u: Ui, s: text, on: bool) gives now: bool
+    x, y, w, h = take(u, auto(u, s, 32))
+    now = check(u, x, y + (h - 18) / 2, s, on)
+
+// поле ввода: в ряду занимает весь остаток, в столбце — строку
+modpub func edit(u: Ui, id: text, value: text, hint: text) gives now: text
+    size = 30
+    if cur(u).across
+        size = 0
+    x, y, w, h = take(u, size)
+    now = field(u, id, x, y, w, h, value, hint)
 
 // ---------- окно-вопрос ----------
 
