@@ -11,7 +11,7 @@
 
 Code reads almost like Python and runs like C. The compiler does the hard part (memory, cores, safety checks) and explains mistakes in plain words before the program runs. Tachbit compiles to C, then `cc` (clang or gcc) makes a native program. The compiler is written in Tachbit itself and builds itself.
 
-[Русская версия (полная документация)](README.md)
+[Русская версия](README.md) · [полный справочник (рус.)](docs/guide.md)
 
 Compiler messages and error texts are in Russian for now; the keywords are English.
 
