@@ -95,7 +95,7 @@ Not caught yet (honest list): integer overflow wraps silently; the same object p
 
 ## Speed
 
-On the authors' Mac (Intel i9) Tachbit is as fast as plain C or faster on all 18 tasks in `tests/bench/` (fib is a tie). Where Tachbit wins thanks to a special word (`on all cores`, `temp`, `by vec`, ...), `tests/bench/*_smart.c` gives C the same trick, and the README table shows both. Run `./tests/bench/run.sh` to measure on your machine.
+On the authors' Mac (Intel i9) Tachbit is as fast as plain C or faster on all 18 tasks in `tests/bench/` (fib is a tie). Where Tachbit wins thanks to a special word (`on all cores`, `temp`, `by vec`, ...), `tests/bench/vs/*_smart.c` gives C the same trick, and the README table shows both. Run `./tests/bench/run.sh` to measure on your machine.
 
 ### LLVM path (experimental)
 

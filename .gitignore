@@ -17,8 +17,7 @@ tests/bench/**
 !tests/bench/**/*.tb
 !tests/bench/**/*.py
 !tests/bench/**/*.sh
-!tests/bench/*_pure.c
-!tests/bench/*_smart.c
+!tests/bench/vs/*.c
 
 # в compiler/ только исходники компилятора, его runtime и семя
 compiler/*
