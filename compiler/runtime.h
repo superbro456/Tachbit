@@ -3328,6 +3328,7 @@ static uint32_t tb_ttf_table(const tb_font_t *f, size_t base, const char *tag) {
     }
     return 0;
 }
+TB_API void tb_gpu_blend_probe(void);   // TB_GPU_CHECK: проба смешивания букв (ниже)
 TB_API long long tb_load_font(const char *path) {
     FILE *fp = fopen(path, "rb");
     if (!fp) { tb_err = tb_cat("нет такого файла шрифта: ", path); return -1; }
@@ -3365,8 +3366,9 @@ TB_API long long tb_load_font(const char *path) {
     tb_font_t *all = realloc(tb_fonts, (size_t)(tb_nfonts + 1) * sizeof(tb_font_t));
     if (!all) { free(d); tb_err = "не хватило памяти"; return -1; }
     tb_fonts = all;
-    tb_fonts[tb_nfonts] = f;
-    return tb_nfonts++;
+    tb_fonts[tb_nfonts++] = f;
+    tb_gpu_blend_probe();
+    return tb_nfonts - 1;
 }
 static unsigned tb_ttf_glyph(const tb_font_t *f, unsigned u) {
     size_t c = f->cmap;
@@ -3727,11 +3729,9 @@ TB_API void tb_gpu_report(void) {
     fprintf(stderr, "TB_GPU_CHECK: кадров %lld, разошлось %lld\n", tb_gpu_frames, tb_gpu_bad);
 }
 // сверить кадр видеокарты с кадром процессора (видны только младшие 24 бита цвета)
-// TB_GPU_CHECK: как видеокарта округляет часть фона при смешивании. Разные видеокарты считают её
-// по-разному (lavapipe — к ближайшему, AMD на Mac — вниз), поэтому перед первым кадром программа
-// один раз смотрит это на самой видеокарте (tb_gpu_blend_probe), и процессор берёт ту же таблицу
+// TB_GPU_CHECK: как видеокарта смешивает букву с фоном — таблица из пробы (tb_gpu_blend_probe)
 TB_API int tb_blend_cal = 0;
-TB_API uint8_t tb_blend_lut[256][256];   // [фон][a] → часть фона
+TB_API uint8_t *tb_blend_lut = 0;   // [цвет][фон][a] → точка, 2^24 байт
 TB_API int tb_gpu_probing = 0;   // TB_GPU_CHECK: идёт проба смешивания (tb_gpu_blend_probe), кадры не сверять
 TB_API void tb_gpu_compare(void) {
     if (!tb_gpu_back || tb_gpu_probing) return;
@@ -6095,56 +6095,60 @@ TB_API void tb_gfx_events(void) {
     XFlush(tb_dpy);
 }
 #endif
-// TB_GPU_CHECK: проба смешивания. Фон — серый d (строка), буква — цвет k, прозрачность a (столбец),
-// таблица 256 × 256; окно меньше — несколько кадров. Первый проход цвет 0: видна только часть фона.
-// Второй проход цвет 0x808080 проверяет, что видеокарта складывает части как процессор
+// TB_GPU_CHECK: проба смешивания. Видеокарты считают смешивание по-своему (AMD на Mac — с малой
+// точностью, ошибка зависит и от цвета буквы, и от фона), поэтому проба берёт все сочетания:
+// цвет c, фон d, прозрачность a — 256 × 256 × 256 точек, кадр за кадром, и процессор дальше
+// смешивает по этой таблице (tb_blend_lut[c][d][a]). Делается один раз, когда есть и окно, и шрифт.
+// После пробы кадр видеокарты снова становится таким же, как у процессора (копия tb_px)
 TB_API void tb_gpu_blend_probe(void) {
-    int n0 = tb_nimg; size_t p0 = tb_imgpx_n, need = p0 + 2 * 65536;
-    uint32_t *all = realloc(tb_imgpx, need * 4);
-    tb_image *list = realloc(tb_imgs, (size_t)(n0 + 2) * sizeof(tb_image));
+    if (!tb_gpu_on || !tb_gpu_check || tb_blend_cal || !tb_px || !tb_nfonts) return;
+    uint8_t *lut = malloc((size_t)1 << 24);
+    if (!lut) return;
+    size_t n = (size_t)tb_gw * tb_gh, p0 = tb_imgpx_n, need = p0 + 3 * n;
+    int n0 = tb_nimg;
+    uint32_t *all = need <= 0xFFFFFFFFu ? realloc(tb_imgpx, need * 4) : 0;
+    tb_image *list = realloc(tb_imgs, (size_t)(n0 + 3) * sizeof(tb_image));
     if (all) tb_imgpx = all;
     if (list) tb_imgs = list;
-    if (!all || !list) return;
-    static uint8_t got[256][256];
-    long long badk = 0;
-    for (int pass = 0; pass < 2; pass++) {
-        uint32_t col = pass ? 0x808080u : 0;
-        uint32_t *bg = tb_imgpx + p0, *fg = bg + 65536;
-        for (int d = 0; d < 256; d++) for (int a = 0; a < 256; a++) {
-            bg[d * 256 + a] = 0xFF000000u | (uint32_t)d * 0x010101u;
-            fg[d * 256 + a] = ((uint32_t)a << 24) | col;
+    if (!all || !list) { free(lut); return; }
+    for (int k = 0; k < 3; k++) { tb_imgs[n0 + k].w = tb_gw; tb_imgs[n0 + k].h = tb_gh; tb_imgs[n0 + k].off = (uint32_t)(p0 + k * n); }
+    tb_nimg = n0 + 3; tb_imgpx_n = need;
+    uint32_t *keep = tb_imgpx + p0 + 2 * n;   // кадр процессора: вернуть его видеокарте после пробы
+    for (size_t q = 0; q < n; q++) keep[q] = 0xFF000000u | tb_px[q];
+    tb_gpu_probing = 1;
+    int ok = 1;
+    for (size_t from = 0; from < ((size_t)1 << 24) && ok; from += n) {
+        uint32_t *bg = tb_imgpx + p0, *fg = bg + n;
+        for (size_t q = 0; q < n; q++) {
+            size_t i = (from + q) & 0xFFFFFF;
+            uint32_t c = (uint32_t)(i >> 16), d = (uint32_t)(i >> 8) & 255, a = (uint32_t)i & 255;
+            bg[q] = 0xFF000000u | d * 0x010101u;
+            fg[q] = (a << 24) | c * 0x010101u;
         }
-        tb_nimg = n0 + 2; tb_imgpx_n = need;
-        for (int k = 0; k < 2; k++) { tb_imgs[n0 + k].w = 256; tb_imgs[n0 + k].h = 256; tb_imgs[n0 + k].off = (uint32_t)(p0 + (size_t)k * 65536); }
         tb_img_dirty = 1;
-        tb_gpu_probing = 1;
-        for (int ty = 0; ty < 256; ty += tb_gh) for (int tx = 0; tx < 256; tx += tb_gw) {
-            tb_gpu_image(n0, -tx, -ty);
-            tb_gpu_image_a(n0 + 1, -tx, -ty);
-            tb_gpu_flush(1);
-            if (!tb_gpu_back) { tb_gpu_probing = 0; tb_nimg = n0; tb_imgpx_n = p0; tb_img_dirty = 1; return; }
-            for (int y = 0; y < tb_gh && ty + y < 256; y++) for (int x = 0; x < tb_gw && tx + x < 256; x++) {
-                uint32_t v = tb_gpu_back[(size_t)y * tb_gw + x] & 255;
-                if (!pass) got[ty + y][tx + x] = (uint8_t)v;
-                else {
-                    int d = ty + y, a = tx + x;
-                    uint32_t want = a == 0 ? (uint32_t)d : (128u * a + 127) / 255 + got[d][a];
-                    if (a == 255) want = 128;
-                    if (v != (want > 255 ? 255 : want)) badk++;
-                }
-            }
-        }
-        tb_gpu_probing = 0;
+        tb_gpu_image(n0, 0, 0);
+        tb_gpu_image_a(n0 + 1, 0, 0);
+        tb_gpu_flush(1);
+        if (!tb_gpu_back) { ok = 0; break; }
+        for (size_t q = 0; q < n && from + q < ((size_t)1 << 24); q++) lut[from + q] = (uint8_t)(tb_gpu_back[q] & 255);
     }
+    tb_gpu_image(n0 + 2, 0, 0);
+    tb_gpu_flush(1);
+    tb_gpu_probing = 0;
     tb_nimg = n0; tb_imgpx_n = p0; tb_img_dirty = 1;
-    memcpy(tb_blend_lut, got, sizeof got);
+    if (!ok) { free(lut); return; }
+    tb_blend_lut = lut;
     tb_blend_cal = 1;
-    tb_gpu_first = 1;   // следующий кадр снова начнётся с чёрного, как у процессора
-    long long diff = 0;
-    for (int d = 0; d < 256; d++) for (int a = 1; a < 255; a++) diff += got[d][a] != (d * (255 - a) + 127) / 255;
     const char *e = getenv("TB_GPU_INFO");
-    if (badk || (e && e[0] == '1'))
-        fprintf(stderr, "TB_GPU_CHECK: смешивание: не как округление к ближайшему %lld из 65536, цвет + фон не сходится %lld\n", diff, badk);
+    if (e && e[0] == '1') {
+        long long diff = 0;
+        for (size_t i = 0; i < ((size_t)1 << 24); i++) {
+            uint32_t c = (uint32_t)(i >> 16), d = (uint32_t)(i >> 8) & 255, a = (uint32_t)i & 255;
+            uint32_t w = a == 0 ? d : (c * a + 127) / 255 + (d * (255 - a) + 127) / 255;
+            diff += lut[i] != w;
+        }
+        fprintf(stderr, "TB_GPU_CHECK: смешивание на этой видеокарте не как округление к ближайшему: %lld из %d\n", diff, 1 << 24);
+    }
 }
 TB_API void tb_window_open(long long w, long long h, const char *title) {
     if (tb_px) { tb_err = "окно уже открыто"; return; }
@@ -6152,7 +6156,7 @@ TB_API void tb_window_open(long long w, long long h, const char *title) {
     tb_gw = (int)w; tb_gh = (int)h;
     tb_px = calloc((size_t)tb_gw * tb_gh, 4);
     if (!tb_gfx_open(title)) { free(tb_px); tb_px = 0; tb_err = "не могу открыть окно: нет экрана"; return; }
-    if (tb_gpu_on && tb_gpu_check) { tb_gpu_blend_probe(); atexit(tb_gpu_report); }
+    if (tb_gpu_on && tb_gpu_check) { atexit(tb_gpu_report); tb_gpu_blend_probe(); }
     tb_last_frame = tb_time_ms();
 }
 // показать кадр, принять клавиши и мышь, держать 60 кадров в секунду; false — окно закрыли
@@ -6402,7 +6406,7 @@ TB_API void tb_draw_image_a(long long id, long long x, long long y) {
             uint32_t o = *d, r = 0;
             for (int sh = 0; sh <= 16; sh += 8) {
                 uint32_t sc = (v >> sh) & 255, dc = (o >> sh) & 255;
-                uint32_t q = (sc * a + 127) / 255 + (tb_blend_cal ? tb_blend_lut[dc][a] : (dc * (255 - a) + 127) / 255);
+                uint32_t q = tb_blend_cal ? tb_blend_lut[(sc << 16) | (dc << 8) | a] : (sc * a + 127) / 255 + (dc * (255 - a) + 127) / 255;
                 r |= (q > 255 ? 255 : q) << sh;
             }
             *d = r;
