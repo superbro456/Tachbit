@@ -20,8 +20,9 @@
 #include <stddef.h>
 #include <stdarg.h>
 #include <stdint.h>
-// «переменные потока» лежат подряд в своём разделе: при смене задачи он копируется целиком
-#define _Thread_local __attribute__((section(".tbtls")))
+// «переменные потока» — настоящие: у каждой задачи свой блок, на него смотрит регистр FS
+// (так их не надо копировать при смене задачи, и на нескольких ядрах процессора у каждого свои)
+#define _Thread_local __thread __attribute__((tls_model("local-exec")))
 #define EOF (-1)
 typedef struct tb_file FILE;
 #define stdout ((FILE *)1)
@@ -39,9 +40,41 @@ TB_INL void tb_outw(unsigned short port, unsigned short v) { __asm__ volatile("o
 TB_INL unsigned short tb_inw(unsigned short port) { unsigned short v; __asm__ volatile("inw %1, %0" : "=a"(v) : "Nd"(port)); return v; }
 TB_INL void tb_outl(unsigned short port, unsigned int v) { __asm__ volatile("outl %0, %1" : : "a"(v), "Nd"(port)); }
 TB_INL unsigned int tb_inl(unsigned short port) { unsigned int v; __asm__ volatile("inl %1, %0" : "=a"(v) : "Nd"(port)); return v; }
-// выключить прерывания на время короткого дела и вернуть, как было
-TB_INL uint64_t tb_irq_save(void) { uint64_t f; __asm__ volatile("pushfq\npopq %0\ncli" : "=r"(f) : : "memory"); return f; }
-TB_INL void tb_irq_restore(uint64_t f) { __asm__ volatile("pushq %0\npopfq" : : "r"(f) : "memory", "cc"); }
+// ядро процессора («звезда»): его номер, кого он сейчас ведёт, свой стек для пустого хода.
+// Регистр GS у каждого ядра смотрит на его запись (в самом начале — адрес её самой)
+#define TB_NCPU 16
+typedef struct tb_cpu_s {
+    struct tb_cpu_s *self;
+    int id, apic, run, slice, to_free, depth;   // run: номер задачи (-1 — пустой ход); depth: вложенность «общего замка»
+    uint64_t *idle_frame;
+    unsigned char irq_tls[512 + 16] __attribute__((aligned(16)));   // переменные потока для функций прерывания
+    unsigned char idle_stack[16384] __attribute__((aligned(16)));
+    unsigned char df_stack[16384] __attribute__((aligned(16)));
+} tb_cpu;
+TB_API tb_cpu tb_cpus[TB_NCPU];
+TB_API int tb_ncpu = 1;
+TB_INL tb_cpu *tb_me(void) { tb_cpu *c; __asm__ volatile("movq %%gs:0, %0" : "=r"(c)); return c; }
+// короткое дело библиотеки (память, экран, список задач): прерывания выключены и взят общий
+// замок — так его не делят ни прерывание, ни другое ядро процессора. Можно вкладывать
+TB_API volatile int tb_bkl = 0;
+TB_INL uint64_t tb_irq_save(void) {
+    uint64_t f;
+    __asm__ volatile("pushfq\npopq %0\ncli" : "=r"(f) : : "memory");
+    tb_cpu *c = tb_me();
+    if (c->depth++ == 0)
+        while (__atomic_exchange_n(&tb_bkl, 1, __ATOMIC_ACQUIRE)) __builtin_ia32_pause();
+    return f;
+}
+TB_INL void tb_irq_restore(uint64_t f) {
+    tb_cpu *c = tb_me();
+    if (--c->depth == 0) __atomic_store_n(&tb_bkl, 0, __ATOMIC_RELEASE);
+    __asm__ volatile("pushq %0\npopfq" : : "r"(f) : "memory", "cc");
+}
+// отдать общий замок целиком (задача уходит навсегда — падает или кончилась)
+TB_INL void tb_bkl_drop(void) {
+    tb_cpu *c = tb_me();
+    if (c->depth > 0) { c->depth = 0; __atomic_store_n(&tb_bkl, 0, __ATOMIC_RELEASE); }
+}
 
 // экран 80×25: байт буквы и байт цвета; русские буквы рисуем своим шрифтом (см. tb_vga_font)
 TB_API volatile unsigned short *const tb_vga = (volatile unsigned short *)0xB8000;
@@ -423,20 +456,38 @@ typedef struct { pthread_t th; volatile int done; void *res; } tb_task;
 typedef struct {
     uint64_t *frame; int used; volatile int done;
     void *(*run)(void *); void *arg; tb_task *t;
+    int on;                               // на каком ядре процессора идёт сейчас (-1 — ни на каком)
+    int no;                               // номер клетки: по порядку запуска (1, 2, 3 ...)
     uint64_t gen; long long mem;          // поколение слота (для хозяина кусков) и байты клетки
     int *locks[8]; int nlocks;            // замки, которые клетка держит сейчас
-    unsigned char tls[TB_TLS_MAX];
+    unsigned char tls[TB_TLS_MAX + 16] __attribute__((aligned(16)));   // блок переменных потока + адрес самого себя
 } tb_kslot;
 TB_API tb_kslot tb_slots[TB_NTASK];          // 0 — main
 TB_API unsigned char tb_tstacks[TB_NTASK][TB_TSTACK] __attribute__((aligned(4096)));
-TB_API int tb_cur = 0, tb_nlive = 1, tb_slice = 10, tb_in_irq = 0;
-TB_API unsigned char tb_tls_zero[TB_TLS_MAX];
+TB_API int tb_nlive = 1, tb_cell_count = 0;
+// своё у каждой задачи (переменные потока): номер её слота; у функций прерывания tb_in_irq = 1
+TB_API _Thread_local int tb_cur = 0;
+TB_API _Thread_local int tb_in_irq = 0;
 TB_API unsigned char tb_fpu_init[512] __attribute__((aligned(16)));
-TB_API unsigned char tb_irq_tls[TB_TLS_MAX];
 TB_API volatile uint64_t tb_ms = 0;
 TB_API void (*tb_irq_fn[16])(void);
 TB_API uint16_t tb_pic_mask = 0xFFFF;
 TB_API uint64_t tb_tls_size(void) { return (uint64_t)(tb_tls_end - tb_tls_start); }
+// блок переменных потока: начальные значения (образ от компоновщика), в конце — адрес конца
+// (так устроено у x86-64: FS указывает на конец блока, а там лежит он сам)
+TB_API unsigned char *tb_tls_fresh(unsigned char *b) {
+    uint64_t n = tb_tls_size();
+    memcpy(b, tb_tls_start, n);
+    unsigned char *tp = b + n;
+    *(uint64_t *)tp = (uint64_t)(uintptr_t)tp;
+    return tp;
+}
+TB_API void tb_set_fs(unsigned char *tp) {
+    uint64_t v = (uint64_t)(uintptr_t)tp;
+    __asm__ volatile("wrmsr" : : "c"(0xC0000100u), "a"((uint32_t)v), "d"((uint32_t)(v >> 32)) : "memory");
+}
+TB_API unsigned char *tb_tls_tp(unsigned char *b) { return b + tb_tls_size(); }
+TB_INL void *tb_tls_self(void) { void *p; __asm__ volatile("movq %%fs:0, %0" : "=r"(p)); return p; }
 // хозяин куска: номер слота и поколение; кусок клетки, которой уже нет, никому не засчитывается
 TB_API uint64_t tb_cell_charge(size_t bytes) {
     if (tb_in_irq) return 0xFFFF;
@@ -470,21 +521,37 @@ TB_API void tb_yield(void) { if (!tb_in_irq) __asm__ volatile("int $48" ::: "mem
 
 // переключение задач: запомнить кадр и «переменные потока» текущей, отдать кадр следующей
 TB_API uint64_t *tb_schedule(uint64_t *frame) {
-    if (tb_nlive <= 1 && !tb_slots[tb_cur].done) return frame;
-    int n = tb_cur;
+    tb_cpu *c = tb_me();
+    uint64_t f = tb_irq_save();
+    // слот задачи, которая кончилась на этом ядре раньше: теперь мы точно не на её стеке
+    if (c->to_free > 0) { tb_slots[c->to_free].used = 0; tb_nlive--; c->to_free = 0; }
+    int cur = c->run;
+    if (cur >= 0) tb_slots[cur].frame = frame; else c->idle_frame = frame;
+    // следующая по кругу: живая и не идущая на другом ядре
+    int n = -1;
     for (int k = 1; k <= TB_NTASK; k++) {
-        int j = (tb_cur + k) % TB_NTASK;
-        if (tb_slots[j].used && !tb_slots[j].done) { n = j; break; }
+        int j = ((cur < 0 ? 0 : cur) + k) % TB_NTASK;
+        tb_kslot *s = &tb_slots[j];
+        if (s->used && !s->done && (s->on < 0 || j == cur)) { n = j; break; }
     }
-    tb_kslot *c = &tb_slots[tb_cur];
-    if (n == tb_cur) return frame;
-    c->frame = frame;
-    memcpy(c->tls, tb_tls_start, tb_tls_size());
-    if (c->done) { c->used = 0; tb_nlive--; }
-    tb_cur = n;
-    memcpy(tb_tls_start, tb_slots[n].tls, tb_tls_size());
-    tb_slice = 10;
-    return tb_slots[n].frame;
+    if (cur >= 0) {
+        tb_slots[cur].on = -1;
+        if (tb_slots[cur].done && cur != 0) c->to_free = cur;
+    }
+    uint64_t *next;
+    if (n >= 0) {
+        tb_slots[n].on = c->id;
+        c->run = n;
+        tb_set_fs(tb_tls_tp(tb_slots[n].tls));
+        next = tb_slots[n].frame;
+    } else {
+        c->run = -1;
+        tb_set_fs(tb_tls_tp(c->irq_tls));
+        next = c->idle_frame;
+    }
+    c->slice = 10;
+    tb_irq_restore(f);
+    return next;
 }
 TB_API void tb_task_entry(void) {
     tb_kslot *s = &tb_slots[tb_cur];
@@ -492,6 +559,7 @@ TB_API void tb_task_entry(void) {
     __asm__ volatile("cli");
     s->t->done = 1;
     s->done = 1;
+    tb_bkl_drop();
     for (;;) __asm__ volatile("int $48");
 }
 TB_API void tb_task_start(tb_task *t, void *(*run)(void *), void *arg) {
@@ -501,9 +569,10 @@ TB_API void tb_task_start(tb_task *t, void *(*run)(void *), void *arg) {
     if (i == TB_NTASK) tb_panic("больше 31 задачи background сразу", 0, 0);
     tb_kslot *s = &tb_slots[i];
     s->used = 1; s->done = 0; s->run = run; s->arg = arg; s->t = t;
-    s->gen++; s->mem = 0; s->nlocks = 0;
+    s->gen++; s->mem = 0; s->nlocks = 0; s->on = -1; s->no = ++tb_cell_count;
     t->done = 0; t->th = i;
-    memcpy(s->tls, tb_tls_zero, TB_TLS_MAX);
+    tb_tls_fresh(s->tls);
+    *(int *)(tb_tls_tp(s->tls) - ((unsigned char *)tb_tls_self() - (unsigned char *)&tb_cur)) = i;
     // стек задачи выглядит так, будто её прервали прямо перед tb_task_entry
     unsigned char *top = tb_tstacks[i] + TB_TSTACK;
     uint64_t *fr = (uint64_t *)(top - TB_FRAME);
@@ -650,8 +719,8 @@ TB_API void tb_cell_mark(const char *what, int line) {
     for (int i = 0; i < s->nlocks; i++) __atomic_store_n(s->locks[i], 0, __ATOMIC_RELEASE);
     s->nlocks = 0;
     char buf[200];
-    if (line > 0) snprintf(buf, sizeof buf, "*** клетка %d упала: строка %d: %s\n", tb_cur, line, what);
-    else snprintf(buf, sizeof buf, "*** клетка %d упала: %s\n", tb_cur, what);
+    if (line > 0) snprintf(buf, sizeof buf, "*** клетка %d упала: строка %d: %s\n", s->no, line, what);
+    else snprintf(buf, sizeof buf, "*** клетка %d упала: %s\n", s->no, what);
     fputs(buf, stderr);
     s->t->done = 2;
     s->done = 1;
@@ -659,6 +728,7 @@ TB_API void tb_cell_mark(const char *what, int line) {
 __attribute__((noreturn)) TB_API void tb_cell_fall(const char *what, int line) {
     __asm__ volatile("cli");
     tb_cell_mark(what, line);
+    tb_bkl_drop();
     for (;;) __asm__ volatile("int $48");
 }
 TB_API uint64_t *tb_fault(uint64_t v, uint64_t *f) {
@@ -673,6 +743,7 @@ TB_API uint64_t *tb_fault(uint64_t v, uint64_t *f) {
     else what = v < 20 && tb_fault_name[v][0] ? tb_fault_name[v] : "ошибка процессора";
     if (tb_cell_can_fall()) {
         tb_cell_mark(what, 0);
+        tb_bkl_drop();
         return tb_schedule(f);
     }
     tb_panic(what, v == 14 || v == 8 ? a : v, rip);
@@ -688,19 +759,14 @@ __attribute__((used)) static uint64_t *tb_isr(uint64_t *f) {
     if (irq == 1) tb_key_irq();
     if (tb_irq_fn[irq]) {
         // своя функция прерывания: со своими «переменными потока»
-        unsigned char save_tls[TB_TLS_MAX];
-        uint64_t n = tb_tls_size();
-        memcpy(save_tls, tb_tls_start, n);
-        memcpy(tb_tls_start, tb_irq_tls, n);
-        tb_in_irq = 1;
+        tb_cpu *c = tb_me();
+        tb_set_fs(tb_tls_tp(c->irq_tls));
         tb_irq_fn[irq]();
-        tb_in_irq = 0;
-        memcpy(tb_irq_tls, tb_tls_start, n);
-        memcpy(tb_tls_start, save_tls, n);
+        tb_set_fs(tb_tls_tp(c->run >= 0 ? tb_slots[c->run].tls : c->irq_tls));
     }
     if (irq >= 8) tb_outb(0xA0, 0x20);
     tb_outb(0x20, 0x20);
-    if (irq == 0 && tb_nlive > 1 && --tb_slice <= 0) return tb_schedule(f);
+    if (irq == 0 && --tb_me()->slice <= 0) return tb_schedule(f);
     return f;
 }
 
@@ -713,7 +779,29 @@ TB_API void tb_idt_set(int v, uint64_t a, int ist) {
 // строит таблицы страниц на первые 4 ГБ, включает режим 64 бит и прыгает в tb_kstart
 __attribute__((section(".multiboot"), used, aligned(4)))
 TB_API const unsigned int tb_multiboot[3] = {0x1BADB002u, 2u, (unsigned int)-(0x1BADB002 + 2)};
+TB_API void tb_set_gs(tb_cpu *c) {
+    uint64_t v = (uint64_t)(uintptr_t)c;
+    __asm__ volatile("wrmsr" : : "c"(0xC0000101u), "a"((uint32_t)v), "d"((uint32_t)(v >> 32)) : "memory");
+}
+// пустой ход ядра процессора: ждать прерывания
+__attribute__((noreturn)) TB_API void tb_idle(void) { for (;;) __asm__ volatile("sti\nhlt"); }
+// запись ядра процессора: стек и кадр пустого хода, переменные потока для прерываний
+TB_API void tb_cpu_init(tb_cpu *c, int id) {
+    c->self = c; c->id = id; c->run = -1; c->slice = 10; c->to_free = 0;
+    unsigned char *tp = tb_tls_fresh(c->irq_tls);
+    *(int *)(tp - ((unsigned char *)tb_tls_self() - (unsigned char *)&tb_in_irq)) = 1;
+    unsigned char *top = c->idle_stack + sizeof c->idle_stack;
+    uint64_t *fr = (uint64_t *)(top - TB_FRAME);
+    memset(fr, 0, TB_FRAME);
+    memcpy(fr, tb_fpu_init, 512);
+    fr[TB_F_RIP] = (uint64_t)(uintptr_t)tb_idle;
+    fr[TB_F_RIP + 1] = 0x08; fr[TB_F_RIP + 2] = 0x202;
+    fr[TB_F_RIP + 3] = (uint64_t)(uintptr_t)(top - 8); fr[TB_F_RIP + 4] = 0x10;
+    c->idle_frame = fr;
+}
 __attribute__((used)) static void tb_kstart(void) {
+    tb_cpus[0].self = &tb_cpus[0];
+    tb_set_gs(&tb_cpus[0]);
     uint32_t magic = tb_boot_magic;
     uint32_t *mbi = (uint32_t *)(uintptr_t)tb_boot_mbi;
     __asm__ volatile("fninit");
@@ -728,8 +816,6 @@ __attribute__((used)) static void tb_kstart(void) {
     if (magic == 0x2BADB002u && (mbi[0] & 1)) tb_ram_end = (1ull << 20) + (uint64_t)mbi[2] * 1024u;
     if (tb_ram_end < (1u << 20)) tb_ram_end = 128u << 20;
     if (tb_tls_size() > TB_TLS_MAX) tb_panic("переменных потока больше, чем место для них", tb_tls_size(), 0);
-    memcpy(tb_tls_zero, tb_tls_start, tb_tls_size());
-    memcpy(tb_irq_tls, tb_tls_start, tb_tls_size());
     for (int i = 0; i < 256; i++) { tb_ktext[i][0] = (char)i; tb_ktext[i][1] = 0; }
     // сегменты и TSS (ist1 — стек для двойной ошибки)
     uint64_t tss = (uint64_t)(uintptr_t)&tb_tss;
@@ -743,6 +829,11 @@ __attribute__((used)) static void tb_kstart(void) {
                      "movw $0x10, %%ax\nmovw %%ax, %%ds\nmovw %%ax, %%es\nmovw %%ax, %%fs\nmovw %%ax, %%gs\nmovw %%ax, %%ss\n"
                      : : "m"(tb_gdtr) : "rax", "memory");
     __asm__ volatile("ltr %w0" : : "r"(0x18));
+    // загрузка сегментов обнуляет базы FS и GS: ставим заново. Переменные потока main — свои
+    tb_set_gs(&tb_cpus[0]);
+    tb_set_fs(tb_tls_fresh(tb_slots[0].tls));
+    tb_cpu_init(&tb_cpus[0], 0);
+    tb_cpus[0].run = 0;
     // прерывания
     for (int v = 0; v < 49; v++) tb_idt_set(v, (uint64_t)(uintptr_t)tb_isr_base + 16u * (uint64_t)v, v == 8 ? 1 : 0);
     tb_idtr.lim = sizeof tb_idt - 1; tb_idtr.base = (uint64_t)(uintptr_t)tb_idt;
@@ -756,6 +847,7 @@ __attribute__((used)) static void tb_kstart(void) {
     tb_outb(0x43, 0x36); tb_outb(0x40, 1193182 / 1000 & 0xFF); tb_outb(0x40, (1193182 / 1000) >> 8);
     tb_paging_init();
     tb_slots[0].used = 1;
+    tb_slots[0].on = 0;
     __asm__ volatile("sti");
     tb_kmain();
     exit(0);

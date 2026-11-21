@@ -5,14 +5,14 @@
 # поэтому снаружи файл 32-битный, а внутри — 64-битный код (в 64 бита ядро переходит само, в _start).
 # Раскладка:
 #   1 МБ: .multiboot, код, константы  (только чтение)
-#   данные, .tbtls (переменные потока подряд), .bss
+#   данные, переменные потока (.tdata, .tbss — образ для блока каждой задачи), .bss
 #   с границы 4 МБ: .tbheap (куча, в файл не пишется)
 # Запуск:  python3 elf_link.py вход.o -o выход.elf
 import struct
 import sys
 
 SHT_PROGBITS, SHT_SYMTAB, SHT_NOBITS, SHT_REL, SHT_RELA = 1, 2, 8, 9, 4
-SHF_WRITE, SHF_ALLOC, SHF_EXEC = 1, 2, 4
+SHF_WRITE, SHF_ALLOC, SHF_EXEC, SHF_TLS = 1, 2, 4, 0x400
 SHN_UNDEF, SHN_ABS, SHN_COMMON = 0, 0xFFF1, 0xFFF2
 BASE = 0x100000
 
@@ -63,7 +63,7 @@ def main(argv):
             return 0
         if n == ".tbheap":
             return 6
-        if n == ".tbtls":
+        if s["flags"] & SHF_TLS:
             return 4
         if s["flags"] & SHF_EXEC:
             return 1
@@ -73,7 +73,11 @@ def main(argv):
             return 5
         return 3
     alloc = [k for k, s in enumerate(secs) if s["flags"] & SHF_ALLOC and s["type"] in (SHT_PROGBITS, SHT_NOBITS) and s["size"] > 0]
-    order = sorted(alloc, key=lambda k: (group(secs[k]), k))
+    # переменные потока: сначала с начальными значениями (.tdata), потом нулевые (.tbss)
+    for k in alloc:
+        if secs[k]["flags"] & SHF_TLS and secs[k]["align"] > 16:
+            fail("переменная потока выровнена больше чем на 16 байт")
+    order = sorted(alloc, key=lambda k: (group(secs[k]), secs[k]["type"] == SHT_NOBITS, k))
 
     # символы, которым нужна ячейка в GOT
     got_syms = []
@@ -91,8 +95,11 @@ def main(argv):
             addr = align(addr, 4096)
             extra["tb_code_end"] = addr
         if g == 4:
+            addr = align(addr, 16)
             extra["tb_tls_start"] = addr
         if g == 5:
+            # конец блока переменных потока: на него смотрит FS (выровнен на 16)
+            addr = align(addr, 16)
             extra["tb_tls_end"] = addr
         if g == 6:
             common_start = addr        # COMMON — сразу за .bss
@@ -182,6 +189,10 @@ def main(argv):
             elif typ in (9, 41, 42):            # GOTPCREL: адрес ячейки GOT
                 v = got_at + 8 * got_syms.index(si) + r_add - place
                 struct.pack_into("<i", image, at, v)
+            elif typ == 23:                     # TPOFF32: место переменной потока от конца блока
+                struct.pack_into("<i", image, at, sv + r_add - extra["tb_tls_end"])
+            elif typ == 18:                     # TPOFF64
+                struct.pack_into("<q", image, at, sv + r_add - extra["tb_tls_end"])
             elif typ == 24:                     # PC64
                 struct.pack_into("<q", image, at, sv + r_add - place)
             elif typ == 10:                     # R_X86_64_32
