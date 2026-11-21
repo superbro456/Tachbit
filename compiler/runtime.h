@@ -198,9 +198,36 @@ TB_API void tb_free0(void *p) {
     *(void **)p = tb_bins[k];
     tb_bins[k] = p;
 }
+// квота клетки: каждый кусок помнит хозяина (в заголовке, за размером); у клетки — счёт байт.
+// Клетка, взявшая больше своей квоты, падает одна (main и прерывания без квоты)
+#define TB_CELL_QUOTA (16 << 20)
+TB_API uint64_t tb_cell_charge(size_t bytes);
+TB_API void tb_cell_refund(uint64_t tag, long long bytes);
+TB_API int tb_cell_fits(uint64_t tag, long long more);
+__attribute__((noreturn)) TB_API void tb_cell_fall(const char *what, int line);
+TB_API size_t tb_piece(void *p) { return (size_t)1 << *(size_t *)((unsigned char *)p - 16); }
 // задачи и прерывания тоже берут память: на время выдачи прерывания выключены
-TB_API void *malloc(size_t n) { uint64_t f = tb_irq_save(); void *p = tb_malloc0(n); tb_irq_restore(f); return p; }
-TB_API void free(void *p) { uint64_t f = tb_irq_save(); tb_free0(p); tb_irq_restore(f); }
+TB_API void *malloc(size_t n) {
+    uint64_t f = tb_irq_save();
+    void *p = tb_malloc0(n);
+    if (p) {
+        uint64_t tag = tb_cell_charge(tb_piece(p));
+        if (tag == (uint64_t)-1) {
+            tb_free0(p);
+            tb_cell_fall("клетка взяла больше памяти, чем ей можно (квота 16 МБ)", 0);
+        }
+        ((uint64_t *)p)[-1] = tag;
+    }
+    tb_irq_restore(f);
+    return p;
+}
+TB_API void free(void *p) {
+    if (p == 0) return;
+    uint64_t f = tb_irq_save();
+    tb_cell_refund(((uint64_t *)p)[-1], (long long)tb_piece(p));
+    tb_free0(p);
+    tb_irq_restore(f);
+}
 void *memcpy(void *d, const void *s, size_t n) {
     void *r = d;
     __asm__ volatile("rep movsb" : "+D"(d), "+S"(s), "+c"(n) : : "memory");
@@ -232,9 +259,11 @@ TB_API void *tb_realloc0(void *p, size_t n) {
     if (h + cap + 16 == tb_heap + tb_heap_top) {
         int k2 = tb_cls(n);
         size_t need = ((size_t)1 << k2) + 16;
-        if ((size_t)(h - tb_heap) + need <= TB_HEAP) {
+        if ((size_t)(h - tb_heap) + need <= TB_HEAP && tb_cell_fits(((uint64_t *)p)[-1], (long long)(((size_t)1 << k2) - cap))) {
             *(size_t *)h = (size_t)k2;
             tb_heap_top = (size_t)(h - tb_heap) + need;
+            // кусок вырос на месте: хозяину — разница
+            tb_cell_refund(((uint64_t *)p)[-1], -(long long)(((size_t)1 << k2) - cap));
             return p;
         }
     }
@@ -394,6 +423,8 @@ typedef struct { pthread_t th; volatile int done; void *res; } tb_task;
 typedef struct {
     uint64_t *frame; int used; volatile int done;
     void *(*run)(void *); void *arg; tb_task *t;
+    uint64_t gen; long long mem;          // поколение слота (для хозяина кусков) и байты клетки
+    int *locks[8]; int nlocks;            // замки, которые клетка держит сейчас
     unsigned char tls[TB_TLS_MAX];
 } tb_kslot;
 TB_API tb_kslot tb_slots[TB_NTASK];          // 0 — main
@@ -406,6 +437,25 @@ TB_API volatile uint64_t tb_ms = 0;
 TB_API void (*tb_irq_fn[16])(void);
 TB_API uint16_t tb_pic_mask = 0xFFFF;
 TB_API uint64_t tb_tls_size(void) { return (uint64_t)(tb_tls_end - tb_tls_start); }
+// хозяин куска: номер слота и поколение; кусок клетки, которой уже нет, никому не засчитывается
+TB_API uint64_t tb_cell_charge(size_t bytes) {
+    if (tb_in_irq) return 0xFFFF;
+    tb_kslot *s = &tb_slots[tb_cur];
+    if (tb_cur != 0 && s->mem + (long long)bytes > TB_CELL_QUOTA) return (uint64_t)-1;
+    s->mem += (long long)bytes;
+    return (uint64_t)tb_cur | (s->gen << 8);
+}
+// хватит ли клетке квоты, если её кусок вырастет на месте (иначе растём через malloc — он и уронит)
+TB_API int tb_cell_fits(uint64_t tag, long long more) {
+    uint64_t i = tag & 0xFF;
+    if (i == 0 || i >= TB_NTASK || tb_slots[i].gen != (tag >> 8)) return 1;
+    return tb_slots[i].mem + more <= TB_CELL_QUOTA;
+}
+TB_API void tb_cell_refund(uint64_t tag, long long bytes) {
+    uint64_t i = tag & 0xFF;
+    if (i >= TB_NTASK || tb_slots[i].gen != (tag >> 8) || !tb_slots[i].used) return;
+    tb_slots[i].mem -= bytes;
+}
 
 TB_API void tb_pic_apply(void) { tb_outb(0x21, (unsigned char)tb_pic_mask); tb_outb(0xA1, (unsigned char)(tb_pic_mask >> 8)); }
 TB_API void tb_irq_set(int v, void (*fn)(void)) {
@@ -451,6 +501,7 @@ TB_API void tb_task_start(tb_task *t, void *(*run)(void *), void *arg) {
     if (i == TB_NTASK) tb_panic("больше 31 задачи background сразу", 0, 0);
     tb_kslot *s = &tb_slots[i];
     s->used = 1; s->done = 0; s->run = run; s->arg = arg; s->t = t;
+    s->gen++; s->mem = 0; s->nlocks = 0;
     t->done = 0; t->th = i;
     memcpy(s->tls, tb_tls_zero, TB_TLS_MAX);
     // стек задачи выглядит так, будто её прервали прямо перед tb_task_entry
@@ -595,6 +646,9 @@ TB_API const char *tb_fault_name[32] = {"деление на ноль", "отл�
 TB_API int tb_cell_can_fall(void) { return !tb_in_irq && tb_cur != 0; }
 TB_API void tb_cell_mark(const char *what, int line) {
     tb_kslot *s = &tb_slots[tb_cur];
+    // замки, которые клетка держала, отпускаем: иначе на них застрянут другие
+    for (int i = 0; i < s->nlocks; i++) __atomic_store_n(s->locks[i], 0, __ATOMIC_RELEASE);
+    s->nlocks = 0;
     char buf[200];
     if (line > 0) snprintf(buf, sizeof buf, "*** клетка %d упала: строка %d: %s\n", tb_cur, line, what);
     else snprintf(buf, sizeof buf, "*** клетка %d упала: %s\n", tb_cur, what);
@@ -3166,12 +3220,22 @@ TB_INL void tb_pout16(long long p, long long v) { tb_outw((unsigned short)p, (un
 TB_INL void tb_pout32(long long p, long long v) { tb_outl((unsigned short)p, (unsigned int)v); }
 // замок в ядре: одна команда xchg + прерывания выключены, пока замок у нас
 // (так прерывание не застрянет на замке, который держит прерванная задача)
+// Клетка помнит, какие замки держит: упадёт — ядро их отпустит
 TB_INL unsigned long tb_lock_take(int *l) {
     uint64_t f = tb_irq_save();
     while (__atomic_exchange_n(l, 1, __ATOMIC_ACQUIRE)) { tb_irq_restore(f); tb_yield(); f = tb_irq_save(); }
+    tb_kslot *s = &tb_slots[tb_cur];
+    if (!tb_in_irq && s->nlocks < 8) s->locks[s->nlocks++] = l;
     return f;
 }
-TB_INL void tb_lock_give(int *l, unsigned long f) { __atomic_store_n(l, 0, __ATOMIC_RELEASE); tb_irq_restore((uint64_t)f); }
+TB_INL void tb_lock_give(int *l, unsigned long f) {
+    tb_kslot *s = &tb_slots[tb_cur];
+    if (!tb_in_irq)
+        for (int i = s->nlocks - 1; i >= 0; i--)
+            if (s->locks[i] == l) { s->locks[i] = s->locks[--s->nlocks]; break; }
+    __atomic_store_n(l, 0, __ATOMIC_RELEASE);
+    tb_irq_restore((uint64_t)f);
+}
 #else
 // замок в программе: атомарный обмен; занято — сначала коротко ждём, потом уступаем ядро
 TB_INL unsigned long tb_lock_take(int *l) {

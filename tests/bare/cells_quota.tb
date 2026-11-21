@@ -1,0 +1,42 @@
+// Омниум: квота памяти клетки (16 МБ) и замок, который держала упавшая клетка
+shared done_work = int 0
+
+// клетка без меры: растит список, пока не упрётся в свою квоту
+func greedy(n: int) gives r: int
+    xs = list int
+    repeat while true
+        xs.add(n)
+    return len(xs)
+
+// падает, держа замок
+func fall_in_lock(n: int) gives r: int
+    lock work
+        done_work += 1
+        r = 10 / n
+
+// берёт тот же замок после неё
+func after(n: int) gives r: int
+    lock work
+        done_work += n
+    return n
+
+// клетка в своей квоте: 1 МБ — можно
+func modest(n: int) gives r: int
+    xs = list int
+    count i from 1 to n
+        xs.add(i)
+    return len(xs)
+
+func main()
+    g = background greedy(7)
+    gf = g.crashed
+    print("жадная упала: " + gf)
+    m = background modest(100000)
+    print("скромная: " + m.wait)
+    // ещё одна жадная: квота у каждой клетки своя
+    g2 = background greedy(8)
+    print("жадная снова упала: " + g2.crashed)
+    f = background fall_in_lock(0)
+    ff = f.crashed
+    a = background after(5)
+    print("упала в замке: " + ff + ", после неё замок свободен: " + a.wait + ", работа " + done_work)
