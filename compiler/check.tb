@@ -2361,11 +2361,13 @@ modpub func check(c: Comp, program: Node)
     main_func = find_func_in(c, "main", main_mod)
     if len(program.kids) > 0
         c.file_name = program.kids[0].file
-    if main_func < 0
+    // tb check у модуля без main (файл для use) проверяет его функции без main
+    if main_func < 0 and not c.lib_check
         error_at(c, 0, "нет функции main: программа начинается с func main()", "")
-    main_node = c.funcs[main_func].node
-    if len(main_node.kids[0].kids) != 0 or len(main_node.kids[2].kids) != 0
-        error_at(c, main_node.line, "у main не бывает параметров и gives", "")
+    if main_func >= 0
+        main_node = c.funcs[main_func].node
+        if len(main_node.kids[0].kids) != 0 or len(main_node.kids[2].kids) != 0
+            error_at(c, main_node.line, "у main не бывает параметров и gives", "")
     // shared снаружи функций: числа и да/нет, видны во всех функциях
     each top in program.kids
         if top.kind == "global"
@@ -2386,7 +2388,8 @@ modpub func check(c: Comp, program: Node)
                 if other.kind == "func" and other.irq == top.irq and other.name != top.name
                     error_at(c, top.line, "на это прерывание уже есть функция", other.name)
     // 3) сначала main: так ярлыки link узнают свои типы по вызовам
-    check_func(c, main_func)
+    if main_func >= 0
+        check_func(c, main_func)
     // 4) остальные функции; та, у которой ярлык ещё без типа, ждёт, пока её вызовет другая
     progress = true
     repeat while progress

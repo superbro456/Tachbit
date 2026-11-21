@@ -487,6 +487,7 @@ func main()
         print(join(out, "\n"))
         return
     if mode == "check"
+        c.lib_check = true
         check(c, load_program(c, path))
         print("ошибок нет")
         return

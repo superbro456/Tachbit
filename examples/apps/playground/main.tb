@@ -1,36 +1,73 @@
-// Площадка: физика, звук и анимация вместе.
-// Стрелки ← → — человечек идёт (кости шагают), пробел — прыжок, щелчок мыши — бросить мяч.
-// Мячи прыгают по ящикам; каждый удар звучит: чем сильнее, тем громче и выше.
+// Площадка в 3D: физика, звук и анимация вместе.
+// Стрелки — человечек идёт по двору (кости шагают), пробел — прыжок, щелчок мыши или B — сверху падает мяч.
+// Мячи прыгают по ящикам; каждый удар звучит: чем сильнее, тем громче и выше. Esc — выход.
 //   tb run examples/apps/playground/main.tb
+//   tb run examples/apps/playground/main.tb demo   — ходит сам 600 кадров и закрывается
+// Свет считается один раз, когда строится сетка: у каждого треугольника яркость от того,
+// как он повёрнут к солнцу. Тени — тёмные пятна на том, что под предметом (луч вниз из physics).
 use physics
 use anim
 
-func sx(x: dec) gives r: int
-    r = round(450 + x * 50)
-
-func sy(y: dec) gives r: int
-    r = round(560 - y * 50)
+shared SUN_X = dec -0.45
+shared SUN_Y = dec 0.8
+shared SUN_Z = dec -0.4
 
 func main()
-    try window_open(900, 600, "Площадка: физика, звук, анимация")
+    try window_open(960, 600, "Площадка 3D: физика, звук, анимация")
+    set_fps(60)
+    a = args()
+    demo = len(a) > 0 and a[len(a) - 1] == "demo"
+
+    // ---------- мир ----------
     w = physics.world()
-    ground = physics.add_box(w, 0, -1, 0, 9, 1, 2, 0)
-    wall_l = physics.add_box(w, -8.5, 4, 0, 0.5, 5, 2, 0)
-    wall_r = physics.add_box(w, 8.5, 4, 0, 0.5, 5, 2, 0)
+    ground = physics.add_box(w, 0, -1, 0, 10, 1, 6, 0)
+    walls = list int
+    walls.add(physics.add_box(w, -10.3, 0.35, 0, 0.3, 0.35, 6.6, 0))
+    walls.add(physics.add_box(w, 10.3, 0.35, 0, 0.3, 0.35, 6.6, 0))
+    walls.add(physics.add_box(w, 0, 0.35, 6.3, 10, 0.35, 0.3, 0))
+    walls.add(physics.add_box(w, 0, 0.35, -6.3, 10, 0.35, 0.3, 0))
     crates = list int
+    crate_meshes = list int
+    crate_shadows = list int
+    sizes = [0.5, 0.8, 0.5, 1.0, 0.6]
+    places = [-6.0, -2.5, 0.5, 3.5, 7.0]
+    deep = [1.5, -1.5, 2.5, 0.5, -2.0]
     count i from 0 to 4
-        crates.add(physics.add_box(w, -4 + i * 2, 0.5 + (i % 2), 0, 0.5, 0.5 + (i % 2), 0.5, 0))
-    hero = physics.add_box(w, -6, 2, 0, 0.3, 0.9, 0.3, 1)
+        h = sizes[i]
+        crates.add(physics.add_box(w, places[i], h, deep[i], h, h, h, 0))
+        crate_meshes.add(make_crate(h))
+        crate_shadows.add(make_square_shadow(h))
+    hero = physics.add_box(w, -8, 1.2, 0, 0.3, 0.9, 0.3, 1)
     w.bodies[hero].friction = 0.0
     balls = list int
-    // человечек: тело, голова, две ноги и две руки
+    ball_colors = list int
+
+    // ---------- сетки ----------
+    lawn = make_lawn()
+    wall_mesh = list int
+    each id in walls
+        b = w.bodies[id]
+        wall_mesh.add(make_block(b.hx, b.hy, b.hz, 150, 146, 138))
+    ball_meshes = [make_ball(0.3, 235, 80, 70), make_ball(0.3, 250, 200, 60), make_ball(0.3, 70, 140, 235), make_ball(0.3, 90, 200, 120)]
+    discs = list int
+    count i from 0 to 11
+        discs.add(make_disc(0.08 + i * 0.05))
+    hero_shadow = make_disc(0.42)
+    head_mesh = make_head(0.22)
+    shirt = make_ball(0.17, 225, 90, 70)
+    sleeve = make_ball(0.09, 225, 90, 70)
+    pants = make_ball(0.11, 60, 80, 140)
+    hand = make_ball(0.08, 240, 200, 170)
+
+    // ---------- человечек ----------
+    // при turn = 0 он смотрит вдоль x; ноги и руки чуть в стороны по z
     s = anim.skeleton()
-    body = anim.bone(s, "тело", -1, 0, -0.2, 0, 0, 0.8, 0)
-    head = anim.bone(s, "голова", body, 0, 0.8, 0, 0, 0.3, 0)
-    leg1 = anim.bone(s, "нога1", body, 0, 0, 0, 0, -0.7, 0)
-    leg2 = anim.bone(s, "нога2", body, 0, 0, 0, 0, -0.7, 0)
-    arm1 = anim.bone(s, "рука1", body, 0, 0.75, 0, 0, -0.55, 0)
-    arm2 = anim.bone(s, "рука2", body, 0, 0.75, 0, 0, -0.55, 0)
+    body = anim.bone(s, "тело", -1, 0, -0.15, 0, 0, 0.75, 0)
+    head = anim.bone(s, "голова", body, 0, 0.75, 0, 0, 0.32, 0)
+    leg1 = anim.bone(s, "нога1", body, 0, 0, 0.13, 0, -0.75, 0)
+    leg2 = anim.bone(s, "нога2", body, 0, 0, -0.13, 0, -0.75, 0)
+    arm1 = anim.bone(s, "рука1", body, 0, 0.7, 0.24, 0, -0.6, 0)
+    arm2 = anim.bone(s, "рука2", body, 0, 0.7, -0.24, 0, -0.6, 0)
     walk = anim.clip("шаг", 0.6, true)
     each pair in [["нога1", "1"], ["нога2", "-1"], ["рука1", "-1"], ["рука2", "1"]]
         k = anim.curve(walk, pair[0] + ".roll")
@@ -38,82 +75,327 @@ func main()
         anim.key(k, 0.0, 35 * sgn)
         anim.key(k, 0.3, -35 * sgn)
         anim.key(k, 0.6, 35 * sgn)
-    stand = anim.clip("стоит", 1.0, true)
-    anim.key(anim.curve(stand, "рука1.roll"), 0, 10)
-    anim.key(anim.curve(stand, "рука2.roll"), 0, -10)
-    anim.key(anim.curve(stand, "нога1.roll"), 0, 8)
-    anim.key(anim.curve(stand, "нога2.roll"), 0, -8)
+    bob = anim.curve(walk, "тело.y")
+    anim.key(bob, 0.0, 0.0)
+    anim.key(bob, 0.15, 0.06)
+    anim.key(bob, 0.3, 0.0)
+    anim.key(bob, 0.45, 0.06)
+    anim.key(bob, 0.6, 0.0)
+    stand = anim.clip("стоит", 2.0, true)
+    anim.key(anim.curve(stand, "рука1.pitch"), 0, -8)
+    anim.key(anim.curve(stand, "рука2.pitch"), 0, 8)
+    breath = anim.curve(stand, "тело.y")
+    anim.key(breath, 0.0, 0.0)
+    anim.key(breath, 1.0, 0.025)
+    anim.key(breath, 2.0, 0.0)
     jump = anim.clip("прыжок", 0.3, false)
     anim.key(anim.curve(jump, "нога1.roll"), 0, 50)
     anim.key(anim.curve(jump, "нога2.roll"), 0, -20)
     anim.key(anim.curve(jump, "рука1.roll"), 0, 150)
-    anim.key(anim.curve(jump, "рука2.roll"), 0, -150)
+    anim.key(anim.curve(jump, "рука2.roll"), 0, 150)
+    anim.key(anim.curve(jump, "рука1.pitch"), 0, -20)
+    anim.key(anim.curve(jump, "рука2.pitch"), 0, 20)
     p = anim.player()
     anim.play(p, stand, 0)
-    facing = 1.0
+
+    turn = 0.0
+    cam_x = -8.0
+    cam_z = 0.0
     frames = 0
-    demo = len(args()) > 0 and args()[0] == "demo"
     repeat while window_alive()
-        dt = frame_ms() / 1000
+        if key_down("escape") or (demo and frames >= 600)
+            stop
+        dt = min(frame_ms() / 1000, 0.05)
         h = w.bodies[hero]
-        speed = 0.0
+
+        // управление
+        mx = 0.0
+        mz = 0.0
         if key_down("left")
-            speed = -4.0
-            facing = -1.0
+            mx -= 1
         if key_down("right")
-            speed = 4.0
-            facing = 1.0
+            mx += 1
+        if key_down("up")
+            mz += 1
+        if key_down("down")
+            mz -= 1
+        jump_now = key_down("space")
+        drop = mouse_down() and frames % 8 == 0
+        if key_down("b") and frames % 8 == 0
+            drop = true
         if demo
+            // ходит восьмёркой по двору, иногда прыгает, мячи падают сами
+            t = frames * 0.02
+            mx = anim.cos_deg(t * 57.3)
+            mz = anim.sin_deg(t * 2 * 57.3) * 0.8
+            jump_now = frames % 150 == 100
+            drop = frames % 18 == 0
+        n = sqrt(mx * mx + mz * mz)
+        speed = 0.0
+        if n > 0.01
             speed = 4.0
-            if (frames / 90) % 2 == 1
-                speed = -4.0
-            facing = speed / 4.0
-        h.vx = speed
-        if key_down("space") and h.on_ground
+            h.vx = mx / n * speed
+            h.vz = mz / n * speed
+            want = atan_deg(-mz, mx)
+            turn = turn + wrap_deg(want - turn) * min(1.0, dt * 12)
+        else
+            h.vx = 0
+            h.vz = 0
+        if jump_now and h.on_ground
             physics.push(w, hero, 0, 7, 0)
-        if (mouse_down() and frames % 6 == 0) or (demo and frames % 20 == 0)
-            mx = (mouse_x() - 450) / 50.0
-            if demo
-                mx = -3.0 + frames % 7
-            b = physics.add_sphere(w, mx, 9, 0, 0.3, 1)
+        if drop and len(balls) < 60
+            bx = max(-9.4, min(9.4, h.x + random(-30, 30) / 10.0))
+            bz = max(-5.4, min(5.4, h.z + random(-20, 20) / 10.0))
+            b = physics.add_sphere(w, bx, 9, bz, 0.3, 1)
             w.bodies[b].bounce = 0.7
             balls.add(b)
+            ball_colors.add(len(balls) % 4)
+
         physics.step(w, dt)
         // звук ударов: громкость и высота от силы удара
         each hit in w.hits
             if hit.speed > 1.5
                 v = play_tone(220 + hit.speed * 40, 70)
                 sound_volume(v, min(1.0, hit.speed / 10))
+
         // анимация: в воздухе — прыжок, идёт — шаг, иначе стоит
         if not h.on_ground
             anim.play(p, jump, 0.08)
-        else if speed != 0.0
+        else if speed > 0.0
             anim.play(p, walk, 0.15)
         else
-            anim.play(p, stand, 0.2)
+            anim.play(p, stand, 0.25)
         s.x = h.x
-        s.y = h.y - 0.2
-        s.turn = 0
+        s.y = h.y - 0.15
+        s.z = h.z
+        s.turn = turn
         anim.update(p, s, dt)
-        clear_window(rgb(233, 238, 228))
-        each id in [ground, wall_l, wall_r]
-            draw_box(w.bodies[id], rgb(120, 140, 120))
-        each id in crates
-            draw_box(w.bodies[id], rgb(176, 150, 110))
-        each id in balls
-            b = w.bodies[id]
-            draw_circle(sx(b.x), sy(b.y), 15, rgb(47, 111, 80))
-        each bn in s.bones
-            x1 = sx(s.x + (bn.wx - s.x) * facing)
-            x2 = sx(s.x + (bn.ex - s.x) * facing)
-            draw_line(x1, sy(bn.wy), x2, sy(bn.ey), rgb(35, 48, 42))
-            draw_line(x1 + 1, sy(bn.wy), x2 + 1, sy(bn.ey), rgb(35, 48, 42))
-        hd = s.bones[head]
-        draw_circle(sx(s.x + (hd.ex - s.x) * facing), sy(hd.ey), 9, rgb(35, 48, 42))
-        draw_text(16, 16, "стрелки — идти, пробел — прыжок, мышь — мячи  (" + len(balls) + ")", 2, rgb(35, 48, 42))
-        frames += 1
-        if demo and frames > 300
-            stop
 
-func draw_box(b: Body, c: int)
-    draw_rect(sx(b.x - b.hx), sy(b.y + b.hy), round(b.hx * 100), round(b.hy * 100), c)
+        // камера идёт за человечком мягко, сзади и сверху
+        cam_x += (h.x - cam_x) * min(1.0, dt * 3)
+        cam_z += (h.z * 0.6 - cam_z) * min(1.0, dt * 3)
+        camera(cam_x, 4.2, cam_z - 8, cam_x, 0.9, cam_z + 0.5)
+        listener(cam_x, 4.2, cam_z - 8, cam_x, 0.9, cam_z + 0.5)
+
+        // ---------- кадр ----------
+        clear_window(rgb(150, 196, 236))
+        W = window_w()
+        H = window_h()
+        count i from 0 to 23
+            draw_rect(0, i * H / 48, W, H / 48 + 1, rgb(110 + i * 3, 160 + i * 2, 222 + i / 2))
+        draw_mesh(lawn, 0, 0, 0, 0)
+        count i from 0 to len(walls) - 1
+            b = w.bodies[walls[i]]
+            draw_mesh(wall_mesh[i], b.x, b.y, b.z, 0)
+        count i from 0 to len(crates) - 1
+            b = w.bodies[crates[i]]
+            draw_mesh(crate_shadows[i], b.x + 0.12, 0.012, b.z - 0.1, 0)
+            draw_mesh(crate_meshes[i], b.x, b.y, b.z, 0)
+        // тени мячей и человечка: луч вниз — пятно ложится на пол или на ящик
+        count i from 0 to len(balls) - 1
+            b = w.bodies[balls[i]]
+            if b.y < -5
+                skip
+            r = physics.ray(w, b.x, b.y, b.z, 0, -1, 0, 30, balls[i])
+            if r.body >= 0 and r.body != hero
+                high = r.dist - b.r
+                k = max(0, min(11, round(5 - high * 0.6)))
+                draw_mesh(discs[k], b.x, b.y - r.dist + 0.015, b.z, 0)
+            draw_mesh(ball_meshes[ball_colors[i]], b.x, b.y, b.z, 0)
+        r = physics.ray(w, h.x, h.y, h.z, 0, -1, 0, 30, hero)
+        if r.body >= 0
+            draw_mesh(hero_shadow, h.x, h.y - r.dist + 0.015, h.z, 0)
+        // человечек: каждая кость — цепочка шариков
+        draw_bone(s.bones[leg1], pants, 8)
+        draw_bone(s.bones[leg2], pants, 8)
+        draw_bone(s.bones[body], shirt, 7)
+        draw_bone(s.bones[arm1], sleeve, 7)
+        draw_bone(s.bones[arm2], sleeve, 7)
+        each id in [arm1, arm2]
+            bn = s.bones[id]
+            draw_mesh(hand, bn.ex, bn.ey, bn.ez, 0)
+        hd = s.bones[head]
+        draw_mesh(head_mesh, (hd.wx + hd.ex) / 2, (hd.wy + hd.ey) / 2 + 0.05, (hd.wz + hd.ez) / 2, turn)
+
+        draw_text(14, 12, "стрелки — идти, пробел — прыжок, мышь или B — мяч   мячей: " + len(balls) + "   " + fps() + " к/с", 1, rgb(30, 50, 70))
+        frames += 1
+
+// кость — несколько шариков от сустава до конца
+func draw_bone(b: Bone, m: int, n: int)
+    count i from 0 to n - 1
+        t = i / (n - 1.0)
+        draw_mesh(m, b.wx + (b.ex - b.wx) * t, b.wy + (b.ey - b.wy) * t, b.wz + (b.ez - b.wz) * t, 0)
+
+// ---------- свет ----------
+
+// цвет грани: рассеянный свет неба + солнце + блик
+func lit(r: dec, g: dec, b: dec, nx: dec, ny: dec, nz: dec) gives c: int
+    d = max(0.0, nx * SUN_X + ny * SUN_Y + nz * SUN_Z)
+    k = 0.42 + 0.62 * d + 0.12 * max(0.0, ny)
+    spec = 0.0
+    if d > 0.93
+        spec = (d - 0.93) * 900
+    c = rgb(round(r * k + spec), round(g * k + spec), round(b * k + spec))
+
+// треугольник наружу от точки (cx, cy, cz), цвет по солнцу
+func tri(m: int, ax: dec, ay: dec, az: dec, bx: dec, py: dec, bz: dec, qx: dec, qy: dec, qz: dec, cx: dec, cy: dec, cz: dec, r: dec, g: dec, b: dec)
+    ux = bx - ax
+    uy = py - ay
+    uz = bz - az
+    vx = qx - ax
+    vy = qy - ay
+    vz = qz - az
+    nx = uy * vz - uz * vy
+    ny = uz * vx - ux * vz
+    nz = ux * vy - uy * vx
+    l = sqrt(nx * nx + ny * ny + nz * nz)
+    if l < 0.0000001
+        return
+    nx = nx / l
+    ny = ny / l
+    nz = nz / l
+    c = lit(r, g, b, nx, ny, nz)
+    if nx * (ax - cx) + ny * (ay - cy) + nz * (az - cz) >= 0
+        mesh_add(m, ax, ay, az, bx, py, bz, qx, qy, qz, c)
+    else
+        c = lit(r, g, b, -nx, -ny, -nz)
+        mesh_add(m, ax, ay, az, qx, qy, qz, bx, py, bz, c)
+
+// ---------- сетки ----------
+
+// шар из колец: lat поясов по широте, lon кусков по кругу
+func make_ball(rad: dec, r: dec, g: dec, b: dec) gives m: int
+    m = mesh_new()
+    lat = 10
+    lon = 18
+    count i from 0 to lat - 1
+        a1 = -90 + 180.0 * i / lat
+        a2 = -90 + 180.0 * (i + 1) / lat
+        count j from 0 to lon - 1
+            o1 = 360.0 * j / lon
+            o2 = 360.0 * (j + 1) / lon
+            x11, y11, z11 = sphere_pt(rad, a1, o1)
+            x12, y12, z12 = sphere_pt(rad, a1, o2)
+            x21, y21, z21 = sphere_pt(rad, a2, o1)
+            x22, y22, z22 = sphere_pt(rad, a2, o2)
+            if i > 0
+                tri(m, x11, y11, z11, x12, y12, z12, x22, y22, z22, 0, 0, 0, r, g, b)
+            if i < lat - 1
+                tri(m, x11, y11, z11, x22, y22, z22, x21, y21, z21, 0, 0, 0, r, g, b)
+
+func sphere_pt(rad: dec, la: dec, lo: dec) gives x: dec, y: dec, z: dec
+    x = rad * anim.cos_deg(la) * anim.cos_deg(lo)
+    y = rad * anim.sin_deg(la)
+    z = rad * anim.cos_deg(la) * anim.sin_deg(lo)
+
+// голова: шар цвета кожи, глаза и волосы сверху; смотрит вдоль x
+func make_head(rad: dec) gives m: int
+    m = make_ball(rad, 245, 205, 170)
+    // глаза — два тёмных треугольника чуть впереди лица
+    each side in [-1.0, 1.0]
+        ez = side * rad * 0.38
+        ex = rad * 0.93
+        mesh_add(m, ex, rad * 0.22, ez - 0.035, ex, rad * 0.22, ez + 0.035, ex + 0.01, rad * 0.05, ez, rgb(30, 30, 40))
+    // волосы — шапочка сверху
+    hair = rad * 1.06
+    count j from 0 to 13
+        o1 = 360.0 * j / 14
+        o2 = 360.0 * (j + 1) / 14
+        count i from 0 to 2
+            a1 = 25 + 22.0 * i
+            a2 = 25 + 22.0 * (i + 1)
+            x11, y11, z11 = sphere_pt(hair, a1, o1)
+            x12, y12, z12 = sphere_pt(hair, a1, o2)
+            x21, y21, z21 = sphere_pt(hair, a2, o1)
+            x22, y22, z22 = sphere_pt(hair, a2, o2)
+            tri(m, x11, y11, z11, x12, y12, z12, x22, y22, z22, 0, 0, 0, 90, 60, 40)
+            tri(m, x11, y11, z11, x22, y22, z22, x21, y21, z21, 0, 0, 0, 90, 60, 40)
+
+// коробка с центром в нуле
+func make_block(hx: dec, hy: dec, hz: dec, r: dec, g: dec, b: dec) gives m: int
+    m = mesh_new()
+    box_faces(m, 0, 0, 0, hx, hy, hz, r, g, b)
+
+func box_faces(m: int, x: dec, y: dec, z: dec, hx: dec, hy: dec, hz: dec, r: dec, g: dec, b: dec)
+    x0 = x - hx
+    x1 = x + hx
+    y0 = y - hy
+    y1 = y + hy
+    z0 = z - hz
+    z1 = z + hz
+    quad(m, x0, y0, z0, x1, y0, z0, x1, y1, z0, x0, y1, z0, x, y, z, r, g, b)
+    quad(m, x0, y0, z1, x1, y0, z1, x1, y1, z1, x0, y1, z1, x, y, z, r, g, b)
+    quad(m, x0, y0, z0, x0, y0, z1, x0, y1, z1, x0, y1, z0, x, y, z, r, g, b)
+    quad(m, x1, y0, z0, x1, y0, z1, x1, y1, z1, x1, y1, z0, x, y, z, r, g, b)
+    quad(m, x0, y1, z0, x1, y1, z0, x1, y1, z1, x0, y1, z1, x, y, z, r, g, b)
+    quad(m, x0, y0, z0, x1, y0, z0, x1, y0, z1, x0, y0, z1, x, y, z, r, g, b)
+
+func quad(m: int, ax: dec, ay: dec, az: dec, bx: dec, py: dec, bz: dec, qx: dec, qy: dec, qz: dec, dx: dec, dy: dec, dz: dec, cx: dec, cy: dec, cz: dec, r: dec, g: dec, b: dec)
+    tri(m, ax, ay, az, bx, py, bz, qx, qy, qz, cx, cy, cz, r, g, b)
+    tri(m, ax, ay, az, qx, qy, qz, dx, dy, dz, cx, cy, cz, r, g, b)
+
+// ящик: светлое дерево и тёмные рейки по рёбрам
+func make_crate(h: dec) gives m: int
+    m = mesh_new()
+    box_faces(m, 0, 0, 0, h * 0.97, h * 0.97, h * 0.97, 200, 160, 105)
+    e = h * 0.12
+    each sx in [-1.0, 1.0]
+        each sy in [-1.0, 1.0]
+            box_faces(m, sx * (h - e), sy * (h - e), 0, e, e, h, 140, 100, 60)
+            box_faces(m, sx * (h - e), 0, sy * (h - e), e, h, e, 140, 100, 60)
+            box_faces(m, 0, sx * (h - e), sy * (h - e), h, e, e, 140, 100, 60)
+
+// двор: травяные клетки, вокруг — луг до горизонта
+func make_lawn() gives m: int
+    m = mesh_new()
+    count i from -10 to 9
+        count j from -6 to 5
+            g = 150
+            if (i + j) % 2 == 0
+                g = 162
+            mesh_add(m, i, 0, j, i, 0, j + 1, i + 1, 0, j + 1, lit(80, g, 70, 0, 1, 0))
+            mesh_add(m, i, 0, j, i + 1, 0, j + 1, i + 1, 0, j, lit(80, g, 70, 0, 1, 0))
+    c = lit(70, 128, 72, 0, 1, 0)
+    far = 120
+    mesh_add(m, -far, -0.02, -far, -far, -0.02, far, far, -0.02, far, c)
+    mesh_add(m, -far, -0.02, -far, far, -0.02, far, far, -0.02, -far, c)
+
+// пятно тени: круг на полу
+func make_disc(rad: dec) gives m: int
+    m = mesh_new()
+    c = lit(50, 95, 50, 0, 1, 0)
+    count j from 0 to 15
+        o1 = 360.0 * j / 16
+        o2 = 360.0 * (j + 1) / 16
+        mesh_add(m, 0, 0, 0, rad * anim.cos_deg(o1), 0, rad * anim.sin_deg(o1), rad * anim.cos_deg(o2), 0, rad * anim.sin_deg(o2), c)
+
+func make_square_shadow(h: dec) gives m: int
+    m = mesh_new()
+    c = lit(50, 95, 50, 0, 1, 0)
+    k = h * 1.12
+    mesh_add(m, -k, 0, -k, -k, 0, k, k, 0, k, c)
+    mesh_add(m, -k, 0, -k, k, 0, k, k, 0, -k, c)
+
+// ---------- углы ----------
+
+// угол точки (x, y) в градусах, от -180 до 180
+func atan_deg(y: dec, x: dec) gives a: dec
+    ax = abs(x)
+    ay = abs(y)
+    if ax < 0.000001 and ay < 0.000001
+        return 0.0
+    r = min(ax, ay) / max(ax, ay)
+    a = 45 * r + 15.64 * r * (1 - r)
+    if ay > ax
+        a = 90 - a
+    if x < 0
+        a = 180 - a
+    if y < 0
+        a = -a
+
+func wrap_deg(a: dec) gives r: dec
+    r = a
+    repeat while r > 180
+        r -= 360
+    repeat while r < -180
+        r += 360
