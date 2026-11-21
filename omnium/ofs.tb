@@ -1,0 +1,255 @@
+// OFS3 — файловая служба Омниума (идея из старой Омниум: объекты, версии, проверка целостности, снимки).
+// Служба живёт в своей клетке и ходит только по каналам. Ключ = пара каналов (ask, answer):
+// у кого ключ, тот и ходит к файлам; ключ бывает «читать и писать» или «только читать».
+// Пока всё лежит в памяти; диск (virtio) встанет под это же позже, клиенты не заметят.
+//
+//   bell = channel int                 звонок службы
+//   asks = list channel text           каналы ключей (раздаём до запуска службы)
+//   answers = list channel text
+//   writes = list bool
+//   k = ofs.key(bell, asks, answers, writes, true)     ключ на чтение и запись
+//   r = ofs.key(bell, asks, answers, writes, false)    ключ только на чтение
+//   files = service ofs.ofs(bell, move asks, move answers, move writes)
+//   ofs.put(k, "заметки", "привет") else err ...
+//   s = ofs.get(r, "заметки") else err ...
+//   ofs.revoke(k, r)                   отозвать ключ r: дальше у него «ключ отозван»
+//   bell.close()                       служба заканчивается
+
+// файл: все версии подряд, у каждой — контрольная сумма; удалённый файл — версия-«надгробие»
+obj Ofile
+    name: text
+    datas: list text
+    sums: list int
+    alive: list bool
+
+// снимок: сколько версий было у каждого файла
+obj Snap
+    tag: text
+    names: list text
+    counts: list int
+
+obj Key
+    ask: channel text
+    answer: channel text
+    bell: channel int
+    can_write: bool
+    // номер ключа у службы: по нему ключ можно отозвать
+    no: int
+
+// новый ключ к службе: свои два канала; они же ложатся в списки, которые потом отдают службе
+modpub func key(bell: channel int, asks: list channel text, answers: list channel text, writes: list bool, can_write: bool) gives k: Key
+    a = channel text
+    b = channel text
+    asks.add(a)
+    answers.add(b)
+    writes.add(can_write)
+    return Key(ask: a, answer: b, bell: bell, can_write: can_write, no: len(asks) - 1)
+
+// контрольная сумма текста
+modpub func sum_of(s: text) gives h: int
+    h = 7
+    each ch in s
+        b = code(ch)
+        if b < 0
+            b += 256
+        h = (h * 31 + b) % 1000000007
+
+func find_file(files: list Ofile, name: text) gives at: int
+    count i from 0 to len(files) - 1
+        if files[i].name == name
+            return i
+    return -1
+
+func find_snap(snaps: list Snap, tag: text) gives at: int
+    count i from 0 to len(snaps) - 1
+        if snaps[i].tag == tag
+            return i
+    return -1
+
+func add_version(f: Ofile, data: text, alive: bool)
+    f.datas.add(data)
+    f.sums.add(sum_of(data))
+    f.alive.add(alive)
+
+// версия v файла (с 1); проверка суммы при каждом чтении
+func read_version(f: Ofile, v: int) gives r: text
+    if v < 1 or v > len(f.datas)
+        return "err\nнет версии " + v + " у файла " + f.name
+    if not f.alive[v - 1]
+        return "err\nфайл удалён: " + f.name
+    if sum_of(f.datas[v - 1]) != f.sums[v - 1]
+        return "err\nфайл повреждён: " + f.name + ", версия " + v
+    return "ok\n" + f.datas[v - 1]
+
+// запрос: «команда\nимя\nданные»
+func handle(files: list Ofile, snaps: list Snap, req: text, can_write: bool) gives r: text
+    p = find(req, "\n")
+    cmd = req
+    rest = ""
+    if p >= 0
+        cmd = cut(req, 0, p - 1)
+        rest = cut(req, p + 1, len(req) - 1)
+    name = rest
+    data = ""
+    q = find(rest, "\n")
+    if q >= 0
+        name = cut(rest, 0, q - 1)
+        data = cut(rest, q + 1, len(rest) - 1)
+    writes = cmd == "put" or cmd == "del" or cmd == "snap" or cmd == "back"
+    if writes and not can_write
+        return "err\nключ только для чтения"
+    at = find_file(files, name)
+    if cmd == "put"
+        if name == ""
+            return "err\nнет имени файла"
+        if at < 0
+            files.add(Ofile(name: name))
+            at = len(files) - 1
+        add_version(files[at], data, true)
+        return "ok\n" + len(files[at].datas)
+    if cmd == "get" or cmd == "getv"
+        if at < 0
+            return "err\nнет файла: " + name
+        v = len(files[at].datas)
+        if cmd == "getv"
+            v = to_int(data) or 0
+        return read_version(files[at], v)
+    if cmd == "versions"
+        if at < 0
+            return "err\nнет файла: " + name
+        return "ok\n" + len(files[at].datas)
+    if cmd == "del"
+        if at < 0 or not files[at].alive[len(files[at].alive) - 1]
+            return "err\nнет файла: " + name
+        add_version(files[at], "", false)
+        return "ok\n" + len(files[at].datas)
+    if cmd == "list"
+        names = list text
+        each f in files
+            if f.alive[len(f.alive) - 1]
+                names.add(f.name)
+        return "ok\n" + join(names, "\n")
+    if cmd == "check"
+        bad = 0
+        each f in files
+            count i from 0 to len(f.datas) - 1
+                if sum_of(f.datas[i]) != f.sums[i]
+                    bad += 1
+        if bad > 0
+            return "err\nповреждённых версий: " + bad
+        return "ok\nвсе версии целы"
+    if cmd == "snap"
+        s = Snap(tag: name)
+        each f in files
+            s.names.add(f.name)
+            s.counts.add(len(f.datas))
+        si = find_snap(snaps, name)
+        if si >= 0
+            snaps[si] = s
+        else
+            snaps.add(s)
+        return "ok\n" + len(files)
+    if cmd == "back"
+        si = find_snap(snaps, name)
+        if si < 0
+            return "err\nнет снимка: " + name
+        s = snaps[si]
+        // возврат — тоже новые версии: история не теряется, можно вернуться обратно
+        each f in files
+            j = -1
+            count i from 0 to len(s.names) - 1
+                if s.names[i] == f.name
+                    j = i
+            if j < 0
+                if f.alive[len(f.alive) - 1]
+                    add_version(f, "", false)
+            else
+                n = s.counts[j]
+                same = n == len(f.datas)
+                if not same
+                    add_version(f, f.datas[n - 1], f.alive[n - 1])
+        return "ok\n" + s.tag
+    return "err\nне знаю команду: " + cmd
+
+// сама служба: звонок → смотрим, у какого ключа есть запрос; bell.close() — конец
+modpub func ofs(bell: channel int, asks: list channel text, answers: list channel text, writes: list bool)
+    files = list Ofile
+    snaps = list Snap
+    // отозванные ключи: их канал ответа закрыт, запросы по ним больше не читаются
+    gone = list bool
+    count i from 0 to len(asks) - 1
+        gone.add(false)
+    each ring in bell
+        count i from 0 to len(asks) - 1
+            repeat while asks[i].ready()
+                q = asks[i].receive()
+                if gone[i]
+                    skip
+                if starts_with(q, "revoke\n")
+                    n = to_int(cut(q, 7, len(q) - 1)) or -1
+                    if not writes[i]
+                        answers[i].send("err\nключ только для чтения")
+                    else if n < 0 or n >= len(asks) or gone[n]
+                        answers[i].send("err\nнет такого ключа")
+                    else
+                        gone[n] = true
+                        answers[n].close()
+                        if n != i
+                            answers[i].send("ok\n")
+                    skip
+                answers[i].send(handle(files, snaps, q, writes[i]))
+
+// ---------- для клиентов ----------
+func ask(k: Key, req: text) gives r: text
+    k.ask.send(req)
+    k.bell.send(1)
+    // канал ответа закрыт и пуст — ключ отозвали
+    a = ""
+    got = false
+    each x in k.answer
+        a = x
+        got = true
+        stop
+    if not got
+        fail "ключ отозван"
+    if starts_with(a, "err\n")
+        fail cut(a, 4, len(a) - 1)
+    return cut(a, 3, len(a) - 1)
+
+// записать новую версию; ответ — её номер
+modpub func put(k: Key, name: text, data: text) gives v: int
+    r = try ask(k, "put\n" + name + "\n" + data)
+    return to_int(r) or 0
+
+// последняя версия
+modpub func get(k: Key, name: text) gives s: text
+    return try ask(k, "get\n" + name)
+
+// версия номер v (с 1)
+modpub func get_version(k: Key, name: text, v: int) gives s: text
+    return try ask(k, "getv\n" + name + "\n" + v)
+
+modpub func versions(k: Key, name: text) gives n: int
+    r = try ask(k, "versions\n" + name)
+    return to_int(r) or 0
+
+modpub func delete(k: Key, name: text)
+    r = try ask(k, "del\n" + name)
+
+modpub func file_names(k: Key) gives r: list text
+    s = try ask(k, "list")
+    if s != ""
+        r = split(s, "\n")
+
+modpub func snapshot(k: Key, tag: text)
+    r = try ask(k, "snap\n" + tag)
+
+modpub func restore(k: Key, tag: text)
+    r = try ask(k, "back\n" + tag)
+
+modpub func check(k: Key) gives s: text
+    return try ask(k, "check")
+
+// отозвать ключ who (может только ключ на запись): у who больше ничего не выйдет
+modpub func revoke(k: Key, who: Key)
+    r = try ask(k, "revoke\n" + who.no)

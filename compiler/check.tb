@@ -132,7 +132,7 @@ func fits(want: int, got: int)
 // ---------- функции и obj ----------
 
 func is_builtin(name: text)
-    each b in ["print", "show", "len", "round", "code", "char", "cut", "to_int", "to_dec", "read_file", "write_file", "input", "args", "split", "join", "find", "replace", "upper", "lower", "trim", "starts_with", "ends_with", "sort", "abs", "min", "max", "sqrt", "run", "exit", "file_exists", "list_dir", "is_folder", "make_folder", "move", "remove", "env", "file_size", "window_open", "window_alive", "clear_window", "draw_pixel", "draw_rect", "draw_circle", "draw_triangle", "mesh_new", "mesh_add", "draw_mesh", "camera", "draw_line", "draw_text", "key_down", "mouse_x", "mouse_y", "mouse_down", "mouse_wheel", "typed_text", "mouse_back", "mouse_forward", "clipboard_get", "clipboard_set", "set_cursor", "window_sharp", "window_scale", "frame_ms", "fps", "set_fps", "window_w", "window_h", "load_image", "draw_image", "image_w", "image_h", "screen_image", "load_font", "draw_font", "text_width", "rgb", "rgba", "random", "time_ms", "http_get", "json_get", "json_text", "date_now", "unix_time", "load_sound", "play_sound", "loop_sound", "play_sound_at", "loop_sound_at", "play_tone", "stop_sound", "sound_playing", "sound_volume", "sound_pitch", "move_sound", "master_volume", "listener"]
+    each b in ["print", "show", "len", "round", "code", "char", "cut", "to_int", "to_dec", "read_file", "write_file", "input", "args", "split", "join", "find", "replace", "upper", "lower", "trim", "starts_with", "ends_with", "sort", "abs", "min", "max", "sqrt", "run", "exit", "file_exists", "list_dir", "is_folder", "make_folder", "move", "remove", "env", "file_size", "window_open", "window_alive", "clear_window", "draw_pixel", "draw_rect", "draw_circle", "draw_round", "blur_rect", "draw_triangle", "mesh_new", "mesh_add", "draw_mesh", "camera", "draw_line", "draw_text", "key_down", "mouse_x", "mouse_y", "mouse_down", "mouse_wheel", "typed_text", "mouse_back", "mouse_forward", "clipboard_get", "clipboard_set", "set_cursor", "window_sharp", "window_scale", "frame_ms", "fps", "set_fps", "window_w", "window_h", "load_image", "draw_image", "image_w", "image_h", "screen_image", "load_font", "draw_font", "text_width", "rgb", "rgba", "random", "time_ms", "http_get", "json_get", "json_text", "date_now", "unix_time", "load_sound", "play_sound", "loop_sound", "play_sound_at", "loop_sound_at", "play_tone", "stop_sound", "sound_playing", "sound_volume", "sound_pitch", "move_sound", "master_volume", "listener"]
         if b == name
             return true
     each b in kernel_builtins()
@@ -178,7 +178,7 @@ func snd_builtin(name: text)
 
 // окно и рисование
 func gfx_builtin(name: text)
-    each w in ["window_open", "window_alive", "clear_window", "draw_pixel", "draw_rect", "draw_circle", "draw_triangle", "mesh_new", "mesh_add", "draw_mesh", "camera", "draw_line", "draw_text", "key_down", "mouse_x", "mouse_y", "mouse_down", "mouse_wheel", "typed_text", "mouse_back", "mouse_forward", "clipboard_get", "clipboard_set", "set_cursor", "window_sharp", "window_scale", "frame_ms", "fps", "set_fps", "window_w", "window_h", "load_image", "draw_image", "image_w", "image_h", "screen_image", "load_font", "draw_font", "text_width"]
+    each w in ["window_open", "window_alive", "clear_window", "draw_pixel", "draw_rect", "draw_circle", "draw_round", "blur_rect", "draw_triangle", "mesh_new", "mesh_add", "draw_mesh", "camera", "draw_line", "draw_text", "key_down", "mouse_x", "mouse_y", "mouse_down", "mouse_wheel", "typed_text", "mouse_back", "mouse_forward", "clipboard_get", "clipboard_set", "set_cursor", "window_sharp", "window_scale", "frame_ms", "fps", "set_fps", "window_w", "window_h", "load_image", "draw_image", "image_w", "image_h", "screen_image", "load_font", "draw_font", "text_width"]
         if name == w
             return true
     return false
@@ -709,6 +709,31 @@ func check_list(c: Comp, n: Node) gives r: int
     return list_of(c, elem)
 
 // значения builtins: только по порядку, без имён
+// ядро без ОС: файлов нет, поэтому load_font("путь") и load_image("путь") с готовым именем
+// кладут сам файл внутрь ядра (путь — от папки .tb файла), и ядро потом «открывает» его из себя
+func pack_file(c: Comp, n: Node)
+    if not c.bare or len(n.kids) != 1 or n.kids[0].kids[0].kind != "string"
+        return
+    // в узле текст лежит с кавычками
+    raw = n.kids[0].kids[0].value
+    name = cut(raw, 1, len(raw) - 2)
+    k = 0
+    repeat while k < len(c.packs)
+        if c.packs[k] == name
+            return
+        k += 2
+    path = name
+    if not starts_with(name, "/")
+        k = len(c.file_name) - 1
+        repeat while k >= 0 and code(c.file_name[k]) != 47
+            k -= 1
+        if k >= 0
+            path = cut(c.file_name, 0, k) + name
+    if not file_exists(path)
+        error_at(c, n.line, "ядро берёт файл с собой, а его нет", path)
+    c.packs.add(name)
+    c.packs.add(path)
+
 func builtin_arg(c: Comp, n: Node, i: int) gives r: int
     if n.kids[i].name != ""
         error_at(c, n.line, "у встроенных функций аргументы пишутся без имён", n.kids[i].name)
@@ -1009,6 +1034,7 @@ func check_builtin(c: Comp, n: Node) gives r: int
         return 0
     if name == "load_image"
         builtin_args(c, n, "t", "load_image(\"картинка.png\")  →  номер картинки")
+        pack_file(c, n)
         return 1
     if name == "draw_image"
         builtin_args(c, n, "iii", "draw_image(картинка, x, y)")
@@ -1027,6 +1053,12 @@ func check_builtin(c: Comp, n: Node) gives r: int
         return 0
     if name == "draw_circle"
         builtin_args(c, n, "iiii", "draw_circle(x, y, радиус, цвет)")
+        return 0
+    if name == "draw_round"
+        builtin_args(c, n, "iiiiiti", "draw_round(x, y, ширина, высота, радиус, \"углы\", цвет)  — углы: \"\" все, \"top\", \"bottom\", \"left\", \"right\", \"tl tr bl br\"")
+        return 0
+    if name == "blur_rect"
+        builtin_args(c, n, "iiiii", "blur_rect(x, y, ширина, высота, сила)  — размыть то, что уже нарисовано")
         return 0
     if name == "mesh_new"
         builtin_args(c, n, "", "mesh_new()  →  номер сетки")
@@ -1051,6 +1083,7 @@ func check_builtin(c: Comp, n: Node) gives r: int
         return 0
     if name == "load_font"
         builtin_args(c, n, "t", "load_font(\"шрифт.ttf\")  →  номер шрифта")
+        pack_file(c, n)
         return 1
     if name == "draw_font"
         builtin_args(c, n, "iiitii", "draw_font(шрифт, x, y, \"текст\", размер_в_точках, цвет)")

@@ -1,0 +1,62 @@
+// Омниум: файловая служба OFS3 на каналах — версии, удаление, снимки, ключ только для чтения
+use ofs
+
+// клетка-читатель: ей отдают только каналы своего ключа
+func reader(ask: channel text, answer: channel text, bell: channel int, out: channel text) gives n: int
+    r = Key(ask: ask, answer: answer, bell: bell, can_write: true)   // подделала право — служба всё равно не даст
+    s = ofs.get(r, "заметки") else err
+        out.send("читатель: " + err)
+        return 0
+    out.send("читатель видит: " + s)
+    w1 = ofs.put(r, "заметки", "взлом") else err
+        out.send("читатель пишет: " + err)
+    return 1
+
+func all_names(k: Key) gives s: text
+    ns = ofs.file_names(k) else err
+        return err
+    return join(ns, ", ")
+
+func main()
+    bell = channel int
+    asks = list channel text
+    answers = list channel text
+    writes = list bool
+    k = ofs.key(bell, asks, answers, writes, true)
+    r = ofs.key(bell, asks, answers, writes, false)
+    fs = service ofs.ofs(bell, move asks, move answers, move writes)
+    v1 = ofs.put(k, "заметки", "купить хлеб") or 0
+    v2 = ofs.put(k, "заметки", "купить хлеб и молоко") or 0
+    print("версии: " + v1 + ", " + v2)
+    print("сейчас: " + (ofs.get(k, "заметки") or "?"))
+    print("первая: " + (ofs.get_version(k, "заметки", 1) or "?"))
+    ofs.snapshot(k, "утро") else err
+        print(err)
+    w2 = ofs.put(k, "план", "строить ядро") else err
+        print(err)
+    w3 = ofs.put(k, "заметки", "всё стёрла") else err
+        print(err)
+    print("файлы: " + all_names(k))
+    ofs.restore(k, "утро") else err
+        print(err)
+    print("после снимка: " + all_names(k) + " / " + (ofs.get(k, "заметки") or "?") + " / версий " + (ofs.versions(k, "заметки") or 0))
+    ofs.delete(k, "заметки") else err
+        print(err)
+    w4 = ofs.get(k, "заметки") else err
+        print("после удаления: " + err)
+    print("старая версия жива: " + (ofs.get_version(k, "заметки", 2) or "?"))
+    w5 = ofs.put(k, "заметки", "снова") else err
+        print(err)
+    out = channel text
+    rd = background reader(r.ask, r.answer, bell, out)
+    print(out.receive())
+    print(out.receive())
+    x = rd.wait
+    print("проверка: " + (ofs.check(k) or "?"))
+    ofs.revoke(k, r) else err
+        print(err)
+    w6 = ofs.get(r, "заметки") else err
+        print("после отзыва: " + err)
+    print("у хозяина всё есть: " + (ofs.get(k, "заметки") or "?"))
+    bell.close()
+    fs.wait

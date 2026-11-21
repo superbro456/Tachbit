@@ -22,7 +22,7 @@ func main()
     log.send("Омниум: ядро запущено (x86-64, Tachbit)")
     ask = channel int
     answer = channel text
-    time = background rtc(ask, answer)
+    time = service rtc(ask, answer)
     log.send("[ядро] службы: часы, экран, мышь, клавиатура")
     c0 = background counter(0, log)
     c1 = background counter(1, log)

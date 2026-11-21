@@ -1715,6 +1715,23 @@ typedef struct {
     tb_list *keys; tb_list *vals; long long *slots; long long nslots; int text;
     int mode; long long base; long long *pos; long long npos;
 } tb_dict;
+#ifdef TB_BARE
+// список целиком: сам список, его память и (texts) тексты-элементы
+TB_API void tb_export_list(tb_list *l, int texts) {
+    if (!l) return;
+    if (texts) for (long long i = 0; i < l->len; i++) tb_export(((char **)l->data)[i]);
+    tb_export(l->data);
+    tb_export(l);
+}
+TB_API void tb_export_dict(tb_dict *d, int ktext, int vtext) {
+    if (!d) return;
+    tb_export_list(d->keys, ktext);
+    tb_export_list(d->vals, vtext);
+    tb_export(d->slots);
+    tb_export(d->pos);
+    tb_export(d);
+}
+#endif
 
 // ячейка таблицы: номер ключа + 1 (младшие 40 бит) и метка из старших битов хеша
 #define TB_DAT ((1LL << 40) - 1)
@@ -1940,6 +1957,8 @@ TB_API void tb_task_start(tb_task *t, void *(*run)(void *), void *arg) {
     t->done = 0;
     if (tb_thread_create(&t->th, run, arg) != 0) tb_crash(0, "не получилось запустить background");
 }
+// a = service f(): в программе с ОС служба — тот же background (запас памяти есть только в ядре)
+TB_API void tb_service_start(tb_task *t, void *(*run)(void *), void *arg) { tb_task_start(t, run, arg); }
 // a.wait: дождаться потока (один раз) и отдать адрес ответа
 TB_API void *tb_wait(tb_task *t) {
     if (!t->done) { pthread_join(t->th, 0); t->done = 1; }
@@ -2176,7 +2195,13 @@ TB_API long long tb_new_mem(long long n, int line) {
     if (n <= 0) { tb_err = "new_mem: размер должен быть больше нуля"; return 0; }
     if ((unsigned long long)n > ((unsigned long long)1 << 46)) { tb_err = "new_mem: слишком большой блок"; return 0; }
     int chk = tb_memchk();
+#ifdef TB_BARE
+    tb_mem_soft(1);
+#endif
     tb_memh *h = malloc(sizeof(tb_memh) + (size_t)n + (chk ? TB_MEM_GUARD : 0));
+#ifdef TB_BARE
+    tb_mem_soft(-1);
+#endif
     if (!h) { tb_err = "new_mem: не хватило памяти"; return 0; }
     h->size = (uint64_t)n; h->magic = TB_MEM_LIVE;
     unsigned char *p = (unsigned char *)(h + 1);
@@ -2249,7 +2274,13 @@ TB_API long long tb_grow_mem(long long a, long long n, int line) {
         tb_mem_bury(a, line);
         return b;
     }
+#ifdef TB_BARE
+    tb_mem_soft(1);
+#endif
     tb_memh *q = realloc(h, sizeof(tb_memh) + (size_t)n);
+#ifdef TB_BARE
+    tb_mem_soft(-1);
+#endif
     if (!q) { tb_err = "grow_mem: не хватило памяти"; return 0; }
     if ((uint64_t)n > old) memset((unsigned char *)(q + 1) + old, 0, (size_t)((uint64_t)n - old));
     q->size = (uint64_t)n;
@@ -2523,6 +2554,9 @@ TB_API tb_chan *tb_chan_new(long long size, int text) {
     ch->size = size; ch->text = text; ch->cap = 16;
     ch->buf = tb_gc_alloc(ch->cap * size);
     if (!ch->buf) tb_crash(0, "не хватило памяти");
+#ifdef TB_BARE
+    tb_export(ch); tb_export(ch->buf);   // канал общий: он ничей и не уходит вместе с клеткой
+#endif
     return ch;
 }
 #ifdef TB_BARE
@@ -2541,6 +2575,9 @@ TB_API void tb_chan_send(tb_chan *ch, const void *v, int line) {
         char *copy = tb_gc_alloc(n);
         if (!copy) tb_crash(line, "не хватило памяти");
         memcpy(copy, t, n);
+#ifdef TB_BARE
+        tb_export(copy);   // текст в пути — ничей, пока его не возьмут
+#endif
         memcpy(tmp, &copy, sizeof copy);
         src = tmp;
     }
@@ -2552,6 +2589,9 @@ TB_API void tb_chan_send(tb_chan *ch, const void *v, int line) {
         for (long long i = 0; i < ch->len; i++)
             memcpy(nb + i * ch->size, ch->buf + ((ch->head + i) % ch->cap) * ch->size, ch->size);
         tb_gc_free(ch->buf); ch->buf = nb; ch->head = 0; ch->cap *= 2;
+#ifdef TB_BARE
+        tb_export(nb);
+#endif
     }
     memcpy(ch->buf + ((ch->head + ch->len) % ch->cap) * ch->size, src, ch->size);
     ch->len++;
@@ -2579,6 +2619,9 @@ TB_API int tb_chan_take(tb_chan *ch, void *out) {
     ch->head = (ch->head + 1) % ch->cap;
     ch->len--;
     TB_CH_UNLOCK(ch);
+#ifdef TB_BARE
+    if (ch->text) tb_adopt(*(char **)out);   // взятый текст теперь принадлежит этой клетке
+#endif
     return 1;
 }
 TB_API void tb_chan_close(tb_chan *ch) {
@@ -6182,6 +6225,101 @@ TB_API void tb_draw_rect(long long x, long long y, long long w, long long h, lon
     if (tb_gpu_on) tb_gpu_rect(x, y, w, h, c);
     if (TB_CPU_DRAW) tb_cpu_rect(x, y, w, h, c);
 }
+// точка с покрытием cov (0..1): цвет c (может быть rgba) смешивается с тем, что под ним
+TB_INL void tb_cover(long long x, long long y, uint32_t c, double cov) {
+    if (x < 0 || y < 0 || x >= tb_gw || y >= tb_gh || cov <= 0) return;
+    uint32_t a = 255 - ((c >> 24) & 255);
+    a = (uint32_t)(a * (cov > 1 ? 1 : cov) + 0.5);
+    if (a == 0) return;
+    uint32_t *p = &tb_px[y * tb_gw + x];
+    *p = a >= 255 ? (c & 0xFFFFFF) : tb_mix(*p, ((255 - a) << 24) | (c & 0xFFFFFF));
+}
+// скругление углов: "" или "all" — все; иначе слова top bottom left right tl tr bl br через пробел
+TB_API int tb_corners(const char *s) {
+    if (!s || !*s) return 15;
+    int m = 0;
+    const char *w[] = { "all", "top", "bottom", "left", "right", "tl", "tr", "bl", "br" };
+    const int v[] = { 15, 3, 12, 5, 10, 1, 2, 4, 8 };
+    while (*s) {
+        while (*s == ' ' || *s == ',') s++;
+        const char *e = s;
+        while (*e && *e != ' ' && *e != ',') e++;
+        for (int i = 0; i < 9; i++)
+            if ((size_t)(e - s) == strlen(w[i]) && strncmp(s, w[i], (size_t)(e - s)) == 0) m |= v[i];
+        s = e;
+    }
+    return m;
+}
+// прямоугольник со скруглёнными углами, края сглажены; цвет может быть полупрозрачным (rgba)
+TB_API void tb_draw_round(long long x, long long y, long long w, long long h, long long r, const char *corners, long long c) {
+    if (!tb_px || w <= 0 || h <= 0) return;
+    int m = tb_corners(corners);
+    if (r < 0) r = 0;
+    if (r * 2 > w) r = w / 2;
+    if (r * 2 > h) r = h / 2;
+    if (tb_gpu_on) {   // видеокарта: пока без сглаживания
+        tb_gpu_rect(x + r, y, w - 2 * r, h, c); tb_gpu_rect(x, y + r, r, h - 2 * r, c); tb_gpu_rect(x + w - r, y + r, r, h - 2 * r, c);
+        tb_gpu_circle(x + r, y + r, r, c); tb_gpu_circle(x + w - 1 - r, y + r, r, c);
+        tb_gpu_circle(x + r, y + h - 1 - r, r, c); tb_gpu_circle(x + w - 1 - r, y + h - 1 - r, r, c);
+    }
+    if (!TB_CPU_DRAW) return;
+    uint32_t cc = (uint32_t)c;
+    long long y0 = y < 0 ? 0 : y, y1 = y + h > tb_gh ? tb_gh : y + h;
+    for (long long j = y0; j < y1; j++) {
+        long long row = j - y;
+        int top = row < r, bot = row >= h - r;
+        int lc = (top && (m & 1)) || (bot && (m & 4)), rc = (top && (m & 2)) || (bot && (m & 8));
+        double cy = top ? y + r - 0.5 : y + h - r - 0.5;
+        // середина строки — сплошняком
+        long long a = x + (lc ? r : 0), b = x + w - (rc ? r : 0);
+        if (a < 0) a = 0;
+        if (b > tb_gw) b = tb_gw;
+        if ((cc >> 24) & 255) { for (long long i = a; i < b; i++) tb_px[j * tb_gw + i] = tb_mix(tb_px[j * tb_gw + i], cc); }
+        else for (long long i = a; i < b; i++) tb_px[j * tb_gw + i] = cc & 0xFFFFFF;
+        // углы: покрытие точки по расстоянию до центра угла
+        for (int side = 0; side < 2; side++) {
+            if (!(side ? rc : lc)) continue;
+            double cx = side ? x + w - r - 0.5 : x + r - 0.5;
+            long long i0 = side ? x + w - r : x, i1 = side ? x + w : x + r;
+            for (long long i = i0; i < i1; i++) {
+                double dx = i + 0.5 - (cx + 0.5), dy = j + 0.5 - (cy + 0.5);
+                double d = sqrt(dx * dx + dy * dy);
+                tb_cover(i, j, cc, r - d + 0.5);
+            }
+        }
+    }
+}
+// размыть то, что уже нарисовано в прямоугольнике (матовое стекло, мягкий фон): три прохода «ящиком»
+TB_API void tb_blur_rect(long long x, long long y, long long w, long long h, long long r) {
+    if (!tb_px || r <= 0) return;
+    long long x0 = x < 0 ? 0 : x, y0 = y < 0 ? 0 : y, x1 = x + w > tb_gw ? tb_gw : x + w, y1 = y + h > tb_gh ? tb_gh : y + h;
+    long long W = x1 - x0, H = y1 - y0, n = W > H ? W : H;
+    if (W <= 1 || H <= 1) return;
+    uint32_t *line = malloc((size_t)n * 4);
+    if (!line) return;
+    for (int pass = 0; pass < 3; pass++)
+        for (int dir = 0; dir < 2; dir++) {
+            long long outer = dir ? W : H, len = dir ? H : W;
+            for (long long o = 0; o < outer; o++) {
+                // строка (или столбец) — во временный ряд, потом скользящая сумма окна 2r+1
+                for (long long k = 0; k < len; k++) line[k] = dir ? tb_px[(y0 + k) * tb_gw + x0 + o] : tb_px[(y0 + o) * tb_gw + x0 + k];
+                long long sr = 0, sg = 0, sb = 0, win = 2 * r + 1;
+                for (long long k = -r; k <= r; k++) {
+                    uint32_t v = line[k < 0 ? 0 : k >= len ? len - 1 : k];
+                    sr += (v >> 16) & 255; sg += (v >> 8) & 255; sb += v & 255;
+                }
+                for (long long k = 0; k < len; k++) {
+                    uint32_t v = (uint32_t)((sr / win) << 16 | (sg / win) << 8 | (sb / win));
+                    if (dir) tb_px[(y0 + k) * tb_gw + x0 + o] = v; else tb_px[(y0 + o) * tb_gw + x0 + k] = v;
+                    uint32_t out = line[k - r < 0 ? 0 : k - r], in = line[k + r + 1 >= len ? len - 1 : k + r + 1];
+                    sr += (long long)((in >> 16) & 255) - ((out >> 16) & 255);
+                    sg += (long long)((in >> 8) & 255) - ((out >> 8) & 255);
+                    sb += (long long)(in & 255) - (out & 255);
+                }
+            }
+        }
+    free(line);
+}
 TB_API void tb_draw_circle(long long cx, long long cy, long long r, long long c) {
     if (!tb_px) return;
     if (tb_gpu_on) tb_gpu_circle(cx, cy, r, c);
@@ -7453,6 +7591,11 @@ TB_X(tb_chan *, chan_new, (long long size, int text), (size, text))
 TB_XV(chan_send, (tb_chan *ch, const void *v, int line), (ch, v, line))
 TB_X(int, chan_take, (tb_chan *ch, void *out), (ch, out))
 TB_X(_Bool, chan_ready, (tb_chan *ch), (ch))
+#ifdef TB_BARE
+TB_X(void, export, (const void *p), (p))
+TB_X(void, export_list, (tb_list *l, int t), (l, t))
+TB_X(void, export_dict, (tb_dict *d, int k, int v), (d, k, v))
+#endif
 TB_XV(chan_close, (tb_chan *ch), (ch))
 TB_XV(par_run, (void *(*w)(void *), void *j, long long t), (w, j, t))
 TB_X(long long, par_step, (long long t), (t))
@@ -7480,6 +7623,7 @@ TB_XV(gc_root, (void *p, long long n), (p, n))
 TB_XV(call_main, (void (*f)(void)), (f))
 #endif
 TB_XV(task_start, (tb_task *t, void *(*run)(void *), void *arg), (t, run, arg))
+TB_XV(service_start, (tb_task *t, void *(*run)(void *), void *arg), (t, run, arg))
 TB_X(void *, wait, (tb_task *t), (t))
 TB_X(_Bool, crashed, (tb_task *t), (t))
 void tb_x_show_i(long long x) { printf("%lld", x); }
@@ -7640,6 +7784,8 @@ TB_BV(clear_window, (long long c, int line), tb_clear_window(c))
 TB_BV(draw_pixel, (long long x, long long y, long long c, int line), tb_draw_pixel(x, y, c))
 TB_BV(draw_rect, (long long x, long long y, long long w, long long h, long long c, int line), tb_draw_rect(x, y, w, h, c))
 TB_BV(draw_circle, (long long x, long long y, long long r, long long c, int line), tb_draw_circle(x, y, r, c))
+TB_BV(draw_round, (long long x, long long y, long long w, long long h, long long r, const char *k, long long c, int line), tb_draw_round(x, y, w, h, r, k, c))
+TB_BV(blur_rect, (long long x, long long y, long long w, long long h, long long r, int line), tb_blur_rect(x, y, w, h, r))
 TB_BV(draw_line, (long long x0, long long y0, long long x1, long long y1, long long c, int line), tb_draw_line(x0, y0, x1, y1, c))
 TB_BV(draw_text, (long long x, long long y, const char *s, long long n, long long c, int line), tb_draw_text(x, y, s, n, c))
 TB_B(_Bool, key_down, (const char *s, int line), tb_key_down(s))

@@ -1,0 +1,24 @@
+// Омниум: new_mem и grow_mem сверх квоты клетки (16 МБ) — ошибка else err, клетка живёт дальше
+func greedy(n: int) gives r: text
+    danger
+        a = new_mem(3000000) else err
+            return "первый блок: " + err
+        b = new_mem(3000000) else err
+            return "второй блок: " + err
+        c = new_mem(10000000) else err
+            r = "большой блок: " + err
+        a2 = grow_mem(a, 12000000) else err
+            r = r + "; рост: " + err
+        write32(a, 7)
+        r = r + "; первый блок жив: " + read32(a)
+        free_mem(b)
+        free_mem(a)
+        d = new_mem(6000000) else err
+            return r + "; после free_mem: " + err
+        r = r + "; после free_mem место есть"
+        free_mem(d)
+
+func main()
+    g = background greedy(1)
+    print(g.wait)
+    print("клетка упала: " + g.crashed)

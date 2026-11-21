@@ -494,6 +494,20 @@ func build_bare(c: Comp, path: text, exe: text)
     write_file(ll_path, emit_ll(c, program, target, cpu)) else err
         print("не могу записать файл: " + ll_path)
         return 1
+    // файлы, которые ядро берёт с собой (load_font / load_image с готовым именем) — в конец .ll
+    pk_path = exe + ".pack.py"
+    write_file(pk_path, runtime_text.packer_text()) else err
+        print("не могу записать файл: " + pk_path)
+        return 1
+    pk = "python3 " + quote(pk_path)
+    each p in c.packs
+        pk += " " + quote(p)
+    packed = run(pk + " >> " + quote(ll_path)) == 0
+    remove(pk_path) else err
+        ignored = err
+    if not packed
+        print("не получилось положить файлы в ядро (нужен python3)")
+        return 1
     bc = exe + ".bc"
     o_path = exe + ".o"
     log = exe + ".llvm.log"

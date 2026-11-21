@@ -1,5 +1,6 @@
-// Оболочка «Капля»: светлая галактика, окна с «ушком» вместо заголовка, круглая капсула
-// справа (часы, дата), «капля» снизу: поиск, который растёт в меню, когда печатаешь.
+// Оболочка «Капля»: светлое небо, окна из матового стекла с «ушком» вместо заголовка, круглая
+// капсула справа (часы, дата, поиск). Поиск — стеклянная панель по центру: открывается, когда
+// печатаешь или жмёшь лупу в капсуле. Шрифт Inter (лежит в ядре), сглаженные углы, мягкие тени.
 // Оболочка — обычная клетка: danger ей не нужен. Время она спрашивает у службы часов,
 // строки для «Терминала» получает из канала журнала.
 
@@ -35,6 +36,8 @@ obj Shell
     was_back: bool
     frames: int
     sky: int           // снимок фона (рисуется один раз)
+    f: int             // шрифт Inter (-1 — нет, тогда свой 8×16)
+    fb: int            // Inter SemiBold
 
 // ---------- стиль «Капли» ----------
 func ink() gives c: int
@@ -44,37 +47,30 @@ func dim() gives c: int
 func accent() gives c: int
     return rgb(64, 120, 255)
 func glass() gives c: int
-    return rgba(255, 255, 255, 236)
+    return rgba(255, 255, 255, 190)
 func dark_glass() gives c: int
-    return rgba(22, 26, 38, 240)
+    return rgba(18, 22, 34, 215)
 
 modpub func apps() gives names: list text
     names = ["Терминал", "Заметки", "О системе", "Часы"]
 
 // ---------- фигуры ----------
-// прямоугольник со своими скруглениями углов (сверху слева, сверху справа, снизу слева, снизу справа);
-// рисуется по строкам, без наложений — полупрозрачный цвет ложится ровно
-func shape(x: int, y: int, w: int, h: int, tl: int, tr: int, bl: int, br: int, c: int)
-    count j from 0 to h - 1
-        left = 0
-        right = 0
-        if j < tl
-            left = corner(tl, tl - j)
-        if j < tr
-            right = corner(tr, tr - j)
-        if j >= h - bl
-            left = corner(bl, j - (h - bl) + 1)
-        if j >= h - br
-            right = corner(br, j - (h - br) + 1)
-        draw_rect(x + left, y + j, w - left - right, 1, c)
+// стекло: то, что под ним, размывается, сверху — полупрозрачный цвет; углы сглажены
+func frost(x: int, y: int, w: int, h: int, r: int, corners: text, c: int)
+    // размываем «крестом»: углы за скруглением не трогаем, иначе вокруг стекла видно квадрат
+    k = r / 2
+    blur_rect(x, y + k, w, h - 2 * k, 12)
+    blur_rect(x + k, y, w - 2 * k, k, 12)
+    blur_rect(x + k, y + h - k, w - 2 * k, k, 12)
+    draw_round(x, y, w, h, r, corners, c)
 
-// на сколько точек строка уходит внутрь в углу радиуса r (d — строк до края, считая эту)
-func corner(r: int, d: int) gives inset: int
-    dy = d * 1.0 - 0.5
-    return r - round(sqrt(r * r * 1.0 - dy * dy))
+// мягкая тень: слои всё шире и прозрачнее
+func shadow(x: int, y: int, w: int, h: int, r: int, corners: text)
+    count k from 0 to 9
+        draw_round(x - k, y + 8 - k, w + 2 * k, h + 2 * k, r + k, corners, rgba(30, 40, 80, 5))
 
 func rbox(x: int, y: int, w: int, h: int, r: int, c: int)
-    shape(x, y, w, h, r, r, r, r, c)
+    draw_round(x, y, w, h, r, "all", c)
 
 // буквы, а не байты: в UTF-8 у русской буквы два байта, второй — «продолжение» (128..191)
 func letters(s: text) gives n: int
@@ -88,8 +84,16 @@ func more(ch: text) gives yes: bool
         b += 256
     return b >= 128 and b < 192
 
-func text_w(s: text, size: int) gives w: int
-    return letters(s) * 8 * size
+// ширина надписи: size — размер шрифта в точках
+func text_w(s: Shell, t: text, size: int) gives w: int
+    if s.f < 0
+        return letters(t) * 8 * (size / 14 + 1)
+    return text_width(s.f, t, size)
+
+func bold_w(s: Shell, t: text, size: int) gives w: int
+    if s.fb < 0
+        return text_w(s, t, size)
+    return text_width(s.fb, t, size)
 
 // не длиннее n букв
 func fit(s: text, n: int) gives r: text
@@ -104,25 +108,31 @@ func fit(s: text, n: int) gives r: text
         r += ch
     r += ".."
 
-func label(x: int, y: int, s: text, size: int, c: int)
-    draw_text(x, y, s, size, c)
+func label(s: Shell, x: int, y: int, t: text, size: int, c: int)
+    if s.f < 0
+        draw_text(x, y, t, size / 14 + 1, c)
+    else
+        draw_font(s.f, x, y, t, size, c)
+
+func bold(s: Shell, x: int, y: int, t: text, size: int, c: int)
+    if s.fb < 0
+        label(s, x, y, t, size, c)
+    else
+        draw_font(s.fb, x, y, t, size, c)
 
 // ---------- фон: белое небо и четыре мягких облака цвета ----------
-func cloud(x: int, y: int, r: int, c: int)
-    k = 16
-    repeat 16 times
-        draw_circle(x, y, r * k / 16, c)
-        k -= 1
-
 func sky(s: Shell)
     if s.sky >= 0
         draw_image(s.sky, 0, 0)
         return
-    clear_window(rgb(250, 251, 254))
-    cloud(s.w * 18 / 100, s.h * 25 / 100, 260, rgba(120, 160, 255, 9))
-    cloud(s.w * 80 / 100, s.h * 20 / 100, 220, rgba(255, 180, 120, 9))
-    cloud(s.w * 30 / 100, s.h * 85 / 100, 240, rgba(130, 210, 160, 9))
-    cloud(s.w * 70 / 100, s.h * 75 / 100, 200, rgba(255, 150, 200, 8))
+    clear_window(rgb(246, 247, 252))
+    draw_circle(s.w * 18 / 100, s.h * 25 / 100, 230, rgb(214, 226, 255))
+    draw_circle(s.w * 80 / 100, s.h * 18 / 100, 200, rgb(255, 228, 208))
+    draw_circle(s.w * 30 / 100, s.h * 88 / 100, 220, rgb(212, 240, 224))
+    draw_circle(s.w * 72 / 100, s.h * 76 / 100, 190, rgb(252, 216, 234))
+    draw_circle(s.w * 52 / 100, s.h * 45 / 100, 120, rgb(232, 226, 255))
+    // облака без краёв: всё небо размываем один раз (потом берём снимок)
+    blur_rect(0, 0, s.w, s.h, 60)
     // слабая спираль: точки по кругу, который растёт
     cx = s.w / 2
     cy = s.h / 2
@@ -131,7 +141,7 @@ func sky(s: Shell)
         r = 18.0 + i * 2.6
         x = cx + round(r * cos_(a))
         y = cy + round(r * 0.6 * sin_(a))
-        draw_circle(x, y, 1, rgba(120, 110, 200, 70))
+        draw_circle(x, y, 1, rgba(120, 110, 200, 50))
     s.sky = screen_image()
 
 // синус и косинус рядом: в языке их нет — считаем рядом Тейлора
@@ -150,33 +160,52 @@ func cos_(a: dec) gives r: dec
     return sin_(a + 1.5707963267949)
 
 // ---------- капсула справа: часы, дата, сеть, батарея ----------
-func capsule(s: Shell)
-    w = 64
-    h = 300
-    x = s.w - w - 14
+func capsule_box(s: Shell) gives x: int, y: int, w: int, h: int
+    w = 68
+    h = 318
+    x = s.w - w - 16
     y = (s.h - h) / 2
-    rbox(x + 2, y + 6, w, h, 32, rgba(0, 0, 0, 18))
-    rbox(x, y, w, h, 32, glass())
+
+func capsule(s: Shell)
+    x, y, w, h = capsule_box(s)
+    shadow(x, y, w, h, 34, "all")
+    frost(x, y, w, h, 34, "all", glass())
     parts = split(s.clock, ":")
     if len(parts) == 2
-        label(x + (w - 32) / 2, y + 34, parts[0], 2, ink())
-        label(x + (w - 32) / 2, y + 72, parts[1], 2, ink())
+        bold(s, x + (w - bold_w(s, parts[0], 26)) / 2, y + 26, parts[0], 26, ink())
+        bold(s, x + (w - bold_w(s, parts[1], 26)) / 2, y + 60, parts[1], 26, ink())
     d = split(s.date, ".")
     if len(d) == 3
         dd = d[0] + "." + d[1]
-        label(x + (w - text_w(dd, 1)) / 2, y + 120, dd, 1, dim())
-    // сеть: три дуги — три точки разного размера
-    draw_circle(x + 22, y + 176, 3, ink())
-    draw_circle(x + 32, y + 172, 4, ink())
-    draw_circle(x + 43, y + 167, 5, ink())
+        label(s, x + (w - text_w(s, dd, 12)) / 2, y + 100, dd, 12, dim())
+    // сеть: три точки разного размера
+    draw_circle(x + 23, y + 150, 3, ink())
+    draw_circle(x + 33, y + 146, 4, ink())
+    draw_circle(x + 44, y + 141, 5, ink())
     // батарея
-    rbox(x + 16, y + 210, 28, 14, 4, ink())
-    rbox(x + 18, y + 212, 24, 10, 3, rgb(120, 210, 150))
-    draw_rect(x + 44, y + 214, 3, 6, ink())
-    // уведомления: точка
-    draw_circle(x + w / 2, y + 262, 6, accent())
+    rbox(x + 19, y + 180, 28, 14, 4, ink())
+    rbox(x + 21, y + 182, 24, 10, 3, rgb(120, 210, 150))
+    rbox(x + 47, y + 184, 3, 6, 1, ink())
+    // лупа: открыть поиск
+    bx, sy = search_btn(s)
+    sc = rgba(255, 255, 255, 220)
+    if s.menu
+        sc = accent()
+    draw_circle(bx, sy, 22, sc)
+    fg = ink()
+    if s.menu
+        fg = rgb(255, 255, 255)
+    draw_circle(bx - 3, sy - 3, 8, fg)
+    draw_circle(bx - 3, sy - 3, 6, sc)
+    draw_line(bx + 2, sy + 2, bx + 8, sy + 8, fg)
+    draw_line(bx + 3, sy + 2, bx + 9, sy + 8, fg)
 
-// ---------- «капля» снизу ----------
+func search_btn(s: Shell) gives cx: int, cy: int
+    x, y, w, h = capsule_box(s)
+    cx = x + w / 2
+    cy = y + h - 50
+
+// ---------- поиск: стеклянная панель по центру ----------
 func found(s: Shell) gives r: list text
     q = lower(s.query)
     latin = ["terminal", "notes", "about", "clock"]
@@ -187,70 +216,74 @@ func found(s: Shell) gives r: list text
         i += 1
 
 func drop_box(s: Shell) gives x: int, y: int, w: int, h: int
-    w = 240
-    h = 48
-    if s.menu
-        w = 560
-        h = 320
+    w = 560
+    h = 340
     x = (s.w - w) / 2
-    y = s.h - h
+    y = s.h / 5
 
 func drop(s: Shell)
-    x, y, w, h = drop_box(s)
-    // вогнутые углы у края экрана: капля «вырастает» из нижней кромки
-    shape(x, y, w, h + 20, 24, 24, 0, 0, glass())
-    draw_circle(x + 30, y + 24, 8, ink())
-    draw_circle(x + 30, y + 24, 6, rgb(250, 251, 254))
-    draw_line(x + 35, y + 29, x + 40, y + 34, ink())
-    q = s.query
-    if q == ""
-        label(x + 52, y + 16, "Поиск", 1, dim())
-    else
-        label(x + 52, y + 16, q + "_", 1, ink())
     if not s.menu
         return
-    // слева — что нашлось (Enter открывает первое), справа — частые
-    label(x + 24, y + 60, "Нашлось", 1, dim())
-    yy = y + 84
+    x, y, w, h = drop_box(s)
+    shadow(x, y, w, h, 24, "all")
+    frost(x, y, w, h, 24, "all", rgba(255, 255, 255, 205))
+    // строка поиска
+    rbox(x + 16, y + 16, w - 32, 44, 14, rgba(255, 255, 255, 230))
+    draw_circle(x + 40, y + 36, 8, dim())
+    draw_circle(x + 40, y + 36, 6, rgb(255, 255, 255))
+    draw_line(x + 45, y + 41, x + 50, y + 46, dim())
+    q = s.query
+    if q == ""
+        label(s, x + 62, y + 27, "Поиск приложений", 15, dim())
+    else
+        label(s, x + 62, y + 27, q, 15, ink())
+        if (s.frames / 30) % 2 == 0
+            draw_rect(x + 63 + text_w(s, q, 15), y + 27, 2, 20, accent())
+    // слева — что нашлось (Enter открывает первое), справа — все приложения
+    bold(s, x + 24, y + 78, "Нашлось", 12, dim())
+    yy = y + 102
     first = true
     each a in found(s)
         if first
-            rbox(x + 16, yy - 6, 260, 28, 10, rgba(64, 120, 255, 40))
+            rbox(x + 16, yy - 7, 260, 32, 10, rgba(64, 120, 255, 36))
             first = false
-        label(x + 28, yy, a, 1, ink())
-        yy += 32
-    label(x + 310, y + 60, "Частые", 1, dim())
+        label(s, x + 30, yy, a, 14, ink())
+        yy += 36
+    bold(s, x + 310, y + 78, "Приложения", 12, dim())
     i = 0
     each a in apps()
         bx = x + 300 + (i % 2) * 124
-        cy = y + 84 + (i / 2) * 96
-        rbox(bx, cy, 112, 84, 16, rgba(255, 255, 255, 160))
-        icon(bx + 56, cy + 30, a)
-        label(bx + (112 - text_w(a, 1)) / 2, cy + 58, a, 1, ink())
+        cy = y + 102 + (i / 2) * 106
+        rbox(bx, cy, 112, 94, 18, rgba(255, 255, 255, 170))
+        icon(bx + 56, cy + 34, a)
+        label(s, bx + (112 - text_w(s, a, 12)) / 2, cy + 64, a, 12, ink())
         i += 1
 
 func icon(cx: int, cy: int, app: text)
     match app
         "Терминал"
-            rbox(cx - 16, cy - 14, 32, 28, 8, rgb(30, 34, 48))
-            label(cx - 10, cy - 8, ">_", 1, rgb(120, 230, 170))
+            rbox(cx - 18, cy - 16, 36, 32, 9, rgb(30, 34, 48))
+            draw_line(cx - 9, cy - 6, cx - 3, cy, rgb(120, 230, 170))
+            draw_line(cx - 3, cy, cx - 9, cy + 6, rgb(120, 230, 170))
+            draw_rect(cx, cy + 5, 9, 2, rgb(120, 230, 170))
         "Заметки"
-            rbox(cx - 14, cy - 16, 28, 32, 6, rgb(255, 214, 120))
+            rbox(cx - 15, cy - 18, 30, 36, 7, rgb(255, 214, 120))
             draw_rect(cx - 8, cy - 6, 16, 2, rgb(150, 110, 40))
             draw_rect(cx - 8, cy, 16, 2, rgb(150, 110, 40))
             draw_rect(cx - 8, cy + 6, 10, 2, rgb(150, 110, 40))
         "О системе"
-            draw_circle(cx, cy, 16, rgb(170, 140, 255))
-            label(cx - 4, cy - 8, "i", 1, rgb(255, 255, 255))
+            draw_circle(cx, cy, 18, rgb(170, 140, 255))
+            draw_circle(cx, cy - 7, 2, rgb(255, 255, 255))
+            rbox(cx - 2, cy - 2, 4, 11, 2, rgb(255, 255, 255))
         else
-            draw_circle(cx, cy, 16, rgb(120, 200, 255))
-            draw_circle(cx, cy, 13, rgb(255, 255, 255))
+            draw_circle(cx, cy, 18, rgb(120, 200, 255))
+            draw_circle(cx, cy, 15, rgb(255, 255, 255))
             draw_line(cx, cy, cx, cy - 9, ink())
             draw_line(cx, cy, cx + 6, cy + 2, ink())
 
 // ---------- окна ----------
-func ear_w(win: Win) gives w: int
-    return text_w(win.title, 1) + 96
+func ear_w(s: Shell, win: Win) gives w: int
+    return bold_w(s, win.title, 13) + 100
 
 func window(s: Shell, win: Win, top: bool)
     dark = win.app == "Терминал"
@@ -259,21 +292,22 @@ func window(s: Shell, win: Win, top: bool)
     if dark
         body = dark_glass()
         fg = rgb(225, 230, 240)
-    ew = ear_w(win)
-    // тень, ушко и тело одной формой: ушко — выступ над левым краем
-    shape(win.x + 4, win.y + 10, win.w, win.h, 0, 16, 16, 16, rgba(0, 0, 0, 22))
-    shape(win.x, win.y - 32, ew, 32, 14, 14, 0, 0, body)
-    shape(win.x, win.y, win.w, win.h, 0, 16, 16, 16, body)
-    label(win.x + 16, win.y - 24, win.title, 1, fg)
-    // кнопки на ушке: свернуть и закрыть — две капли
-    bx = win.x + ew - 56
-    draw_circle(bx + 10, win.y - 16, 9, rgba(128, 128, 140, 60))
-    draw_rect(bx + 6, win.y - 16, 9, 2, fg)
-    draw_circle(bx + 34, win.y - 16, 9, rgba(240, 90, 110, 200))
-    draw_line(bx + 30, win.y - 20, bx + 38, win.y - 12, rgb(255, 255, 255))
-    draw_line(bx + 38, win.y - 20, bx + 30, win.y - 12, rgb(255, 255, 255))
+    ew = ear_w(s, win)
+    // тень, ушко и тело: ушко — выступ над левым краем
+    shadow(win.x, win.y - 34, ew, 34, 16, "top")
+    shadow(win.x, win.y, win.w, win.h, 18, "tr bl br")
+    frost(win.x, win.y - 34, ew, 34, 16, "top", body)
+    frost(win.x, win.y, win.w, win.h, 18, "tr bl br", body)
+    bold(s, win.x + 18, win.y - 25, win.title, 13, fg)
+    // кнопки на ушке: свернуть и закрыть
+    bx = win.x + ew - 58
+    draw_circle(bx + 10, win.y - 17, 9, rgba(128, 128, 140, 50))
+    rbox(bx + 5, win.y - 18, 10, 2, 1, fg)
+    draw_circle(bx + 34, win.y - 17, 9, rgb(240, 96, 112))
+    draw_line(bx + 31, win.y - 20, bx + 37, win.y - 14, rgb(255, 255, 255))
+    draw_line(bx + 37, win.y - 20, bx + 31, win.y - 14, rgb(255, 255, 255))
     if top
-        draw_rect(win.x + 16, win.y - 6, ew - 32, 2, accent())
+        rbox(win.x + 18, win.y - 6, ew - 36, 3, 1, accent())
     content(s, win, fg)
 
 func content(s: Shell, win: Win, fg: int)
@@ -287,33 +321,34 @@ func content(s: Shell, win: Win, fg: int)
             if first < 0
                 first = 0
             count i from first to n - 1
-                label(x, y + (i - first) * 18, fit(s.log[i], (win.w - 40) / 8), 1, rgb(150, 235, 180))
+                label(s, x, y + (i - first) * 18, fit(s.log[i], (win.w - 40) / 7), 13, rgb(150, 235, 180))
         "Заметки"
             lines = split(s.note, "\n")
             yy = y
             each ln in lines
-                label(x, yy, ln, 1, fg)
-                yy += 20
+                label(s, x, yy, ln, 15, fg)
+                yy += 22
             if s.note_on and (s.frames / 30) % 2 == 0
                 last = lines[len(lines) - 1]
-                draw_rect(x + text_w(last, 1), yy - 20, 2, 16, accent())
+                draw_rect(x + 1 + text_w(s, last, 15), yy - 22, 2, 19, accent())
         "О системе"
-            label(x, y, "Омниум", 3, fg)
-            label(x, y + 60, "ядро на Tachbit, x86-64", 1, fg)
-            label(x, y + 84, "клетки на каналах, без системных вызовов", 1, dim())
-            label(x, y + 108, "окон открыто: " + len(s.wins), 1, dim())
-            label(x, y + 132, "работает: " + uptime_ms() / 1000 + " с", 1, dim())
+            bold(s, x, y, "Омниум", 34, fg)
+            label(s, x, y + 56, "ядро на Tachbit, x86-64", 14, fg)
+            label(s, x, y + 80, "клетки на каналах, без системных вызовов", 14, dim())
+            label(s, x, y + 104, "окон открыто: " + len(s.wins), 14, dim())
+            label(s, x, y + 128, "работает: " + uptime_ms() / 1000 + " с", 14, dim())
         else
-            label(x + 10, y + 20, s.clock, 4, fg)
-            label(x + 14, y + 100, s.date, 1, dim())
+            bold(s, x + 6, y + 6, s.clock, 56, fg)
+            label(s, x + 10, y + 86, s.date, 14, dim())
 
 // свёрнутые окна — ушки у левого края
 func tabs(s: Shell)
     y = 40
     each win in s.wins
         if win.hidden
-            shape(0, y, ear_w(win) - 40, 30, 0, 14, 0, 14, glass())
-            label(12, y + 7, win.title, 1, ink())
+            shadow(0, y, ear_w(s, win) - 40, 32, 16, "right")
+            frost(0, y, ear_w(s, win) - 40, 32, 16, "right", glass())
+            bold(s, 14, y + 8, win.title, 13, ink())
             y += 40
 
 // ---------- что делает мышь и клавиши ----------
@@ -373,29 +408,32 @@ func press(s: Shell, mx: int, my: int)
     ty = 40
     each win in s.wins
         if win.hidden
-            if inside(mx, my, 0, ty, ear_w(win) - 40, 30)
+            if inside(mx, my, 0, ty, ear_w(s, win) - 40, 32)
                 win.hidden = false
                 front(s, win)
                 return
             ty += 40
-    // капля
+    // лупа в капсуле
+    bx, sy = search_btn(s)
+    if inside(mx, my, bx - 22, sy - 22, 44, 44)
+        s.menu = not s.menu
+        s.query = ""
+        s.note_on = false
+        return
+    // панель поиска
     x, y, w, h = drop_box(s)
-    if inside(mx, my, x, y, w, h)
-        if not s.menu
-            s.menu = true
-            s.note_on = false
-            return
+    if s.menu and inside(mx, my, x, y, w, h)
         if mx < x + 290
-            k = (my - (y + 78)) / 32
+            k = (my - (y + 95)) / 36
             got = found(s)
             if k >= 0 and k < len(got)
                 open_app(s, got[k])
                 s.menu = false
                 s.query = ""
             return
-        i = (mx - (x + 300)) / 124 + ((my - (y + 84)) / 96) * 2
+        i = (mx - (x + 300)) / 124 + ((my - (y + 102)) / 106) * 2
         all = apps()
-        if mx >= x + 300 and my >= y + 84 and i >= 0 and i < len(all)
+        if mx >= x + 300 and my >= y + 102 and i >= 0 and i < len(all)
             open_app(s, all[i])
             s.menu = false
             s.query = ""
@@ -407,16 +445,16 @@ func press(s: Shell, mx: int, my: int)
         win = s.wins[n - k]
         if win.hidden
             skip
-        ew = ear_w(win)
-        bx = win.x + ew - 56
-        if inside(mx, my, bx + 24, win.y - 26, 20, 20)
+        ew = ear_w(s, win)
+        bx = win.x + ew - 58
+        if inside(mx, my, bx + 24, win.y - 27, 20, 20)
             close(s, win)
             return
-        if inside(mx, my, bx, win.y - 26, 20, 20)
+        if inside(mx, my, bx, win.y - 27, 20, 20)
             win.hidden = true
             s.note_on = false
             return
-        if inside(mx, my, win.x, win.y - 32, ew, 32)
+        if inside(mx, my, win.x, win.y - 34, ew, 34)
             front(s, win)
             s.drag = len(s.wins) - 1
             s.dx = mx - win.x
@@ -481,6 +519,8 @@ modpub func shell(w: int, h: int, log: channel text, ask: channel int, answer: c
         log.send("[оболочка] нет экрана: " + err)
         return
     s = Shell(w: w, h: h, drag: -1, dirty: true, asked: -100000, sky: -1)
+    s.f = load_font("fonts/Inter-Regular.ttf") or -1
+    s.fb = load_font("fonts/Inter-SemiBold.ttf") or -1
     each a in start
         open_app(s, a)
     repeat while window_alive()
@@ -509,12 +549,12 @@ modpub func shell(w: int, h: int, log: channel text, ask: channel int, answer: c
             win = s.wins[s.drag]
             win.x = mx - s.dx
             win.y = my - s.dy
-            if win.y < 34
-                win.y = 34
+            if win.y < 36
+                win.y = 36
             s.dirty = true
         s.down = down
         keys(s)
-        if s.note_on and s.frames % 30 == 0
+        if (s.note_on or s.menu) and s.frames % 30 == 0
             s.dirty = true
         if s.frames % 60 == 0 and shown(s, "О системе")
             s.dirty = true

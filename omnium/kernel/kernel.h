@@ -177,12 +177,27 @@ TB_API void tb_putc(char c) {
     else if (cp == 0x451) tb_vga_put(128 + 65);
     else tb_vga_put('?');
 }
+// строка не рвётся: пока задача не дописала свою строку до '\n', другие ждут (недолго —
+// если задача так и не допишет, через ~20 мс пишут всё равно)
+TB_API volatile long long tb_line_owner = 0;
+TB_API long long tb_out_me(void);
 TB_API int fputs(const char *s, FILE *f) {
-    uint64_t fl = tb_irq_save();
+    if (!*s) return 0;
+    long long me = tb_out_me();
+    uint64_t fl;
+    for (long spins = 0;; spins++) {
+        fl = tb_irq_save();
+        long long o = tb_line_owner;
+        if (o == 0 || o == me || me < 0 || spins > 4000000) break;
+        tb_irq_restore(fl);
+        __builtin_ia32_pause();
+    }
     unsigned char was = tb_vcolor;
     if (f == stderr) tb_vcolor = 0x0C;   // ошибки — красным
-    while (*s) tb_putc(*s++);
+    char last = 0;
+    while (*s) { last = *s; tb_putc(*s++); }
     tb_vcolor = was;
+    if (me >= 0) tb_line_owner = last == '\n' ? 0 : me;
     tb_irq_restore(fl);
     return 0;
 }
@@ -202,21 +217,29 @@ __attribute__((noreturn)) static void exit(int code) {
 TB_API unsigned char tb_heap[TB_HEAP] __attribute__((aligned(16), section(".tbheap")));
 TB_API size_t tb_heap_top = 0;
 TB_API void *tb_bins[32];
+// заголовок куска: размер (номер 4..31) + метка «это начало куска» — так по адресу видно,
+// наш ли это кусок (для передачи владения), и хозяин (клетка) рядом
+#define TB_HMAGIC 0x0B1A0C0000000000ull
+#define TB_TAG_FREE (~0ull)
+// запас памяти (как зона Service в старой Омниум): последние 8 МБ кучи берут только ядро,
+// прерывания и службы. Обычные клетки упираются раньше — и службы живут, даже когда клетки съели всё
+#define TB_RESERVE (8 << 20)
+TB_API size_t tb_heap_limit(void);
 TB_API int tb_cls(size_t n) { int k = 4; while (k < 31 && ((size_t)1 << k) < n) k++; return k; }
 TB_API void *tb_malloc0(size_t n) {
     int k = tb_cls(n);
     if (tb_bins[k]) { void *p = tb_bins[k]; tb_bins[k] = *(void **)p; return p; }
     size_t need = ((size_t)1 << k) + 16;
-    if (tb_heap_top + need > TB_HEAP) return 0;
+    if (tb_heap_top + need > tb_heap_limit()) return 0;
     unsigned char *h = tb_heap + tb_heap_top;
-    *(size_t *)h = (size_t)k;
+    *(size_t *)h = (size_t)k | TB_HMAGIC;
     tb_heap_top += need;
     return h + 16;
 }
 TB_API void tb_free0(void *p) {
     if (p == 0) return;
     unsigned char *h = (unsigned char *)p - 16;
-    int k = (int)*(size_t *)h;
+    int k = (int)(*(size_t *)h & 0xFF);
     if (h + ((size_t)1 << k) + 16 == tb_heap + tb_heap_top) { tb_heap_top = (size_t)(h - tb_heap); return; }
     *(void **)p = tb_bins[k];
     tb_bins[k] = p;
@@ -228,7 +251,10 @@ TB_API uint64_t tb_cell_charge(size_t bytes);
 TB_API void tb_cell_refund(uint64_t tag, long long bytes);
 TB_API int tb_cell_fits(uint64_t tag, long long more);
 __attribute__((noreturn)) TB_API void tb_cell_fall(const char *what, int line);
-TB_API size_t tb_piece(void *p) { return (size_t)1 << *(size_t *)((unsigned char *)p - 16); }
+TB_API int tb_cell_can_fall(void);
+TB_API int tb_mem_soft_now(void);
+TB_API void tb_mem_soft(int d);
+TB_API size_t tb_piece(void *p) { return (size_t)1 << (*(size_t *)((unsigned char *)p - 16) & 0xFF); }
 // задачи и прерывания тоже берут память: на время выдачи прерывания выключены
 TB_API void *malloc(size_t n) {
     uint64_t f = tb_irq_save();
@@ -237,10 +263,11 @@ TB_API void *malloc(size_t n) {
         uint64_t tag = tb_cell_charge(tb_piece(p));
         if (tag == (uint64_t)-1) {
             tb_free0(p);
+            if (tb_mem_soft_now()) { tb_irq_restore(f); return 0; }
             tb_cell_fall("клетка взяла больше памяти, чем ей можно (квота 16 МБ)", 0);
         }
         ((uint64_t *)p)[-1] = tag;
-    }
+    } else if (n && tb_cell_can_fall() && !tb_mem_soft_now()) tb_cell_fall("память ядра кончилась (запас оставлен службам)", 0);
     tb_irq_restore(f);
     return p;
 }
@@ -248,6 +275,7 @@ TB_API void free(void *p) {
     if (p == 0) return;
     uint64_t f = tb_irq_save();
     tb_cell_refund(((uint64_t *)p)[-1], (long long)tb_piece(p));
+    ((uint64_t *)p)[-1] = TB_TAG_FREE;   // свободный кусок ничей (его не «вернут» ещё раз)
     tb_free0(p);
     tb_irq_restore(f);
 }
@@ -275,15 +303,15 @@ int memcmp(const void *x, const void *y, size_t n) {
 TB_API void *tb_realloc0(void *p, size_t n) {
     if (p == 0) return malloc(n);
     unsigned char *h = (unsigned char *)p - 16;
-    int k = (int)*(size_t *)h;
+    int k = (int)(*(size_t *)h & 0xFF);
     size_t cap = (size_t)1 << k;
     if (n <= cap) return p;
     // последний кусок растёт на месте
     if (h + cap + 16 == tb_heap + tb_heap_top) {
         int k2 = tb_cls(n);
         size_t need = ((size_t)1 << k2) + 16;
-        if ((size_t)(h - tb_heap) + need <= TB_HEAP && tb_cell_fits(((uint64_t *)p)[-1], (long long)(((size_t)1 << k2) - cap))) {
-            *(size_t *)h = (size_t)k2;
+        if ((size_t)(h - tb_heap) + need <= tb_heap_limit() && tb_cell_fits(((uint64_t *)p)[-1], (long long)(((size_t)1 << k2) - cap))) {
+            *(size_t *)h = (size_t)k2 | TB_HMAGIC;
             tb_heap_top = (size_t)(h - tb_heap) + need;
             // кусок вырос на месте: хозяину — разница
             tb_cell_refund(((uint64_t *)p)[-1], -(long long)(((size_t)1 << k2) - cap));
@@ -379,16 +407,44 @@ TB_API void qsort(void *base, size_t n, size_t size, int (*cmp)(const void *, co
         memcpy(a + j * size, tmp, size);
     }
 }
-// файлов, ввода и команд нет
-TB_API FILE *fopen(const char *p, const char *m) { (void)p; (void)m; return 0; }
-TB_API int fclose(FILE *f) { (void)f; return 0; }
-TB_API size_t fread(void *b, size_t s, size_t n, FILE *f) { (void)b; (void)s; (void)n; (void)f; return 0; }
+// диска нет; файлы, которые программа открывает по готовому имени (load_font("fonts/x.ttf")),
+// компилятор кладёт внутрь ядра (omnium/kernel/pack.py) — их и «открывает» fopen, только для чтения
+typedef struct { const char *name; const unsigned char *data; long long n; } tb_pack;
+extern tb_pack tb_packed[];
+extern long long tb_npacked;
+struct tb_file { const unsigned char *d; long long n, pos; };
+TB_API FILE *fopen(const char *p, const char *m) {
+    if (!p || !m || m[0] != 'r') return 0;
+    for (long long i = 0; i < tb_npacked; i++)
+        if (strcmp(tb_packed[i].name, p) == 0) {
+            FILE *f = malloc(sizeof(FILE));
+            if (!f) return 0;
+            f->d = tb_packed[i].data; f->n = tb_packed[i].n; f->pos = 0;
+            return f;
+        }
+    return 0;
+}
+TB_API int fclose(FILE *f) { if (f && f != stdout && f != stderr) free(f); return 0; }
+TB_API size_t fread(void *b, size_t s, size_t n, FILE *f) {
+    if (!f || f == stdout || f == stderr || s == 0) return 0;
+    long long left = f->n - f->pos, want = (long long)(s * n);
+    if (want > left) want = left - left % (long long)s;
+    memcpy(b, f->d + f->pos, (size_t)want);
+    f->pos += want;
+    return (size_t)want / s;
+}
 TB_API int getchar(void) { return EOF; }
 TB_API int system(const char *c) { (void)c; return -1; }
 #define SEEK_SET 0
 #define SEEK_END 2
-TB_API int fseek(FILE *f, long o, int w) { (void)f; (void)o; (void)w; return -1; }
-TB_API long ftell(FILE *f) { (void)f; return -1; }
+TB_API int fseek(FILE *f, long o, int w) {
+    if (!f || f == stdout || f == stderr) return -1;
+    long long p = w == SEEK_END ? f->n + o : w == SEEK_SET ? o : f->pos + o;
+    if (p < 0 || p > f->n) return -1;
+    f->pos = p;
+    return 0;
+}
+TB_API long ftell(FILE *f) { return f && f != stdout && f != stderr ? (long)f->pos : -1; }
 TB_API int atexit(void (*fn)(void)) { (void)fn; return 0; }
 typedef unsigned useconds_t;
 TB_API void tb_wait_ms(long long n);
@@ -550,6 +606,8 @@ typedef struct {
     int no;                               // номер клетки: по порядку запуска (1, 2, 3 ...)
     uint64_t gen; long long mem;          // поколение слота (для хозяина кусков) и байты клетки
     int *locks[8]; int nlocks;            // замки, которые клетка держит сейчас
+    int svc;                              // служба (a = service f()): ей можно в запас памяти
+    int soft;                             // сейчас new_mem / grow_mem: нет памяти — ошибка, а не падение
     unsigned char tls[TB_TLS_MAX + 16] __attribute__((aligned(16)));   // блок переменных потока + адрес самого себя
 } tb_kslot;
 TB_API tb_kslot tb_slots[TB_NTASK];          // 0 — main
@@ -585,6 +643,13 @@ TB_API uint64_t tb_cell_charge(size_t bytes) {
     if (tb_cur != 0 && s->mem + (long long)bytes > TB_CELL_QUOTA) return (uint64_t)-1;
     s->mem += (long long)bytes;
     return (uint64_t)tb_cur | (s->gen << 8);
+}
+// new_mem / grow_mem просят память «мягко»: не хватило — ответ else err, клетка живёт
+TB_API int tb_mem_soft_now(void) { return !tb_in_irq && tb_slots[tb_cur].soft > 0; }
+TB_API void tb_mem_soft(int d) { if (!tb_in_irq) tb_slots[tb_cur].soft += d; }
+TB_API size_t tb_heap_limit(void) {
+    if (tb_in_irq || tb_cur == 0 || tb_slots[tb_cur].svc) return TB_HEAP;
+    return TB_HEAP - TB_RESERVE;
 }
 // хватит ли клетке квоты, если её кусок вырастет на месте (иначе растём через malloc — он и уронит)
 TB_API int tb_cell_fits(uint64_t tag, long long more) {
@@ -660,14 +725,17 @@ TB_API void tb_task_entry(void) {
     tb_bkl_drop();
     for (;;) __asm__ volatile("int $48");
 }
-TB_API void tb_task_start(tb_task *t, void *(*run)(void *), void *arg) {
+static void tb_task_start2(tb_task *t, void *(*run)(void *), void *arg, int svc);
+TB_API void tb_task_start(tb_task *t, void *(*run)(void *), void *arg) { tb_task_start2(t, run, arg, 0); }
+TB_API void tb_service_start(tb_task *t, void *(*run)(void *), void *arg) { tb_task_start2(t, run, arg, 1); }
+static void tb_task_start2(tb_task *t, void *(*run)(void *), void *arg, int svc) {
     uint64_t f = tb_irq_save();
     int i = 1;
     while (i < TB_NTASK && tb_slots[i].used) i++;
     if (i == TB_NTASK) tb_panic("больше 31 задачи background сразу", 0, 0);
     tb_kslot *s = &tb_slots[i];
     s->used = 1; s->done = 0; s->run = run; s->arg = arg; s->t = t;
-    s->gen++; s->mem = 0; s->nlocks = 0; s->on = -1; s->no = ++tb_cell_count;
+    s->gen++; s->mem = 0; s->nlocks = 0; s->on = -1; s->no = ++tb_cell_count; s->svc = svc; s->soft = 0;
     t->done = 0; t->th = i;
     tb_tls_fresh(s->tls);
     *(int *)(tb_tls_tp(s->tls) - ((unsigned char *)tb_tls_self() - (unsigned char *)&tb_cur)) = i;
@@ -828,6 +896,60 @@ TB_API const char *tb_fault_name[32] = {"деление на ноль", "отл�
 // Тот, кто её запустил, узнаёт это из .crashed (done == 2). Main и прерывание так не умеют:
 // их падение останавливает ядро
 TB_API int tb_cell_can_fall(void) { return !tb_in_irq && tb_cur != 0; }
+// кто пишет строку: номер задачи + 1 (прерывание — -1, оно не ждёт)
+TB_API long long tb_out_me(void) { return tb_in_irq ? -1 : (long long)tb_cur + 1; }
+// --- владение памятью (обменная куча, как в старой Омниум): у куска один хозяин — клетка.
+// Что уходит из клетки (аргументы background, текст в канале, список через move), становится
+// ничьим (метка 0, «ядро») или переходит получателю. Упала клетка — ядро возвращает всё, что
+// у неё осталось: этого больше никто не видит.
+TB_API int tb_is_piece(const void *p) {
+    const unsigned char *u = p;
+    if (!p || ((uintptr_t)p & 15) || u < tb_heap + 16 || u >= tb_heap + tb_heap_top) return 0;
+    size_t w = *(const size_t *)(u - 16);
+    return (w & ~(size_t)0xFF) == TB_HMAGIC && (w & 0xFF) >= 4 && (w & 0xFF) < 32 && ((const uint64_t *)p)[-1] != TB_TAG_FREE;
+}
+// кусок становится ничьим (его хозяин больше не платит за него и не утащит при падении)
+TB_API void tb_export(const void *p) {
+    uint64_t f = tb_irq_save();
+    if (tb_is_piece(p)) {
+        uint64_t *tag = &((uint64_t *)p)[-1];
+        tb_cell_refund(*tag, (long long)tb_piece((void *)p));
+        *tag = 0;
+    }
+    tb_irq_restore(f);
+}
+// кусок переходит текущей клетке (взяла из канала)
+TB_API void tb_adopt(const void *p) {
+    uint64_t f = tb_irq_save();
+    if (tb_is_piece(p)) {
+        uint64_t *tag = &((uint64_t *)p)[-1];
+        tb_cell_refund(*tag, (long long)tb_piece((void *)p));
+        uint64_t t = tb_cell_charge(tb_piece((void *)p));
+        *tag = t == (uint64_t)-1 ? 0 : t;   // сверх квоты — пусть будет ничьим, клетку не роняем на приёме
+    }
+    tb_irq_restore(f);
+}
+// упала клетка: вернуть все куски с её меткой
+TB_API long long tb_cell_reclaim(uint64_t tag) {
+    long long got = 0;
+    if ((tag & 0xFF) == 0) return 0;
+    uint64_t f = tb_irq_save();
+    size_t at = 0;
+    while (at < tb_heap_top) {
+        unsigned char *h = tb_heap + at;
+        size_t k = *(size_t *)h & 0xFF;
+        size_t next = at + ((size_t)1 << k) + 16;
+        uint64_t *p = (uint64_t *)(h + 16);
+        if (p[-1] == tag) {
+            got += (long long)((size_t)1 << k);
+            p[-1] = TB_TAG_FREE;
+            tb_free0(p);
+        }
+        at = next;
+    }
+    tb_irq_restore(f);
+    return got;
+}
 TB_API void tb_cell_mark(const char *what, int line) {
     tb_kslot *s = &tb_slots[tb_cur];
     // замки, которые клетка держала, отпускаем: иначе на них застрянут другие
@@ -837,6 +959,8 @@ TB_API void tb_cell_mark(const char *what, int line) {
     if (line > 0) snprintf(buf, sizeof buf, "*** клетка %d упала: строка %d: %s\n", s->no, line, what);
     else snprintf(buf, sizeof buf, "*** клетка %d упала: %s\n", s->no, what);
     fputs(buf, stderr);
+    tb_cell_reclaim((uint64_t)tb_cur | (s->gen << 8));
+    s->mem = 0;
     s->t->done = 2;
     s->done = 1;
 }

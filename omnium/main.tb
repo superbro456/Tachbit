@@ -40,7 +40,7 @@ func broken(out: channel text, n: int) gives r: int
 func main()
     print("Омниум: ядро запущено (x86-64, Tachbit)")
     lines = channel text
-    screen = background console(lines)
+    screen = service console(lines)
     // часы: у каждой клетки свой канал ответа
     ask = channel int
     a0 = channel int
@@ -48,7 +48,7 @@ func main()
     answers = list channel int
     answers.add(a0)
     answers.add(a1)
-    time = background clock(ask, move answers)
+    time = service clock(ask, move answers)
     lines.send("[ядро] службы: консоль, часы, клавиатура")
     c0 = background counter(0, lines, ask, a0)
     c1 = background counter(1, lines, ask, a1)
@@ -59,7 +59,7 @@ func main()
         lines.send("[ядро] клетка «сломанная» упала, остальные работают")
     // клавиатура: 10 секунд печатай (латиница), Enter — строка
     keys = channel text
-    kb = background keyboard(keys, 10000)
+    kb = service keyboard(keys, 10000)
     lines.send("[ядро] печатай 10 секунд, Enter — строка")
     e = background echo(lines, keys)
     got = e.wait

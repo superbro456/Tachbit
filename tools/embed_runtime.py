@@ -32,5 +32,12 @@ for line in src.splitlines():
     escaped = line.replace("\\", "\\\\").replace('"', '\\"')
     tb.append('    lines.add("' + escaped + '\\n")')
 tb.append('    return join(lines, "")')
+# и упаковщик файлов в ядро: функция packer_text()
+src = open(os.path.join(root, "omnium", "kernel", "pack.py"), encoding="utf-8").read()
+tb += ["", "modpub func packer_text()", "    lines = list text"]
+for line in src.splitlines():
+    escaped = line.replace("\\", "\\\\").replace('"', '\\"')
+    tb.append('    lines.add("' + escaped + '\\n")')
+tb.append('    return join(lines, "")')
 open(os.path.join(root, "compiler", "runtime_text.tb"), "w", encoding="utf-8").write("\n".join(tb) + "\n")
 print("готово: compiler/runtime_text.tb")

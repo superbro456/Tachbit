@@ -1,0 +1,24 @@
+// Омниум: запас памяти для служб (последние 8 МБ кучи). Ядро заняло почти всю кучу —
+// обычная клетка падает одна, а служба (a = service f()) всё равно получает память
+func keeper(n: int) gives r: int
+    xs = list text
+    pad = ""
+    count k from 1 to 600
+        pad += "y"
+    count i from 1 to 2000
+        xs.add(pad + i)
+    return len(xs)
+
+func main()
+    big = list text
+    pad = ""
+    count k from 1 to 1000
+        pad += "x"
+    count i from 1 to 54500
+        big.add(pad + i)
+    print("ядро держит текстов: " + len(big))
+    w = background keeper(1)
+    print("обычная клетка упала: " + w.crashed)
+    s = service keeper(2)
+    print("служба взяла: " + s.wait)
+    print("у ядра всё цело: " + len(big[54499]))

@@ -131,6 +131,8 @@ obj Comp
     cuses: list Node
     c_link: text
     c_files: list text
+    // tb bare: файлы, которые ядро берёт с собой (load_font / load_image с готовым именем): имя, путь, имя, путь ...
+    packs: list text
     uses: list Use
     all_mods: list text
     cur_mod: text

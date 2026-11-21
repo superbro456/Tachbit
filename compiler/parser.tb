@@ -379,13 +379,22 @@ func parse_repeat(c: Comp) gives result: Node
 
 // значение справа: обычное, или  try f(),  или  f() else err  + блок
 func parse_value(c: Comp) gives result: Node
-    if is_cmd(c, "background")
+    // a = service f(): как background, но это служба — ядро держит для неё запас памяти
+    t0 = now(c)
+    t1 = ahead(c)
+    svc = t0.kind == "name" and t0.word == "service" and t1.kind == "name"
+    if svc
+        next(c)
+    if svc or is_cmd(c, "background")
         // a = background load(name): функция работает сама, a — номерок
         b = new_node("background", line_now(c))
-        next(c)
+        if svc
+            b.value = "service"
+        else
+            next(c)
         call = parse_expr(c)
         if call.kind != "call" and call.kind != "method"
-            error_at(c, b.line, "после background пишется вызов функции: a = background load(name)", "")
+            error_at(c, b.line, "после background (service) пишется вызов функции: a = background load(name)", "")
         add_kid(b, call)
         return b
     if is_cmd(c, "try")

@@ -1,0 +1,47 @@
+// Омниум: упала клетка — ядро возвращает её память; то, что она отдала другим, остаётся жить
+// клетка берёт ~12 МБ текстов и падает; таких 12 подряд — больше, чем вся куча (64 МБ)
+func eat(n: int) gives r: int
+    xs = list text
+    pad = ""
+    count k from 1 to 1000
+        pad += "x"
+    count i from 1 to 6000
+        xs.add("клетка " + n + " " + i + " " + pad)
+    return len(xs) / n
+
+// отдаёт текст в канал и падает
+func sender(log: channel text, n: int) gives r: int
+    log.send("письмо от клетки " + n)
+    return 1 / n
+
+// получает текст и список от клетки, которая потом падает
+func keeper(done: channel text, s: text, xs: list text) gives r: int
+    t = 0
+    count i from 1 to 3000000
+        t += i % 3
+    done.send(s + " / " + xs[1])
+    return t
+
+func parent(done: channel text, n: int) gives r: int
+    xs = ["а", "б" + n]
+    k = background keeper(done, "подарок " + n, move xs)
+    return 1 / n
+
+func main()
+    count i from 1 to 12
+        e = background eat(0)
+        fell = e.crashed
+    print("12 жадных клеток упали, память вернулась")
+    ok = background eat(1)
+    print("новая клетка взяла: " + ok.wait)
+    log = channel text
+    s = background sender(log, 0)
+    sf = s.crashed
+    print("отправитель упал: " + sf + ", письмо цело: " + log.receive())
+    done = channel text
+    p = background parent(done, 0)
+    pf = p.crashed
+    // мусор поверх освобождённого: если подарок утащили, он испортится
+    junk = background eat(2)
+    j = junk.wait
+    print("родитель упал: " + pf + ", дошло: " + done.receive())
