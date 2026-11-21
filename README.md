@@ -72,6 +72,8 @@ func main()
 | `./tests/run_tests_llvm.sh` | те же программы через LLVM | 203 из 203 |
 | `./tests/run_bare.sh` | ядра без ОС в QEMU | 68 из 68 |
 | `./tests/run_gpu.sh` | видеокарта рисует точка в точку как процессор | 22 из 22 (на Mac с AMD было 18 из 18 до тестов раскладки и элементов) |
+| `./tests/run_sound.sh` | звук в файл: длина, частота, лево/право в 3D, не трещит (LLVM и C) | 2 из 2 |
+| `./tests/run_lib.sh` | библиотеки `lib/physics.tb`, `lib/anim.tb` (LLVM и C) | 4 из 4 |
 
 После намеренной правки эталоны обновляются флагом `--update`.
 
@@ -95,7 +97,7 @@ func main()
 
 | Версия | Что появилось |
 |---|---|
-| 1.2 (в работе) | память руками в `danger`: `new_mem`, `free_mem`, `grow_mem`, `copy_mem`, `fill_mem` и `TB_MEM_CHECK=1`; шрифты TTF, горячие клавиши, колесо и боковые кнопки мыши, буфер обмена (`clipboard_get`, `clipboard_set`), курсор (`set_cursor`), Retina (`window_sharp`, `window_scale`), библиотека окон `lib/ui.tb`, «Файлы»; видеокарта = процессор и на AMD |
+| 1.2 (в работе) | память руками в `danger`: `new_mem`, `free_mem`, `grow_mem`, `copy_mem`, `fill_mem` и `TB_MEM_CHECK=1`; шрифты TTF, горячие клавиши, колесо и боковые кнопки мыши, буфер обмена (`clipboard_get`, `clipboard_set`), курсор (`set_cursor`), Retina (`window_sharp`, `window_scale`), библиотека окон `lib/ui.tb`, «Файлы»; видеокарта = процессор и на AMD; звук (`load_sound`, `play_sound`, `play_sound_at`, `listener` ...: микшер, 3D с задержкой между ушами и Доплером, ограничитель), библиотеки `lib/physics.tb` (тела, столкновения, лучи) и `lib/anim.tb` (плавность, ключи, кости, переходы), пример «Площадка» |
 | 1.1 | уборка памяти; весь язык через LLVM; окна, картинки, 2D и 3D на видеокарте |
 | 1.0 | каналы, `move`, `enum` и `match`, JSON, `http_get`, время, понятные ошибки сборки, MIT |
 | 0.9 | защита: гонки между ядрами, вечные замки, ярлыки в пустоту |

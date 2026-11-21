@@ -1,0 +1,119 @@
+// Площадка: физика, звук и анимация вместе.
+// Стрелки ← → — человечек идёт (кости шагают), пробел — прыжок, щелчок мыши — бросить мяч.
+// Мячи прыгают по ящикам; каждый удар звучит: чем сильнее, тем громче и выше.
+//   tb run examples/apps/playground/main.tb
+use physics
+use anim
+
+func sx(x: dec) gives r: int
+    r = round(450 + x * 50)
+
+func sy(y: dec) gives r: int
+    r = round(560 - y * 50)
+
+func main()
+    try window_open(900, 600, "Площадка: физика, звук, анимация")
+    w = physics.world()
+    ground = physics.add_box(w, 0, -1, 0, 9, 1, 2, 0)
+    wall_l = physics.add_box(w, -8.5, 4, 0, 0.5, 5, 2, 0)
+    wall_r = physics.add_box(w, 8.5, 4, 0, 0.5, 5, 2, 0)
+    crates = list int
+    count i from 0 to 4
+        crates.add(physics.add_box(w, -4 + i * 2, 0.5 + (i % 2), 0, 0.5, 0.5 + (i % 2), 0.5, 0))
+    hero = physics.add_box(w, -6, 2, 0, 0.3, 0.9, 0.3, 1)
+    w.bodies[hero].friction = 0.0
+    balls = list int
+    // человечек: тело, голова, две ноги и две руки
+    s = anim.skeleton()
+    body = anim.bone(s, "тело", -1, 0, -0.2, 0, 0, 0.8, 0)
+    head = anim.bone(s, "голова", body, 0, 0.8, 0, 0, 0.3, 0)
+    leg1 = anim.bone(s, "нога1", body, 0, 0, 0, 0, -0.7, 0)
+    leg2 = anim.bone(s, "нога2", body, 0, 0, 0, 0, -0.7, 0)
+    arm1 = anim.bone(s, "рука1", body, 0, 0.75, 0, 0, -0.55, 0)
+    arm2 = anim.bone(s, "рука2", body, 0, 0.75, 0, 0, -0.55, 0)
+    walk = anim.clip("шаг", 0.6, true)
+    each pair in [["нога1", "1"], ["нога2", "-1"], ["рука1", "-1"], ["рука2", "1"]]
+        k = anim.curve(walk, pair[0] + ".roll")
+        sgn = to_int(pair[1]) or 1
+        anim.key(k, 0.0, 35 * sgn)
+        anim.key(k, 0.3, -35 * sgn)
+        anim.key(k, 0.6, 35 * sgn)
+    stand = anim.clip("стоит", 1.0, true)
+    anim.key(anim.curve(stand, "рука1.roll"), 0, 10)
+    anim.key(anim.curve(stand, "рука2.roll"), 0, -10)
+    anim.key(anim.curve(stand, "нога1.roll"), 0, 8)
+    anim.key(anim.curve(stand, "нога2.roll"), 0, -8)
+    jump = anim.clip("прыжок", 0.3, false)
+    anim.key(anim.curve(jump, "нога1.roll"), 0, 50)
+    anim.key(anim.curve(jump, "нога2.roll"), 0, -20)
+    anim.key(anim.curve(jump, "рука1.roll"), 0, 150)
+    anim.key(anim.curve(jump, "рука2.roll"), 0, -150)
+    p = anim.player()
+    anim.play(p, stand, 0)
+    facing = 1.0
+    frames = 0
+    demo = len(args()) > 0 and args()[0] == "demo"
+    repeat while window_alive()
+        dt = frame_ms() / 1000
+        h = w.bodies[hero]
+        speed = 0.0
+        if key_down("left")
+            speed = -4.0
+            facing = -1.0
+        if key_down("right")
+            speed = 4.0
+            facing = 1.0
+        if demo
+            speed = 4.0
+            if (frames / 90) % 2 == 1
+                speed = -4.0
+            facing = speed / 4.0
+        h.vx = speed
+        if key_down("space") and h.on_ground
+            physics.push(w, hero, 0, 7, 0)
+        if (mouse_down() and frames % 6 == 0) or (demo and frames % 20 == 0)
+            mx = (mouse_x() - 450) / 50.0
+            if demo
+                mx = -3.0 + frames % 7
+            b = physics.add_sphere(w, mx, 9, 0, 0.3, 1)
+            w.bodies[b].bounce = 0.7
+            balls.add(b)
+        physics.step(w, dt)
+        // звук ударов: громкость и высота от силы удара
+        each hit in w.hits
+            if hit.speed > 1.5
+                v = play_tone(220 + hit.speed * 40, 70)
+                sound_volume(v, min(1.0, hit.speed / 10))
+        // анимация: в воздухе — прыжок, идёт — шаг, иначе стоит
+        if not h.on_ground
+            anim.play(p, jump, 0.08)
+        else if speed != 0.0
+            anim.play(p, walk, 0.15)
+        else
+            anim.play(p, stand, 0.2)
+        s.x = h.x
+        s.y = h.y - 0.2
+        s.turn = 0
+        anim.update(p, s, dt)
+        clear_window(rgb(233, 238, 228))
+        each id in [ground, wall_l, wall_r]
+            draw_box(w.bodies[id], rgb(120, 140, 120))
+        each id in crates
+            draw_box(w.bodies[id], rgb(176, 150, 110))
+        each id in balls
+            b = w.bodies[id]
+            draw_circle(sx(b.x), sy(b.y), 15, rgb(47, 111, 80))
+        each bn in s.bones
+            x1 = sx(s.x + (bn.wx - s.x) * facing)
+            x2 = sx(s.x + (bn.ex - s.x) * facing)
+            draw_line(x1, sy(bn.wy), x2, sy(bn.ey), rgb(35, 48, 42))
+            draw_line(x1 + 1, sy(bn.wy), x2 + 1, sy(bn.ey), rgb(35, 48, 42))
+        hd = s.bones[head]
+        draw_circle(sx(s.x + (hd.ex - s.x) * facing), sy(hd.ey), 9, rgb(35, 48, 42))
+        draw_text(16, 16, "стрелки — идти, пробел — прыжок, мышь — мячи  (" + len(balls) + ")", 2, rgb(35, 48, 42))
+        frames += 1
+        if demo and frames > 300
+            stop
+
+func draw_box(b: Body, c: int)
+    draw_rect(sx(b.x - b.hx), sy(b.y + b.hy), round(b.hx * 100), round(b.hy * 100), c)

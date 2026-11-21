@@ -7300,6 +7300,516 @@ TB_API void tb_set_cursor(const char *name, int line) {
 // Сама библиотека — static: так её лучше встраивать. Эти обёртки — её «дверь» для LLVM.
 // Без clang (llvm-link + opt + llc) библиотека заранее лежит в файле .bc, а программа
 // целиком в .ll: показ значений, конструкторы и main тоже пишутся в .ll.
+#if defined(TB_SND) && !defined(TB_BARE)
+// ---------- звук: load_sound, play_sound, play_sound_at, listener ... ----------
+// Микшер: 48 000 кадров в секунду, стерео, числа float, блоки по 10 мс.
+// Голос = звук + громкость + высота (+ место в мире для 3D). В 3D: громкость падает с
+// расстоянием, сторона (лево/право) слышна по громкости И по задержке между ушами (как у
+// настоящей головы), дальнее ухо и звук сзади глуше (тень головы), воздух глушит высокие
+// у далёких звуков, а движение даёт эффект Доплера. Громкость и место меняются плавно
+// внутри блока — без щелчков. На выходе ограничитель: сколько звуков ни играй, не трещит.
+// Куда идёт звук: Mac — AudioQueue, Linux — ALSA, Windows — waveOut (библиотеки грузятся при
+// запуске; нет их — тишина, программа работает). TB_SOUND_FILE=путь.wav — в файл (проверки),
+// TB_SOUND=0 — никуда (время идёт, звуки «играют» молча).
+#ifndef _WIN32
+#include <dlfcn.h>
+#endif
+#define TB_SR 48000
+#define TB_SBLOCK 480
+#define TB_NVOICE 64
+typedef struct { float *d; long long n; int ch; double rate; int temp; } tb_snd;
+typedef struct {
+    int on, gen, snd, loop, is3d, fresh, stop;
+    double pos, pitch, vol, x, y, z;
+    float gl, gr, lpl, lpr;
+    double dl, dr, lastd, dop;
+} tb_voice;
+static tb_snd *tb_snds;
+static int tb_nsnd;
+static tb_voice tb_voices[TB_NVOICE];
+static pthread_mutex_t tb_slock = PTHREAD_MUTEX_INITIALIZER;
+// слушатель: где он, вектор «вправо», вектор «вперёд» (как у camera)
+static double tb_lis[9] = { 0, 0, 0, 1, 0, 0, 0, 0, 1 };
+static double tb_master = 1;
+static float tb_mg = 1, tb_lim = 1;
+static int tb_snd_started;
+
+TB_INL float tb_sget(const tb_snd *s, long long i, int c, int loop) {
+    if (i < 0 || i >= s->n) {
+        if (!loop || s->n == 0) return 0;
+        i %= s->n;
+        if (i < 0) i += s->n;
+    }
+    return s->d[i * s->ch + (c < s->ch ? c : 0)];
+}
+// точка между кадрами звука: кривая Эрмита по 4 соседям (чище, чем прямая между двумя)
+TB_INL float tb_sread(const tb_snd *s, double p, int c, int loop) {
+    double fl = floor(p);
+    long long i = (long long)fl;
+    float t = (float)(p - fl);
+    float a = tb_sget(s, i - 1, c, loop), b = tb_sget(s, i, c, loop), cc = tb_sget(s, i + 1, c, loop), d = tb_sget(s, i + 2, c, loop);
+    float c1 = 0.5f * (cc - a), c2 = a - 2.5f * b + 2 * cc - 0.5f * d, c3 = 0.5f * (d - a) + 1.5f * (b - cc);
+    return ((c3 * t + c2) * t + c1) * t + b;
+}
+TB_INL float tb_smono(const tb_snd *s, double p, int loop) {
+    if (s->ch > 1) return 0.5f * (tb_sread(s, p, 0, loop) + tb_sread(s, p, 1, loop));
+    return tb_sread(s, p, 0, loop);
+}
+// голос кончился: временный звук (play_tone) больше не нужен
+static void tb_voice_end(tb_voice *v) {
+    v->on = 0;
+    tb_snd *s = &tb_snds[v->snd];
+    if (s->temp && s->d) { free(s->d); s->d = 0; s->n = 0; }
+}
+// куда и как громко слышен 3D-голос: громкость ушей, задержка ушей, фильтры, Доплер
+static void tb_voice_3d(tb_voice *v, float *tl, float *tr, double *tdl, double *tdr, float *fl, float *fr) {
+    double dx = v->x - tb_lis[0], dy = v->y - tb_lis[1], dz = v->z - tb_lis[2];
+    double d = sqrt(dx * dx + dy * dy + dz * dz);
+    double side = 0, front = 1;
+    if (d > 1e-9) {
+        side = (dx * tb_lis[3] + dy * tb_lis[4] + dz * tb_lis[5]) / d;
+        front = (dx * tb_lis[6] + dy * tb_lis[7] + dz * tb_lis[8]) / d;
+    }
+    if (d < 0.25) { side *= d / 0.25; front = 1; }   // звук «в голове» — по центру
+    double g = d <= 1 ? 1 : 1 / d;                    // громкость падает с расстоянием
+    double a = (side + 1) * 0.7853981633974483;      // стороны с равной мощностью
+    *tl = (float)(v->vol * g * cos(a) * 1.4142135623730951);
+    *tr = (float)(v->vol * g * sin(a) * 1.4142135623730951);
+    double itd = 0.00066 * TB_SR * fabs(side);        // до 0,66 мс между ушами
+    *tdl = side > 0 ? itd : 0;
+    *tdr = side < 0 ? itd : 0;
+    double fc = 20000 / (1 + d * 0.03);               // воздух: далёкие звуки глуше
+    if (front < 0) fc *= 1 - 0.35 * -front;           // сзади глуше
+    double fs = fc * (1 - 0.65 * fabs(side));         // дальнее ухо в тени головы
+    double cl = side > 0 ? fs : fc, cr = side < 0 ? fs : fc;
+    *fl = (float)(1 - exp(-6.283185307179586 * cl / TB_SR));
+    *fr = (float)(1 - exp(-6.283185307179586 * cr / TB_SR));
+    // Доплер: как быстро звук приближается (расстояние за блок 10 мс), звук летит 343 ед/с
+    double want = 1;
+    if (!v->fresh) {
+        double sp = (d - v->lastd) * TB_SR / TB_SBLOCK;
+        if (fabs(sp) < 686) want = 343 / (343 + sp);   // быстрее — это прыжок, не движение
+        if (want < 0.5) want = 0.5;
+        if (want > 2) want = 2;
+    }
+    v->dop = v->fresh ? 1 : v->dop * 0.8 + want * 0.2;
+    v->lastd = d;
+}
+// смешать n кадров всех голосов в out (стерео, по очереди лево-право)
+static void tb_mix(float *out, int n) {
+    memset(out, 0, sizeof(float) * 2 * (size_t)n);
+    pthread_mutex_lock(&tb_slock);
+    for (int k = 0; k < TB_NVOICE; k++) {
+        tb_voice *v = &tb_voices[k];
+        if (!v->on) continue;
+        tb_snd *s = &tb_snds[v->snd];
+        if (!s->d || s->n == 0) { tb_voice_end(v); continue; }
+        float tl = (float)v->vol, tr = (float)v->vol, al = 1, ar = 1;
+        double tdl = 0, tdr = 0;
+        if (v->is3d) tb_voice_3d(v, &tl, &tr, &tdl, &tdr, &al, &ar);
+        if (v->stop) { tl = 0; tr = 0; }
+        if (v->fresh) { v->gl = tl; v->gr = tr; v->dl = tdl; v->dr = tdr; v->fresh = 0; }
+        double step = s->rate / TB_SR * v->pitch * (v->is3d ? v->dop : 1);
+        float gl = v->gl, gr = v->gr, dgl = (tl - gl) / n, dgr = (tr - gr) / n;
+        double dl = v->dl, dr = v->dr, ddl = (tdl - dl) / n, ddr = (tdr - dr) / n;
+        int done = 0;
+        for (int i = 0; i < n; i++) {
+            float l, r;
+            if (v->is3d) {
+                l = tb_smono(s, v->pos - dl * step, v->loop);
+                r = tb_smono(s, v->pos - dr * step, v->loop);
+                v->lpl += al * (l - v->lpl);
+                v->lpr += ar * (r - v->lpr);
+                l = v->lpl;
+                r = v->lpr;
+            } else if (s->ch > 1) {
+                l = tb_sread(s, v->pos, 0, v->loop);
+                r = tb_sread(s, v->pos, 1, v->loop);
+            } else {
+                l = r = tb_sread(s, v->pos, 0, v->loop);
+            }
+            out[2 * i] += l * gl;
+            out[2 * i + 1] += r * gr;
+            gl += dgl; gr += dgr; dl += ddl; dr += ddr;
+            v->pos += step;
+            if (v->pos >= (double)s->n) {
+                if (v->loop) v->pos -= (double)s->n;
+                else { done = 1; break; }
+            }
+        }
+        v->gl = tl; v->gr = tr; v->dl = tdl; v->dr = tdr;
+        if (done || v->stop) tb_voice_end(v);
+    }
+    float mt = (float)tb_master;
+    pthread_mutex_unlock(&tb_slock);
+    // общая громкость (плавно) и ограничитель: громко — сразу тише, потом медленно назад
+    float dm = (mt - tb_mg) / n;
+    for (int i = 0; i < n; i++) {
+        tb_mg += dm;
+        float l = out[2 * i] * tb_mg, r = out[2 * i + 1] * tb_mg;
+        float pk = fabsf(l) > fabsf(r) ? fabsf(l) : fabsf(r);
+        if (pk * tb_lim > 0.98f) tb_lim = 0.98f / pk;
+        else tb_lim += (1 - tb_lim) * 0.0002f;
+        l *= tb_lim; r *= tb_lim;
+        out[2 * i] = l > 1 ? 1 : l < -1 ? -1 : l;
+        out[2 * i + 1] = r > 1 ? 1 : r < -1 ? -1 : r;
+    }
+}
+static long long tb_snd_now_us(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (long long)ts.tv_sec * 1000000 + ts.tv_nsec / 1000;
+}
+// без устройства: время идёт как настоящее, звук — в файл (TB_SOUND_FILE) или никуда
+static void tb_snd_paced(FILE *f) {
+    float buf[TB_SBLOCK * 2];
+    short pcm[TB_SBLOCK * 2];
+    unsigned long long bytes = 0;
+    long long next = tb_snd_now_us();
+    for (;;) {
+        tb_mix(buf, TB_SBLOCK);
+        if (f) {
+            for (int i = 0; i < TB_SBLOCK * 2; i++) pcm[i] = (short)lrintf(buf[i] * 32767);
+            fwrite(pcm, sizeof pcm, 1, f);
+            bytes += sizeof pcm;
+            // заголовок WAV сразу верный: программа может закончиться когда угодно
+            unsigned int riff = (unsigned int)(36 + bytes), data = (unsigned int)bytes;
+            fseek(f, 4, SEEK_SET); fwrite(&riff, 4, 1, f);
+            fseek(f, 40, SEEK_SET); fwrite(&data, 4, 1, f);
+            fseek(f, 0, SEEK_END);
+            fflush(f);
+        }
+        next += 1000000LL * TB_SBLOCK / TB_SR;
+        long long wait = next - tb_snd_now_us();
+        if (wait > 0) usleep((useconds_t)wait);
+        else if (wait < -200000) next = tb_snd_now_us();   // программа стояла (отладчик) — не догонять
+    }
+}
+static FILE *tb_wav_open(const char *path) {
+    FILE *f = fopen(path, "wb");
+    if (!f) return 0;
+    unsigned char h[44] = { 'R','I','F','F', 36,0,0,0, 'W','A','V','E', 'f','m','t',' ', 16,0,0,0, 1,0, 2,0,
+        0x80,0xBB,0,0, 0x00,0xEE,0x02,0, 4,0, 16,0, 'd','a','t','a', 0,0,0,0 };
+    fwrite(h, 44, 1, f);
+    fflush(f);
+    return f;
+}
+#if defined(__APPLE__)
+// ---------- Mac: AudioQueue (сама зовёт нас за следующей порцией) ----------
+typedef struct { double rate; uint32_t id, flags, bpp, fpp, bpf, ch, bits, res; } tb_asbd;
+typedef struct { uint32_t cap; void *data; uint32_t size; void *user; uint32_t pcap; void *pdesc; uint32_t pcount; } tb_aqbuf;
+typedef int32_t (*tb_aq_enq_t)(void *, tb_aqbuf *, uint32_t, const void *);
+static tb_aq_enq_t tb_aq_enq;
+static void tb_aq_cb(void *user, void *q, tb_aqbuf *b) {
+    (void)user;
+    tb_mix((float *)b->data, TB_SBLOCK);
+    b->size = TB_SBLOCK * 8;
+    tb_aq_enq(q, b, 0, 0);
+}
+static int tb_snd_device(void) {
+    void *lib = dlopen("/System/Library/Frameworks/AudioToolbox.framework/AudioToolbox", RTLD_NOW | RTLD_LOCAL);
+    if (!lib) return 0;
+    int32_t (*nout)(const tb_asbd *, void (*)(void *, void *, tb_aqbuf *), void *, void *, void *, uint32_t, void **) =
+        (int32_t (*)(const tb_asbd *, void (*)(void *, void *, tb_aqbuf *), void *, void *, void *, uint32_t, void **))dlsym(lib, "AudioQueueNewOutput");
+    int32_t (*alloc)(void *, uint32_t, tb_aqbuf **) = (int32_t (*)(void *, uint32_t, tb_aqbuf **))dlsym(lib, "AudioQueueAllocateBuffer");
+    int32_t (*start)(void *, const void *) = (int32_t (*)(void *, const void *))dlsym(lib, "AudioQueueStart");
+    tb_aq_enq = (tb_aq_enq_t)dlsym(lib, "AudioQueueEnqueueBuffer");
+    if (!nout || !alloc || !start || !tb_aq_enq) return 0;
+    tb_asbd f = { TB_SR, 0x6C70636D, 1 | 8, 8, 1, 8, 2, 32, 0 };   // 'lpcm', float, без дыр
+    void *q = 0;
+    // очередь без своего цикла событий: AudioQueue зовёт tb_aq_cb из своего потока
+    if (nout(&f, tb_aq_cb, 0, 0, 0, 0, &q) != 0 || !q) return 0;
+    for (int i = 0; i < 3; i++) {
+        tb_aqbuf *b = 0;
+        if (alloc(q, TB_SBLOCK * 8, &b) != 0 || !b) return 0;
+        tb_aq_cb(0, q, b);
+    }
+    return start(q, 0) == 0;
+}
+#elif defined(_WIN32)
+// ---------- Windows: waveOut (кольцо из 6 порций) ----------
+#if !defined(_WIN64)
+#define TB_WINAPI __stdcall
+#else
+#define TB_WINAPI
+#endif
+#pragma pack(push, 1)
+typedef struct { uint16_t tag, ch; uint32_t rate, bps; uint16_t align, bits, cb; } tb_wfx;
+#pragma pack(pop)
+typedef struct tb_whdr { char *data; uint32_t len, rec; uintptr_t user; uint32_t flags, loops; struct tb_whdr *next; uintptr_t res; } tb_whdr;
+static void *tb_snd_win(void *arg) {
+    (void)arg;
+    HMODULE lib = LoadLibraryA("winmm.dll");
+    uint32_t (TB_WINAPI *wopen)(void **, uint32_t, const tb_wfx *, uintptr_t, uintptr_t, uint32_t) = 0;
+    uint32_t (TB_WINAPI *wprep)(void *, tb_whdr *, uint32_t) = 0;
+    uint32_t (TB_WINAPI *wwrite)(void *, tb_whdr *, uint32_t) = 0;
+    if (lib) {
+        wopen = (uint32_t (TB_WINAPI *)(void **, uint32_t, const tb_wfx *, uintptr_t, uintptr_t, uint32_t))(void *)GetProcAddress(lib, "waveOutOpen");
+        wprep = (uint32_t (TB_WINAPI *)(void *, tb_whdr *, uint32_t))(void *)GetProcAddress(lib, "waveOutPrepareHeader");
+        wwrite = (uint32_t (TB_WINAPI *)(void *, tb_whdr *, uint32_t))(void *)GetProcAddress(lib, "waveOutWrite");
+    }
+    void *h = 0;
+    tb_wfx f = { 3, 2, TB_SR, TB_SR * 8, 8, 32, 0 };   // 3 = числа float
+    if (!wopen || !wprep || !wwrite || wopen(&h, 0xFFFFFFFFu, &f, 0, 0, 0) != 0) { tb_snd_paced(0); return 0; }
+    static float bufs[6][TB_SBLOCK * 2];
+    static tb_whdr hd[6];
+    for (int i = 0; i < 6; i++) {
+        hd[i].data = (char *)bufs[i];
+        hd[i].len = sizeof bufs[i];
+        wprep(h, &hd[i], sizeof hd[i]);
+        tb_mix(bufs[i], TB_SBLOCK);
+        wwrite(h, &hd[i], sizeof hd[i]);
+    }
+    for (int i = 0;; i = (i + 1) % 6) {
+        while (!(hd[i].flags & 1)) Sleep(1);   // 1 = эту порцию уже сыграли
+        tb_mix(bufs[i], TB_SBLOCK);
+        wwrite(h, &hd[i], sizeof hd[i]);
+    }
+    return 0;
+}
+static int tb_snd_device(void) {
+    pthread_t t;
+    return pthread_create(&t, 0, tb_snd_win, 0) == 0;
+}
+#else
+// ---------- Linux: ALSA (запись ждёт, пока устройство примет — она и задаёт темп) ----------
+static void *tb_snd_alsa(void *arg) {
+    (void)arg;
+    void *lib = dlopen("libasound.so.2", RTLD_NOW | RTLD_LOCAL);
+    int (*popen_)(void **, const char *, int, int) = 0;
+    int (*setp)(void *, int, int, unsigned, unsigned, int, unsigned) = 0;
+    long (*writei)(void *, const void *, unsigned long) = 0;
+    int (*recover)(void *, int, int) = 0;
+    if (lib) {
+        popen_ = (int (*)(void **, const char *, int, int))dlsym(lib, "snd_pcm_open");
+        setp = (int (*)(void *, int, int, unsigned, unsigned, int, unsigned))dlsym(lib, "snd_pcm_set_params");
+        writei = (long (*)(void *, const void *, unsigned long))dlsym(lib, "snd_pcm_writei");
+        recover = (int (*)(void *, int, int))dlsym(lib, "snd_pcm_recover");
+    }
+    void *pcm = 0;
+    // 14 = float little-endian, 3 = кадры подряд, задержка 40 мс
+    if (!popen_ || !setp || !writei || !recover || popen_(&pcm, "default", 0, 0) < 0 || setp(pcm, 14, 3, 2, TB_SR, 1, 40000) < 0) {
+        tb_snd_paced(0);
+        return 0;
+    }
+    float buf[TB_SBLOCK * 2];
+    for (;;) {
+        tb_mix(buf, TB_SBLOCK);
+        long r = writei(pcm, buf, TB_SBLOCK);
+        if (r < 0 && recover(pcm, (int)r, 1) < 0) { tb_snd_paced(0); return 0; }
+    }
+}
+static int tb_snd_device(void) {
+    pthread_t t;
+    return pthread_create(&t, 0, tb_snd_alsa, 0) == 0;
+}
+#endif
+static void *tb_snd_paced_run(void *arg) { tb_snd_paced((FILE *)arg); return 0; }
+// первый звук: включить вывод (один раз)
+static void tb_snd_start(void) {
+    if (tb_snd_started) return;
+    tb_snd_started = 1;
+    const char *file = getenv("TB_SOUND_FILE"), *off = getenv("TB_SOUND");
+    pthread_t t;
+    if (file && *file) {
+        FILE *f = tb_wav_open(file);
+        pthread_create(&t, 0, tb_snd_paced_run, f);
+        return;
+    }
+    if ((off && strcmp(off, "0") == 0) || !tb_snd_device()) pthread_create(&t, 0, tb_snd_paced_run, 0);
+}
+TB_INL uint32_t tb_le16(const unsigned char *p) { return p[0] | (uint32_t)p[1] << 8; }
+TB_INL uint32_t tb_le32(const unsigned char *p) { return p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24; }
+// новый звук в таблицу; номер или -1
+static long long tb_snd_add(float *d, long long n, int ch, double rate, int temp) {
+    pthread_mutex_lock(&tb_slock);
+    int at = -1;
+    if (temp)
+        for (int i = 0; i < tb_nsnd; i++)
+            if (tb_snds[i].temp && !tb_snds[i].d) { at = i; break; }
+    if (at < 0) {
+        tb_snd *list = realloc(tb_snds, sizeof(tb_snd) * (size_t)(tb_nsnd + 1));
+        if (!list) { pthread_mutex_unlock(&tb_slock); return -1; }
+        tb_snds = list;
+        at = tb_nsnd++;
+    }
+    tb_snds[at].d = d; tb_snds[at].n = n; tb_snds[at].ch = ch; tb_snds[at].rate = rate; tb_snds[at].temp = temp;
+    pthread_mutex_unlock(&tb_slock);
+    return at;
+}
+// WAV: PCM 8/16/24/32 бита или float 32; моно или стерео (больше каналов — берём первые два)
+TB_API long long tb_load_sound(const char *path) {
+    FILE *f = fopen(path, "rb");
+    if (!f) { tb_err = "нет такого файла звука"; return -1; }
+    fseek(f, 0, SEEK_END); long sz = ftell(f); fseek(f, 0, SEEK_SET);
+    unsigned char *b = sz > 0 ? malloc((size_t)sz) : 0;
+    if (!b || fread(b, 1, (size_t)sz, f) != (size_t)sz) { fclose(f); free(b); tb_err = "не могу прочитать файл звука"; return -1; }
+    fclose(f);
+    if (sz < 12 || memcmp(b, "RIFF", 4) != 0 || memcmp(b + 8, "WAVE", 4) != 0) {
+        tb_err = sz >= 4 && memcmp(b, "OggS", 4) == 0 ? "OGG пока не умею: сохрани звук как WAV" : "это не WAV-файл";
+        free(b);
+        return -1;
+    }
+    uint32_t tag = 0, ch = 0, rate = 0, bits = 0;
+    const unsigned char *data = 0;
+    uint32_t dlen = 0;
+    long p = 12;
+    while (p + 8 <= sz) {
+        uint32_t n = tb_le32(b + p + 4);
+        const unsigned char *c = b + p + 8;
+        if ((long)n > sz - p - 8) n = (uint32_t)(sz - p - 8);   // последний кусок обрезан — берём что есть
+        if (memcmp(b + p, "fmt ", 4) == 0 && n >= 16) {
+            tag = tb_le16(c); ch = tb_le16(c + 2); rate = tb_le32(c + 4); bits = tb_le16(c + 14);
+            if (tag == 0xFFFE && n >= 26) tag = tb_le16(c + 24);   // «расширенный» WAV: вид внутри
+        } else if (memcmp(b + p, "data", 4) == 0) {
+            data = c; dlen = n;
+        }
+        p += 8 + (long)n + (n & 1);
+    }
+    int okf = (tag == 1 && (bits == 8 || bits == 16 || bits == 24 || bits == 32)) || (tag == 3 && (bits == 32 || bits == 64));
+    if (!data || !okf || ch == 0 || rate == 0) {
+        free(b);
+        tb_err = !data ? "в WAV нет звука (нет куска data)" : "такой WAV не умею: нужен PCM 8/16/24/32 бита или float";
+        return -1;
+    }
+    uint32_t bpf = ch * (bits / 8);
+    long long frames = dlen / bpf;
+    int oc = ch >= 2 ? 2 : 1;
+    float *d = malloc(sizeof(float) * (size_t)(frames * oc + 1));
+    if (!d) { free(b); tb_err = "не хватило памяти"; return -1; }
+    for (long long i = 0; i < frames; i++)
+        for (int k = 0; k < oc; k++) {
+            const unsigned char *q = data + i * bpf + (uint32_t)k * (bits / 8);
+            float v;
+            if (tag == 3) {
+                if (bits == 32) { float x; memcpy(&x, q, 4); v = x; }
+                else { double x; memcpy(&x, q, 8); v = (float)x; }
+            } else if (bits == 8) v = (q[0] - 128) / 128.0f;
+            else if (bits == 16) v = (int16_t)tb_le16(q) / 32768.0f;
+            else if (bits == 24) v = (float)((int32_t)((uint32_t)q[0] << 8 | (uint32_t)q[1] << 16 | (uint32_t)q[2] << 24) >> 8) / 8388608.0f;
+            else v = (float)((int32_t)tb_le32(q) / 2147483648.0);
+            d[i * oc + k] = v;
+        }
+    free(b);
+    long long id = tb_snd_add(d, frames, oc, rate, 0);
+    if (id < 0) { free(d); tb_err = "не хватило памяти"; return -1; }
+    return id;
+}
+// свободный голос; заняты все — забираем самый тихий (лучше не тот, что играет по кругу)
+static long long tb_voice_new(long long s, int loop, int is3d, double x, double y, double z) {
+    tb_snd_start();
+    pthread_mutex_lock(&tb_slock);
+    if (s < 0 || s >= tb_nsnd || !tb_snds[s].d) { pthread_mutex_unlock(&tb_slock); return 0; }
+    int k = -1;
+    for (int i = 0; i < TB_NVOICE; i++)
+        if (!tb_voices[i].on) { k = i; break; }
+    if (k < 0) {
+        float best = 1e30f;
+        for (int pass = 0; pass < 2 && k < 0; pass++)
+            for (int i = 0; i < TB_NVOICE; i++) {
+                tb_voice *v = &tb_voices[i];
+                if (pass == 0 && v->loop) continue;
+                if (v->gl + v->gr < best) { best = v->gl + v->gr; k = i; }
+            }
+        tb_voice_end(&tb_voices[k]);
+    }
+    tb_voice *v = &tb_voices[k];
+    int gen = v->gen + 1;
+    memset(v, 0, sizeof *v);
+    v->gen = gen; v->on = 1; v->fresh = 1; v->snd = (int)s; v->loop = loop; v->is3d = is3d;
+    v->pitch = 1; v->vol = 1; v->x = x; v->y = y; v->z = z; v->dop = 1;
+    long long id = (long long)gen * TB_NVOICE + k + 1;
+    pthread_mutex_unlock(&tb_slock);
+    return id;
+}
+// голос по номеру (под замком); старый номер (голос уже другой) — 0
+static tb_voice *tb_voice_at(long long id) {
+    if (id <= 0) return 0;
+    long long k = (id - 1) % TB_NVOICE, gen = (id - 1) / TB_NVOICE;
+    tb_voice *v = &tb_voices[k];
+    return v->on && v->gen == gen && !v->stop ? v : 0;
+}
+TB_API long long tb_play_sound(long long s) { return tb_voice_new(s, 0, 0, 0, 0, 0); }
+TB_API long long tb_loop_sound(long long s) { return tb_voice_new(s, 1, 0, 0, 0, 0); }
+TB_API long long tb_play_sound_at(long long s, double x, double y, double z) { return tb_voice_new(s, 0, 1, x, y, z); }
+TB_API long long tb_loop_sound_at(long long s, double x, double y, double z) { return tb_voice_new(s, 1, 1, x, y, z); }
+// тон: синус hz герц на ms миллисекунд, мягкое начало и конец (без щелчков)
+TB_API long long tb_play_tone(double hz, long long ms) {
+    if (ms <= 0 || hz <= 0) return 0;
+    if (ms > 60000) ms = 60000;
+    long long n = ms * TB_SR / 1000;
+    float *d = malloc(sizeof(float) * (size_t)(n + 1));
+    if (!d) return 0;
+    long long ramp = TB_SR / 200;
+    if (ramp * 2 > n) ramp = n / 2;
+    for (long long i = 0; i < n; i++) {
+        double e = 1;
+        if (i < ramp) e = (double)i / ramp;
+        else if (i >= n - ramp) e = (double)(n - 1 - i) / ramp;
+        d[i] = (float)(0.5 * e * sin(6.283185307179586 * hz * (double)i / TB_SR));
+    }
+    long long s = tb_snd_add(d, n, 1, TB_SR, 1);
+    if (s < 0) { free(d); return 0; }
+    long long v = tb_voice_new(s, 0, 0, 0, 0, 0);
+    if (v == 0) { pthread_mutex_lock(&tb_slock); free(tb_snds[s].d); tb_snds[s].d = 0; pthread_mutex_unlock(&tb_slock); }
+    return v;
+}
+TB_API void tb_stop_sound(long long id) {
+    pthread_mutex_lock(&tb_slock);
+    tb_voice *v = tb_voice_at(id);
+    if (v) v->stop = 1;   // микшер плавно уведёт в тишину за 10 мс и освободит голос
+    pthread_mutex_unlock(&tb_slock);
+}
+TB_API _Bool tb_sound_playing(long long id) {
+    pthread_mutex_lock(&tb_slock);
+    _Bool r = tb_voice_at(id) != 0;
+    pthread_mutex_unlock(&tb_slock);
+    return r;
+}
+TB_API void tb_sound_volume(long long id, double k) {
+    if (k < 0) k = 0;
+    if (k > 4) k = 4;
+    pthread_mutex_lock(&tb_slock);
+    tb_voice *v = tb_voice_at(id);
+    if (v) v->vol = k;
+    pthread_mutex_unlock(&tb_slock);
+}
+TB_API void tb_sound_pitch(long long id, double k) {
+    if (k < 0.05) k = 0.05;
+    if (k > 8) k = 8;
+    pthread_mutex_lock(&tb_slock);
+    tb_voice *v = tb_voice_at(id);
+    if (v) v->pitch = k;
+    pthread_mutex_unlock(&tb_slock);
+}
+TB_API void tb_move_sound(long long id, double x, double y, double z) {
+    pthread_mutex_lock(&tb_slock);
+    tb_voice *v = tb_voice_at(id);
+    if (v) { v->x = x; v->y = y; v->z = z; }
+    pthread_mutex_unlock(&tb_slock);
+}
+TB_API void tb_master_volume(double k) {
+    if (k < 0) k = 0;
+    if (k > 4) k = 4;
+    pthread_mutex_lock(&tb_slock);
+    tb_master = k;
+    pthread_mutex_unlock(&tb_slock);
+}
+// слушатель: где уши и куда смотрит (как camera; вверх — ось y)
+TB_API void tb_listener(double x, double y, double z, double lx, double ly, double lz) {
+    double f[3] = { lx - x, ly - y, lz - z }, l = sqrt(f[0] * f[0] + f[1] * f[1] + f[2] * f[2]);
+    if (l < 1e-12) return;
+    for (int i = 0; i < 3; i++) f[i] /= l;
+    double up[3] = { 0, 1, 0 };
+    if (fabs(f[1]) > 0.9999) { up[1] = 0; up[2] = 1; }
+    double r[3] = { up[1] * f[2] - up[2] * f[1], up[2] * f[0] - up[0] * f[2], up[0] * f[1] - up[1] * f[0] };
+    l = sqrt(r[0] * r[0] + r[1] * r[1] + r[2] * r[2]);
+    pthread_mutex_lock(&tb_slock);
+    tb_lis[0] = x; tb_lis[1] = y; tb_lis[2] = z;
+    for (int i = 0; i < 3; i++) { tb_lis[3 + i] = r[i] / l; tb_lis[6 + i] = f[i]; }
+    pthread_mutex_unlock(&tb_slock);
+}
+#endif
 #if defined(TB_LL) && !defined(TB_BARE)
 #define TB_X(r, n, p, a) r tb_x_##n p { return tb_##n a; }
 #define TB_XV(n, p, a) void tb_x_##n p { tb_##n a; }
@@ -7455,6 +7965,21 @@ TB_B(long long, min_i, (long long a, long long b, int line), tb_mini(a, b))
 TB_B(long long, max_i, (long long a, long long b, int line), tb_maxi(a, b))
 TB_B(double, min_d, (double a, double b, int line), tb_mind(a, b))
 TB_B(double, max_d, (double a, double b, int line), tb_maxd(a, b))
+#ifdef TB_SND
+TB_B(long long, load_sound, (const char *s, int line), tb_load_sound(s))
+TB_B(long long, play_sound, (long long s, int line), tb_play_sound(s))
+TB_B(long long, loop_sound, (long long s, int line), tb_loop_sound(s))
+TB_B(long long, play_sound_at, (long long s, double x, double y, double z, int line), tb_play_sound_at(s, x, y, z))
+TB_B(long long, loop_sound_at, (long long s, double x, double y, double z, int line), tb_loop_sound_at(s, x, y, z))
+TB_B(long long, play_tone, (double hz, long long ms, int line), tb_play_tone(hz, ms))
+TB_BV(stop_sound, (long long v, int line), tb_stop_sound(v))
+TB_B(_Bool, sound_playing, (long long v, int line), tb_sound_playing(v))
+TB_BV(sound_volume, (long long v, double k, int line), tb_sound_volume(v, k))
+TB_BV(sound_pitch, (long long v, double k, int line), tb_sound_pitch(v, k))
+TB_BV(move_sound, (long long v, double x, double y, double z, int line), tb_move_sound(v, x, y, z))
+TB_BV(master_volume, (double k, int line), tb_master_volume(k))
+TB_BV(listener, (double x, double y, double z, double lx, double ly, double lz, int line), tb_listener(x, y, z, lx, ly, lz))
+#endif
 #ifdef TB_GFX
 TB_BV(window_open, (long long w, long long h, const char *t, int line), tb_window_open(w, h, t))
 TB_B(_Bool, window_alive, (int line), tb_window_alive())

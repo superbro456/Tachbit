@@ -224,7 +224,7 @@ func text_hash(s: text) gives h: int
 // библиотека runtime.h, заранее переведённая в LLVM (.bc), и её цель (процессор, система).
 // Делается один раз на версию библиотеки (clang переводит C — так же, как готовят libc)
 // и лежит в ~/.cache/tachbit; дальше программы собираются без clang
-func llvm_lib(bin: text, gfx: bool, native: bool) gives lib: text, target: text, cpu: text
+func llvm_lib(bin: text, gfx: bool, snd: bool, native: bool) gives lib: text, target: text, cpu: text
     dir = env("HOME") + "/.cache/tachbit"
     src = runtime_text()
     kind = "o"
@@ -232,6 +232,9 @@ func llvm_lib(bin: text, gfx: bool, native: bool) gives lib: text, target: text,
     if gfx
         kind = "g"
         flags += " -DTB_GFX"
+    if snd
+        kind += "s"
+        flags += " -DTB_SND"
     if native
         kind += "n"
         flags += " -march=native"
@@ -265,7 +268,7 @@ func build_pure(c: Comp, program: Node, exe: text, native: bool) gives ok: bool
     bin = llvm_bin(exe + ".llvmbin")
     if bin == ""
         return false
-    lib, target, cpu = llvm_lib(bin, c.gfx, native)
+    lib, target, cpu = llvm_lib(bin, c.gfx, c.snd, native)
     if lib == ""
         return false
     ll_path = exe + ".ll"

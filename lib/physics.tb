@@ -1,0 +1,432 @@
+// physics — физика для игр: тела-шары и тела-коробки, тяжесть, столкновения, отскок, трение,
+// «стоит на земле», лучи (куда попал выстрел или взгляд). Обычная библиотека на самом Tachbit.
+//
+//   use physics
+//   func main()
+//       w = physics.world()                               // тяжесть вниз по y: −9.8
+//       floor = physics.add_box(w, 0, -1, 0, 50, 1, 50, 0)  // масса 0 — не двигается (пол, стены)
+//       ball = physics.add_sphere(w, 0, 5, 0, 0.5, 1)       // шар радиуса 0.5, масса 1
+//       repeat while window_alive()
+//           physics.step(w, frame_ms() / 1000)              // время в секундах
+//           b = w.bodies[ball]
+//           draw_mesh(шар, b.x, b.y, b.z, 0)
+//
+// Коробки не поворачиваются (стены, пол, ящики, герои-капсулы) — так быстрее и устойчивее.
+// Скорость тела можно менять прямо: w.bodies[id].vx = 3. После step в w.hits лежат
+// столкновения этого шага (кто с кем, куда смотрит нормаль) — для звука удара, урона, очков.
+// Шаг сам дробится на кусочки не длиннее 1/120 секунды: быстрые тела не пролетают сквозь стены.
+
+obj Body
+    x: dec
+    y: dec
+    z: dec
+    vx: dec
+    vy: dec
+    vz: dec
+    ball: bool           // true — шар, false — коробка
+    r: dec               // радиус шара
+    hx: dec              // половины размеров коробки
+    hy: dec
+    hz: dec
+    mass: dec            // 0 — неподвижное (пол, стены)
+    bounce: dec          // отскок: 0 — не прыгает, 1 — как резиновый мяч
+    friction: dec        // трение: 0 — лёд
+    on_ground: bool      // в этом шаге стояло на чём-то снизу
+    ghost: bool          // ловит касания (w.hits), но не толкается: зоны, монетки, двери
+    awake: bool
+
+obj Hit
+    a: int               // номера тел
+    b: int
+    nx: dec              // нормаль от a к b
+    ny: dec
+    nz: dec
+    depth: dec           // насколько вошли друг в друга
+    speed: dec           // скорость удара вдоль нормали (для громкости звука удара)
+
+obj Ray
+    hit: bool
+    body: int            // в кого попал (−1 — ни в кого)
+    dist: dec
+    x: dec               // точка попадания
+    y: dec
+    z: dec
+    nx: dec              // нормаль поверхности в точке
+    ny: dec
+    nz: dec
+
+obj World
+    bodies: list Body
+    hits: list Hit
+    gx: dec
+    gy: dec
+    gz: dec
+    order: list int      // тела по левому краю (x): соседей ищем «по ходу», без перебора всех пар
+    air: dec             // сопротивление воздуха (доля скорости за секунду)
+
+// новый мир: тяжесть вниз по y
+modpub func world() gives w: World
+    w = World(gy: -9.8, air: 0.01)
+
+modpub func gravity(w: World, x: dec, y: dec, z: dec)
+    w.gx = x
+    w.gy = y
+    w.gz = z
+
+// шар; масса 0 — неподвижный. Возвращает номер тела
+modpub func add_sphere(w: World, x: dec, y: dec, z: dec, r: dec, mass: dec) gives id: int
+    id = len(w.bodies)
+    w.bodies.add(Body(x: x, y: y, z: z, ball: true, r: r, hx: r, hy: r, hz: r, mass: mass, bounce: 0.3, friction: 0.5, awake: true))
+    w.order.add(id)
+
+// коробка по центру и половинам размеров; масса 0 — неподвижная (пол, стена)
+modpub func add_box(w: World, x: dec, y: dec, z: dec, hx: dec, hy: dec, hz: dec, mass: dec) gives id: int
+    id = len(w.bodies)
+    w.bodies.add(Body(x: x, y: y, z: z, ball: false, r: 0.0, hx: hx, hy: hy, hz: hz, mass: mass, bounce: 0.1, friction: 0.6, awake: true))
+    w.order.add(id)
+
+// толкнуть: прибавить скорость (прыжок, взрыв, удар)
+modpub func push(w: World, id: int, vx: dec, vy: dec, vz: dec)
+    b = w.bodies[id]
+    if b.mass > 0.0
+        b.vx += vx
+        b.vy += vy
+        b.vz += vz
+
+// переставить тело (телепорт, начало уровня)
+modpub func place(w: World, id: int, x: dec, y: dec, z: dec)
+    b = w.bodies[id]
+    b.x = x
+    b.y = y
+    b.z = z
+
+// шаг мира на dt секунд
+modpub func step(w: World, dt: dec)
+    w.hits.clear()
+    if dt <= 0.0
+        return
+    if dt > 0.25
+        dt = 0.25            // окно таскали или отладчик: не прыгаем на полсекунды
+    parts = 1
+    repeat while dt / parts > 1.0 / 120.0
+        parts += 1
+    h = dt / parts
+    repeat parts times
+        sub_step(w, h)
+
+func sub_step(w: World, h: dec)
+    each b in w.bodies
+        b.on_ground = false
+        if b.mass > 0.0
+            b.vx += w.gx * h
+            b.vy += w.gy * h
+            b.vz += w.gz * h
+            k = 1.0 - w.air * h
+            b.vx *= k
+            b.vy *= k
+            b.vz *= k
+            b.x += b.vx * h
+            b.y += b.vy * h
+            b.z += b.vz * h
+    sort_order(w)
+    // соседи по x: у следующих в порядке левый край дальше нашего правого — дальше не смотрим
+    n = len(w.order)
+    count i from 0 to n - 1
+        a = w.order[i]
+        ba = w.bodies[a]
+        right = ba.x + ba.hx
+        j = i + 1
+        repeat while j < n
+            b = w.order[j]
+            bb = w.bodies[b]
+            if bb.x - bb.hx > right
+                stop
+            if ba.mass > 0.0 or bb.mass > 0.0 or ba.ghost or bb.ghost
+                if abs(ba.y - bb.y) <= ba.hy + bb.hy and abs(ba.z - bb.z) <= ba.hz + bb.hz
+                    collide(w, a, b)
+            j += 1
+
+// порядок по левому краю: почти не меняется от шага к шагу — вставками это быстро
+func sort_order(w: World)
+    n = len(w.order)
+    count i from 1 to n - 1
+        id = w.order[i]
+        left = w.bodies[id].x - w.bodies[id].hx
+        j = i - 1
+        repeat while j >= 0 and w.bodies[w.order[j]].x - w.bodies[w.order[j]].hx > left
+            w.order[j + 1] = w.order[j]
+            j -= 1
+        w.order[j + 1] = id
+
+// касаются ли a и b: нормаль от a к b и глубина (глубина ≤ 0 — не касаются)
+func contact(a: Body, b: Body) gives nx: dec, ny: dec, nz: dec, depth: dec
+    nx = 0.0
+    ny = 1.0
+    nz = 0.0
+    depth = 0.0
+    if a.ball and b.ball
+        dx = b.x - a.x
+        dy = b.y - a.y
+        dz = b.z - a.z
+        d = sqrt(dx * dx + dy * dy + dz * dz)
+        depth = a.r + b.r - d
+        if depth > 0.0 and d > 0.000001
+            nx = dx / d
+            ny = dy / d
+            nz = dz / d
+        return
+    if a.ball
+        nx, ny, nz, depth = ball_box(a, b)
+        return
+    if b.ball
+        nx, ny, nz, depth = ball_box(b, a)
+        nx = -nx
+        ny = -ny
+        nz = -nz
+        return
+    // две коробки: выталкиваем по оси, где вошли меньше всего
+    ox = a.hx + b.hx - abs(b.x - a.x)
+    oy = a.hy + b.hy - abs(b.y - a.y)
+    oz = a.hz + b.hz - abs(b.z - a.z)
+    if ox <= 0.0 or oy <= 0.0 or oz <= 0.0
+        depth = 0.0
+        return
+    if oy <= ox and oy <= oz
+        ny = sign(b.y - a.y)
+        depth = oy
+    else if ox <= oz
+        ny = 0.0
+        nx = sign(b.x - a.x)
+        depth = ox
+    else
+        ny = 0.0
+        nz = sign(b.z - a.z)
+        depth = oz
+
+// шар s и коробка k: нормаль от шара к коробке
+func ball_box(s: Body, k: Body) gives nx: dec, ny: dec, nz: dec, depth: dec
+    // ближайшая к центру шара точка коробки
+    cx = clamp(s.x, k.x - k.hx, k.x + k.hx)
+    cy = clamp(s.y, k.y - k.hy, k.y + k.hy)
+    cz = clamp(s.z, k.z - k.hz, k.z + k.hz)
+    dx = cx - s.x
+    dy = cy - s.y
+    dz = cz - s.z
+    d = sqrt(dx * dx + dy * dy + dz * dz)
+    nx = 0.0
+    ny = -1.0
+    nz = 0.0
+    if d > 0.000001
+        depth = s.r - d
+        nx = dx / d
+        ny = dy / d
+        nz = dz / d
+        return
+    // центр шара внутри коробки: наружу по ближайшей стороне
+    ox = k.hx - abs(s.x - k.x)
+    oy = k.hy - abs(s.y - k.y)
+    oz = k.hz - abs(s.z - k.z)
+    if oy <= ox and oy <= oz
+        ny = -sign(s.y - k.y)
+        depth = oy + s.r
+    else if ox <= oz
+        ny = 0.0
+        nx = -sign(s.x - k.x)
+        depth = ox + s.r
+    else
+        ny = 0.0
+        nz = -sign(s.z - k.z)
+        depth = oz + s.r
+
+func collide(w: World, ia: int, ib: int)
+    a = w.bodies[ia]
+    b = w.bodies[ib]
+    nx, ny, nz, depth = contact(a, b)
+    if depth <= 0.0
+        return
+    rvx = b.vx - a.vx
+    rvy = b.vy - a.vy
+    rvz = b.vz - a.vz
+    vn = rvx * nx + rvy * ny + rvz * nz
+    w.hits.add(Hit(a: ia, b: ib, nx: nx, ny: ny, nz: nz, depth: depth, speed: -vn))
+    if a.ghost or b.ghost
+        return
+    wa = 0.0
+    wb = 0.0
+    if a.mass > 0.0
+        wa = 1.0 / a.mass
+    if b.mass > 0.0
+        wb = 1.0 / b.mass
+    ws = wa + wb
+    if ws <= 0.0
+        return
+    // разнести, чтобы не сидели друг в друге (чуть-чуть оставляем — так не дрожит)
+    fix = max(depth - 0.002, 0.0) * 0.8 / ws
+    a.x -= nx * fix * wa
+    a.y -= ny * fix * wa
+    a.z -= nz * fix * wa
+    b.x += nx * fix * wb
+    b.y += ny * fix * wb
+    b.z += nz * fix * wb
+    if ny < -0.7
+        a.on_ground = true
+    if ny > 0.7
+        b.on_ground = true
+    if vn >= 0.0
+        return               // уже расходятся
+    e = max(a.bounce, b.bounce)
+    if vn > -0.6
+        e = 0.0              // медленно: просто лечь, без бесконечных подпрыгиваний
+    j = -(1.0 + e) * vn / ws
+    a.vx -= j * nx * wa
+    a.vy -= j * ny * wa
+    a.vz -= j * nz * wa
+    b.vx += j * nx * wb
+    b.vy += j * ny * wb
+    b.vz += j * nz * wb
+    // трение вдоль поверхности
+    rvx = b.vx - a.vx
+    rvy = b.vy - a.vy
+    rvz = b.vz - a.vz
+    vn = rvx * nx + rvy * ny + rvz * nz
+    tx = rvx - vn * nx
+    ty = rvy - vn * ny
+    tz = rvz - vn * nz
+    tl = sqrt(tx * tx + ty * ty + tz * tz)
+    if tl < 0.000001
+        return
+    tx /= tl
+    ty /= tl
+    tz /= tl
+    mu = sqrt(a.friction * b.friction)
+    jt = min(tl / ws, j * mu)
+    a.vx += jt * tx * wa
+    a.vy += jt * ty * wa
+    a.vz += jt * tz * wa
+    b.vx -= jt * tx * wb
+    b.vy -= jt * ty * wb
+    b.vz -= jt * tz * wb
+
+// луч из (ox, oy, oz) в сторону (dx, dy, dz) не дальше far: в кого попал первым.
+// ignore — какое тело не считать (сам стрелок), −1 — считать всех
+modpub func ray(w: World, ox: dec, oy: dec, oz: dec, dx: dec, dy: dec, dz: dec, far: dec, ignore: int) gives r: Ray
+    r = Ray(body: -1, dist: far)
+    l = sqrt(dx * dx + dy * dy + dz * dz)
+    if l < 0.000001
+        return
+    dx /= l
+    dy /= l
+    dz /= l
+    count i from 0 to len(w.bodies) - 1
+        if i == ignore
+            skip
+        b = w.bodies[i]
+        if b.ghost
+            skip
+        t = -1.0
+        nx = 0.0
+        ny = 0.0
+        nz = 0.0
+        if b.ball
+            t = ray_ball(b, ox, oy, oz, dx, dy, dz)
+            if t >= 0.0
+                nx = (ox + dx * t - b.x) / b.r
+                ny = (oy + dy * t - b.y) / b.r
+                nz = (oz + dz * t - b.z) / b.r
+        else
+            t, nx, ny, nz = ray_box(b, ox, oy, oz, dx, dy, dz)
+        if t >= 0.0 and t < r.dist
+            r.hit = true
+            r.body = i
+            r.dist = t
+            r.nx = nx
+            r.ny = ny
+            r.nz = nz
+    if r.hit
+        r.x = ox + dx * r.dist
+        r.y = oy + dy * r.dist
+        r.z = oz + dz * r.dist
+
+func ray_ball(b: Body, ox: dec, oy: dec, oz: dec, dx: dec, dy: dec, dz: dec) gives t: dec
+    px = ox - b.x
+    py = oy - b.y
+    pz = oz - b.z
+    pb = px * dx + py * dy + pz * dz
+    c = px * px + py * py + pz * pz - b.r * b.r
+    q = pb * pb - c
+    t = -1.0
+    if q < 0.0
+        return
+    s = sqrt(q)
+    t = -pb - s
+    if t < 0.0
+        t = -pb + s          // начало луча внутри шара
+
+// луч и коробка: «плиты» по трём осям
+func ray_box(b: Body, ox: dec, oy: dec, oz: dec, dx: dec, dy: dec, dz: dec) gives t: dec, nx: dec, ny: dec, nz: dec
+    t = -1.0
+    nx = 0.0
+    ny = 0.0
+    nz = 0.0
+    t_in = -1000000000.0
+    t_out = 1000000000.0
+    axis = -1
+    side = 0.0
+    count k from 0 to 2
+        o = ox
+        d = dx
+        c = b.x
+        hw = b.hx
+        if k == 1
+            o = oy
+            d = dy
+            c = b.y
+            hw = b.hy
+        else if k == 2
+            o = oz
+            d = dz
+            c = b.z
+            hw = b.hz
+        if abs(d) < 0.000000001
+            if o < c - hw or o > c + hw
+                return
+        else
+            t1 = (c - hw - o) / d
+            t2 = (c + hw - o) / d
+            s = -1.0
+            if t1 > t2
+                tmp = t1
+                t1 = t2
+                t2 = tmp
+                s = 1.0
+            if t1 > t_in
+                t_in = t1
+                axis = k
+                side = s
+            if t2 < t_out
+                t_out = t2
+    if t_in > t_out or t_out < 0.0
+        return
+    if t_in >= 0.0
+        t = t_in
+        if axis == 0
+            nx = side
+        else if axis == 1
+            ny = side
+        else if axis == 2
+            nz = side
+    else
+        t = t_out            // начало внутри коробки
+        ny = 1.0
+
+func clamp(v: dec, lo: dec, hi: dec) gives r: dec
+    r = v
+    if r < lo
+        r = lo
+    if r > hi
+        r = hi
+
+func sign(v: dec) gives r: dec
+    r = 1.0
+    if v < 0.0
+        r = -1.0

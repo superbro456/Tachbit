@@ -1,0 +1,63 @@
+// анимация: плавность, ключи (прямые и плавные), клип по кругу, кости, переход между клипами
+use anim
+
+func r2(v: dec) gives s: text
+    s = "" + round(v * 100) / 100.0
+
+func main()
+    line = ""
+    each k in ["linear", "in", "out", "inout", "smooth", "back", "bounce", "elastic"]
+        line += k + " " + r2(anim.ease(k, 0.5)) + " " + r2(anim.ease(k, 1.0)) + "; "
+    print(line)
+    print("sin 30 = " + r2(anim.sin_deg(30)) + ", cos 120 = " + r2(anim.cos_deg(120)) + ", sin -270 = " + r2(anim.sin_deg(-270)))
+    // ключи: в любом порядке, прямые и плавные
+    t = anim.track(false)
+    anim.key(t, 1.0, 10)
+    anim.key(t, 0.0, 0)
+    anim.key(t, 2.0, 0)
+    print("прямые: " + r2(anim.sample(t, -1)) + " " + r2(anim.sample(t, 0.5)) + " " + r2(anim.sample(t, 1.5)) + " " + r2(anim.sample(t, 9)))
+    t.smooth = true
+    print("плавные: " + r2(anim.sample(t, 0.5)) + " " + r2(anim.sample(t, 1.0)))
+    // человечек: тело вверх, нога вниз от бёдер, рука вниз от плеч
+    s = anim.skeleton()
+    body = anim.bone(s, "тело", -1, 0, 0, 0, 0, 1.0, 0)
+    leg = anim.bone(s, "нога", body, 0, 0, 0, 0, -1.0, 0)
+    arm = anim.bone(s, "рука", body, 0, 1.0, 0, 0, -0.5, 0)
+    walk = anim.clip("шаг", 1.0, true)
+    k = anim.curve(walk, "нога.roll")
+    anim.key(k, 0.0, 0)
+    anim.key(k, 0.25, 90)
+    anim.key(k, 0.5, 0)
+    anim.key(k, 0.75, -90)
+    anim.key(k, 1.0, 0)
+    anim.pose(s, walk, 1.25)
+    anim.solve(s)
+    n = s.bones[leg]
+    print("шаг 1.25 с (по кругу = 0.25): конец ноги " + r2(n.ex) + ", " + r2(n.ey))
+    // всё тело наклонено на 90° (roll): рука смотрит в сторону, а не вниз
+    bend = anim.clip("наклон", 1.0, false)
+    anim.key(anim.curve(bend, "тело.roll"), 0, 90)
+    anim.pose(s, bend, 0.0)
+    anim.solve(s)
+    a = s.bones[arm]
+    print("наклон: плечо " + r2(a.wx) + ", " + r2(a.wy) + "; кисть " + r2(a.ex) + ", " + r2(a.ey))
+    // скелет стоит в (5, 0, 0) и повёрнут на 90° вокруг вертикали
+    s.x = 5
+    s.turn = 90
+    anim.pose(s, walk, 0.25)
+    anim.solve(s)
+    n = s.bones[leg]
+    print("повёрнут: нога " + r2(n.ex) + ", " + r2(n.ey) + ", " + r2(n.ez))
+    // переход: из «шага» в «наклон» за 0.5 с — на полпути половина
+    s.x = 0
+    s.turn = 0
+    p = anim.player()
+    anim.play(p, walk, 0)
+    anim.update(p, s, 0.5)
+    anim.play(p, bend, 0.5)
+    anim.update(p, s, 0.25)
+    print("переход на полпути: тело roll " + r2(s.bones[body].roll))
+    anim.update(p, s, 0.5)
+    print("переход кончился: тело roll " + r2(s.bones[body].roll) + ", клип доиграл " + anim.finished(p))
+    anim.update(p, s, 0.5)
+    print("через 0.5 с: клип доиграл " + anim.finished(p))

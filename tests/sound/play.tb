@@ -1,0 +1,45 @@
+// звук в файл (TB_SOUND_FILE): тон, WAV разных видов, звук в мире справа и слева,
+// звук по кругу с остановкой, 70 тонов сразу (ограничитель и забор голосов), ошибки
+func main()
+    dir = args()[0]
+    // 1: тон 440 Гц
+    t = play_tone(440, 300)
+    print("тон играет: " + sound_playing(t))
+    wait_ms(450)
+    gone = not sound_playing(t)
+    print("тон кончился: " + gone)
+    // 2: 16 бит стерео 22050 Гц, звук только в левом канале
+    left = load_sound(dir + "/left1000.wav") or -1
+    v = play_sound(left)
+    wait_ms(450)
+    // 3 и 4: 24 бита моно 44100 Гц — в мире справа, потом слева
+    listener(0, 0, 0, 0, 0, 1)
+    mono = load_sound(dir + "/mono600.wav") or -1
+    v = play_sound_at(mono, 5, 0, 0)
+    wait_ms(450)
+    v = play_sound_at(mono, -5, 0, 0)
+    wait_ms(450)
+    // 5: float 32, по кругу; громче вдвое, остановить через 300 мс
+    f = load_sound(dir + "/float300.wav") or -1
+    lp = loop_sound(f)
+    sound_volume(lp, 2.0)
+    wait_ms(300)
+    print("круг играет: " + sound_playing(lp))
+    stop_sound(lp)
+    wait_ms(50)
+    stopped = not sound_playing(lp)
+    print("круг остановлен: " + stopped)
+    wait_ms(400)
+    // 6: 70 тонов сразу: голосов 64, лишние забирают самые тихие; ограничитель держит громкость
+    count i from 1 to 70
+        v = play_tone(200 + i * 10, 300)
+    wait_ms(450)
+    // ошибки
+    a = load_sound(dir + "/нет.wav") else err
+        print("нет файла: " + err)
+    b = load_sound(dir + "/not.wav") else err
+        print("не WAV: " + err)
+    silent = not sound_playing(t)
+    print("старый голос молчит: " + silent)
+    stop_sound(t)
+    sound_pitch(12345, 2)

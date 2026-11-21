@@ -1,0 +1,64 @@
+// физика: падение на пол, отскок мяча, ящик на ящике, удар шаров, лучи, призрак
+use physics
+
+func r2(v: dec) gives s: text
+    s = "" + round(v * 100) / 100.0
+
+func main()
+    w = physics.world()
+    floor = physics.add_box(w, 0, -1, 0, 20, 1, 20, 0)
+    // 1: ящик падает с высоты 3 и встаёт на пол (верх пола y = 0, половина ящика 0.5)
+    crate = physics.add_box(w, 0, 3, 0, 0.5, 0.5, 0.5, 1)
+    // 2: мяч падает рядом и прыгает
+    ball = physics.add_sphere(w, 5, 4, 0, 0.5, 1)
+    w.bodies[ball].bounce = 0.8
+    // 3: второй ящик падает на первый
+    top = physics.add_box(w, 0, 6, 0, 0.5, 0.5, 0.5, 1)
+    highest = 0.0
+    fell = false
+    count i from 1 to 600
+        physics.step(w, 1.0 / 60.0)
+        b = w.bodies[ball]
+        if b.vy < -1.0
+            fell = true
+        if fell and b.y > highest and b.vy > 0.0
+            highest = b.y
+    c = w.bodies[crate]
+    t = w.bodies[top]
+    print("ящик на полу: y " + r2(c.y) + ", стоит " + c.on_ground)
+    print("ящик на ящике: y " + r2(t.y) + ", стоит " + t.on_ground)
+    print("мяч прыгал выше 1 м: " + (highest > 1.0))
+    print("мяч лёг: y " + r2(w.bodies[ball].y))
+    // 4: шар катится в другой шар: удар передаёт скорость (масса одна — первый почти встаёт)
+    w2 = physics.world()
+    physics.gravity(w2, 0, 0, 0)
+    a = physics.add_sphere(w2, 0, 0, 0, 0.5, 1)
+    b2 = physics.add_sphere(w2, 3, 0, 0, 0.5, 1)
+    w2.bodies[a].bounce = 1.0
+    w2.bodies[b2].bounce = 1.0
+    physics.push(w2, a, 4, 0, 0)
+    hits = 0
+    count i from 1 to 120
+        physics.step(w2, 1.0 / 60.0)
+        hits += len(w2.hits)
+    print("удар: первый " + r2(w2.bodies[a].vx) + ", второй " + r2(w2.bodies[b2].vx) + ", касаний " + (hits > 0))
+    // 5: лучи
+    hit = physics.ray(w, -10, 0.5, 0, 1, 0, 0, 100, -1)
+    print("луч вправо: попал " + hit.hit + " в " + hit.body + " на x " + r2(hit.x) + ", нормаль x " + r2(hit.nx))
+    down = physics.ray(w, 5, 10, 0, 0, -1, 0, 100, -1)
+    print("луч вниз на мяч: попал в " + down.body + ", y " + r2(down.y))
+    miss = physics.ray(w, 0, 50, 0, 0, 1, 0, 100, -1)
+    print("луч в небо: попал " + miss.hit)
+    // 6: призрак (монетка): касание видно, а тело не толкается
+    w3 = physics.world()
+    ground = physics.add_box(w3, 0, -1, 0, 5, 1, 5, 0)
+    coin = physics.add_box(w3, 0, 0.5, 0, 0.5, 0.5, 0.5, 0)
+    w3.bodies[coin].ghost = true
+    hero = physics.add_sphere(w3, 0, 3, 0, 0.4, 1)
+    touched = false
+    count i from 1 to 120
+        physics.step(w3, 1.0 / 60.0)
+        each h in w3.hits
+            if h.a == coin or h.b == coin
+                touched = true
+    print("монетка: задели " + touched + ", герой прошёл сквозь и стоит на полу: y " + r2(w3.bodies[hero].y))

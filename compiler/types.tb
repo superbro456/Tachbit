@@ -219,6 +219,8 @@ obj Comp
     bare: bool
     // программа рисует в окне: в C идёт TB_GFX, нужен Cocoa (Mac) или X11 (Linux)
     gfx: bool
+    // программа играет звук: в C идёт TB_SND (микшер и вывод звука)
+    snd: bool
     // count i from A to B: списки, у которых xs[i] (или xs[i + 1]) проверены один раз до цикла
     // пары «номер<TAB>список»; fast_depth — сколько таких циклов вокруг (не больше 2)
     fast_lists: list text

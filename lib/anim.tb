@@ -1,0 +1,425 @@
+// anim — анимация для игр и приложений: плавность (ease), ключевые кадры (Track), клипы (Clip),
+// скелет из костей (Skeleton) и проигрыватель, который плавно переходит из клипа в клип.
+// Обычная библиотека на самом Tachbit; сама ничего не рисует — даёт числа и точки костей.
+//
+//   use anim
+//   // плавность: кнопка выезжает за 0.3 с
+//   x = anim.lerp(-200, 20, anim.ease("out", t / 0.3))
+//
+//   // скелет человечка: кость = где сустав (от начала родителя) и куда смотрит сама кость
+//   s = anim.skeleton()
+//   body = anim.bone(s, "тело", -1, 0, 0, 0, 0, 1.0, 0)      // корень, вверх на 1
+//   leg = anim.bone(s, "нога", body, 0, 0, 0, 0, -0.9, 0)     // от бёдер вниз
+//   arm = anim.bone(s, "рука", body, 0, 1.0, 0, 0, -0.7, 0)   // от верха тела вниз
+//
+//   // клип «шаг»: нога качается по кругу (поворот roll — в плоскости экрана)
+//   walk = anim.clip("шаг", 1.0, true)
+//   k = anim.curve(walk, "нога.roll")
+//   anim.key(k, 0.0, -30)
+//   anim.key(k, 0.5, 30)
+//   anim.key(k, 1.0, -30)
+//
+//   p = anim.player()
+//   anim.play(p, walk, 0.2)                 // перейти в «шаг» за 0.2 с
+//   каждый кадр:  anim.update(p, s, frame_ms() / 1000)
+//                 s.bones[leg].ex, .ey, .ez — где конец ноги; .wx, .wy, .wz — где сустав
+//
+// Каналы клипа: "кость.yaw" (вокруг вертикали), "кость.pitch" (кивок), "кость.roll" (в плоскости
+// экрана), в градусах; "кость.x", "кость.y", "кость.z" — сдвиг сустава (прыжок, присед).
+// Мир: x вправо, y вверх, z к зрителю (как у camera, когда смотрим вдоль −z).
+
+// ---------- плавность ----------
+
+// t от 0 до 1 → от 0 до 1 с характером: linear, in, out, inout, smooth, back, bounce, elastic
+modpub func ease(kind: text, t: dec) gives r: dec
+    if t <= 0.0
+        r = 0.0
+        return
+    if t >= 1.0
+        r = 1.0
+        return
+    r = t
+    if kind == "in"
+        r = t * t * t
+    else if kind == "out"
+        u = 1.0 - t
+        r = 1.0 - u * u * u
+    else if kind == "inout"
+        if t < 0.5
+            r = 4.0 * t * t * t
+        else
+            u = -2.0 * t + 2.0
+            r = 1.0 - u * u * u / 2.0
+    else if kind == "smooth"
+        r = t * t * (3.0 - 2.0 * t)
+    else if kind == "back"
+        // чуть заходит за конец и возвращается
+        c1 = 1.70158
+        u = t - 1.0
+        r = 1.0 + (c1 + 1.0) * u * u * u + c1 * u * u
+    else if kind == "bounce"
+        r = bounce_out(t)
+    else if kind == "elastic"
+        r = pow2(-10.0 * t) * sin_deg((t * 10.0 - 0.75) * 120.0) + 1.0
+
+func bounce_out(t: dec) gives r: dec
+    n = 7.5625
+    d = 2.75
+    if t < 1.0 / d
+        r = n * t * t
+    else if t < 2.0 / d
+        u = t - 1.5 / d
+        r = n * u * u + 0.75
+    else if t < 2.5 / d
+        u = t - 2.25 / d
+        r = n * u * u + 0.9375
+    else
+        u = t - 2.625 / d
+        r = n * u * u + 0.984375
+
+modpub func lerp(a: dec, b: dec, t: dec) gives r: dec
+    r = a + (b - a) * t
+
+// ---------- ключевые кадры ----------
+
+obj Track
+    at: list dec         // моменты ключей, секунды
+    values: list dec
+    smooth: bool         // true — плавная кривая через ключи, false — прямые между ключами
+
+modpub func track(smooth: bool) gives t: Track
+    t = Track(smooth: smooth)
+
+// ключ: в момент time значение value (ключи можно давать в любом порядке)
+modpub func key(t: Track, time: dec, value: dec)
+    t.at.add(time)
+    t.values.add(value)
+    i = len(t.at) - 1
+    repeat while i > 0 and t.at[i - 1] > time
+        t.at[i] = t.at[i - 1]
+        t.values[i] = t.values[i - 1]
+        i -= 1
+    t.at[i] = time
+    t.values[i] = value
+
+// значение в момент time: до первого ключа — первое, после последнего — последнее
+modpub func sample(t: Track, time: dec) gives v: dec
+    n = len(t.at)
+    v = 0.0
+    if n == 0
+        return
+    if time <= t.at[0] or n == 1
+        v = t.values[0]
+        return
+    if time >= t.at[n - 1]
+        v = t.values[n - 1]
+        return
+    i = 1
+    repeat while t.at[i] < time
+        i += 1
+    a = t.at[i - 1]
+    b = t.at[i]
+    k = (time - a) / (b - a)
+    p1 = t.values[i - 1]
+    p2 = t.values[i]
+    if not t.smooth
+        v = p1 + (p2 - p1) * k
+        return
+    // Катмулл-Ром: кривая проходит через каждый ключ без изломов
+    p0 = p1
+    p3 = p2
+    if i >= 2
+        p0 = t.values[i - 2]
+    if i + 1 < n
+        p3 = t.values[i + 1]
+    k2 = k * k
+    k3 = k2 * k
+    v = 0.5 * (2.0 * p1 + (p2 - p0) * k + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * k2 + (3.0 * p1 - p0 - 3.0 * p2 + p3) * k3)
+
+// ---------- клипы ----------
+
+obj Clip
+    name: text
+    length: dec          // секунды
+    loop: bool
+    names: list text     // каналы: "кость.roll" ...
+    tracks: list Track
+
+modpub func clip(name: text, length: dec, loop: bool) gives c: Clip
+    c = Clip(name: name, length: length, loop: loop)
+
+// кривая клипа по имени канала (если нет — новый, плавный)
+modpub func curve(c: Clip, name: text) gives t: Track
+    count i from 0 to len(c.names) - 1
+        if c.names[i] == name
+            t = c.tracks[i]
+            return
+    t = Track(smooth: true)
+    c.names.add(name)
+    c.tracks.add(t)
+
+// время клипа: по кругу или стоп на конце
+modpub func clip_time(c: Clip, time: dec) gives r: dec
+    r = time
+    if c.length <= 0.0
+        r = 0.0
+        return
+    if c.loop
+        repeat while r >= c.length
+            r -= c.length
+        repeat while r < 0.0
+            r += c.length
+    else if r > c.length
+        r = c.length
+
+// ---------- скелет ----------
+
+obj Bone
+    name: text
+    parent: int
+    ox: dec              // где сустав: от сустава родителя, в осях родителя
+    oy: dec
+    oz: dec
+    dx: dec              // куда смотрит кость и какой длины (в своих осях, без поворота)
+    dy: dec
+    dz: dec
+    yaw: dec             // поворот сейчас, градусы
+    pitch: dec
+    roll: dec
+    mx: dec              // сдвиг сустава сейчас (прыжок, присед)
+    my: dec
+    mz: dec
+    wx: dec              // сустав в мире (после solve)
+    wy: dec
+    wz: dec
+    ex: dec              // конец кости в мире
+    ey: dec
+    ez: dec
+    m: list dec          // поворот в мире: 9 чисел, по строкам
+
+obj Skeleton
+    bones: list Bone
+    x: dec               // где стоит весь скелет
+    y: dec
+    z: dec
+    turn: dec            // и куда повёрнут (вокруг вертикали, градусы)
+
+modpub func skeleton() gives s: Skeleton
+    s = Skeleton()
+
+// новая кость; parent −1 — корень. Родитель должен быть добавлен раньше
+modpub func bone(s: Skeleton, name: text, parent: int, ox: dec, oy: dec, oz: dec, dx: dec, dy: dec, dz: dec) gives id: int
+    id = len(s.bones)
+    b = Bone(name: name, parent: parent, ox: ox, oy: oy, oz: oz, dx: dx, dy: dy, dz: dz)
+    repeat 9 times
+        b.m.add(0.0)
+    s.bones.add(b)
+
+modpub func find_bone(s: Skeleton, name: text) gives id: int
+    id = -1
+    count i from 0 to len(s.bones) - 1
+        if s.bones[i].name == name
+            id = i
+            return
+
+// поставить кости как в клипе в момент time (каналов нет — кость прямо)
+modpub func pose(s: Skeleton, c: Clip, time: dec)
+    t = clip_time(c, time)
+    each b in s.bones
+        b.yaw = 0.0
+        b.pitch = 0.0
+        b.roll = 0.0
+        b.mx = 0.0
+        b.my = 0.0
+        b.mz = 0.0
+    add_pose(s, c, t, 1.0)
+
+// прибавить клип с весом w (для смешивания двух клипов)
+func add_pose(s: Skeleton, c: Clip, t: dec, w: dec)
+    count i from 0 to len(c.names) - 1
+        name = c.names[i]
+        dot = -1
+        k = len(name) - 1
+        repeat while k >= 0 and dot < 0
+            if name[k] == "."
+                dot = k
+            k -= 1
+        if dot <= 0
+            skip
+        id = find_bone(s, cut(name, 0, dot - 1))
+        if id < 0
+            skip
+        what = cut(name, dot + 1, len(name) - 1)
+        v = sample(c.tracks[i], t) * w
+        b = s.bones[id]
+        if what == "yaw"
+            b.yaw += v
+        else if what == "pitch"
+            b.pitch += v
+        else if what == "roll"
+            b.roll += v
+        else if what == "x"
+            b.mx += v
+        else if what == "y"
+            b.my += v
+        else if what == "z"
+            b.mz += v
+
+// смешать два клипа: w = 0 — только a, 1 — только b
+modpub func blend(s: Skeleton, a: Clip, ta: dec, b: Clip, tb: dec, w: dec)
+    each bn in s.bones
+        bn.yaw = 0.0
+        bn.pitch = 0.0
+        bn.roll = 0.0
+        bn.mx = 0.0
+        bn.my = 0.0
+        bn.mz = 0.0
+    add_pose(s, a, clip_time(a, ta), 1.0 - w)
+    add_pose(s, b, clip_time(b, tb), w)
+
+// посчитать, где в мире каждый сустав и конец кости
+modpub func solve(s: Skeleton)
+    root = rot(s.turn, 0.0, 0.0)
+    each b in s.bones
+        local = rot(b.yaw, b.pitch, b.roll)
+        ox = b.ox + b.mx
+        oy = b.oy + b.my
+        oz = b.oz + b.mz
+        pm = root
+        px = s.x
+        py = s.y
+        pz = s.z
+        if b.parent >= 0
+            p = s.bones[b.parent]
+            pm = p.m
+            px = p.wx
+            py = p.wy
+            pz = p.wz
+        b.wx = px + pm[0] * ox + pm[1] * oy + pm[2] * oz
+        b.wy = py + pm[3] * ox + pm[4] * oy + pm[5] * oz
+        b.wz = pz + pm[6] * ox + pm[7] * oy + pm[8] * oz
+        mul3(pm, local, b.m)
+        b.ex = b.wx + b.m[0] * b.dx + b.m[1] * b.dy + b.m[2] * b.dz
+        b.ey = b.wy + b.m[3] * b.dx + b.m[4] * b.dy + b.m[5] * b.dz
+        b.ez = b.wz + b.m[6] * b.dx + b.m[7] * b.dy + b.m[8] * b.dz
+
+// поворот: сначала roll (вокруг z), потом pitch (вокруг x), потом yaw (вокруг y)
+func rot(yaw: dec, pitch: dec, roll: dec) gives m: list dec
+    cy = cos_deg(yaw)
+    sy = sin_deg(yaw)
+    cp = cos_deg(pitch)
+    sp = sin_deg(pitch)
+    cr = cos_deg(roll)
+    sr = sin_deg(roll)
+    // Ry * Rx * Rz
+    m = [cy * cr + sy * sp * sr, -cy * sr + sy * sp * cr, sy * cp, cp * sr, cp * cr, -sp, -sy * cr + cy * sp * sr, sy * sr + cy * sp * cr, cy * cp]
+
+func mul3(a: list dec, b: list dec, out: list dec)
+    count r from 0 to 2
+        count c from 0 to 2
+            out[r * 3 + c] = a[r * 3] * b[c] + a[r * 3 + 1] * b[3 + c] + a[r * 3 + 2] * b[6 + c]
+
+// ---------- проигрыватель: клип сейчас и плавный переход из прошлого ----------
+
+obj Player
+    now: Clip
+    t: dec
+    was: Clip
+    was_t: dec
+    fade: dec            // сколько длится переход
+    left: dec            // сколько перехода осталось
+    speed: dec
+    has: bool
+    had: bool
+
+modpub func player() gives p: Player
+    p = Player(speed: 1.0)
+
+// играть клип; fade — за сколько секунд перейти из прошлого (0 — сразу)
+modpub func play(p: Player, c: Clip, fade: dec)
+    if p.has and p.now.name == c.name
+        return
+    if p.has and fade > 0.0
+        p.was = p.now
+        p.was_t = p.t
+        p.had = true
+        p.fade = fade
+        p.left = fade
+    else
+        p.had = false
+        p.left = 0.0
+    p.now = c
+    p.t = 0.0
+    p.has = true
+
+// клип без круга доиграл?
+modpub func finished(p: Player) gives r: bool
+    r = p.has and not p.now.loop and p.t >= p.now.length
+
+// шаг времени dt секунд: кости скелета встают по клипу (и переходу) и считаются в мире
+modpub func update(p: Player, s: Skeleton, dt: dec)
+    if not p.has
+        solve(s)
+        return
+    p.t += dt * p.speed
+    if p.had and p.left > 0.0
+        p.was_t += dt * p.speed
+        p.left -= dt
+        w = 1.0
+        if p.left > 0.0
+            w = ease("smooth", 1.0 - p.left / p.fade)
+        blend(s, p.was, p.was_t, p.now, p.t, w)
+        if p.left <= 0.0
+            p.had = false
+    else
+        pose(s, p.now, p.t)
+    solve(s)
+
+// ---------- синус и косинус в градусах (ряды Тейлора после сведения угла к ±45°) ----------
+
+modpub func sin_deg(a: dec) gives r: dec
+    r = cos_deg(a - 90.0)
+
+modpub func cos_deg(a: dec) gives r: dec
+    x = a
+    repeat while x >= 180.0
+        x -= 360.0
+    repeat while x < -180.0
+        x += 360.0
+    s = 1.0
+    if x < 0.0
+        x = -x
+    if x > 90.0
+        x = 180.0 - x
+        s = -1.0
+    // x от 0 до 90
+    if x <= 45.0
+        r = s * cos_series(x * 0.017453292519943295)
+    else
+        r = s * sin_series((90.0 - x) * 0.017453292519943295)
+
+func cos_series(x: dec) gives r: dec
+    x2 = x * x
+    r = 1.0 - x2 / 2.0 * (1.0 - x2 / 12.0 * (1.0 - x2 / 30.0 * (1.0 - x2 / 56.0 * (1.0 - x2 / 90.0))))
+
+func sin_series(x: dec) gives r: dec
+    x2 = x * x
+    r = x * (1.0 - x2 / 6.0 * (1.0 - x2 / 20.0 * (1.0 - x2 / 42.0 * (1.0 - x2 / 72.0 * (1.0 - x2 / 110.0)))))
+
+// 2 в степени x (для elastic)
+func pow2(x: dec) gives r: dec
+    r = 1.0
+    k = x
+    if k < 0.0
+        k = -k
+    n = round(k - 0.5)
+    if n < 0
+        n = 0
+    repeat n times
+        r *= 2.0
+    f = k - n
+    // 2^f = e^(f ln2), f от 0 до 1
+    y = f * 0.6931471805599453
+    r *= 1.0 + y * (1.0 + y / 2.0 * (1.0 + y / 3.0 * (1.0 + y / 4.0 * (1.0 + y / 5.0 * (1.0 + y / 6.0)))))
+    if x < 0.0
+        r = 1.0 / r
