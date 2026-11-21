@@ -29,3 +29,9 @@ compiler/*
 compiler/seed/*
 !compiler/seed/tb.c
 omnium/*.elf
+bench/*
+!bench/*.tb
+!bench/*.c
+!bench/*.sh
+!bench/*.py
+!bench/*.md
