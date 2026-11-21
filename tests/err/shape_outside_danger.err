@@ -1,0 +1,1 @@
+shape_outside_danger.tb, строка 7: shape читает и пишет память по адресу: пиши это внутри блока danger

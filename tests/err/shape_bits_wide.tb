@@ -1,0 +1,7 @@
+// подряд идущих bits больше 64
+shape Reg
+    a: bits 40
+    b: bits 30
+
+func main()
+    print(Reg.size)

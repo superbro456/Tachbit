@@ -1,0 +1,20 @@
+// ядро: экран VGA как shape — буква и цвет прямо в памяти видеокарты
+shape Cell
+    glyph: u8
+    fg: bits 4
+    bg: bits 3
+    blink: bits 1
+
+func main()
+    danger
+        count i from 0 to 1
+            c = Cell at 0xB8000 + 2 * (80 * 24 + i)
+            c.glyph = code("OK"[i])
+            c.fg = 14
+            c.bg = 1
+            c.blink = 0
+        c = Cell at 0xB8000 + 2 * 80 * 24
+        print("glyph: " + char(c.glyph))
+        print("fg: " + c.fg + ", bg: " + c.bg)
+        print("byte: " + read8(0xB8000 + 2 * 80 * 24 + 1))
+        print("size: " + Cell.size)

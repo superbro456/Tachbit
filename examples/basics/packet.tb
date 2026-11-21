@@ -1,0 +1,41 @@
+// shape: разбираем заголовок IPv4 прямо в памяти, как это делает сетевой драйвер.
+// Поля идут по порядку, без пропусков; big — старший байт первым (так в сети);
+// подряд идущие bits делят одно целое, младшие биты — первыми.
+shape Ip4
+    ihl: bits 4           // длина заголовка в словах по 4 байта
+    version: bits 4       // 4 — IPv4
+    tos: u8
+    total: u16 big        // длина всего пакета
+    id: u16 big
+    offset: bits 13 big   // флаги и смещение лежат в одном u16 big
+    flags: bits 3
+    ttl: u8
+    proto: u8             // 6 — TCP, 17 — UDP
+    check: u16 big
+    src: bytes 4          // p.src — адрес этих 4 байт
+    dst: bytes 4
+
+func ip_text(a: int)
+    s = ""
+    danger
+        count i from 0 to 3
+            if i > 0
+                s += "."
+            s += read8(a + i)
+    return s
+
+func main()
+    // настоящий заголовок: 192.168.1.10 → 8.8.8.8, UDP, 60 байт
+    raw = [0x45, 0x00, 0x00, 0x3C, 0x1C, 0x46, 0x40, 0x00, 0x40, 0x11, 0xB1, 0xE6, 192, 168, 1, 10, 8, 8, 8, 8]
+    danger
+        a = try new_mem(Ip4.size)
+        count i from 0 to len(raw) - 1
+            write8(a + i, raw[i])
+        p = Ip4 at a
+        print("версия " + p.version + ", заголовок " + p.ihl * 4 + " байт, всего " + p.total)
+        print("id " + p.id + ", флаги " + p.flags + ", ttl " + p.ttl + ", протокол " + p.proto)
+        print(ip_text(p.src) + " → " + ip_text(p.dst))
+        // уменьшить ttl на пути, как делает роутер
+        p.ttl -= 1
+        print("ttl теперь " + p.ttl + ", байт " + read8(a + 8))
+        free_mem(a)

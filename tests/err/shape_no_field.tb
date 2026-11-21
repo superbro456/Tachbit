@@ -1,0 +1,9 @@
+// у shape нет такого поля
+shape Reg
+    ctrl: u32
+
+func main()
+    danger
+        a = try new_mem(Reg.size)
+        r = Reg at a
+        print(r.status)

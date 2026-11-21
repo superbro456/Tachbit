@@ -142,12 +142,12 @@ func is_builtin(name: text)
 
 // для железа и ядер: биты (везде), адреса и порты (только в danger), время и клавиши (в ядре)
 func kernel_builtins() gives names: list text
-    names = ["bit_and", "bit_or", "bit_xor", "bit_not", "shift_left", "shift_right", "read8", "read16", "read32", "read64", "write8", "write16", "write32", "write64", "asm", "address_of", "new_mem", "free_mem", "grow_mem", "copy_mem", "fill_mem", "port_in8", "port_in16", "port_in32", "port_out8", "port_out16", "port_out32", "page_new", "page_free", "interrupts_on", "interrupts_off", "uptime_ms", "wait_ms", "read_key", "yield"]
+    names = ["bit_and", "bit_or", "bit_xor", "bit_not", "shift_left", "shift_right", "read8", "read16", "read32", "read64", "write8", "write16", "write32", "write64", "asm", "address_of", "new_mem", "free_mem", "grow_mem", "copy_mem", "fill_mem", "shape_get", "shape_set", "shape_at", "port_in8", "port_in16", "port_in32", "port_out8", "port_out16", "port_out32", "page_new", "page_free", "interrupts_on", "interrupts_off", "uptime_ms", "wait_ms", "read_key", "yield"]
     return names
 
 // только внутри danger
 func danger_only(name: text)
-    each w in ["read8", "read16", "read32", "read64", "write8", "write16", "write32", "write64", "asm", "address_of", "new_mem", "free_mem", "grow_mem", "copy_mem", "fill_mem"]
+    each w in ["read8", "read16", "read32", "read64", "write8", "write16", "write32", "write64", "asm", "address_of", "new_mem", "free_mem", "grow_mem", "copy_mem", "fill_mem", "shape_get", "shape_set", "shape_at"]
         if name == w
             return true
     each w in ["port_", "page_", "interrupts_"]
@@ -270,6 +270,9 @@ func resolve_type(c: Comp, t: Node) gives r: int
         key = resolve_type(c, t.kids[0])
         value = resolve_type(c, t.kids[1])
         return dict_of(c, key, value)
+    if find_shape(c, t.name) >= 0
+        // параметр p: Packet — это адрес (int), а поля читаются по shape
+        return 1
     o = find_obj(c, t.name)
     if o < 0
         en = find_enum(c, t.name)
@@ -786,6 +789,17 @@ func check_builtin(c: Comp, n: Node) gives r: int
         return 1
     if name == "copy_mem"
         builtin_args(c, n, "iii", "copy_mem(куда, откуда, байт)")
+        return 0
+    if starts_with(name, "shape_")
+        if n.value != "shape"
+            error_at(c, n.line, "нет такой функции", name)
+        if name == "shape_at"
+            builtin_args(c, n, "i", "Packet at адрес  (адрес — int)")
+            return 1
+        if name == "shape_get"
+            builtin_args(c, n, "ii", "поле shape читается так: p.len")
+            return 1
+        builtin_args(c, n, "iii", "в поле shape пишут целое число: p.len = 20")
         return 0
     if name == "fill_mem"
         builtin_args(c, n, "iii", "fill_mem(адрес, значение байта, сколько байт)")
@@ -1413,6 +1427,8 @@ func check_handled(c: Comp, n: Node, how: text) gives r: int
 
 func check_expr(c: Comp, n: Node) gives r: int
     t = -1
+    if n.kind == "shape_at" or n.kind == "field"
+        shape_rewrite(c, n)
     k = n.kind
     if k == "number"
         t = 1
@@ -1578,10 +1594,17 @@ func check_assign(c: Comp, n: Node)
     declared = -1
     if n.has_tsyn
         declared = resolve_type(c, n.tsyn)
+    sh = ""
+    if len(n.kids) == 1
+        sh = shape_of(c, n.kids[0])
+    if n.has_tsyn and find_shape(c, n.tsyn.name) >= 0
+        sh = n.tsyn.name
     t = -1
     if len(n.kids) == 1
         t = check_value(c, n.kids[0])
     v = find_var(c, n.name)
+    if v >= 0 and sh != ""
+        c.vars[v].shape = sh
     if n.is_shared
         if v >= 0
             error_at(c, n.line, "shared пишется только у новой переменной", n.name)
@@ -1597,6 +1620,7 @@ func check_assign(c: Comp, n: Node)
         n.ty = type
         add_var(c, n.name, type, n.is_const, false, n.line)
         c.vars[len(c.vars) - 1].is_shared = n.is_shared
+        c.vars[len(c.vars) - 1].shape = sh
         if t >= 0 and is_ref(c, type)
             set_src(c, len(c.vars) - 1, src_of(c, n.kids[0]), n.line)
         return
@@ -1625,6 +1649,10 @@ func check_assign(c: Comp, n: Node)
 func check_set(c: Comp, n: Node)
     target = n.kids[0]
     op = n.value
+    if target.kind == "field" and shape_of(c, target.kids[0]) != ""
+        shape_set_rewrite(c, n)
+        check_statement(c, n)
+        return
     c.shared_ok = target.kind == "name" and (op == "+=" or op == "-=")
     to_ty = check_value(c, target)
     c.shared_ok = false
@@ -2209,6 +2237,8 @@ func check_func(c: Comp, fi: int)
         p = params.kids[pi]
         add_var(c, p.name, p.ty, false, p.is_link, p.line)
         c.vars[len(c.vars) - 1].pno = pi + 1
+        if p.has_tsyn and find_shape(c, p.tsyn.name) >= 0
+            c.vars[len(c.vars) - 1].shape = p.tsyn.name
     each o in outputs.kids
         same_param = find_var(c, o.name)
         if same_param >= 0
@@ -2235,6 +2265,195 @@ func register_enum(c: Comp, e: Node)
             if e.kids[j].name == e.kids[i].name
                 error_at(c, e.kids[i].line, "такой вариант уже есть", e.kids[i].name)
     c.enums.add(e)
+
+// ---------- shape: раскладка байтов в памяти ----------
+// Поле shape в коде — обычный int. p = Packet at адрес: p — адрес, а p.len читает
+// или пишет поле прямо в памяти (только внутри danger). Код поля (irq у узла поля):
+// смещение × 2^20 + байт (1, 2, 4, 8; 0 — bytes, отдать адрес) + 16 со знаком + 32 big
+// + 64 × первый бит + 4096 × сколько бит (0 — поле целиком)
+
+func find_shape(c: Comp, name: text)
+    count i from 0 to len(c.shapes) - 1
+        if c.shapes[i].name == name
+            return i
+    return -1
+
+func shape_width(w: text) gives nb: int
+    nb = 0
+    if w == "u8" or w == "i8"
+        nb = 1
+    else if w == "u16" or w == "i16"
+        nb = 2
+    else if w == "u32" or w == "i32"
+        nb = 4
+    else if w == "u64" or w == "i64"
+        nb = 8
+
+func register_shape(c: Comp, s: Node)
+    if find_obj(c, s.name) >= 0 or find_enum(c, s.name) >= 0 or find_shape(c, s.name) >= 0 or is_builtin(s.name)
+        error_at(c, s.line, "это имя уже занято", s.name)
+    if len(s.kids) == 0
+        error_at(c, s.line, "у shape должно быть хотя бы одно поле", s.name)
+    count i from 0 to len(s.kids) - 1
+        if s.kids[i].name == "size"
+            error_at(c, s.kids[i].line, "size у shape уже есть: Packet.size — сколько в нём байт", "")
+        count j from 0 to i - 1
+            if s.kids[j].name == s.kids[i].name
+                error_at(c, s.kids[i].line, "такое поле уже есть", s.kids[i].name)
+    off = 0
+    i = 0
+    repeat while i < len(s.kids)
+        f = s.kids[i]
+        if f.value == "bits"
+            // подряд идущие bits лежат в одном целом: 1, 2, 4 или 8 байт
+            j = i
+            total = 0
+            big = false
+            repeat while j < len(s.kids) and s.kids[j].value == "bits"
+                g = s.kids[j]
+                if g.temp_no < 1 or g.temp_no > 64
+                    error_at(c, g.line, "bits бывает от 1 до 64", g.name)
+                total += g.temp_no
+                if g.is_shared
+                    big = true
+                j += 1
+            if total > 64
+                error_at(c, f.line, "подряд идущих bits больше 64: раздели их полем u8, u16 ...", "")
+            nb = 1
+            repeat while nb * 8 < total
+                nb *= 2
+            bo = 0
+            count k from i to j - 1
+                g = s.kids[k]
+                g.irq = off * 1048576 + nb + bo * 64 + g.temp_no * 4096
+                if big
+                    g.irq += 32
+                bo += g.temp_no
+            off += nb
+            i = j
+            skip
+        if f.value == "bytes"
+            if f.temp_no < 1
+                error_at(c, f.line, "bytes бывает от 1 байта", f.name)
+            if f.is_shared
+                error_at(c, f.line, "big у bytes не пишется: это просто кусок байт", f.name)
+            f.irq = off * 1048576
+            off += f.temp_no
+        else
+            nb = shape_width(f.value)
+            if nb == 0
+                error_at(c, f.line, "нет такого размера: u8, u16, u32, u64, i8, i16, i32, i64, bits N или bytes N", f.value)
+            f.irq = off * 1048576 + nb
+            if starts_with(f.value, "i")
+                f.irq += 16
+            if f.is_shared
+                if nb == 1
+                    error_at(c, f.line, "big у одного байта ничего не меняет: убери его", f.name)
+                f.irq += 32
+            off += nb
+        i += 1
+    s.temp_no = off
+    c.shapes.add(s)
+
+// какой shape у значения: Packet at a  или переменная p = Packet at a  ("" — никакого)
+func shape_of(c: Comp, n: Node) gives sh: text
+    sh = ""
+    if n.kind == "shape_at"
+        sh = n.name
+    else if n.kind == "call" and n.name == "shape_at" and n.value == "shape"
+        sh = n.shape
+    else if n.kind == "name"
+        v = find_var(c, n.name)
+        if v >= 0
+            sh = c.vars[v].shape
+
+func shape_arg(c: Comp, v: Node) gives a: Node
+    a = new_node("arg", v.line)
+    add_kid(a, v)
+
+func shape_number(c: Comp, x: int, line: int) gives a: Node
+    num = new_node("number", line)
+    num.value = "" + x
+    a = shape_arg(c, num)
+
+func shape_field(c: Comp, sh: text, name: text, line: int) gives f: Node
+    s = c.shapes[find_shape(c, sh)]
+    i = find_field(s, name)
+    if i < 0
+        error_at(c, line, "в shape " + sh + " нет такого поля", name)
+    f = s.kids[i]
+
+func need_danger_shape(c: Comp, line: int)
+    if c.danger_depth == 0
+        error_at(c, line, "shape читает и пишет память по адресу: пиши это внутри блока danger", "")
+
+// Packet at a  →  shape_at(a);  p.len  →  shape_get(p, код);  Packet.size  →  число
+func shape_rewrite(c: Comp, n: Node)
+    if n.kind == "shape_at"
+        if find_shape(c, n.name) < 0
+            error_at(c, n.line, "нет такого shape", n.name)
+        need_danger_shape(c, n.line)
+        addr = n.kids[0]
+        n.kids.clear()
+        add_kid(n, shape_arg(c, addr))
+        n.kind = "call"
+        n.value = "shape"
+        n.shape = n.name
+        n.name = "shape_at"
+        return
+    base = n.kids[0]
+    if base.kind == "name" and find_var(c, base.name) < 0 and find_shape(c, base.name) >= 0
+        if n.name != "size"
+            error_at(c, n.line, "у самого shape есть только size (сколько байт); поля читают у адреса: p = " + base.name + " at адрес", n.name)
+        n.kind = "number"
+        n.value = "" + c.shapes[find_shape(c, base.name)].temp_no
+        n.kids.clear()
+        return
+    sh = shape_of(c, base)
+    if sh == ""
+        return
+    f = shape_field(c, sh, n.name, n.line)
+    need_danger_shape(c, n.line)
+    n.kids.clear()
+    add_kid(n, shape_arg(c, base))
+    add_kid(n, shape_number(c, f.irq, n.line))
+    n.kind = "call"
+    n.name = "shape_get"
+    n.value = "shape"
+
+// p.len = x  →  shape_set(p, код, x);  p.len += x  →  shape_set(p, код, shape_get(p, код) + x)
+func shape_set_rewrite(c: Comp, n: Node)
+    target = n.kids[0]
+    base = target.kids[0]
+    sh = shape_of(c, base)
+    f = shape_field(c, sh, target.name, n.line)
+    need_danger_shape(c, n.line)
+    if f.value == "bytes"
+        error_at(c, n.line, "bytes — кусок памяти: p." + f.name + " — его адрес, а писать в него — copy_mem, fill_mem или write8", "")
+    value = n.kids[1]
+    op = n.value
+    if op != "="
+        get = new_node("call", n.line)
+        get.name = "shape_get"
+        get.value = "shape"
+        add_kid(get, shape_arg(c, base))
+        add_kid(get, shape_number(c, f.irq, n.line))
+        b = new_node("binop", n.line)
+        b.value = cut(op, 0, len(op) - 2)
+        add_kid(b, get)
+        add_kid(b, value)
+        value = b
+    call = new_node("call", n.line)
+    call.name = "shape_set"
+    call.value = "shape"
+    add_kid(call, shape_arg(c, base))
+    add_kid(call, shape_number(c, f.irq, n.line))
+    add_kid(call, shape_arg(c, value))
+    n.kind = "expr_stmt"
+    n.value = ""
+    n.name = ""
+    n.kids.clear()
+    add_kid(n, call)
 
 func register_obj(c: Comp, o: Node)
     if find_obj(c, o.name) >= 0 or is_builtin(o.name)
@@ -2337,11 +2556,19 @@ modpub func check(c: Comp, program: Node)
             register_obj(c, top)
         else if top.kind == "enum"
             register_enum(c, top)
+        else if top.kind == "shape"
+            register_shape(c, top)
         else if top.kind == "func"
             register_func(c, top)
             top.can_fail = has_fail(top.kids[1])
             if top.name == "main" and top.mod != main_mod
                 error_at(c, top.line, "main бывает только в главном файле, в модуле её быть не должно", "")
+    // shape нужен только проверке: дальше его поля уже стали вызовами shape_get / shape_set
+    rest = list Node
+    each top in program.kids
+        if top.kind != "shape"
+            rest.add(top)
+    program.kids = rest
     // 2) типы качеств, параметров и выходов
     each top in program.kids
         c.file_name = top.file

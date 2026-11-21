@@ -1,0 +1,1 @@
+shape_bytes_write.tb, строка 9: bytes — кусок памяти: p.mac — его адрес, а писать в него — copy_mem, fill_mem или write8

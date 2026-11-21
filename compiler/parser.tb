@@ -161,6 +161,13 @@ modpub func parse_primary(c: Comp) gives result: Node
         next(c)
         if is_sign(c, "(")
             n = parse_call(c, t.word, line)
+        else if now(c).kind == "name" and now(c).word == "at"
+            // Packet at адрес  —  shape поверх памяти по адресу
+            n = new_node("shape_at", line)
+            n.name = t.word
+            next(c)
+            add_kid(n, parse_add(c))
+            return n
         else
             n = new_node("name", line)
             n.name = t.word
@@ -695,6 +702,43 @@ func parse_obj(c: Comp) gives result: Node
     next(c)
     return o
 
+// shape Packet  —  раскладка байтов в памяти (регистры устройства, заголовок пакета).
+// Ниже с отступом поля по порядку, без пропусков:
+//     kind: u8            целое без знака в 1, 2, 4, 8 байт: u8 u16 u32 u64
+//     shift: i32          со знаком: i8 i16 i32 i64
+//     len: u16 big        big — старший байт первым (как в сети)
+//     flags: bits 3       несколько бит; подряд идущие bits делят одно целое (младшие биты — первые)
+//     mac: bytes 6        кусок байт: p.mac — его адрес
+func parse_shape(c: Comp) gives result: Node
+    s = new_node("shape", line_now(c))
+    next(c)
+    s.name = expect_name(c)
+    expect_newline(c)
+    if now(c).kind != "indent"
+        error_at(c, line_now(c), "у shape ниже с отступом пишутся поля: kind: u8", "")
+    next(c)
+    repeat while now(c).kind != "dedent" and now(c).kind != "end"
+        f = new_node("param", line_now(c))
+        f.name = expect_name(c)
+        expect_sign(c, ":")
+        if now(c).kind != "name"
+            error_at(c, line_now(c), "у поля shape пишется размер: u8, u16, u32, u64, i8, i16, i32, i64, bits N или bytes N", what_is_here(c))
+        f.value = now(c).word
+        next(c)
+        if f.value == "bits" or f.value == "bytes"
+            if now(c).kind != "number"
+                error_at(c, line_now(c), "после " + f.value + " пишется число: " + f.value + " 4", what_is_here(c))
+            f.temp_no = to_int(now(c).word) or 0
+            next(c)
+        if now(c).kind == "name" and now(c).word == "big"
+            // старший байт первым
+            f.is_shared = true
+            next(c)
+        add_kid(s, f)
+        expect_newline(c)
+    next(c)
+    return s
+
 // enum Status  —  ниже с отступом варианты, по одному в строке
 func parse_enum(c: Comp) gives result: Node
     e = new_node("enum", line_now(c))
@@ -765,6 +809,8 @@ modpub func parse(c: Comp)
             add_kid(program, parse_obj(c))
         else if is_cmd(c, "enum")
             add_kid(program, parse_enum(c))
+        else if now(c).kind == "name" and now(c).word == "shape" and ahead(c).kind == "name"
+            add_kid(program, parse_shape(c))
         else if is_cmd(c, "shared")
             // shared ticks = int 0 снаружи функций: одна переменная на всю программу
             line = line_now(c)
@@ -780,13 +826,13 @@ modpub func parse(c: Comp)
         else if now(c).kind == "indent"
             error_at(c, line_now(c), "лишний отступ", "")
         else
-            error_at(c, line_now(c), "снаружи функций можно писать только use, func, obj и shared", what_is_here(c))
+            error_at(c, line_now(c), "снаружи функций можно писать только use, func, obj, enum, shape и shared", what_is_here(c))
     return program
 
 // ---------- печать дерева (команда tree) ----------
 
 modpub func node_kind_name(kind: text)
-    names = {"program": "ПРОГРАММА", "func": "ФУНКЦИЯ", "param": "ПАРАМЕТР", "block": "БЛОК", "obj": "OBJ", "type": "ТИП", "assign": "ПРИСВОИТЬ", "set": "ИЗМЕНИТЬ", "linkdecl": "ЯРЛЫК", "multi": "НЕСКОЛЬКО", "if": "ЕСЛИ", "each": "EACH", "count": "COUNT", "repeat_times": "REPEAT TIMES", "repeat_while": "REPEAT WHILE", "skip": "SKIP", "stop": "STOP", "return": "RETURN", "expr_stmt": "ВЫЗОВ-СТРОКА", "number": "ЧИСЛО", "decimal": "ДРОБЬ", "string": "ТЕКСТ", "bool": "ДА/НЕТ", "name": "ИМЯ", "list": "СПИСОК", "call": "ВЫЗОВ", "arg": "АРГУМЕНТ", "binop": "ОПЕРАЦИЯ", "unary": "ОДИНОЧНАЯ", "index": "ИНДЕКС", "field": "КАЧЕСТВО", "method": "МЕТОД", "dict": "СЛОВАРЬ", "use": "USE", "fail": "FAIL", "try": "TRY", "else_err": "ELSE ERR", "temp": "TEMP", "together": "TOGETHER", "background": "BACKGROUND", "danger": "DANGER", "lock": "LOCK", "unlock": "UNLOCK", "global": "SHARED"}
+    names = {"program": "ПРОГРАММА", "func": "ФУНКЦИЯ", "param": "ПАРАМЕТР", "block": "БЛОК", "obj": "OBJ", "type": "ТИП", "assign": "ПРИСВОИТЬ", "set": "ИЗМЕНИТЬ", "linkdecl": "ЯРЛЫК", "multi": "НЕСКОЛЬКО", "if": "ЕСЛИ", "each": "EACH", "count": "COUNT", "repeat_times": "REPEAT TIMES", "repeat_while": "REPEAT WHILE", "skip": "SKIP", "stop": "STOP", "return": "RETURN", "expr_stmt": "ВЫЗОВ-СТРОКА", "number": "ЧИСЛО", "decimal": "ДРОБЬ", "string": "ТЕКСТ", "bool": "ДА/НЕТ", "name": "ИМЯ", "list": "СПИСОК", "call": "ВЫЗОВ", "arg": "АРГУМЕНТ", "binop": "ОПЕРАЦИЯ", "unary": "ОДИНОЧНАЯ", "index": "ИНДЕКС", "field": "КАЧЕСТВО", "method": "МЕТОД", "dict": "СЛОВАРЬ", "use": "USE", "fail": "FAIL", "try": "TRY", "else_err": "ELSE ERR", "temp": "TEMP", "together": "TOGETHER", "background": "BACKGROUND", "danger": "DANGER", "lock": "LOCK", "unlock": "UNLOCK", "global": "SHARED", "shape": "SHAPE", "shape_at": "SHAPE AT", "enum": "ENUM", "match": "MATCH", "case": "CASE", "enumval": "ВАРИАНТ"}
     return names[kind]
 
 modpub func tree_lines(n: Node, depth: int, out: list text)

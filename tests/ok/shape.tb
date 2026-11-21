@@ -1,0 +1,54 @@
+// shape: раскладка байтов в памяти — заголовок пакета и регистр с битами
+shape Packet
+    kind: u8
+    len: u16 big
+    shift: i32
+    flags: bits 3
+    mode: bits 5
+    mac: bytes 6
+    total: u64
+
+shape Status
+    ready: bits 1
+    error: bits 1
+    code: bits 6
+    speed: u16
+
+func fill(p: Packet)
+    danger
+        p.kind = 7
+        p.len = 0x1234
+        p.shift = -5
+        p.flags = 5
+        p.mode = 17
+        p.total = 1000000000000
+
+func main()
+    print(Packet.size)
+    print(Status.size)
+    danger
+        a = try new_mem(Packet.size)
+        p = Packet at a
+        fill(p)
+        print(p.kind)
+        print(p.len)
+        print(read8(a + 1))
+        print(read8(a + 2))
+        print(p.shift)
+        print(p.flags)
+        print(p.mode)
+        print(read8(a + 7))
+        print(p.total)
+        p.len += 1
+        print(p.len)
+        fill_mem(p.mac, 0xAB, 6)
+        print(read8(a + 8))
+        print(p.mac - a)
+        s = Status at a + 4
+        s.ready = 1
+        s.code = 33
+        print(s.ready)
+        print(s.error)
+        print(s.code)
+        print((Packet at a).kind)
+        free_mem(a)

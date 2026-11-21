@@ -1,0 +1,9 @@
+// число не влезает в u8
+shape Reg
+    kind: u8
+
+func main()
+    danger
+        a = try new_mem(Reg.size)
+        r = Reg at a
+        r.kind = 300

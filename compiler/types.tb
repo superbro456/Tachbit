@@ -57,6 +57,8 @@ obj Node
     irq: int
     // background f(move xs): аргумент отдаётся целиком
     moved: bool
+    // shape_at(адрес) после проверки: какой shape поверх
+    shape: text
 
 // тип языка; хранится один раз, номер типа = место в списке Comp.types
 // kind = unknown / none / int / dec / bool / text / list / obj / multi / dict
@@ -106,6 +108,8 @@ obj Var
     loop_d: int
     // ярлык на элемент списка/dict (e: link xs[0]): номер+1 переменной xs — её нельзя растить, пока ярлык жив
     link_root1: int
+    // переменная — адрес с shape поверх (p = Packet at a): имя shape, иначе ""
+    shape: text
 
 // состояние всего компилятора
 obj Comp
@@ -119,6 +123,8 @@ obj Comp
     funcs: list Func
     objs: list Node
     enums: list Node
+    // shape: раскладки байтов (поля — kids; у поля irq — код для shape_get/shape_set, у shape temp_no — размер)
+    shapes: list Node
     uses: list Use
     all_mods: list text
     cur_mod: text

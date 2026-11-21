@@ -1,0 +1,6 @@
+// нет такого размера
+shape Reg
+    kind: u7
+
+func main()
+    print(Reg.size)

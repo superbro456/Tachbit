@@ -1,0 +1,9 @@
+// в bytes не пишут через =
+shape Packet
+    mac: bytes 6
+
+func main()
+    danger
+        a = try new_mem(Packet.size)
+        p = Packet at a
+        p.mac = 5

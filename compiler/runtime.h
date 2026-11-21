@@ -2908,6 +2908,73 @@ TB_API void tb_copy_mem(long long dst, long long src, long long n, int line) {
     if (tb_memchk()) { tb_mem_touch((uintptr_t)src, (uint64_t)n, line); tb_mem_touch((uintptr_t)dst, (uint64_t)n, line); }
     memmove((void *)(uintptr_t)dst, (const void *)(uintptr_t)src, (size_t)n);
 }
+// ---------- shape: поля с размером прямо в памяти (регистры, заголовки пакетов) ----------
+// k = смещение × 2^20 + байт (1, 2, 4, 8; 0 — bytes: отдать адрес) + 16 со знаком + 32 big
+//     + 64 × первый бит + 4096 × сколько бит (0 — поле целиком).
+// Поле читается и пишется одним volatile-доступом своей ширины: регистр u32 — одной 32-битной операцией.
+static inline uint64_t tb_shape_raw(uintptr_t p, int nb) {
+    if (nb == 1) return *(volatile uint8_t *)p;
+    if (nb == 2) return *(volatile uint16_t *)p;
+    if (nb == 4) return *(volatile uint32_t *)p;
+    return *(volatile uint64_t *)p;
+}
+static inline void tb_shape_put(uintptr_t p, int nb, uint64_t v) {
+    if (nb == 1) *(volatile uint8_t *)p = (uint8_t)v;
+    else if (nb == 2) *(volatile uint16_t *)p = (uint16_t)v;
+    else if (nb == 4) *(volatile uint32_t *)p = (uint32_t)v;
+    else *(volatile uint64_t *)p = v;
+}
+static inline uint64_t tb_shape_swap(uint64_t v, int nb) {
+    if (nb == 2) return __builtin_bswap16((uint16_t)v);
+    if (nb == 4) return __builtin_bswap32((uint32_t)v);
+    if (nb == 8) return __builtin_bswap64(v);
+    return v;
+}
+TB_INL long long tb_shape_at(long long a) { return a; }
+TB_API long long tb_shape_get(long long a, long long k, int line) {
+    uintptr_t p = (uintptr_t)(a + (k >> 20));
+    int nb = (int)(k & 15), bo = (int)((k >> 6) & 63), bn = (int)((k >> 12) & 127);
+    if (!nb) return (long long)p;
+    TB_TOUCH(p, nb);
+    uint64_t v = tb_shape_raw(p, nb);
+    if (k & 32) v = tb_shape_swap(v, nb);
+    if (bn) {
+        v >>= bo;
+        if (bn < 64) v &= ((uint64_t)1 << bn) - 1;
+        return (long long)v;
+    }
+    if (k & 16) {
+        if (nb < 8) { int sh = 64 - 8 * nb; return (long long)(v << sh) >> sh; }
+        return (long long)v;
+    }
+    if (nb == 8 && (v >> 63)) tb_crash(line, "в поле u64 число больше, чем влезает в int");
+    return (long long)v;
+}
+TB_API void tb_shape_set(long long a, long long k, long long x, int line) {
+    uintptr_t p = (uintptr_t)(a + (k >> 20));
+    int nb = (int)(k & 15), bo = (int)((k >> 6) & 63), bn = (int)((k >> 12) & 127);
+    static const char *uns[9] = { 0, "число не влезает в поле u8: от 0 до 255", "число не влезает в поле u16: от 0 до 65 535", 0,
+        "число не влезает в поле u32: от 0 до 4 294 967 295", 0, 0, 0, "в поле u64 не бывает чисел меньше нуля" };
+    static const char *sig[9] = { 0, "число не влезает в поле i8: от -128 до 127", "число не влезает в поле i16: от -32 768 до 32 767", 0,
+        "число не влезает в поле i32: от -2 147 483 648 до 2 147 483 647", 0, 0, 0, 0 };
+    TB_TOUCH(p, nb);
+    if (bn) {
+        if (x < 0 || (bn < 63 && (x >> bn))) tb_crash(line, "число не влезает в поле bits: от 0 до 2 в степени N без единицы");
+        uint64_t m = bn < 64 ? (((uint64_t)1 << bn) - 1) << bo : ~(uint64_t)0;
+        uint64_t v = tb_shape_raw(p, nb);
+        if (k & 32) v = tb_shape_swap(v, nb);
+        v = (v & ~m) | (((uint64_t)x << bo) & m);
+        if (k & 32) v = tb_shape_swap(v, nb);
+        tb_shape_put(p, nb, v);
+        return;
+    }
+    if (k & 16) {
+        if (nb < 8) { long long hi = ((long long)1 << (8 * nb - 1)) - 1; if (x > hi || x < -hi - 1) tb_crash(line, sig[nb]); }
+    } else if (x < 0 || (nb < 8 && (x >> (8 * nb)))) tb_crash(line, uns[nb]);
+    uint64_t v = (uint64_t)x;
+    if (k & 32) v = tb_shape_swap(v, nb);
+    tb_shape_put(p, nb, v);
+}
 // fill_mem(адрес, байт-значение, сколько)
 TB_API void tb_fill_mem(long long a, long long v, long long n, int line) {
     if (n < 0) tb_crash(line, "fill_mem: число байт меньше нуля");
@@ -7959,6 +8026,9 @@ TB_BV(free_mem, (long long a, int line), tb_free_mem(a, line))
 TB_B(long long, grow_mem, (long long a, long long n, int line), tb_grow_mem(a, n, line))
 TB_BV(copy_mem, (long long d, long long s, long long n, int line), tb_copy_mem(d, s, n, line))
 TB_BV(fill_mem, (long long a, long long v, long long n, int line), tb_fill_mem(a, v, n, line))
+TB_B(long long, shape_get, (long long a, long long k, int line), tb_shape_get(a, k, line))
+TB_BV(shape_set, (long long a, long long k, long long x, int line), tb_shape_set(a, k, x, line))
+TB_B(long long, shape_at, (long long a, int line), tb_shape_at(a))
 TB_B(long long, abs_i, (long long x, int line), tb_absi(x))
 TB_B(double, abs_d, (double x, int line), fabs(x))
 TB_B(long long, min_i, (long long a, long long b, int line), tb_mini(a, b))

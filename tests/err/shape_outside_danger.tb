@@ -1,0 +1,7 @@
+// поля shape читают только внутри danger
+shape Reg
+    ctrl: u32
+
+func main()
+    a = 4096
+    r = Reg at a
