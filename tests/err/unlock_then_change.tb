@@ -3,7 +3,7 @@ shared total = int 0
 func work(n: int)
     lock m
         unlock m
-        total += 1
+        total = total + 1
 func main()
     a = background work(5)
     a.wait

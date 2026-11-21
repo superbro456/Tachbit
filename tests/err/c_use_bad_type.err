@@ -1,0 +1,1 @@
+c_use_bad_type.tb, строка 2: у функции C пишется тип: int, dec, bool, text, i8…i64, u8…u64 или f32: char

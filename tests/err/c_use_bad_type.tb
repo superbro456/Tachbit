@@ -1,0 +1,5 @@
+use c
+    func strlen(s: char) gives u64
+
+func main()
+    print(1)

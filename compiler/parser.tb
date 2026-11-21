@@ -672,6 +672,11 @@ func parse_func(c: Comp) gives result: Node
             next(c)
         else
             error_at(c, line_now(c), "после on пишется keyboard, timer или interrupt номер", what)
+    if now(c).kind == "name" and now(c).word == "for" and ahead(c).kind == "name" and ahead(c).word == "c"
+        // func add(a: int, b: int) for c  —  эту функцию зовут из C
+        next(c)
+        next(c)
+        f.for_c = true
     expect_newline(c)
     add_kid(f, params)
     add_kid(f, parse_block(c))
@@ -739,6 +744,76 @@ func parse_shape(c: Comp) gives result: Node
     next(c)
     return s
 
+// use c "sqlite3"  —  функции из библиотеки C (или файла "my.c", "x.o", "x.a"); use c — из libc.
+// ниже с отступом:  func имя(x: i32, s: text) gives i32
+// зовут так:  sqlite3.имя(...)  (у use c — c.имя(...)), только внутри danger
+func parse_cuse(c: Comp) gives result: Node
+    u = new_node("cuse", line_now(c))
+    next(c)
+    next(c)
+    u.name = "c"
+    if now(c).kind == "string"
+        // слово текста хранится с кавычками
+        u.value = cut(now(c).word, 1, len(now(c).word) - 2)
+        next(c)
+        stem = u.value
+        k = len(stem) - 1
+        repeat while k >= 0 and code(stem[k]) != 47
+            k -= 1
+        stem = cut(stem, k + 1, len(stem) - 1)
+        if starts_with(stem, "lib") and (ends_with(stem, ".a") or ends_with(stem, ".so") or ends_with(stem, ".dylib"))
+            stem = cut(stem, 3, len(stem) - 1)
+        d = find(stem, ".")
+        if d > 0
+            stem = cut(stem, 0, d - 1)
+        clean = ""
+        count i from 0 to len(stem) - 1
+            b = code(stem[i])
+            if (b >= 97 and b <= 122) or (b >= 65 and b <= 90) or (b >= 48 and b <= 57) or b == 95
+                clean += stem[i]
+            else
+                clean += "_"
+        if clean == "" or (code(clean[0]) >= 48 and code(clean[0]) <= 57)
+            error_at(c, u.line, "из этого имени не выходит имя для вызова: назови файл буквами", u.value)
+        u.name = clean
+    expect_newline(c)
+    if now(c).kind != "indent"
+        error_at(c, line_now(c), "у use c ниже с отступом пишутся функции C: func abs(x: i32) gives i32", "")
+    next(c)
+    repeat while now(c).kind != "dedent" and now(c).kind != "end"
+        f = new_node("cfunc", line_now(c))
+        expect_cmd(c, "func")
+        f.name = expect_name(c)
+        expect_sign(c, "(")
+        params = new_node("block", line_now(c))
+        repeat while not is_sign(c, ")")
+            p = new_node("param", line_now(c))
+            p.name = expect_name(c)
+            expect_sign(c, ":")
+            p.value = parse_ctype(c)
+            add_kid(params, p)
+            if not is_sign(c, ",")
+                stop
+            next(c)
+        expect_sign(c, ")")
+        add_kid(f, params)
+        if is_cmd(c, "gives")
+            next(c)
+            f.value = parse_ctype(c)
+        expect_newline(c)
+        add_kid(u, f)
+    next(c)
+    return u
+
+// тип у функции C: int dec bool text, размеры i8..i64 u8..u64, f32
+func parse_ctype(c: Comp) gives t: text
+    if now(c).kind != "name" and now(c).kind != "command"
+        error_at(c, line_now(c), "у функции C пишется тип: int, dec, bool, text, i8…i64, u8…u64 или f32", what_is_here(c))
+    t = now(c).word
+    if not (t == "int" or t == "dec" or t == "bool" or t == "text" or t == "f32" or t == "i8" or t == "i16" or t == "i32" or t == "i64" or t == "u8" or t == "u16" or t == "u32" or t == "u64")
+        error_at(c, line_now(c), "у функции C пишется тип: int, dec, bool, text, i8…i64, u8…u64 или f32", t)
+    next(c)
+
 // enum Status  —  ниже с отступом варианты, по одному в строке
 func parse_enum(c: Comp) gives result: Node
     e = new_node("enum", line_now(c))
@@ -788,7 +863,9 @@ modpub func parse(c: Comp)
     c.pos = 0
     program = new_node("program", 1)
     repeat while now(c).kind != "end"
-        if is_cmd(c, "use")
+        if is_cmd(c, "use") and ahead(c).kind == "name" and ahead(c).word == "c" and c.pos + 2 < len(c.tokens) and (c.tokens[c.pos + 2].kind == "string" or c.tokens[c.pos + 2].kind == "newline")
+            add_kid(program, parse_cuse(c))
+        else if is_cmd(c, "use")
             // use money  —  подключить файл money.tb рядом
             u = new_node("use", line_now(c))
             next(c)
@@ -832,7 +909,7 @@ modpub func parse(c: Comp)
 // ---------- печать дерева (команда tree) ----------
 
 modpub func node_kind_name(kind: text)
-    names = {"program": "ПРОГРАММА", "func": "ФУНКЦИЯ", "param": "ПАРАМЕТР", "block": "БЛОК", "obj": "OBJ", "type": "ТИП", "assign": "ПРИСВОИТЬ", "set": "ИЗМЕНИТЬ", "linkdecl": "ЯРЛЫК", "multi": "НЕСКОЛЬКО", "if": "ЕСЛИ", "each": "EACH", "count": "COUNT", "repeat_times": "REPEAT TIMES", "repeat_while": "REPEAT WHILE", "skip": "SKIP", "stop": "STOP", "return": "RETURN", "expr_stmt": "ВЫЗОВ-СТРОКА", "number": "ЧИСЛО", "decimal": "ДРОБЬ", "string": "ТЕКСТ", "bool": "ДА/НЕТ", "name": "ИМЯ", "list": "СПИСОК", "call": "ВЫЗОВ", "arg": "АРГУМЕНТ", "binop": "ОПЕРАЦИЯ", "unary": "ОДИНОЧНАЯ", "index": "ИНДЕКС", "field": "КАЧЕСТВО", "method": "МЕТОД", "dict": "СЛОВАРЬ", "use": "USE", "fail": "FAIL", "try": "TRY", "else_err": "ELSE ERR", "temp": "TEMP", "together": "TOGETHER", "background": "BACKGROUND", "danger": "DANGER", "lock": "LOCK", "unlock": "UNLOCK", "global": "SHARED", "shape": "SHAPE", "shape_at": "SHAPE AT", "enum": "ENUM", "match": "MATCH", "case": "CASE", "enumval": "ВАРИАНТ"}
+    names = {"program": "ПРОГРАММА", "func": "ФУНКЦИЯ", "param": "ПАРАМЕТР", "block": "БЛОК", "obj": "OBJ", "type": "ТИП", "assign": "ПРИСВОИТЬ", "set": "ИЗМЕНИТЬ", "linkdecl": "ЯРЛЫК", "multi": "НЕСКОЛЬКО", "if": "ЕСЛИ", "each": "EACH", "count": "COUNT", "repeat_times": "REPEAT TIMES", "repeat_while": "REPEAT WHILE", "skip": "SKIP", "stop": "STOP", "return": "RETURN", "expr_stmt": "ВЫЗОВ-СТРОКА", "number": "ЧИСЛО", "decimal": "ДРОБЬ", "string": "ТЕКСТ", "bool": "ДА/НЕТ", "name": "ИМЯ", "list": "СПИСОК", "call": "ВЫЗОВ", "arg": "АРГУМЕНТ", "binop": "ОПЕРАЦИЯ", "unary": "ОДИНОЧНАЯ", "index": "ИНДЕКС", "field": "КАЧЕСТВО", "method": "МЕТОД", "dict": "СЛОВАРЬ", "use": "USE", "fail": "FAIL", "try": "TRY", "else_err": "ELSE ERR", "temp": "TEMP", "together": "TOGETHER", "background": "BACKGROUND", "danger": "DANGER", "lock": "LOCK", "unlock": "UNLOCK", "global": "SHARED", "shape": "SHAPE", "shape_at": "SHAPE AT", "enum": "ENUM", "match": "MATCH", "case": "CASE", "enumval": "ВАРИАНТ", "cuse": "USE C", "cfunc": "ФУНКЦИЯ C", "ccall": "ВЫЗОВ C"}
     return names[kind]
 
 modpub func tree_lines(n: Node, depth: int, out: list text)

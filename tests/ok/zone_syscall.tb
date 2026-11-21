@@ -1,0 +1,28 @@
+// zone: много кусков памяти, освобождаются разом; syscall: прямой вызов ядра ОС
+shape Pair
+    a: u32
+    b: u32
+
+func main()
+    danger
+        z = try zone_new(64)
+        first = zone_take(z, 8)
+        p = Pair at first
+        p.a = 7
+        p.b = 9
+        print(p.a + p.b)
+        sum = 0
+        count i from 1 to 100
+            q = zone_take(z, 24)
+            write64(q, i)
+            sum += read64(q)
+        print(sum)
+        print(zone_used(z) >= 100 * 32)
+        print(bit_and(zone_take(z, 3), 15))
+        zone_clear(z)
+        print(zone_used(z))
+        again = zone_take(z, 8)
+        print(read64(again))
+        zone_free(z)
+        print(syscall(39) > 0)
+        print(syscall(100000) < 0)

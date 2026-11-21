@@ -240,7 +240,7 @@ func emit_builtin(c: Comp, n: Node)
         put(c, ")")
         return
     // остальные: просто имя функции из runtime.h; с номером строки — те, что могут упасть
-    c_names = ["round", "tb_round", "0", "char", "tb_chr", "0", "cut", "tb_cut", "1", "code", "tb_code", "1", "to_int", "tb_to_int", "0", "to_dec", "tb_to_dec", "0", "read_file", "tb_read_file", "0", "write_file", "tb_write_file", "0", "split", "tb_split", "1", "join", "tb_join", "0", "find", "tb_find", "0", "replace", "tb_replace", "1", "upper", "tb_upper", "0", "lower", "tb_lower", "0", "trim", "tb_trim", "0", "starts_with", "tb_starts", "0", "ends_with", "tb_ends", "0", "run", "tb_run", "0", "exit", "tb_exit", "0", "file_exists", "tb_file_exists", "0", "list_dir", "tb_list_dir", "0", "is_folder", "tb_is_folder", "0", "make_folder", "tb_make_folder", "0", "move", "tb_move", "0", "remove", "tb_remove", "0", "env", "tb_env", "0", "file_size", "tb_file_size", "0", "window_open", "tb_window_open", "0", "clear_window", "tb_clear_window", "0", "draw_pixel", "tb_draw_pixel", "0", "draw_rect", "tb_draw_rect", "0", "draw_circle", "tb_draw_circle", "0", "draw_triangle", "tb_draw_triangle", "0", "mesh_add", "tb_mesh_add", "0", "draw_mesh", "tb_draw_mesh", "0", "camera", "tb_camera", "0", "draw_line", "tb_draw_line", "0", "draw_text", "tb_draw_text", "0", "key_down", "tb_key_down", "0", "set_fps", "tb_set_fps", "0", "clipboard_set", "tb_clipboard_set", "0", "set_cursor", "tb_set_cursor", "1", "load_image", "tb_load_image", "0", "load_font", "tb_load_font", "0", "draw_font", "tb_draw_font", "0", "text_width", "tb_text_width", "0", "draw_image", "tb_draw_image", "0", "image_w", "tb_image_w", "0", "image_h", "tb_image_h", "0", "rgb", "tb_rgb", "0", "random", "tb_random", "0", "bit_and", "tb_band", "0", "bit_or", "tb_bor", "0", "bit_xor", "tb_bxor", "0", "bit_not", "tb_bnot", "0", "shift_left", "tb_shl", "0", "shift_right", "tb_shr", "0", "read8", "tb_rd8", "1", "read16", "tb_rd16", "1", "read32", "tb_rd32", "1", "read64", "tb_rd64", "1", "write8", "tb_wr8", "1", "write16", "tb_wr16", "1", "write32", "tb_wr32", "1", "write64", "tb_wr64", "1", "address_of", "tb_addr_of", "0", "new_mem", "tb_new_mem", "1", "free_mem", "tb_free_mem", "1", "grow_mem", "tb_grow_mem", "1", "copy_mem", "tb_copy_mem", "1", "fill_mem", "tb_fill_mem", "1", "shape_get", "tb_shape_get", "1", "shape_set", "tb_shape_set", "1", "shape_at", "tb_shape_at", "0", "port_in8", "tb_pin8", "0", "port_in16", "tb_pin16", "0", "port_in32", "tb_pin32", "0", "port_out8", "tb_pout8", "0", "port_out16", "tb_pout16", "0", "port_out32", "tb_pout32", "0", "page_free", "tb_page_free", "0", "wait_ms", "tb_wait_ms", "0", "http_get", "tb_http_get", "0", "json_get", "tb_json_get", "0", "json_text", "tb_json_text", "0", "date_now", "tb_date_now", "0", "unix_time", "tb_unix_time", "0", "load_sound", "tb_load_sound", "0", "play_sound", "tb_play_sound", "0", "loop_sound", "tb_loop_sound", "0", "play_sound_at", "tb_play_sound_at", "0", "loop_sound_at", "tb_loop_sound_at", "0", "play_tone", "tb_play_tone", "0", "stop_sound", "tb_stop_sound", "0", "sound_playing", "tb_sound_playing", "0", "sound_volume", "tb_sound_volume", "0", "sound_pitch", "tb_sound_pitch", "0", "move_sound", "tb_move_sound", "0", "master_volume", "tb_master_volume", "0", "listener", "tb_listener", "0"]
+    c_names = ["round", "tb_round", "0", "char", "tb_chr", "0", "cut", "tb_cut", "1", "code", "tb_code", "1", "to_int", "tb_to_int", "0", "to_dec", "tb_to_dec", "0", "read_file", "tb_read_file", "0", "write_file", "tb_write_file", "0", "split", "tb_split", "1", "join", "tb_join", "0", "find", "tb_find", "0", "replace", "tb_replace", "1", "upper", "tb_upper", "0", "lower", "tb_lower", "0", "trim", "tb_trim", "0", "starts_with", "tb_starts", "0", "ends_with", "tb_ends", "0", "run", "tb_run", "0", "exit", "tb_exit", "0", "file_exists", "tb_file_exists", "0", "list_dir", "tb_list_dir", "0", "is_folder", "tb_is_folder", "0", "make_folder", "tb_make_folder", "0", "move", "tb_move", "0", "remove", "tb_remove", "0", "env", "tb_env", "0", "file_size", "tb_file_size", "0", "window_open", "tb_window_open", "0", "clear_window", "tb_clear_window", "0", "draw_pixel", "tb_draw_pixel", "0", "draw_rect", "tb_draw_rect", "0", "draw_circle", "tb_draw_circle", "0", "draw_triangle", "tb_draw_triangle", "0", "mesh_add", "tb_mesh_add", "0", "draw_mesh", "tb_draw_mesh", "0", "camera", "tb_camera", "0", "draw_line", "tb_draw_line", "0", "draw_text", "tb_draw_text", "0", "key_down", "tb_key_down", "0", "set_fps", "tb_set_fps", "0", "clipboard_set", "tb_clipboard_set", "0", "set_cursor", "tb_set_cursor", "1", "load_image", "tb_load_image", "0", "load_font", "tb_load_font", "0", "draw_font", "tb_draw_font", "0", "text_width", "tb_text_width", "0", "draw_image", "tb_draw_image", "0", "image_w", "tb_image_w", "0", "image_h", "tb_image_h", "0", "rgb", "tb_rgb", "0", "random", "tb_random", "0", "bit_and", "tb_band", "0", "bit_or", "tb_bor", "0", "bit_xor", "tb_bxor", "0", "bit_not", "tb_bnot", "0", "shift_left", "tb_shl", "0", "shift_right", "tb_shr", "0", "read8", "tb_rd8", "1", "read16", "tb_rd16", "1", "read32", "tb_rd32", "1", "read64", "tb_rd64", "1", "write8", "tb_wr8", "1", "write16", "tb_wr16", "1", "write32", "tb_wr32", "1", "write64", "tb_wr64", "1", "address_of", "tb_addr_of", "0", "new_mem", "tb_new_mem", "1", "free_mem", "tb_free_mem", "1", "grow_mem", "tb_grow_mem", "1", "copy_mem", "tb_copy_mem", "1", "fill_mem", "tb_fill_mem", "1", "zone_new", "tb_zone_new", "1", "zone_take", "tb_zone_take", "1", "zone_clear", "tb_zone_clear", "1", "zone_free", "tb_zone_free", "1", "zone_used", "tb_zone_used", "1", "syscall", "tb_syscall", "1", "shape_get", "tb_shape_get", "1", "shape_set", "tb_shape_set", "1", "shape_at", "tb_shape_at", "0", "port_in8", "tb_pin8", "0", "port_in16", "tb_pin16", "0", "port_in32", "tb_pin32", "0", "port_out8", "tb_pout8", "0", "port_out16", "tb_pout16", "0", "port_out32", "tb_pout32", "0", "page_free", "tb_page_free", "0", "wait_ms", "tb_wait_ms", "0", "http_get", "tb_http_get", "0", "json_get", "tb_json_get", "0", "json_text", "tb_json_text", "0", "date_now", "tb_date_now", "0", "unix_time", "tb_unix_time", "0", "load_sound", "tb_load_sound", "0", "play_sound", "tb_play_sound", "0", "loop_sound", "tb_loop_sound", "0", "play_sound_at", "tb_play_sound_at", "0", "loop_sound_at", "tb_loop_sound_at", "0", "play_tone", "tb_play_tone", "0", "stop_sound", "tb_stop_sound", "0", "sound_playing", "tb_sound_playing", "0", "sound_volume", "tb_sound_volume", "0", "sound_pitch", "tb_sound_pitch", "0", "move_sound", "tb_move_sound", "0", "master_volume", "tb_master_volume", "0", "listener", "tb_listener", "0"]
     i = 0
     repeat while i < len(c_names)
         if c_names[i] == name
@@ -570,8 +570,58 @@ func emit_binop(c: Comp, n: Node)
     emit_expr(c, b)
     put(c, ")")
 
+// тип C для типа в use c
+func ctype_c(t: text) gives r: text
+    if t == ""
+        return "void"
+    if t == "int" or t == "i64"
+        return "long long"
+    if t == "dec"
+        return "double"
+    if t == "f32"
+        return "float"
+    if t == "bool"
+        return "_Bool"
+    if t == "text"
+        return "const char *"
+    if starts_with(t, "u")
+        return "uint" + cut(t, 1, len(t) - 1) + "_t"
+    return "int" + cut(t, 1, len(t) - 1) + "_t"
+
+// sqlite3.f(...): вызов функции C
+func emit_ccall(c: Comp, n: Node)
+    f = n.ref
+    rt = f.value
+    if rt == "text"
+        put(c, "tb_ctext(")
+    else if rt != "" and rt != "bool"
+        put(c, "(" + c_type(c, f.ty) + ")(")
+    else
+        put(c, "(")
+    put(c, "tb_c_" + f.shape + "_" + f.name + "(")
+    count i from 0 to len(n.kids) - 1
+        if i > 0
+            put(c, ", ")
+        pt = f.kids[0].kids[i].value
+        put(c, "(" + ctype_c(pt) + ")(")
+        emit_as(c, n.kids[i].kids[0], ctype_ty_e(pt))
+        put(c, ")")
+    put(c, "))")
+
+func ctype_ty_e(t: text) gives r: int
+    if t == "dec" or t == "f32"
+        return 2
+    if t == "bool"
+        return 3
+    if t == "text"
+        return 4
+    return 1
+
 func emit_expr(c: Comp, n: Node)
     k = n.kind
+    if k == "ccall"
+        emit_ccall(c, n)
+        return
     if k == "number" or k == "enumval"
         put(c, n.value + "LL")
     else if k == "decimal" or k == "string"
@@ -847,6 +897,24 @@ func emit_set(c: Comp, n: Node, depth: int)
         put(c, "const char *tb_v" + id + " = ")
         emit_as_text(c, value)
         put(c, "; tb_app(&v_" + target.name + ", &tb_rl_" + target.name + ", &tb_rc_" + target.name + ", tb_v" + id + "); }\n")
+        return
+    if n.is_shared
+        // shared x += n без замка: атомарно
+        put(c, t + " tb_v" + id + " = ")
+        emit_as(c, value, n.ty)
+        put(c, "; ")
+        if kind_of(c, n.ty) == "dec"
+            put(c, "tb_atomic_addd(&(")
+        else
+            put(c, "tb_atomic_addi(&(")
+        emit_target(c, target)
+        sign = ""
+        if op == "-="
+            sign = "-"
+        if kind_of(c, n.ty) == "dec"
+            put(c, "), " + sign + "tb_v" + id + "); }\n")
+        else
+            put(c, "), " + sign + "tb_v" + id + "); }\n")
         return
     if kind_of(c, n.ty) == "text" and op != "="
         put(c, "const char *tb_v" + id + " = ")
@@ -2256,6 +2324,63 @@ func emit_signature(c: Comp, f: Node)
             put(c, c_type(c, p.ty) + " v_" + p.name)
     put(c, ")")
 
+// tb lib: библиотеку готовят один раз, при первом вызове из C (из любого потока).
+// Уборка памяти в библиотеке выключена: Tachbit не видит стек программы на C
+func emit_lib_enter(c: Comp)
+    put(c, "\nstatic volatile int tb_lib_state = 0;\n")
+    put(c, "static void tb_lib_enter(void) {\n")
+    put(c, "    if (__atomic_load_n(&tb_lib_state, __ATOMIC_ACQUIRE) == 2) return;\n")
+    put(c, "    int z = 0;\n")
+    put(c, "    if (__atomic_compare_exchange_n(&tb_lib_state, &z, 1, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) {\n")
+    put(c, "        static char tb_top = 0;\n")
+    put(c, "        tb_gc_init((void *)&tb_top);\n")
+    put(c, "        tb_goff = 1;\n")
+    put(c, "        tb_args = tb_list_new(sizeof(const char *));\n")
+    put(c, "        __atomic_store_n(&tb_lib_state, 2, __ATOMIC_RELEASE);\n")
+    put(c, "    } else while (__atomic_load_n(&tb_lib_state, __ATOMIC_ACQUIRE) != 2) { }\n")
+    put(c, "}\n")
+
+// обёртка func ... for c: имя без f_модуль__, типы C
+func emit_for_c(c: Comp, f: Node)
+    params = f.kids[0]
+    put(c, "__attribute__((visibility(\"default\"))) " + c_type(c, f.ty) + " " + f.name + "(")
+    if len(params.kids) == 0
+        put(c, "void")
+    count i from 0 to len(params.kids) - 1
+        if i > 0
+            put(c, ", ")
+        put(c, c_type(c, params.kids[i].ty) + " a" + i)
+    put(c, ") {")
+    if c.lib
+        put(c, " tb_lib_enter();")
+    if f.ty != 0
+        put(c, " return")
+    put(c, " " + fname(f) + "(")
+    count i from 0 to len(params.kids) - 1
+        if i > 0
+            put(c, ", ")
+        put(c, "a" + i)
+    put(c, "); }\n")
+
+// заголовок .h для tb lib: что видит C
+modpub func lib_header(c: Comp, program: Node, name: text) gives h: text
+    g = "TACHBIT_" + upper(name) + "_H"
+    h = "// Сделано командой tb lib. Функции Tachbit для C.\n"
+    h += "// Собирать вместе с lib" + name + ".a и -lm -lpthread" + c.c_link + "\n"
+    h += "// Тексты из функций живут, пока жива программа; свои тексты C может отдать и сразу менять.\n"
+    h += "#ifndef " + g + "\n#define " + g + "\n#include <stdbool.h>\n#ifdef __cplusplus\nextern \"C\" {\n#endif\n"
+    each top in program.kids
+        if top.kind == "func" and top.for_c
+            line = replace(c_type(c, top.ty), "_Bool", "bool") + " " + top.name + "("
+            if len(top.kids[0].kids) == 0
+                line += "void"
+            count i from 0 to len(top.kids[0].kids) - 1
+                if i > 0
+                    line += ", "
+                line += replace(c_type(c, top.kids[0].kids[i].ty), "_Bool", "bool") + " " + top.kids[0].kids[i].name
+            h += line + ");\n"
+    h += "#ifdef __cplusplus\n}\n#endif\n#endif\n"
+
 // ---------- дописывание на месте: s += x и s = s + x + y ----------
 // Текст s, в который только дописывают, держит свою память с запасом: tb_rl_s — длина,
 // tb_rc_s — место. Дописывание кладёт байты в конец, а не собирает третий текст из двух.
@@ -2686,6 +2811,17 @@ modpub func emit_c(c: Comp, program: Node)
         put(c, "#define TB_LL 1\n")
     // с TB_LL библиотека сама открывает обёртки tb_x_* и tb_ll_crash для файла .ll
     put(c, runtime_text())
+    // use c: функции C под своими именами (TB_CSYM — настоящее имя в библиотеке)
+    each u in c.cuses
+        each f in u.kids
+            put(c, ctype_c(f.value) + " tb_c_" + f.shape + "_" + f.name + "(")
+            count i from 0 to len(f.kids[0].kids) - 1
+                if i > 0
+                    put(c, ", ")
+                put(c, ctype_c(f.kids[0].kids[i].value))
+            if len(f.kids[0].kids) == 0
+                put(c, "void")
+            put(c, ") TB_CSYM(\"" + f.name + "\");\n")
     // shared снаружи функций; в ядре volatile: их меняют прерывания и задачи
     each g in c.globals
         if c.bare
@@ -2764,6 +2900,14 @@ modpub func emit_c(c: Comp, program: Node)
             main_func = top
     each l in c.locks
         put(c, "int tb_lk_" + l + " = 0;\n")
+    if c.lib
+        emit_lib_enter(c)
+    // func ... for c: снаружи видна под своим именем
+    each top in program.kids
+        if top.kind == "func" and top.for_c
+            emit_for_c(c, top)
+    if c.lib
+        return
     if c.bare
         put(c, "\nvoid tb_kmain(void) {\n    tb_args = tb_list_new(sizeof(const char *));\n")
         each top in program.kids

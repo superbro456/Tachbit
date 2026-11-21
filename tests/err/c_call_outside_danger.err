@@ -1,0 +1,1 @@
+c_call_outside_danger.tb, строка 5: функции C зовут внутри danger: C может испортить память, Tachbit её не проверит: c.abs

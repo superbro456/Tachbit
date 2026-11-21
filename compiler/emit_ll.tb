@@ -1102,6 +1102,11 @@ func ll_expr_ok(c: Comp, n: Node, names: list text)
     k = n.kind
     if k == "number" or k == "enumval" or k == "bool"
         return true
+    if k == "ccall"
+        each a in n.kids
+            if not ll_expr_ok(c, a.kids[0], names)
+                return false
+        return true
     if k == "decimal"
         return ll_dec_ok(n.value)
     if k == "string"
@@ -1494,7 +1499,7 @@ func ll_stmt_ok(c: Comp, n: Node, names: list text)
             if e.name == "add"
                 return len(e.kids) == 2 and ll_elem_ok(c, e.kids[0].ty, e.kids[1].kids[0], names)
             return e.name == "pop" or e.name == "clear"
-        return (e.kind == "call" or e.kind == "try" or e.kind == "else_err" or e.kind == "background" or (e.kind == "field" and kind_of(c, e.kids[0].ty) == "task")) and ll_expr_ok(c, e, names)
+        return (e.kind == "call" or e.kind == "ccall" or e.kind == "try" or e.kind == "else_err" or e.kind == "background" or (e.kind == "field" and kind_of(c, e.kids[0].ty) == "task")) and ll_expr_ok(c, e, names)
     return false
 
 // each / count ... on all cores: тело — отдельная функция-работник в .ll (как tb_workN в C)
@@ -1855,6 +1860,104 @@ func ll_arith(g: LLGen, c: Comp, op: text, a0: text, ta: int, b0: text, tb: int,
     ll_put(g, r + " = " + io + " i64 " + a + ", " + b)
     return r
 
+// объявление функции C (d) лишнее: это имя уже объявлено или написано в файле
+func ll_c_known(head: text, decls: list text, d: text)
+    a = find(d, "@\"")
+    rest = cut(d, a + 2, len(d) - 1)
+    name = cut(rest, 0, find(rest, "\"") - 1)
+    each o in decls
+        if o != d and not ends_with(o, " ; c\n") and ll_declares(o, name)
+            return true
+    return ll_declares(head, name)
+
+// есть ли в тексте строка declare/define с этим именем
+func ll_declares(t: text, name: text)
+    each line in split(t, "\n")
+        if (starts_with(line, "declare ") or starts_with(line, "define ")) and (find(line, "@" + name + "(") >= 0 or find(line, "@\"" + name + "\"(") >= 0)
+            return true
+    return false
+
+// тип LLVM для типа в use c
+func ll_cty(t: text) gives r: text
+    if t == ""
+        return "void"
+    if t == "dec"
+        return "double"
+    if t == "f32"
+        return "float"
+    if t == "bool"
+        return "i1"
+    if t == "text"
+        return "ptr"
+    if t == "int"
+        return "i64"
+    return "i" + cut(t, 1, len(t) - 1)
+
+// пометка для узких целых: C ждёт, что их расширит тот, кто зовёт
+func ll_cext(t: text) gives r: text
+    if t == "bool" or t == "u8" or t == "u16"
+        return " zeroext"
+    if t == "i8" or t == "i16"
+        return " signext"
+    return ""
+
+// sqlite3.f(...): вызов функции C под её настоящим именем
+func ll_ccall(g: LLGen, c: Comp, n: Node)
+    f = n.ref
+    rt = ll_cty(f.value)
+    sig = ""
+    args = ""
+    count i from 0 to len(n.kids) - 1
+        pt = f.kids[0].kids[i].value
+        cty = ll_cty(pt)
+        v = n.kids[i].kids[0]
+        x = ""
+        if pt == "text"
+            x = ll_q(g, c, v)
+        else if pt == "dec" or pt == "f32"
+            x = ll_to_dec(g, c, ll_expr(g, c, v), v.ty)
+            if pt == "f32"
+                y = ll_new(g, "%t")
+                ll_put(g, y + " = fptrunc double " + x + " to float")
+                x = y
+        else if pt == "bool"
+            x = ll_expr(g, c, v)
+        else
+            x = ll_expr(g, c, v)
+            if cty != "i64"
+                y = ll_new(g, "%t")
+                ll_put(g, y + " = trunc i64 " + x + " to " + cty)
+                x = y
+        if i > 0
+            sig += ", "
+            args += ", "
+        sig += cty + ll_cext(pt)
+        args += cty + ll_cext(pt) + " " + x
+    // помечено «; c»: если такое имя уже объявлено (strlen из библиотеки), второе объявление выкинем
+    ll_need(g, "declare" + ll_cext(f.value) + " " + rt + " @\"" + f.name + "\"(" + sig + ") ; c\n")
+    if rt == "void"
+        ll_put(g, "call void @\"" + f.name + "\"(" + args + ")")
+        return "0"
+    r = ll_new(g, "%t")
+    ll_put(g, r + " = call" + ll_cext(f.value) + " " + rt + " @\"" + f.name + "\"(" + args + ")")
+    if f.value == "text"
+        t = ll_new(g, "%t")
+        ll_need(g, "declare ptr @tb_x_ctext(ptr)\n")
+        ll_put(g, t + " = call ptr @tb_x_ctext(ptr " + r + ")")
+        return t
+    if f.value == "f32"
+        t = ll_new(g, "%t")
+        ll_put(g, t + " = fpext float " + r + " to double")
+        return t
+    if rt == "i8" or rt == "i16" or rt == "i32"
+        t = ll_new(g, "%t")
+        if starts_with(f.value, "u")
+            ll_put(g, t + " = zext " + rt + " " + r + " to i64")
+        else
+            ll_put(g, t + " = sext " + rt + " " + r + " to i64")
+        return t
+    return r
+
 func ll_expr(g: LLGen, c: Comp, n: Node)
     k = n.kind
     if k == "number" or k == "enumval"
@@ -2103,6 +2206,8 @@ func ll_expr(g: LLGen, c: Comp, n: Node)
         if ll_colist(c, a.ty)
             return ll_clen(g, base)
         return ll_len(g, base)
+    if k == "ccall"
+        return ll_ccall(g, c, n)
     return ll_call(g, c, n)
 
 // ---------- тексты ----------
@@ -2905,7 +3010,7 @@ func ll_xb(c: Comp, n: Node) gives name: text, ps: text
         name = nm + "_d"
         ps = "dd"
         return
-    table = ["round:d", "char:i", "cut:pii", "code:p", "to_int:p", "to_dec:p", "read_file:p", "write_file:pp", "split:pp", "join:pp", "find:pp", "replace:ppp", "upper:p", "lower:p", "trim:p", "starts_with:pp", "ends_with:pp", "run:p", "exit:i", "file_exists:p", "list_dir:p", "is_folder:p", "make_folder:p", "move:pp", "remove:p", "env:p", "file_size:p", "rgb:iii", "random:ii", "bit_and:ii", "bit_or:ii", "bit_xor:ii", "bit_not:i", "shift_left:ii", "shift_right:ii", "wait_ms:i", "http_get:p", "json_get:pp", "json_text:p", "date_now:", "unix_time:", "time_ms:", "input:", "args:", "sqrt:d", "window_open:iip", "window_alive:", "clear_window:i", "draw_pixel:iii", "draw_rect:iiiii", "draw_circle:iiii", "draw_triangle:iiiiiii", "mesh_new:", "mesh_add:idddddddddi", "draw_mesh:idddd", "camera:dddddd", "draw_line:iiiii", "draw_text:iipii", "key_down:p", "mouse_x:", "mouse_y:", "mouse_down:", "mouse_wheel:", "typed_text:", "clipboard_get:", "window_sharp:", "window_scale:", "clipboard_set:p", "set_cursor:p", "mouse_back:", "mouse_forward:", "frame_ms:", "fps:", "window_w:", "window_h:", "set_fps:i", "load_image:p", "load_font:p", "draw_font:iiipii", "text_width:ipi", "draw_image:iii", "image_w:i", "image_h:i", "read8:i", "read16:i", "read32:i", "read64:i", "write8:ii", "write16:ii", "write32:ii", "write64:ii", "address_of:p", "new_mem:i", "free_mem:i", "grow_mem:ii", "copy_mem:iii", "fill_mem:iii", "shape_get:ii", "shape_set:iii", "shape_at:i", "load_sound:p", "play_sound:i", "loop_sound:i", "play_sound_at:iddd", "loop_sound_at:iddd", "play_tone:di", "stop_sound:i", "sound_playing:i", "sound_volume:id", "sound_pitch:id", "move_sound:iddd", "master_volume:d", "listener:dddddd"]
+    table = ["round:d", "char:i", "cut:pii", "code:p", "to_int:p", "to_dec:p", "read_file:p", "write_file:pp", "split:pp", "join:pp", "find:pp", "replace:ppp", "upper:p", "lower:p", "trim:p", "starts_with:pp", "ends_with:pp", "run:p", "exit:i", "file_exists:p", "list_dir:p", "is_folder:p", "make_folder:p", "move:pp", "remove:p", "env:p", "file_size:p", "rgb:iii", "random:ii", "bit_and:ii", "bit_or:ii", "bit_xor:ii", "bit_not:i", "shift_left:ii", "shift_right:ii", "wait_ms:i", "http_get:p", "json_get:pp", "json_text:p", "date_now:", "unix_time:", "time_ms:", "input:", "args:", "sqrt:d", "window_open:iip", "window_alive:", "clear_window:i", "draw_pixel:iii", "draw_rect:iiiii", "draw_circle:iiii", "draw_triangle:iiiiiii", "mesh_new:", "mesh_add:idddddddddi", "draw_mesh:idddd", "camera:dddddd", "draw_line:iiiii", "draw_text:iipii", "key_down:p", "mouse_x:", "mouse_y:", "mouse_down:", "mouse_wheel:", "typed_text:", "clipboard_get:", "window_sharp:", "window_scale:", "clipboard_set:p", "set_cursor:p", "mouse_back:", "mouse_forward:", "frame_ms:", "fps:", "window_w:", "window_h:", "set_fps:i", "load_image:p", "load_font:p", "draw_font:iiipii", "text_width:ipi", "draw_image:iii", "image_w:i", "image_h:i", "read8:i", "read16:i", "read32:i", "read64:i", "write8:ii", "write16:ii", "write32:ii", "write64:ii", "address_of:p", "new_mem:i", "free_mem:i", "grow_mem:ii", "copy_mem:iii", "fill_mem:iii", "zone_new:i", "zone_take:ii", "zone_clear:i", "zone_free:i", "zone_used:i", "syscall:iiiiiii", "shape_get:ii", "shape_set:iii", "shape_at:i", "load_sound:p", "play_sound:i", "loop_sound:i", "play_sound_at:iddd", "loop_sound_at:iddd", "play_tone:di", "stop_sound:i", "sound_playing:i", "sound_volume:id", "sound_pitch:id", "move_sound:iddd", "master_volume:d", "listener:dddddd"]
     each e in table
         at = find(e, ":")
         if cut(e, 0, at - 1) == nm
@@ -3232,6 +3337,19 @@ func ll_stmt(g: LLGen, c: Comp, n: Node)
             r = ll_new(g, "%t")
             ll_put(g, r + " = call ptr @tb_x_cat(ptr " + old + ", ptr " + xv + ")")
             ll_put(g, "store ptr " + r + ", ptr " + slot)
+            return
+        if n.is_shared
+            // shared x += n без замка: одно атомарное действие
+            av = ll_as(g, c, n.kids[1], n.ty)
+            if ll_ty(c, n.ty) == "double"
+                if op == "-="
+                    ll_put(g, ll_new(g, "%t") + " = atomicrmw fsub ptr " + slot + ", double " + av + " seq_cst")
+                else
+                    ll_put(g, ll_new(g, "%t") + " = atomicrmw fadd ptr " + slot + ", double " + av + " seq_cst")
+            else if op == "-="
+                ll_put(g, ll_new(g, "%t") + " = atomicrmw sub ptr " + slot + ", " + ty + " " + av + " seq_cst")
+            else
+                ll_put(g, ll_new(g, "%t") + " = atomicrmw add ptr " + slot + ", " + ty + " " + av + " seq_cst")
             return
         // x += y: как  x = x + y
         v = ll_expr(g, c, n.kids[1])
@@ -3693,7 +3811,10 @@ modpub func emit_ll(c: Comp, program: Node, target: text, cpu: text)
     own = list text
     if c.ll_pure
         own = ll_glue(c, program, decls, all)
+    head = join(all, "")
     each d in decls
+        if ends_with(d, " ; c\n") and ll_c_known(head, decls, d)
+            skip
         if not (c.ll_pure and ll_glue_own(d, own))
             all.add(d)
     all.add("attributes #0 = { nounwind" + cpu + " }\n")

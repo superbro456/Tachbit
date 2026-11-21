@@ -1,0 +1,5 @@
+use c
+    func abs(x: i32) gives i32
+
+func main()
+    print(c.abs(-1))

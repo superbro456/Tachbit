@@ -2742,6 +2742,23 @@ TB_INL long long tb_bnot(long long a) { return ~a; }
 TB_INL long long tb_shl(long long a, long long n) { return (long long)((unsigned long long)a << (n & 63)); }
 TB_INL long long tb_shr(long long a, long long n) { return (long long)((unsigned long long)a >> (n & 63)); }
 // чтение и запись по адресу: volatile — компилятор C не выкинет и не переставит их
+// shared x += n без замка. В ядре без ОС одно ядро процессора: хватает выключить прерывания
+#ifdef TB_BARE
+static inline void tb_atomic_addi(volatile long long *p, long long v) { uint32_t f = tb_irq_save(); *p += v; tb_irq_restore(f); }
+static inline void tb_atomic_addd(volatile double *p, double v) { uint32_t f = tb_irq_save(); *p += v; tb_irq_restore(f); }
+#else
+static inline void tb_atomic_addi(volatile long long *p, long long v) { __atomic_fetch_add(p, v, __ATOMIC_SEQ_CST); }
+// дробь: сравнить и заменить, пока никто не успел поменять
+static inline void tb_atomic_addd(volatile double *p, double v) {
+    volatile uint64_t *q = (volatile uint64_t *)p;
+    uint64_t old = __atomic_load_n(q, __ATOMIC_SEQ_CST), nw;
+    do {
+        union { uint64_t u; double d; } a, b;
+        a.u = old; b.d = a.d + v; nw = b.u;
+    } while (!__atomic_compare_exchange_n(q, &old, nw, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST));
+}
+#endif
+
 // ---------- память руками: new_mem, free_mem, grow_mem, copy_mem, fill_mem (только в danger) ----------
 // Перед каждым блоком 16 байт: размер и метка «живой» / «освобождён» — так free_mem ловит чужой
 // адрес и второе освобождение. TB_MEM_CHECK=1 (не в ядре): за блоком 16 байт-сторожей, освобождённые
@@ -2908,6 +2925,130 @@ TB_API void tb_copy_mem(long long dst, long long src, long long n, int line) {
     if (tb_memchk()) { tb_mem_touch((uintptr_t)src, (uint64_t)n, line); tb_mem_touch((uintptr_t)dst, (uint64_t)n, line); }
     memmove((void *)(uintptr_t)dst, (const void *)(uintptr_t)src, (size_t)n);
 }
+// ---------- use c: функции из C ----------
+// настоящее имя функции C (на Mac у имён в библиотеке спереди _)
+#ifdef __APPLE__
+#define TB_CSYM(s) __asm__("_" s)
+#else
+#define TB_CSYM(s) __asm__(s)
+#endif
+// текст из C: копия в память Tachbit (C может потом поменять или отдать свой); NULL → ""
+TB_API const char *tb_ctext(const char *p) {
+    if (!p) return "";
+    size_t n = strlen(p);
+    char *s = tb_tmem(n + 1);
+    memcpy(s, p, n + 1);
+    return s;
+}
+
+// ---------- zone: область памяти. Много кусков берутся быстро и освобождаются разом ----------
+// Зона — цепочка больших кусков. zone_take отрезает от текущего куска (16 байт выравнивание, нули),
+// кончился кусок — берёт новый. zone_clear отдаёт всё, кроме первого куска; zone_free — всё.
+#define TB_ZONE_LIVE 0x5A4F4E454C495645ULL
+typedef struct tb_zchunk { struct tb_zchunk *next; uint64_t size, used, pad; } tb_zchunk;   // 32 байта: данные с выравниванием 16
+typedef struct { uint64_t magic, step; tb_zchunk *first, *cur; } tb_zone;
+// данные куска: сразу за заголовком, с выравниванием 16 (malloc в ядре выравнивает меньше)
+#define TB_ZDATA(k) ((unsigned char *)(((uintptr_t)((k) + 1) + 15) & ~(uintptr_t)15))
+static tb_zchunk *tb_zone_chunk(uint64_t n) {
+    tb_zchunk *k = malloc(sizeof(tb_zchunk) + (size_t)n + 16);
+    if (!k) return 0;
+    k->next = 0; k->size = n; k->used = 0;
+    memset(TB_ZDATA(k), 0, (size_t)n);
+    return k;
+}
+// zone_new(байт): первый кусок такого размера; дальше куски того же размера (или больше, если нужно)
+TB_API long long tb_zone_new(long long n, int line) {
+    (void)line;
+    if (n <= 0) { tb_err = "zone_new: размер должен быть больше нуля"; return 0; }
+    if ((unsigned long long)n > ((unsigned long long)1 << 46)) { tb_err = "zone_new: слишком большой размер"; return 0; }
+    tb_zone *z = malloc(sizeof(tb_zone));
+    if (!z) { tb_err = "zone_new: не хватило памяти"; return 0; }
+    uint64_t step = ((uint64_t)n + 15) & ~(uint64_t)15;
+    z->first = z->cur = tb_zone_chunk(step);
+    if (!z->first) { free(z); tb_err = "zone_new: не хватило памяти"; return 0; }
+    z->magic = TB_ZONE_LIVE; z->step = step;
+    return (long long)(uintptr_t)z;
+}
+static tb_zone *tb_zone_own(long long a, int line, const char *who) {
+    tb_zone *z = (tb_zone *)(uintptr_t)a;
+    if (!z || z->magic != TB_ZONE_LIVE) {
+        char buf[120];
+        snprintf(buf, sizeof buf, "%s: это не зона из zone_new или она уже освобождена", who);
+        tb_crash(line, buf);
+    }
+    return z;
+}
+// zone_take(зона, байт): адрес нового куска (нули)
+TB_API long long tb_zone_take(long long a, long long n, int line) {
+    tb_zone *z = tb_zone_own(a, line, "zone_take");
+    if (n <= 0) tb_crash(line, "zone_take: размер должен быть больше нуля");
+    uint64_t need = ((uint64_t)n + 15) & ~(uint64_t)15;
+    tb_zchunk *k = z->cur;
+    if (k->size - k->used < need) {
+        if (k->next && k->next->size >= need) k = k->next;
+        else {
+            tb_zchunk *nk = tb_zone_chunk(need > z->step ? need : z->step);
+            if (!nk) tb_crash(line, "zone_take: не хватило памяти");
+            nk->next = k->next; k->next = nk; k = nk;
+        }
+        z->cur = k;
+    }
+    unsigned char *p = TB_ZDATA(k) + k->used;
+    k->used += need;
+    return (long long)(uintptr_t)p;
+}
+// zone_clear(зона): всё взятое больше не нужно; первый кусок остаётся для новых zone_take
+TB_API void tb_zone_clear(long long a, int line) {
+    tb_zone *z = tb_zone_own(a, line, "zone_clear");
+    tb_zchunk *k = z->first->next;
+    while (k) { tb_zchunk *nx = k->next; free(k); k = nx; }
+    z->first->next = 0;
+    memset(TB_ZDATA(z->first), 0, (size_t)z->first->used);
+    z->first->used = 0;
+    z->cur = z->first;
+}
+// zone_free(зона): отдать всё; zone_free(0) ничего не делает
+TB_API void tb_zone_free(long long a, int line) {
+    if (a == 0) return;
+    tb_zone *z = tb_zone_own(a, line, "zone_free");
+    tb_zchunk *k = z->first;
+    while (k) { tb_zchunk *nx = k->next; free(k); k = nx; }
+    z->magic = 0;
+    free(z);
+}
+// zone_used(зона): сколько байт взято (с выравниванием)
+TB_API long long tb_zone_used(long long a, int line) {
+    tb_zone *z = tb_zone_own(a, line, "zone_used");
+    long long s = 0;
+    for (tb_zchunk *k = z->first; k; k = k->next) s += (long long)k->used;
+    return s;
+}
+
+// ---------- syscall(номер, ...): прямой вызов ядра ОС (Linux, Mac). Ответ -1 → -номер ошибки ----------
+#if !defined(TB_BARE) && !defined(_WIN32)
+#include <sys/syscall.h>
+#include <errno.h>
+#ifdef __APPLE__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#endif
+TB_API long long tb_syscall(long long n, long long a, long long b, long long c, long long d, long long e, long long f, int line) {
+    (void)line;
+    long r = syscall((long)n, (long)a, (long)b, (long)c, (long)d, (long)e, (long)f);
+    if (r == -1) return -(long long)errno;
+    return (long long)r;
+}
+#ifdef __APPLE__
+#pragma clang diagnostic pop
+#endif
+#else
+TB_API long long tb_syscall(long long n, long long a, long long b, long long c, long long d, long long e, long long f, int line) {
+    (void)n; (void)a; (void)b; (void)c; (void)d; (void)e; (void)f;
+    tb_crash(line, "syscall есть только на Linux и Mac");
+    return 0;
+}
+#endif
+
 // ---------- shape: поля с размером прямо в памяти (регистры, заголовки пакетов) ----------
 // k = смещение × 2^20 + байт (1, 2, 4, 8; 0 — bytes: отдать адрес) + 16 со знаком + 32 big
 //     + 64 × первый бит + 4096 × сколько бит (0 — поле целиком).
@@ -7889,6 +8030,7 @@ TB_X(void *, mem_np, (long long n), (n))
 TB_X(long long, tlen, (const char *s), (s))
 TB_X(const char *, char_at, (const char *s, long long i, long long n, int line), (s, i, n, line))
 TB_X(const char *, cat, (const char *a, const char *b), (a, b))
+TB_X(const char *, ctext, (const char *p), (p))
 TB_XV(app, (const char **p, long long *rl, long long *rc, const char *b), (p, rl, rc, b))
 TB_XV(app_i, (const char **p, long long *rl, long long *rc, long long v), (p, rl, rc, v))
 TB_XV(app_n, (const char **p, long long *rl, long long *rc, const char *b, long long n), (p, rl, rc, b, n))
@@ -8027,6 +8169,12 @@ TB_B(long long, grow_mem, (long long a, long long n, int line), tb_grow_mem(a, n
 TB_BV(copy_mem, (long long d, long long s, long long n, int line), tb_copy_mem(d, s, n, line))
 TB_BV(fill_mem, (long long a, long long v, long long n, int line), tb_fill_mem(a, v, n, line))
 TB_B(long long, shape_get, (long long a, long long k, int line), tb_shape_get(a, k, line))
+TB_B(long long, zone_new, (long long n, int line), tb_zone_new(n, line))
+TB_B(long long, zone_take, (long long z, long long n, int line), tb_zone_take(z, n, line))
+TB_BV(zone_clear, (long long z, int line), tb_zone_clear(z, line))
+TB_BV(zone_free, (long long z, int line), tb_zone_free(z, line))
+TB_B(long long, zone_used, (long long z, int line), tb_zone_used(z, line))
+TB_B(long long, syscall, (long long n, long long a, long long b, long long c, long long d, long long e, long long f, int line), tb_syscall(n, a, b, c, d, e, f, line))
 TB_BV(shape_set, (long long a, long long k, long long x, int line), tb_shape_set(a, k, x, line))
 TB_B(long long, shape_at, (long long a, int line), tb_shape_at(a))
 TB_B(long long, abs_i, (long long x, int line), tb_absi(x))

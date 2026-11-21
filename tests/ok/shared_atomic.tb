@@ -1,0 +1,24 @@
+// shared x += n без lock: атомарно, на всех ядрах и в фоне
+shared hits = int 0
+shared left = int 100000
+shared weight = dec 0
+
+func work(n: int)
+    count i from 1 to n
+        hits += 1
+        left -= 1
+        weight += 0.5
+
+func main()
+    nums = list int
+    count i from 1 to 100000
+        nums.add(i)
+    each x in nums on all cores
+        hits += 1
+    a = background work(50000)
+    b = background work(50000)
+    a.wait
+    b.wait
+    print(hits)
+    print(left)
+    print(weight)

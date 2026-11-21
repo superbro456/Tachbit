@@ -15,6 +15,7 @@ compiler="build/tb"
 pass=0
 bad=0
 tmp="$(mktemp -d)"
+cp -r tests/ok/cfiles "$tmp/"   # файлы C для use c "cfiles/..."
 
 for f in tests/ok/*.tb tests/err/*.tb; do
     name="$(basename "$f" .tb)"

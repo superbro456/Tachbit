@@ -142,12 +142,12 @@ func is_builtin(name: text)
 
 // для железа и ядер: биты (везде), адреса и порты (только в danger), время и клавиши (в ядре)
 func kernel_builtins() gives names: list text
-    names = ["bit_and", "bit_or", "bit_xor", "bit_not", "shift_left", "shift_right", "read8", "read16", "read32", "read64", "write8", "write16", "write32", "write64", "asm", "address_of", "new_mem", "free_mem", "grow_mem", "copy_mem", "fill_mem", "shape_get", "shape_set", "shape_at", "port_in8", "port_in16", "port_in32", "port_out8", "port_out16", "port_out32", "page_new", "page_free", "interrupts_on", "interrupts_off", "uptime_ms", "wait_ms", "read_key", "yield"]
+    names = ["bit_and", "bit_or", "bit_xor", "bit_not", "shift_left", "shift_right", "read8", "read16", "read32", "read64", "write8", "write16", "write32", "write64", "asm", "address_of", "new_mem", "free_mem", "grow_mem", "copy_mem", "fill_mem", "zone_new", "zone_take", "zone_clear", "zone_free", "zone_used", "syscall", "shape_get", "shape_set", "shape_at", "port_in8", "port_in16", "port_in32", "port_out8", "port_out16", "port_out32", "page_new", "page_free", "interrupts_on", "interrupts_off", "uptime_ms", "wait_ms", "read_key", "yield"]
     return names
 
 // только внутри danger
 func danger_only(name: text)
-    each w in ["read8", "read16", "read32", "read64", "write8", "write16", "write32", "write64", "asm", "address_of", "new_mem", "free_mem", "grow_mem", "copy_mem", "fill_mem", "shape_get", "shape_set", "shape_at"]
+    each w in ["read8", "read16", "read32", "read64", "write8", "write16", "write32", "write64", "asm", "address_of", "new_mem", "free_mem", "grow_mem", "copy_mem", "fill_mem", "zone_new", "zone_take", "zone_clear", "zone_free", "zone_used", "syscall", "shape_get", "shape_set", "shape_at"]
         if name == w
             return true
     each w in ["port_", "page_", "interrupts_"]
@@ -164,7 +164,7 @@ func bare_only(name: text)
 
 // только в обычной программе (в ядре нет файлов и папок)
 func os_only(name: text)
-    each w in ["list_dir", "is_folder", "make_folder", "move", "remove", "env", "file_size", "window_open", "window_alive", "clear_window", "draw_pixel", "draw_rect", "draw_circle", "draw_triangle", "mesh_new", "mesh_add", "draw_mesh", "camera", "draw_line", "draw_text", "key_down", "mouse_x", "mouse_y", "mouse_down", "mouse_wheel", "typed_text", "mouse_back", "mouse_forward", "clipboard_get", "clipboard_set", "set_cursor", "window_sharp", "window_scale", "frame_ms", "fps", "set_fps", "window_w", "window_h", "load_image", "draw_image", "image_w", "image_h", "load_font", "draw_font", "text_width", "rgb", "random", "time_ms", "http_get", "json_get", "json_text", "date_now", "unix_time", "load_sound", "play_sound", "loop_sound", "play_sound_at", "loop_sound_at", "play_tone", "stop_sound", "sound_playing", "sound_volume", "sound_pitch", "move_sound", "master_volume", "listener"]
+    each w in ["syscall", "list_dir", "is_folder", "make_folder", "move", "remove", "env", "file_size", "window_open", "window_alive", "clear_window", "draw_pixel", "draw_rect", "draw_circle", "draw_triangle", "mesh_new", "mesh_add", "draw_mesh", "camera", "draw_line", "draw_text", "key_down", "mouse_x", "mouse_y", "mouse_down", "mouse_wheel", "typed_text", "mouse_back", "mouse_forward", "clipboard_get", "clipboard_set", "set_cursor", "window_sharp", "window_scale", "frame_ms", "fps", "set_fps", "window_w", "window_h", "load_image", "draw_image", "image_w", "image_h", "load_font", "draw_font", "text_width", "rgb", "random", "time_ms", "http_get", "json_get", "json_text", "date_now", "unix_time", "load_sound", "play_sound", "loop_sound", "play_sound_at", "loop_sound_at", "play_tone", "stop_sound", "sound_playing", "sound_volume", "sound_pitch", "move_sound", "master_volume", "listener"]
         if name == w
             return true
     return false
@@ -185,7 +185,7 @@ func gfx_builtin(name: text)
 
 // встроенные функции, которые могут закончиться ошибкой
 func builtin_can_fail(name: text)
-    if name == "list_dir" or name == "make_folder" or name == "move" or name == "remove" or name == "window_open" or name == "load_image" or name == "load_font" or name == "load_sound" or name == "new_mem" or name == "grow_mem"
+    if name == "list_dir" or name == "make_folder" or name == "move" or name == "remove" or name == "window_open" or name == "load_image" or name == "load_font" or name == "load_sound" or name == "new_mem" or name == "grow_mem" or name == "zone_new"
         return true
     return name == "to_int" or name == "to_dec" or name == "read_file" or name == "write_file" or name == "input" or name == "http_get" or name == "json_get"
 
@@ -781,6 +781,25 @@ func check_builtin(c: Comp, n: Node) gives r: int
     if name == "new_mem"
         builtin_args(c, n, "i", "new_mem(байт)  →  адрес нового блока (нули)")
         return 1
+    if name == "zone_new"
+        builtin_args(c, n, "i", "zone_new(байт)  →  новая зона; байт — размер одного куска")
+        return 1
+    if name == "zone_take"
+        builtin_args(c, n, "ii", "zone_take(зона, байт)  →  адрес куска (нули)")
+        return 1
+    if name == "zone_clear" or name == "zone_free"
+        builtin_args(c, n, "i", name + "(зона)")
+        return 0
+    if name == "zone_used"
+        builtin_args(c, n, "i", "zone_used(зона)  →  сколько байт взято")
+        return 1
+    if name == "syscall"
+        if len(n.kids) < 1 or len(n.kids) > 7
+            error_at(c, n.line, "syscall(номер, до 6 чисел): например syscall(39)", "")
+        repeat while len(n.kids) < 7
+            add_kid(n, shape_number(c, 0, n.line))
+        builtin_args(c, n, "iiiiiii", "syscall(номер, a, b, ...)  — все значения int (адреса тоже числа)")
+        return 1
     if name == "free_mem"
         builtin_args(c, n, "i", "free_mem(адрес)")
         return 0
@@ -1292,6 +1311,118 @@ func check_module_call(c: Comp, n: Node) gives r: int
     n.kids = rest
     return check_user_call(c, n, f)
 
+// func ... for c: C видит только простые значения — int, dec, bool, text
+func check_for_c(c: Comp, program: Node)
+    names = list text
+    each top in program.kids
+        if top.kind != "func" or not top.for_c
+            skip
+        c.file_name = top.file
+        if c.bare
+            error_at(c, top.line, "for c бывает только в обычной программе или библиотеке (tb lib)", top.name)
+        if top.name == "main"
+            error_at(c, top.line, "main не бывает for c: C зовёт другие функции", "")
+        if text_in(names, top.name)
+            error_at(c, top.line, "две функции for c с одним именем: C их не различит", top.name)
+        names.add(top.name)
+        if top.can_fail
+            error_at(c, top.line, "функция for c не может заканчиваться ошибкой: C не умеет её поймать; верни, например, -1", top.name)
+        if len(top.kids[2].kids) > 1
+            error_at(c, top.line, "у функции for c один ответ: C не знает gives с несколькими", top.name)
+        if top.irq != 0
+            error_at(c, top.line, "функция прерывания не бывает for c", top.name)
+        each p in top.kids[0].kids
+            if p.is_link or not (p.ty >= 1 and p.ty <= 4)
+                error_at(c, p.line, "у функции for c параметры только int, dec, bool или text", p.name)
+        if top.ty > 4
+            error_at(c, top.line, "функция for c отвечает только int, dec, bool или text", top.name)
+
+// ---------- use c: функции из C ----------
+
+func find_cuse(c: Comp, name: text, mod: text) gives r: int
+    count i from 0 to len(c.cuses) - 1
+        if c.cuses[i].name == name and c.cuses[i].mod == mod
+            return i
+    return -1
+
+// тип Tachbit для типа C: целые → int, дроби → dec
+func ctype_ty(t: text) gives r: int
+    if t == ""
+        return 0
+    if t == "dec" or t == "f32"
+        return 2
+    if t == "bool"
+        return 3
+    if t == "text"
+        return 4
+    return 1
+
+func register_cuse(c: Comp, u: Node)
+    if c.bare
+        error_at(c, u.line, "в ядре без ОС use c пока нет", "")
+    if find_cuse(c, u.name, u.mod) >= 0
+        error_at(c, u.line, "такое имя у use c уже есть: файлы C с одинаковым именем не различить", u.name)
+    if is_module(c, u.name) and u.name != u.mod
+        error_at(c, u.line, "так уже называется модуль Tachbit", u.name)
+    names = list text
+    each f in u.kids
+        if text_in(names, f.name)
+            error_at(c, f.line, "эта функция C уже написана выше", f.name)
+        names.add(f.name)
+        f.ty = ctype_ty(f.value)
+        f.shape = u.name
+    c.cuses.add(u)
+    lib = u.value
+    if lib == ""
+        return
+    if ends_with(lib, ".c") or ends_with(lib, ".o") or ends_with(lib, ".a") or ends_with(lib, ".so") or ends_with(lib, ".dylib") or find(lib, "/") >= 0
+        // файл рядом с .tb (или путь от него)
+        path = lib
+        if not starts_with(lib, "/")
+            k = len(u.file) - 1
+            repeat while k >= 0 and code(u.file[k]) != 47
+                k -= 1
+            if k >= 0
+                path = cut(u.file, 0, k) + lib
+        if not file_exists(path)
+            error_at(c, u.line, "нет такого файла C", path)
+        c.c_link += " '" + path + "'"
+        c.c_files.add(path)
+    else
+        c.c_link += " -l" + lib
+
+// sqlite3.f(...): вызов функции C; превращается в узел ccall (kids — аргументы)
+func check_ccall(c: Comp, n: Node) gives r: int
+    u = c.cuses[find_cuse(c, n.kids[0].name, c.cur_mod)]
+    if c.danger_depth == 0
+        error_at(c, n.line, "функции C зовут внутри danger: C может испортить память, Tachbit её не проверит", n.kids[0].name + "." + n.name)
+    fi = -1
+    count i from 0 to len(u.kids) - 1
+        if u.kids[i].name == n.name
+            fi = i
+    if fi < 0
+        error_at(c, n.line, "в use c " + u.name + " нет такой функции: напиши её в блоке use c", n.name)
+    f = u.kids[fi]
+    params = f.kids[0]
+    if len(n.kids) - 1 != len(params.kids)
+        error_at(c, n.line, "не то количество значений: у " + n.name + " их " + len(params.kids), "")
+    rest = list Node
+    count i from 1 to len(n.kids) - 1
+        a = n.kids[i]
+        if a.name != ""
+            error_at(c, n.line, "у функций C аргументы пишутся без имён", "")
+        p = params.kids[i - 1]
+        t = check_value(c, a.kids[0])
+        want = ctype_ty(p.value)
+        if not fits(want, t)
+            error_at(c, a.line, "параметр " + p.name + " ждёт " + type_name(c, want), "")
+        rest.add(a)
+    n.kind = "ccall"
+    n.kids = rest
+    n.ref = f
+    n.has_ref = true
+    return f.ty
+
 // канал: ch.send(x), ch.receive(), ch.close()
 func check_chan_method(c: Comp, n: Node, t: int) gives r: int
     args = len(n.kids) - 1
@@ -1339,6 +1470,8 @@ func check_dict_method(c: Comp, n: Node, t: int) gives r: int
 
 func check_method(c: Comp, n: Node) gives r: int
     base = n.kids[0]
+    if base.kind == "name" and find_var(c, base.name) < 0 and find_cuse(c, base.name, c.cur_mod) >= 0
+        return check_ccall(c, n)
     if base.kind == "name" and find_var(c, base.name) < 0 and is_module(c, base.name)
         return check_module_call(c, n)
     t = check_value(c, base)
@@ -1481,6 +1614,8 @@ func check_expr(c: Comp, n: Node) gives r: int
         t = check_call(c, n)
     else if k == "method"
         t = check_method(c, n)
+    else if k == "ccall"
+        t = n.ref.ty
     else if k == "binop"
         t = check_binop(c, n)
     else if k == "unary"
@@ -1635,6 +1770,8 @@ func check_assign(c: Comp, n: Node)
     if n.is_const or declared >= 0
         error_at(c, n.line, "переменная уже есть: тип и const пишутся только в первый раз", n.name)
     note_global_write(c, v, n.line)
+    if v < c.n_globals and (c.par_base >= 0 or c.par_vec) and c.lock_depth == 0
+        error_at(c, n.line, "общую shared-переменную внутри " + loop_word(c) + " меняют под замком: lock имя", n.name)
     if c.vars[v].is_const
         error_at(c, n.line, "это const или переменная цикла, её нельзя менять", n.name)
     if not fits(c.vars[v].type, t)
@@ -1685,8 +1822,14 @@ func check_set(c: Comp, n: Node)
         note_change(c, target)
     if target.kind == "index" and is_dict(c, target.kids[0].ty)
         no_resize(c, target.kids[0], n.line, false)
+    // shared x += n снаружи lock: одно атомарное действие процессора, замок не нужен
+    if r >= 0 and r < c.n_globals and target.kind == "name" and (op == "+=" or op == "-=") and is_number(c.vars[r].type) and c.lock_depth == 0
+        n.is_shared = true
+    before = len(c.gw_lock)
     note_global_write(c, r, n.line)
-    if r >= 0 and r < c.n_globals and (c.par_base >= 0 or c.par_vec) and c.lock_depth == 0
+    if n.is_shared and len(c.gw_lock) > before
+        c.gw_lock[before] = true
+    if r >= 0 and r < c.n_globals and (c.par_base >= 0 or c.par_vec) and c.lock_depth == 0 and not n.is_shared
         error_at(c, n.line, "общую shared-переменную внутри " + loop_word(c) + " меняют под замком: lock имя", target.name)
     t = check_value(c, n.kids[1])
     if target.kind != "name"
@@ -1990,7 +2133,7 @@ func check_statement(c: Comp, n: Node)
         if inner.kind != "call" and inner.kind != "method" and not (inner.kind == "field" and inner.name == "wait")
             error_at(c, n.line, "строка ничего не делает", "")
         t = check_expr(c, e)
-        if t != 0
+        if t != 0 and e.kind != "ccall"
             error_at(c, n.line, "результат вызова пропадает: сохрани его, например x = ...", e.name)
 
 // a = background f(x): f работает в своём потоке.
@@ -2558,6 +2701,8 @@ modpub func check(c: Comp, program: Node)
             register_enum(c, top)
         else if top.kind == "shape"
             register_shape(c, top)
+        else if top.kind == "cuse"
+            register_cuse(c, top)
         else if top.kind == "func"
             register_func(c, top)
             top.can_fail = has_fail(top.kids[1])
@@ -2566,7 +2711,7 @@ modpub func check(c: Comp, program: Node)
     // shape нужен только проверке: дальше его поля уже стали вызовами shape_get / shape_set
     rest = list Node
     each top in program.kids
-        if top.kind != "shape"
+        if top.kind != "shape" and top.kind != "cuse"
             rest.add(top)
     program.kids = rest
     // 2) типы качеств, параметров и выходов
@@ -2589,7 +2734,7 @@ modpub func check(c: Comp, program: Node)
     if len(program.kids) > 0
         c.file_name = program.kids[0].file
     // tb check у модуля без main (файл для use) проверяет его функции без main
-    if main_func < 0 and not c.lib_check
+    if main_func < 0 and not c.lib_check and not c.lib
         error_at(c, 0, "нет функции main: программа начинается с func main()", "")
     if main_func >= 0
         main_node = c.funcs[main_func].node
@@ -2633,6 +2778,7 @@ modpub func check(c: Comp, program: Node)
         if f.state == 0
             c.file_name = f.node.file
             error_at(c, f.node.line, "функция с link ни разу не вызвана, поэтому тип ярлыка неизвестен", f.name)
+    check_for_c(c, program)
     check_piece_leaks(c)
     check_par_calls(c)
     check_lock_calls(c)

@@ -1,0 +1,42 @@
+// use c: звать функции C из файла рядом и из libc
+use c "cfiles/mathx.c"
+    func mx_add32(a: i32, b: i32) gives i32
+    func mx_low(x: u8) gives u8
+    func mx_neg(x: i8) gives i8
+    func mx_half(x: dec) gives dec
+    func mx_f(x: f32) gives f32
+    func mx_even(x: int) gives bool
+    func mx_hello(name: text) gives text
+    func mx_len(s: text) gives int
+    func mx_store(x: int)
+    func mx_total() gives int
+    func mx_put(addr: int, v: u32)
+
+use c
+    func abs(x: i32) gives i32
+    func strlen(s: text) gives u64
+    func atoi(s: text) gives i32
+
+func main()
+    danger
+        print(mathx.mx_add32(2000000000, 2000000000))
+        print(mathx.mx_low(255))
+        print(mathx.mx_neg(-128))
+        print(mathx.mx_half(7))
+        print(mathx.mx_f(1.25))
+        print(mathx.mx_even(10))
+        greeting = mathx.mx_hello("мир")
+        print(greeting)
+        s = "abc"
+        s += "def"
+        print(mathx.mx_len(s))
+        mathx.mx_store(5)
+        mathx.mx_store(7)
+        print(mathx.mx_total())
+        m = try new_mem(8)
+        mathx.mx_put(m, 4294967295)
+        print(read32(m))
+        free_mem(m)
+        print(c.abs(-42))
+        print(c.strlen("тест"))
+        print(c.atoi("123") + 1)

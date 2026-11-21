@@ -1,0 +1,5 @@
+func load(path: text) for c
+    return try read_file(path)
+
+func main()
+    print(1)

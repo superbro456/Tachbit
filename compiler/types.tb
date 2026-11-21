@@ -59,6 +59,8 @@ obj Node
     moved: bool
     // shape_at(адрес) после проверки: какой shape поверх
     shape: text
+    // func ... for c: функцию зовёт C (tb lib → .a и .h)
+    for_c: bool
 
 // тип языка; хранится один раз, номер типа = место в списке Comp.types
 // kind = unknown / none / int / dec / bool / text / list / obj / multi / dict
@@ -125,6 +127,10 @@ obj Comp
     enums: list Node
     // shape: раскладки байтов (поля — kids; у поля irq — код для shape_get/shape_set, у shape temp_no — размер)
     shapes: list Node
+    // use c "lib": блоки функций C (kids — cfunc); c_link — что добавить линкеру (-lsqlite3, файлы)
+    cuses: list Node
+    c_link: text
+    c_files: list text
     uses: list Use
     all_mods: list text
     cur_mod: text
@@ -227,6 +233,8 @@ obj Comp
     gfx: bool
     // программа играет звук: в C идёт TB_SND (микшер и вывод звука)
     snd: bool
+    // tb lib: библиотека для C (без main, функции for c видны снаружи)
+    lib: bool
     lib_check: bool      // tb check: файл без main — модуль, это не ошибка
     // count i from A to B: списки, у которых xs[i] (или xs[i + 1]) проверены один раз до цикла
     // пары «номер<TAB>список»; fast_depth — сколько таких циклов вокруг (не больше 2)

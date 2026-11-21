@@ -282,7 +282,7 @@ func build_pure(c: Comp, program: Node, exe: text, native: bool) gives ok: bool
     cmd += " && " + quote(bin + "/opt") + " -passes='internalize,default<O2>' -internalize-public-api-list=main " + quote(bc) + " -o " + quote(bc)
     cmd += " && " + quote(bin + "/llc") + " -O2 -filetype=obj -relocation-model=pic " + quote(bc) + " -o " + quote(ofile)
     // склеить с системными библиотеками: обычный линкер системы (через cc)
-    cmd += " && ${CC:-cc} -o " + quote(exe) + " " + quote(ofile) + " -lm -lpthread"
+    cmd += " && ${CC:-cc} -o " + quote(exe) + " " + quote(ofile) + c.c_link + " -lm -lpthread"
     if c.gfx
         cmd += " $( [ \"$(uname)\" = Darwin ] && echo '-framework Cocoa -framework CoreGraphics -framework QuartzCore -lobjc' || echo '-lX11' )"
     ok = run(cmd + " 2> " + quote(log)) == 0
@@ -320,7 +320,7 @@ func build(c: Comp, path: text, exe: text, native: bool)
     write_file(c_path, join(c.out, "")) else err
         print("не могу записать файл: " + c_path)
         return 1
-    command = "${CC:-cc} -O2 -w -o " + quote(exe) + " " + quote(c_path) + " -lm -lpthread"
+    command = "${CC:-cc} -O2 -w -o " + quote(exe) + " " + quote(c_path) + c.c_link + " -lm -lpthread"
     // без -flto: запасной путь, если линкер не умеет LTO
     nolto = ""
     if len(c.ll_names) > 0
@@ -331,7 +331,7 @@ func build(c: Comp, path: text, exe: text, native: bool)
             print("не могу записать файл: " + ll_path)
             return 1
         // -flto: clang видит .c и .ll вместе и встраивает функции библиотеки прямо в код из .ll
-        ll_files = " -o " + quote(exe) + " " + quote(c_path) + " " + quote(ll_path) + " -lm -lpthread"
+        ll_files = " -o " + quote(exe) + " " + quote(c_path) + " " + quote(ll_path) + c.c_link + " -lm -lpthread"
         command = "${CC:-clang} -O2 -w -flto" + ll_files
         nolto = "${CC:-clang} -O2 -w" + ll_files
     flags_native = ""
@@ -351,7 +351,7 @@ func build(c: Comp, path: text, exe: text, native: bool)
             print("и открой терминал заново. Подробнее: tools/install.ps1")
             return 1
         // -static: программе не нужны чужие .dll; стек 8 МБ, как на Linux
-        command = cc + " -O2 -w -o " + quote(exe_file(exe)) + " " + quote(c_path) + " -static -Wl,--stack,8388608 -lm -lpthread"
+        command = cc + " -O2 -w -o " + quote(exe_file(exe)) + " " + quote(c_path) + c.c_link + " -static -Wl,--stack,8388608 -lm -lpthread"
         if c.gfx
             command += " -lgdi32"
     // сообщения cc — в отдельный файл: человеку не нужна простыня на C
@@ -367,6 +367,62 @@ func build(c: Comp, path: text, exe: text, native: bool)
         return 1
     remove(log) else err
         ignored = err
+    return 0
+
+// tb lib файл.tb: библиотека для C — libимя.a и имя.h рядом с файлом.
+// Снаружи видны функции с for c. Собирается через C (как --c)
+func build_lib(c: Comp, path: text, exe: text)
+    c.lib = true
+    c.ll = false
+    program = load_program(c, path)
+    check(c, program)
+    emit_c(c, program)
+    name = module_of(path)
+    dir = folder_of(exe)
+    c_path = exe + ".c"
+    o_path = exe + ".o"
+    a_path = dir + "lib" + name + ".a"
+    h_path = dir + name + ".h"
+    write_file(c_path, join(c.out, "")) else err
+        print("не могу записать файл: " + c_path)
+        return 1
+    log = exe + ".cc.log"
+    objs = quote(o_path)
+    cmd = "${CC:-cc} -O2 -w -fPIC -c -o " + quote(o_path) + " " + quote(c_path)
+    // файлы C из use c "x.c" тоже кладём в библиотеку
+    n = 0
+    libs = ""
+    each src in c.c_files
+        if ends_with(src, ".c")
+            n += 1
+            one = exe + ".c" + n + ".o"
+            cmd += " && ${CC:-cc} -O2 -w -fPIC -c -o " + quote(one) + " " + quote(src)
+            objs += " " + quote(one)
+        else if ends_with(src, ".o")
+            objs += " " + quote(src)
+        else
+            libs += " " + src
+    each part in split(c.c_link, " ")
+        if starts_with(part, "-l")
+            libs += " " + part
+    cmd += " && rm -f " + quote(a_path) + " && ar rcs " + quote(a_path) + " " + objs
+    if run(cmd + " 2> " + quote(log)) != 0
+        print("не получилось собрать библиотеку. Это ошибка Tachbit, а не твоя: твой код прошёл все проверки.")
+        print("подробности для разработчиков Tachbit: " + log + " (и код на C: " + c_path + ")")
+        return 1
+    c.c_link = libs
+    write_file(h_path, lib_header(c, program, name)) else err
+        print("не могу записать файл: " + h_path)
+        return 1
+    each f in split(objs, " ")
+        g = replace(f, "'", "")
+        if starts_with(g, exe)
+            remove(g) else err
+                ignored = err
+    each f in [c_path, log]
+        remove(f) else err
+            ignored = err
+    print("готово: " + a_path + " и " + h_path)
     return 0
 
 // режим «без ОС»: файл.tb → ядро .elf, которое грузит QEMU (или GRUB) без всякой ОС
@@ -424,6 +480,7 @@ func usage()
     print("  tachbit run    файл.tb [слова]   сделать программу и запустить")
     print("  tachbit build  файл.tb   сделать программу рядом с файлом")
     print("  tachbit bare   файл.tb   сделать ядро без ОС (файл.elf для QEMU)")
+    print("  tachbit lib    файл.tb   библиотека для C: libфайл.a и файл.h (функции с for c)")
     print("  tachbit check  файл.tb   только найти ошибки")
     print("  tachbit c      файл.tb   показать, какой C получился")
     print("  tachbit ll     файл.tb   показать LLVM IR числовых функций (опыт)")
@@ -463,7 +520,7 @@ func main()
     if mode == "start"
         mode = "run"
     // имя проекта можно не писать: тогда берётся текущая папка
-    if len(a) < 2 and not (mode == "run" or mode == "build" or mode == "bare" or mode == "check" or mode == "c" or mode == "ll")
+    if len(a) < 2 and not (mode == "run" or mode == "build" or mode == "bare" or mode == "lib" or mode == "check" or mode == "c" or mode == "ll")
         usage()
         exit(1)
     arg = ""
@@ -509,6 +566,8 @@ func main()
         exit(build(c, path, exe, false))
     if mode == "bare"
         exit(build_bare(c, path, exe))
+    if mode == "lib"
+        exit(build_lib(c, path, exe))
     if mode == "run"
         // один файл: программа собирается в ~/.tachbit/run, рядом с .tb ничего не остаётся
         home = env("HOME")

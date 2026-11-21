@@ -1,0 +1,6 @@
+use c
+    func atoi(s: text) gives i32
+
+func main()
+    danger
+        print(c.atoi(5))

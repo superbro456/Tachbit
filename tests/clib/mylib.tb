@@ -1,0 +1,27 @@
+// tb lib: функции for c видны из C
+shared calls = int 0
+
+func add(a: int, b: int) for c
+    calls += 1
+    return a + b
+
+func average(xs: text) for c
+    calls += 1
+    total = 0.0
+    parts = split(xs, ",")
+    each p in parts
+        total += to_dec(trim(p)) or 0.0
+    return total / len(parts)
+
+func greet(name: text) for c
+    calls += 1
+    return "привет, " + name + "!"
+
+func is_big(x: dec) for c
+    return x > 100
+
+func ping() for c
+    calls += 1
+
+func times_called() for c
+    return calls

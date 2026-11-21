@@ -1,0 +1,2 @@
+func main()
+    z = try zone_new(64)
