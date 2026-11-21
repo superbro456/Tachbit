@@ -12,8 +12,8 @@ src=${1:-examples/kernel/main.tb}
 elf="${src%.tb}.elf"
 if [ "$2" = "--text" ]; then
     # ядро пишет и в COM1 → терминал; exit(0) в ядре закрывает QEMU (код 1 = всё хорошо)
-    qemu-system-i386 -no-reboot -kernel "$elf" -serial stdio -display none -device isa-debug-exit,iobase=0xf4,iosize=0x04
+    qemu-system-x86_64 -no-reboot -kernel "$elf" -serial stdio -display none -device isa-debug-exit,iobase=0xf4,iosize=0x04
     [ $? -eq 1 ] && exit 0 || exit 1
 fi
 echo "окно QEMU: закрой его, когда насмотришься"
-qemu-system-i386 -no-reboot -kernel "$elf"
+qemu-system-x86_64 -no-reboot -kernel "$elf"

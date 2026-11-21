@@ -76,7 +76,7 @@ Programs start at `func main()`. Blocks are indentation, like Python. Types are 
 | modules | `use money`, `modpub`, `modpri` |
 | speed | `on all cores`, `shared`, `by vec` (SIMD), `obj ... by columns`, `temp`, `each piece in data by N`, `together` |
 | threads | `background f(...)` + `.wait`, `channel T` (`.send`, `.receive`, `.close`, `each x in ch`), `move`, `lock` / `unlock` |
-| no OS | `tb bare file.tb` makes a bootable kernel; `danger` blocks for memory, ports, `asm`, interrupts; manual memory `new_mem`, `free_mem`, `grow_mem`, `copy_mem`, `fill_mem` (`TB_MEM_CHECK=1` catches use after free, overruns, double free, leaks) |
+| no OS | `tb bare file.tb` makes a bootable 64-bit (x86-64) kernel, built fully through LLVM with no C; `danger` blocks for memory, ports, `asm`, interrupts; manual memory `new_mem`, `free_mem`, `grow_mem`, `copy_mem`, `fill_mem` (`TB_MEM_CHECK=1` catches use after free, overruns, double free, leaks) |
 | library | text (`split`, `join`, `find`, `replace`, ...), files and folders, `input`, `args`, `sort`, math, `random`, `time_ms`, `date_now`, `unix_time`, `http_get`, `json_get`, `json_text`, windows and drawing for games |
 
 ## Safety

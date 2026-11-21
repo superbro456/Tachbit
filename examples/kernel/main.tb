@@ -1,5 +1,5 @@
 // Ядро на Tachbit: работает без всякой ОС.
-// Сборка и запуск:  ./tools/kernel.sh     (или: tachbit bare main.tb, потом qemu-system-i386 -kernel main.elf)
+// Сборка и запуск:  ./tools/kernel.sh     (или: tachbit bare main.tb, потом qemu-system-x86_64 -kernel main.elf)
 // Русские буквы ядро рисует на экране своим шрифтом.
 
 // общие числа: их меняют прерывания и задачи

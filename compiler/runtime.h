@@ -26,7 +26,7 @@
 typedef struct tb_file FILE;
 #define stdout ((FILE *)1)
 #define stderr ((FILE *)2)
-typedef int pthread_t;
+typedef long pthread_t;   // 8 байт, как адрес: раскладка задачи та же, что в обычной программе
 typedef int pthread_mutex_t;
 #define PTHREAD_MUTEX_INITIALIZER 0
 #define pthread_mutex_lock(m) ((void)(m))
@@ -40,8 +40,8 @@ TB_INL unsigned short tb_inw(unsigned short port) { unsigned short v; __asm__ vo
 TB_INL void tb_outl(unsigned short port, unsigned int v) { __asm__ volatile("outl %0, %1" : : "a"(v), "Nd"(port)); }
 TB_INL unsigned int tb_inl(unsigned short port) { unsigned int v; __asm__ volatile("inl %1, %0" : "=a"(v) : "Nd"(port)); return v; }
 // выключить прерывания на время короткого дела и вернуть, как было
-TB_INL uint32_t tb_irq_save(void) { uint32_t f; __asm__ volatile("pushfl\npopl %0\ncli" : "=r"(f) : : "memory"); return f; }
-TB_INL void tb_irq_restore(uint32_t f) { __asm__ volatile("pushl %0\npopfl" : : "r"(f) : "memory", "cc"); }
+TB_INL uint64_t tb_irq_save(void) { uint64_t f; __asm__ volatile("pushfq\npopq %0\ncli" : "=r"(f) : : "memory"); return f; }
+TB_INL void tb_irq_restore(uint64_t f) { __asm__ volatile("pushq %0\npopfq" : : "r"(f) : "memory", "cc"); }
 
 // экран 80×25: байт буквы и байт цвета; русские буквы рисуем своим шрифтом (см. tb_vga_font)
 TB_API volatile unsigned short *const tb_vga = (volatile unsigned short *)0xB8000;
@@ -155,7 +155,7 @@ TB_API void tb_putc(char c) {
     else tb_vga_put('?');
 }
 TB_API int fputs(const char *s, FILE *f) {
-    uint32_t fl = tb_irq_save();
+    uint64_t fl = tb_irq_save();
     unsigned char was = tb_vcolor;
     if (f == stderr) tb_vcolor = 0x0C;   // ошибки — красным
     while (*s) tb_putc(*s++);
@@ -199,8 +199,8 @@ TB_API void tb_free0(void *p) {
     tb_bins[k] = p;
 }
 // задачи и прерывания тоже берут память: на время выдачи прерывания выключены
-TB_API void *malloc(size_t n) { uint32_t f = tb_irq_save(); void *p = tb_malloc0(n); tb_irq_restore(f); return p; }
-TB_API void free(void *p) { uint32_t f = tb_irq_save(); tb_free0(p); tb_irq_restore(f); }
+TB_API void *malloc(size_t n) { uint64_t f = tb_irq_save(); void *p = tb_malloc0(n); tb_irq_restore(f); return p; }
+TB_API void free(void *p) { uint64_t f = tb_irq_save(); tb_free0(p); tb_irq_restore(f); }
 void *memcpy(void *d, const void *s, size_t n) {
     void *r = d;
     __asm__ volatile("rep movsb" : "+D"(d), "+S"(s), "+c"(n) : : "memory");
@@ -242,16 +242,7 @@ TB_API void *tb_realloc0(void *p, size_t n) {
     if (q) { memcpy(q, p, cap); free(p); }
     return q;
 }
-TB_API void *realloc(void *p, size_t n) { uint32_t f = tb_irq_save(); void *q = tb_realloc0(p, n); tb_irq_restore(f); return q; }
-// одно ядро: «атомарное» сложение 64-битного числа — с выключенными на миг прерываниями
-unsigned long long __atomic_fetch_add_8(volatile void *p, unsigned long long v, int order) {
-    (void)order;
-    uint32_t f = tb_irq_save();
-    unsigned long long old = *(volatile unsigned long long *)p;
-    *(volatile unsigned long long *)p = old + v;
-    tb_irq_restore(f);
-    return old;
-}
+TB_API void *realloc(void *p, size_t n) { uint64_t f = tb_irq_save(); void *q = tb_realloc0(p, n); tb_irq_restore(f); return q; }
 size_t strlen(const char *s) { const char *p = s; while (*p) p++; return (size_t)(p - s); }
 int strcmp(const char *a, const char *b) { while (*a && *a == *b) { a++; b++; } return (unsigned char)*a - (unsigned char)*b; }
 TB_API int strncmp(const char *a, const char *b, size_t n) {
@@ -266,7 +257,7 @@ TB_API char *strstr(const char *h, const char *n) {
     return 0;
 }
 TB_API long atol(const char *s) { long r = 0; while (*s >= '0' && *s <= '9') r = r * 10 + (*s++ - '0'); return r; }
-TB_API double sqrt(double x) { double r; __asm__("fsqrt" : "=t"(r) : "0"(x)); return r; }
+TB_API double sqrt(double x) { double r; __asm__("sqrtsd %1, %0" : "=x"(r) : "x"(x)); return r; }
 TB_API double fabs(double x) { return x < 0 ? -x : x; }
 TB_API double strtod(const char *s, char **end) {
     double r = 0, sign = 1, scale = 1;
@@ -275,35 +266,6 @@ TB_API double strtod(const char *s, char **end) {
     if (*s == '.') { s++; while (*s >= '0' && *s <= '9') { r = r * 10 + (*s++ - '0'); scale *= 10; } }
     if (end) *end = (char *)s;
     return sign * r / scale;
-}
-// деление 64-битных чисел на 32-битном процессоре: этих функций без libgcc нет
-unsigned long long __udivmoddi4(unsigned long long a, unsigned long long b, unsigned long long *rem) {
-    // делитель влезает в 32 бита (почти всегда): две команды divl процессора вместо 64 шагов
-    if ((b >> 32) == 0 && b != 0) {
-        uint32_t d = (uint32_t)b, hi = (uint32_t)(a >> 32), lo = (uint32_t)a, qh = hi / d, rh = hi % d, ql, rl;
-        __asm__("divl %4" : "=a"(ql), "=d"(rl) : "a"(lo), "d"(rh), "rm"(d));
-        if (rem) *rem = rl;
-        return ((unsigned long long)qh << 32) | ql;
-    }
-    unsigned long long q = 0, r = 0;
-    for (int i = 63; i >= 0; i--) {
-        r = (r << 1) | ((a >> i) & 1);
-        if (r >= b) { r -= b; q |= 1ULL << i; }
-    }
-    if (rem) *rem = r;
-    return q;
-}
-unsigned long long __udivdi3(unsigned long long a, unsigned long long b) { return __udivmoddi4(a, b, 0); }
-unsigned long long __umoddi3(unsigned long long a, unsigned long long b) { unsigned long long r; __udivmoddi4(a, b, &r); return r; }
-long long __divdi3(long long a, long long b) {
-    int neg = (a < 0) != (b < 0);
-    unsigned long long q = __udivmoddi4(a < 0 ? 0 - (unsigned long long)a : (unsigned long long)a, b < 0 ? 0 - (unsigned long long)b : (unsigned long long)b, 0);
-    return neg ? -(long long)q : (long long)q;
-}
-long long __moddi3(long long a, long long b) {
-    unsigned long long r;
-    __udivmoddi4(a < 0 ? 0 - (unsigned long long)a : (unsigned long long)a, b < 0 ? 0 - (unsigned long long)b : (unsigned long long)b, &r);
-    return a < 0 ? -(long long)r : (long long)r;
 }
 // маленький printf: %lld %ld %d %s %c %g (дробь — до 6 знаков после точки)
 TB_API int tb_vfmt(char *out, size_t cap, const char *f, va_list ap) {
@@ -378,59 +340,72 @@ TB_API long sysconf(int n) { (void)n; return 1; }
 TB_API int pthread_create(pthread_t *t, void *a, void *(*run)(void *), void *arg) { (void)t; (void)a; run(arg); return 0; }
 TB_API int pthread_join(pthread_t t, void **r) { (void)t; (void)r; return 0; }
 
-// адреса из файла сборки (link.ld): где код, где кончается нижняя память, где куча
+// адреса из раскладки ядра (компоновщик): где код, где кончается нижняя память, где куча
 extern char tb_code_start[], tb_code_end[], tb_tls_start[], tb_tls_end[], tb_heap_area[], tb_kernel_end[];
 TB_API unsigned char tb_stack[1 << 20] __attribute__((aligned(4096), used));
 void tb_kmain(void);
 
 // авария ядра: красным на экран и в порт, потом стоп
-__attribute__((noreturn)) static void tb_panic(const char *what, uint32_t a, uint32_t b) {
+__attribute__((noreturn)) static void tb_panic(const char *what, uint64_t a, uint64_t b) {
     __asm__ volatile("cli");
     char buf[160];
-    snprintf(buf, sizeof buf, "\n*** ядро остановлено: %s (0x%x, 0x%x)\n", what, a, b);
+    snprintf(buf, sizeof buf, "\n*** ядро остановлено: %s (0x%llx, 0x%llx)\n", what, (unsigned long long)a, (unsigned long long)b);
     fputs(buf, stderr);
     exit(3);
 }
 
-// --- таблица сегментов: всё плоское, от 0 до 4 ГБ ---
-TB_API uint64_t tb_gdt[5] = {0, 0x00CF9A000000FFFFULL, 0x00CF92000000FFFFULL, 0, 0};
-// двойная ошибка (например, стек упёрся в сторожа и обработчику некуда класть) идёт
-// через отдельную «задачу процессора» со своим стеком — так ядро успевает сказать, что случилось
-TB_API uint32_t tb_tss_main[26], tb_tss_df[26];
-TB_API unsigned char tb_df_stack[8192] __attribute__((aligned(16)));
-TB_API uint64_t tb_tss_desc(uint32_t base) {
-    return 103ull | ((uint64_t)(base & 0xFFFFFFu) << 16) | (0x89ull << 40) | ((uint64_t)(base >> 24) << 56);
-}
-TB_API uint64_t tb_idt[256];
-TB_API struct __attribute__((packed)) { uint16_t lim; uint32_t base; } tb_gdtr, tb_idtr;
+// --- таблица сегментов x86-64: код 64 бита, данные, задача процессора (TSS, 16 байт) ---
+TB_API uint64_t tb_gdt[5] __attribute__((used)) = {0, 0x00AF9A000000FFFFULL, 0x00CF92000000FFFFULL, 0, 0};
+// TSS: ist[0] — отдельный стек для двойной ошибки (стек упёрся в сторожа — обработчику есть куда писать)
+typedef struct __attribute__((packed)) {
+    uint32_t r0; uint64_t rsp[3]; uint64_t r1; uint64_t ist[7]; uint64_t r2; uint16_t r3, iomap;
+} tb_tss64;
+TB_API tb_tss64 tb_tss __attribute__((aligned(16)));
+TB_API unsigned char tb_df_stack[16384] __attribute__((aligned(16)));
+TB_API uint64_t tb_idt[2 * 256] __attribute__((aligned(16)));
+TB_API struct __attribute__((packed)) { uint16_t lim; uint64_t base; } tb_gdtr, tb_idtr;
 
-// 49 входов: 0..31 ошибки процессора, 32..47 железо (таймер, клавиатура ...), 48 — «уступить ход»
+// 49 входов: 0..31 ошибки процессора, 32..47 железо (таймер, клавиатура ...), 48 — «уступить ход».
+// Кадр на стеке (снизу вверх): 512 байт дробей и SSE (fxsave), 15 регистров, номер, код ошибки,
+// и то, что положил процессор: rip, cs, rflags, rsp, ss. Задачи переключаются сменой кадра —
+// у каждой задачи свои регистры и свои дроби лежат в её кадре.
 extern char tb_isr_base[];
 __asm__(".text\n.balign 16\n.global tb_isr_base\ntb_isr_base:\n"
         ".set tb_v, 0\n.rept 49\n.balign 16\n"
         ".if (tb_v == 8) || (tb_v == 10) || (tb_v == 11) || (tb_v == 12) || (tb_v == 13) || (tb_v == 14) || (tb_v == 17) || (tb_v == 21)\n"
-        ".else\npushl $0\n.endif\npushl $tb_v\njmp tb_isr_common\n.set tb_v, tb_v + 1\n.endr\n"
-        "tb_isr_common:\ncld\npusha\npushl %esp\ncall tb_isr\nmovl %eax, %esp\npopa\naddl $8, %esp\niret\n");
+        ".else\npushq $0\n.endif\npushq $tb_v\njmp tb_isr_common\n.set tb_v, tb_v + 1\n.endr\n"
+        "tb_isr_common:\ncld\n"
+        "pushq %rax\npushq %rcx\npushq %rdx\npushq %rbx\npushq %rbp\npushq %rsi\npushq %rdi\n"
+        "pushq %r8\npushq %r9\npushq %r10\npushq %r11\npushq %r12\npushq %r13\npushq %r14\npushq %r15\n"
+        "subq $512, %rsp\nfxsave (%rsp)\nmovq %rsp, %rdi\ncall tb_isr\nmovq %rax, %rsp\nfxrstor (%rsp)\naddq $512, %rsp\n"
+        "popq %r15\npopq %r14\npopq %r13\npopq %r12\npopq %r11\npopq %r10\npopq %r9\npopq %r8\n"
+        "popq %rdi\npopq %rsi\npopq %rbp\npopq %rbx\npopq %rdx\npopq %rcx\npopq %rax\n"
+        "addq $16, %rsp\niretq\n");
+#define TB_F_VEC 79
+#define TB_F_ERR 80
+#define TB_F_RIP 81
+#define TB_FRAME (512 + 22 * 8)
 
-// --- память задач: у каждой свои «переменные потока» (temp, кэш длины) и регистры дробей ---
+// --- задачи: у каждой свой стек и свои «переменные потока» (temp, кэш длины) ---
 #define TB_TLS_MAX 512
 #define TB_NTASK 32
 #define TB_TSTACK 65536
 typedef struct { pthread_t th; volatile int done; void *res; } tb_task;
 typedef struct {
-    uint32_t esp; int used; volatile int done;
+    uint64_t *frame; int used; volatile int done;
     void *(*run)(void *); void *arg; tb_task *t;
-    unsigned char tls[TB_TLS_MAX]; unsigned char fpu[108];
+    unsigned char tls[TB_TLS_MAX];
 } tb_kslot;
 TB_API tb_kslot tb_slots[TB_NTASK];          // 0 — main
 TB_API unsigned char tb_tstacks[TB_NTASK][TB_TSTACK] __attribute__((aligned(4096)));
 TB_API int tb_cur = 0, tb_nlive = 1, tb_slice = 10, tb_in_irq = 0;
-TB_API unsigned char tb_tls_zero[TB_TLS_MAX], tb_fpu_init[108];
+TB_API unsigned char tb_tls_zero[TB_TLS_MAX];
+TB_API unsigned char tb_fpu_init[512] __attribute__((aligned(16)));
 TB_API unsigned char tb_irq_tls[TB_TLS_MAX];
 TB_API volatile uint64_t tb_ms = 0;
 TB_API void (*tb_irq_fn[16])(void);
 TB_API uint16_t tb_pic_mask = 0xFFFF;
-TB_API uint32_t tb_tls_size(void) { return (uint32_t)(tb_tls_end - tb_tls_start); }
+TB_API uint64_t tb_tls_size(void) { return (uint64_t)(tb_tls_end - tb_tls_start); }
 
 TB_API void tb_pic_apply(void) { tb_outb(0x21, (unsigned char)tb_pic_mask); tb_outb(0xA1, (unsigned char)(tb_pic_mask >> 8)); }
 TB_API void tb_irq_set(int v, void (*fn)(void)) {
@@ -443,25 +418,23 @@ TB_API void tb_irq_on(void) { __asm__ volatile("sti" ::: "memory"); }
 TB_API void tb_irq_off(void) { __asm__ volatile("cli" ::: "memory"); }
 TB_API void tb_yield(void) { if (!tb_in_irq) __asm__ volatile("int $48" ::: "memory"); }
 
-// переключение задач: сохранить «переменные потока» и дроби текущей, взять следующей
-TB_API uint32_t tb_schedule(uint32_t esp) {
-    if (tb_nlive <= 1 && !tb_slots[tb_cur].done) return esp;
+// переключение задач: запомнить кадр и «переменные потока» текущей, отдать кадр следующей
+TB_API uint64_t *tb_schedule(uint64_t *frame) {
+    if (tb_nlive <= 1 && !tb_slots[tb_cur].done) return frame;
     int n = tb_cur;
     for (int k = 1; k <= TB_NTASK; k++) {
         int j = (tb_cur + k) % TB_NTASK;
         if (tb_slots[j].used && !tb_slots[j].done) { n = j; break; }
     }
     tb_kslot *c = &tb_slots[tb_cur];
-    if (n == tb_cur) return esp;
-    c->esp = esp;
+    if (n == tb_cur) return frame;
+    c->frame = frame;
     memcpy(c->tls, tb_tls_start, tb_tls_size());
-    __asm__ volatile("fnsave %0" : "=m"(c->fpu));
     if (c->done) { c->used = 0; tb_nlive--; }
     tb_cur = n;
     memcpy(tb_tls_start, tb_slots[n].tls, tb_tls_size());
-    __asm__ volatile("frstor %0" : : "m"(tb_slots[n].fpu));
     tb_slice = 10;
-    return tb_slots[n].esp;
+    return tb_slots[n].frame;
 }
 TB_API void tb_task_entry(void) {
     tb_kslot *s = &tb_slots[tb_cur];
@@ -472,7 +445,7 @@ TB_API void tb_task_entry(void) {
     for (;;) __asm__ volatile("int $48");
 }
 TB_API void tb_task_start(tb_task *t, void *(*run)(void *), void *arg) {
-    uint32_t f = tb_irq_save();
+    uint64_t f = tb_irq_save();
     int i = 1;
     while (i < TB_NTASK && tb_slots[i].used) i++;
     if (i == TB_NTASK) tb_panic("больше 31 задачи background сразу", 0, 0);
@@ -480,12 +453,17 @@ TB_API void tb_task_start(tb_task *t, void *(*run)(void *), void *arg) {
     s->used = 1; s->done = 0; s->run = run; s->arg = arg; s->t = t;
     t->done = 0; t->th = i;
     memcpy(s->tls, tb_tls_zero, TB_TLS_MAX);
-    memcpy(s->fpu, tb_fpu_init, 108);
     // стек задачи выглядит так, будто её прервали прямо перед tb_task_entry
-    uint32_t *sp = (uint32_t *)(tb_tstacks[i] + TB_TSTACK);
-    *--sp = 0x202; *--sp = 0x08; *--sp = (uint32_t)tb_task_entry; *--sp = 0; *--sp = 0;
-    for (int k = 0; k < 8; k++) *--sp = 0;
-    s->esp = (uint32_t)sp;
+    unsigned char *top = tb_tstacks[i] + TB_TSTACK;
+    uint64_t *fr = (uint64_t *)(top - TB_FRAME);
+    memset(fr, 0, TB_FRAME);
+    memcpy(fr, tb_fpu_init, 512);
+    fr[TB_F_RIP] = (uint64_t)(uintptr_t)tb_task_entry;
+    fr[TB_F_RIP + 1] = 0x08;                       // cs
+    fr[TB_F_RIP + 2] = 0x202;                      // rflags: прерывания включены
+    fr[TB_F_RIP + 3] = (uint64_t)(uintptr_t)(top - 8);   // rsp: как после call
+    fr[TB_F_RIP + 4] = 0x10;                       // ss
+    s->frame = fr;
     tb_nlive++;
     tb_irq_restore(f);
 }
@@ -497,7 +475,7 @@ TB_API void *tb_wait(tb_task *t) {
 }
 
 // --- время ---
-TB_API long long tb_uptime_ms(void) { uint32_t f = tb_irq_save(); uint64_t v = tb_ms; tb_irq_restore(f); return (long long)v; }
+TB_API long long tb_uptime_ms(void) { uint64_t f = tb_irq_save(); uint64_t v = tb_ms; tb_irq_restore(f); return (long long)v; }
 TB_API void tb_wait_ms(long long n) {
     if (tb_in_irq) tb_panic("wait_ms внутри прерывания нельзя: прерывание должно быть коротким", 0, 0);
     long long end = tb_uptime_ms() + n;
@@ -532,59 +510,72 @@ TB_API void tb_key_irq(void) {
     tb_khead = (unsigned char)(tb_khead + 1);
 }
 TB_API const char *tb_read_key(void) {
-    uint32_t f = tb_irq_save();
+    uint64_t f = tb_irq_save();
     const char *r = "";
     if (tb_ktail != tb_khead) { r = tb_ktext[(unsigned char)tb_keys[tb_ktail]]; tb_ktail = (unsigned char)(tb_ktail + 1); }
     tb_irq_restore(f);
     return r;
 }
 
-// --- страницы памяти: адрес 0 и код защищены, у стеков — пустая страница-сторож ---
-#define TB_LOW_TABLES 8
-TB_API uint32_t tb_pd[1024] __attribute__((aligned(4096)));
-TB_API uint32_t tb_pt[TB_LOW_TABLES][1024] __attribute__((aligned(4096)));
-TB_API uint32_t tb_ram_end = 0, tb_pg_next = 0, tb_pg_free = 0;
-TB_API void tb_unmap(uint32_t a) { tb_pt[a >> 22][(a >> 12) & 1023] = 0; }
-TB_API int tb_is_guard(uint32_t a) {
-    if (a >= (uint32_t)tb_stack && a < (uint32_t)tb_stack + 4096) return 1;
+// --- страницы памяти (4 уровня): нижняя память — страницы по 4 КБ (адрес 0 и код защищены,
+// у стеков — пустая страница-сторож), выше — большие по 2 МБ (куча и свободная память) ---
+#define TB_LOW_PTS 32                                 // 32 таблицы × 2 МБ = нижние 64 МБ
+#define TB_MAX_GB 64                                  // память до 64 ГБ
+TB_API uint64_t tb_pml4[512] __attribute__((aligned(4096)));
+TB_API uint64_t tb_pdpt[512] __attribute__((aligned(4096)));
+TB_API uint64_t tb_pdir[TB_MAX_GB][512] __attribute__((aligned(4096)));
+TB_API uint64_t tb_pt[TB_LOW_PTS][512] __attribute__((aligned(4096)));
+TB_API uint64_t tb_ram_end = 0, tb_pg_next = 0, tb_pg_free = 0;
+// таблицы на время загрузки: первые 4 ГБ большими страницами (их строит _start ещё в 32 битах)
+TB_API uint64_t tb_boot_pml4[512] __attribute__((aligned(4096), used));
+TB_API uint64_t tb_boot_pdpt[512] __attribute__((aligned(4096), used));
+TB_API uint64_t tb_boot_pd[4][512] __attribute__((aligned(4096), used));
+TB_API uint32_t tb_boot_magic __attribute__((used)), tb_boot_mbi __attribute__((used));
+TB_API void tb_unmap(uint64_t a) { tb_pt[a >> 21][(a >> 12) & 511] = 0; }
+TB_API int tb_is_guard(uint64_t a) {
+    if (a >= (uint64_t)(uintptr_t)tb_stack && a < (uint64_t)(uintptr_t)tb_stack + 4096) return 1;
     for (int i = 1; i < TB_NTASK; i++)
-        if (a >= (uint32_t)tb_tstacks[i] && a < (uint32_t)tb_tstacks[i] + 4096) return 1;
+        if (a >= (uint64_t)(uintptr_t)tb_tstacks[i] && a < (uint64_t)(uintptr_t)tb_tstacks[i] + 4096) return 1;
     return 0;
 }
 TB_API void tb_paging_init(void) {
-    uint32_t low = (uint32_t)tb_heap_area;
-    if (low > TB_LOW_TABLES * 0x400000u) tb_panic("ядро слишком большое для нижних страниц", low, 0);
-    if (tb_ram_end < (uint32_t)tb_kernel_end + 0x400000u) tb_panic("мало памяти: запусти qemu с -m 256", tb_ram_end, (uint32_t)tb_kernel_end);
-    for (uint32_t a = 0; a < low; a += 4096) {
-        uint32_t flags = 3;                                   // есть, можно писать
-        if (a >= (uint32_t)tb_code_start && a < (uint32_t)tb_code_end) flags = 1;   // код: только читать
-        tb_pt[a >> 22][(a >> 12) & 1023] = a | flags;
+    uint64_t low = (uint64_t)(uintptr_t)tb_heap_area;
+    uint64_t cs = (uint64_t)(uintptr_t)tb_code_start, ce = (uint64_t)(uintptr_t)tb_code_end;
+    if (low > TB_LOW_PTS * 0x200000ull) tb_panic("ядро слишком большое для нижних страниц", low, 0);
+    if (tb_ram_end < (uint64_t)(uintptr_t)tb_kernel_end + 0x400000u) tb_panic("мало памяти: запусти qemu с -m 256", tb_ram_end, (uint64_t)(uintptr_t)tb_kernel_end);
+    for (uint64_t a = 0; a < low; a += 4096) {
+        uint64_t flags = 3;                                   // есть, можно писать
+        if (a >= cs && a < ce) flags = 1;                     // код: только читать
+        tb_pt[a >> 21][(a >> 12) & 511] = a | flags;
     }
     tb_unmap(0);                                              // адрес 0: «пустая ссылка»
-    tb_unmap((uint32_t)tb_stack);                             // сторож под стеком main
-    for (int i = 1; i < TB_NTASK; i++) tb_unmap((uint32_t)tb_tstacks[i]);
-    for (uint32_t t = 0; t < low >> 22; t++) tb_pd[t] = (uint32_t)tb_pt[t] | 3;
-    // выше — большие страницы по 4 МБ: куча и свободная память (меньше промахов TLB, быстрее)
-    for (uint32_t a = low; a < tb_ram_end && a >= low; a += 0x400000u) tb_pd[a >> 22] = a | 0x83;
-    __asm__ volatile("movl %%cr4, %%eax\norl $0x10, %%eax\nmovl %%eax, %%cr4\n"
-                     "movl %0, %%cr3\n"
-                     "movl %%cr0, %%eax\norl $0x80010000, %%eax\nmovl %%eax, %%cr0\n" : : "r"(tb_pd) : "eax", "memory");
-    tb_pg_next = (uint32_t)tb_kernel_end;
+    tb_unmap((uint64_t)(uintptr_t)tb_stack);                  // сторож под стеком main
+    for (int i = 1; i < TB_NTASK; i++) tb_unmap((uint64_t)(uintptr_t)tb_tstacks[i]);
+    tb_pml4[0] = (uint64_t)(uintptr_t)tb_pdpt | 3;
+    uint64_t gbs = (tb_ram_end + (1ull << 30) - 1) >> 30;
+    if (gbs > TB_MAX_GB) gbs = TB_MAX_GB;
+    if (gbs < 1) gbs = 1;
+    for (uint64_t g = 0; g < gbs; g++) tb_pdpt[g] = (uint64_t)(uintptr_t)tb_pdir[g] | 3;
+    for (uint64_t t = 0; t < low >> 21; t++) tb_pdir[0][t] = (uint64_t)(uintptr_t)tb_pt[t] | 3;
+    for (uint64_t a = low; a < tb_ram_end; a += 0x200000ull) tb_pdir[a >> 30][(a >> 21) & 511] = a | 0x83;
+    // CR0.WP: и ядро не может писать в страницы «только читать»
+    __asm__ volatile("movq %0, %%cr3\nmovq %%cr0, %%rax\norq $0x10000, %%rax\nmovq %%rax, %%cr0\n" : : "r"(tb_pml4) : "rax", "memory");
+    tb_pg_next = (uint64_t)(uintptr_t)tb_kernel_end;
 }
 TB_API long long tb_page_new(void) {
-    uint32_t f = tb_irq_save(), p = 0;
-    if (tb_pg_free) { p = tb_pg_free; tb_pg_free = *(uint32_t *)p; }
+    uint64_t f = tb_irq_save(), p = 0;
+    if (tb_pg_free) { p = tb_pg_free; tb_pg_free = *(uint64_t *)(uintptr_t)p; }
     else if (tb_pg_next + 4096 <= tb_ram_end) { p = tb_pg_next; tb_pg_next += 4096; }
     tb_irq_restore(f);
     if (p == 0) tb_panic("свободные страницы памяти кончились", tb_ram_end, 0);
-    memset((void *)p, 0, 4096);
-    return p;
+    memset((void *)(uintptr_t)p, 0, 4096);
+    return (long long)p;
 }
 TB_API void tb_page_free(long long a) {
-    uint32_t p = (uint32_t)a;
-    if ((p & 4095) || p < (uint32_t)tb_kernel_end || p >= tb_pg_next) tb_panic("page_free: это не страница из page_new", p, 0);
-    uint32_t f = tb_irq_save();
-    *(uint32_t *)p = tb_pg_free;
+    uint64_t p = (uint64_t)a;
+    if ((p & 4095) || p < (uint64_t)(uintptr_t)tb_kernel_end || p >= tb_pg_next) tb_panic("page_free: это не страница из page_new", p, 0);
+    uint64_t f = tb_irq_save();
+    *(uint64_t *)(uintptr_t)p = tb_pg_free;
     tb_pg_free = p;
     tb_irq_restore(f);
 }
@@ -593,60 +584,61 @@ TB_API void tb_page_free(long long a) {
 TB_API const char *tb_fault_name[32] = {"деление на ноль", "отладка", "NMI", "точка останова", "переполнение",
     "выход за границы", "неизвестная команда", "нет FPU", "двойная ошибка", "", "плохой TSS", "нет сегмента",
     "ошибка стека", "нарушение защиты", "ошибка страницы", "", "ошибка дробей", "выравнивание", "проверка железа", "ошибка SIMD"};
-TB_API void tb_fault(uint32_t v, uint32_t *f) {
-    uint32_t eip = f[10];
-    if (v == 14) {
-        uint32_t a;
-        __asm__ volatile("movl %%cr2, %0" : "=r"(a));
-        if (a < 4096) tb_panic("обращение по пустому адресу (адрес 0)", a, eip);
-        if (tb_is_guard(a)) tb_panic("стек переполнен: слишком глубокая рекурсия", a, eip);
-        if ((f[9] & 2) && a >= (uint32_t)tb_code_start && a < (uint32_t)tb_code_end) tb_panic("запись в код программы", a, eip);
-        tb_panic("обращение к памяти, которой нет", a, eip);
+TB_API void tb_fault(uint64_t v, uint64_t *f) {
+    uint64_t rip = f[TB_F_RIP], a;
+    __asm__ volatile("movq %%cr2, %0" : "=r"(a));
+    if (v == 14 || v == 8) {
+        if (tb_is_guard(a)) tb_panic("стек переполнен: слишком глубокая рекурсия", a, rip);
     }
-    tb_panic(v < 20 && tb_fault_name[v][0] ? tb_fault_name[v] : "ошибка процессора", v, eip);
+    if (v == 14) {
+        if (a < 4096) tb_panic("обращение по пустому адресу (адрес 0)", a, rip);
+        if ((f[TB_F_ERR] & 2) && a >= (uint64_t)(uintptr_t)tb_code_start && a < (uint64_t)(uintptr_t)tb_code_end) tb_panic("запись в код программы", a, rip);
+        tb_panic("обращение к памяти, которой нет", a, rip);
+    }
+    if (v == 8) tb_panic("двойная ошибка процессора", a, rip);
+    tb_panic(v < 20 && tb_fault_name[v][0] ? tb_fault_name[v] : "ошибка процессора", v, rip);
 }
 
-__attribute__((noreturn)) static void tb_double_fault(void) {
-    uint32_t a;
-    __asm__ volatile("movl %%cr2, %0" : "=r"(a));
-    if (tb_is_guard(a)) tb_panic("стек переполнен: слишком глубокая рекурсия", a, 0);
-    tb_panic("двойная ошибка процессора", a, 0);
-}
-
-// все прерывания приходят сюда; ответ — стек, на который вернуться (так переключаются задачи)
-__attribute__((used)) static uint32_t tb_isr(uint32_t *f) {
-    uint32_t v = f[8];
+// все прерывания приходят сюда; ответ — кадр, в который вернуться (так переключаются задачи)
+__attribute__((used)) static uint64_t *tb_isr(uint64_t *f) {
+    uint64_t v = f[TB_F_VEC];
     if (v < 32) tb_fault(v, f);
-    if (v == 48) return tb_schedule((uint32_t)f);
+    if (v == 48) return tb_schedule(f);
     int irq = (int)v - 32;
     if (irq == 0) tb_ms++;
     if (irq == 1) tb_key_irq();
     if (tb_irq_fn[irq]) {
-        // своя функция прерывания: со своими «переменными потока», дроби задачи не трогает
-        unsigned char save_tls[TB_TLS_MAX], save_fpu[108];
-        uint32_t n = tb_tls_size();
+        // своя функция прерывания: со своими «переменными потока»
+        unsigned char save_tls[TB_TLS_MAX];
+        uint64_t n = tb_tls_size();
         memcpy(save_tls, tb_tls_start, n);
         memcpy(tb_tls_start, tb_irq_tls, n);
-        __asm__ volatile("fnsave %0" : "=m"(save_fpu));
         tb_in_irq = 1;
         tb_irq_fn[irq]();
         tb_in_irq = 0;
-        __asm__ volatile("frstor %0" : : "m"(save_fpu));
         memcpy(tb_irq_tls, tb_tls_start, n);
         memcpy(tb_tls_start, save_tls, n);
     }
     if (irq >= 8) tb_outb(0xA0, 0x20);
     tb_outb(0x20, 0x20);
-    if (irq == 0 && tb_nlive > 1 && --tb_slice <= 0) return tb_schedule((uint32_t)f);
-    return (uint32_t)f;
+    if (irq == 0 && tb_nlive > 1 && --tb_slice <= 0) return tb_schedule(f);
+    return f;
 }
 
-// загрузка: заголовок multiboot (флаг 2: «скажи, сколько памяти»), свой стек, потом tb_kstart
+TB_API void tb_idt_set(int v, uint64_t a, int ist) {
+    tb_idt[2 * v] = (a & 0xFFFFu) | (0x08ull << 16) | ((uint64_t)ist << 32) | (0x8Eull << 40) | (((a >> 16) & 0xFFFFu) << 48);
+    tb_idt[2 * v + 1] = a >> 32;
+}
+
+// загрузка: заголовок multiboot (флаг 2: «скажи, сколько памяти»). _start работает ещё в 32 битах:
+// строит таблицы страниц на первые 4 ГБ, включает режим 64 бит и прыгает в tb_kstart
 __attribute__((section(".multiboot"), used, aligned(4)))
 TB_API const unsigned int tb_multiboot[3] = {0x1BADB002u, 2u, (unsigned int)-(0x1BADB002 + 2)};
-__attribute__((used)) static void tb_kstart(uint32_t magic, uint32_t *mbi) {
+__attribute__((used)) static void tb_kstart(void) {
+    uint32_t magic = tb_boot_magic;
+    uint32_t *mbi = (uint32_t *)(uintptr_t)tb_boot_mbi;
     __asm__ volatile("fninit");
-    __asm__ volatile("fnsave %0\nfninit" : "=m"(tb_fpu_init));
+    __asm__ volatile("fxsave %0" : "=m"(tb_fpu_init));
     // COM1: 115200 бод, 8 бит
     tb_outb(0x3F8 + 1, 0x00); tb_outb(0x3F8 + 3, 0x80); tb_outb(0x3F8 + 0, 0x01);
     tb_outb(0x3F8 + 1, 0x00); tb_outb(0x3F8 + 3, 0x03); tb_outb(0x3F8 + 2, 0xC7);
@@ -654,33 +646,28 @@ __attribute__((used)) static void tb_kstart(uint32_t magic, uint32_t *mbi) {
     for (int i = 0; i < 80 * 25; i++) tb_vga[i] = (unsigned short)(tb_vcolor << 8 | ' ');
     tb_outb(0x3D4, 0x0A); tb_outb(0x3D5, 0x20);  // мигающий курсор не нужен
     tb_ram_end = 128u << 20;
-    if (magic == 0x2BADB002u && (mbi[0] & 1)) tb_ram_end = (1u << 20) + mbi[2] * 1024u;
-    if (tb_ram_end > 0xFFC00000u || tb_ram_end < (1u << 20)) tb_ram_end = 0xFFC00000u;
+    if (magic == 0x2BADB002u && (mbi[0] & 1)) tb_ram_end = (1ull << 20) + (uint64_t)mbi[2] * 1024u;
+    if (tb_ram_end < (1u << 20)) tb_ram_end = 128u << 20;
     if (tb_tls_size() > TB_TLS_MAX) tb_panic("переменных потока больше, чем место для них", tb_tls_size(), 0);
     memcpy(tb_tls_zero, tb_tls_start, tb_tls_size());
     memcpy(tb_irq_tls, tb_tls_start, tb_tls_size());
     for (int i = 0; i < 256; i++) { tb_ktext[i][0] = (char)i; tb_ktext[i][1] = 0; }
-    // сегменты
-    tb_gdt[3] = tb_tss_desc((uint32_t)tb_tss_main);
-    tb_gdt[4] = tb_tss_desc((uint32_t)tb_tss_df);
-    tb_tss_df[7] = (uint32_t)tb_pd;                        // cr3
-    tb_tss_df[8] = (uint32_t)tb_double_fault;              // eip
-    tb_tss_df[9] = 0x2;                                    // eflags
-    tb_tss_df[14] = (uint32_t)(tb_df_stack + sizeof tb_df_stack);   // esp
-    tb_tss_df[19] = 0x08;                                  // cs
-    tb_tss_df[18] = tb_tss_df[20] = tb_tss_df[21] = tb_tss_df[22] = tb_tss_df[23] = 0x10;   // es ss ds fs gs
-    tb_gdtr.lim = sizeof tb_gdt - 1; tb_gdtr.base = (uint32_t)tb_gdt;
-    __asm__ volatile("lgdt %0\nljmp $0x08, $1f\n1:\nmovw $0x10, %%ax\nmovw %%ax, %%ds\nmovw %%ax, %%es\n"
-                     "movw %%ax, %%fs\nmovw %%ax, %%gs\nmovw %%ax, %%ss\n" : : "m"(tb_gdtr) : "eax", "memory");
-    // прерывания
-    for (int v = 0; v < 49; v++) {
-        uint32_t a = (uint32_t)tb_isr_base + 16u * (uint32_t)v;
-        tb_idt[v] = (a & 0xFFFFu) | (0x08ull << 16) | (0x8Eull << 40) | ((uint64_t)(a >> 16) << 48);
-    }
-    tb_idt[8] = (0x20ull << 16) | (0x85ull << 40);         // двойная ошибка → своя задача
-    tb_idtr.lim = sizeof tb_idt - 1; tb_idtr.base = (uint32_t)tb_idt;
-    __asm__ volatile("lidt %0" : : "m"(tb_idtr));
+    // сегменты и TSS (ist1 — стек для двойной ошибки)
+    uint64_t tss = (uint64_t)(uintptr_t)&tb_tss;
+    tb_tss.ist[0] = (uint64_t)(uintptr_t)(tb_df_stack + sizeof tb_df_stack);
+    tb_tss.iomap = sizeof tb_tss;
+    tb_gdt[3] = (sizeof tb_tss - 1) | ((tss & 0xFFFFFFull) << 16) | (0x89ull << 40) | (((tss >> 24) & 0xFF) << 56);
+    tb_gdt[4] = tss >> 32;
+    tb_gdtr.lim = sizeof tb_gdt - 1; tb_gdtr.base = (uint64_t)(uintptr_t)tb_gdt;
+    __asm__ volatile("lgdt %0\n"
+                     "pushq $0x08\nleaq 1f(%%rip), %%rax\npushq %%rax\nlretq\n1:\n"
+                     "movw $0x10, %%ax\nmovw %%ax, %%ds\nmovw %%ax, %%es\nmovw %%ax, %%fs\nmovw %%ax, %%gs\nmovw %%ax, %%ss\n"
+                     : : "m"(tb_gdtr) : "rax", "memory");
     __asm__ volatile("ltr %w0" : : "r"(0x18));
+    // прерывания
+    for (int v = 0; v < 49; v++) tb_idt_set(v, (uint64_t)(uintptr_t)tb_isr_base + 16u * (uint64_t)v, v == 8 ? 1 : 0);
+    tb_idtr.lim = sizeof tb_idt - 1; tb_idtr.base = (uint64_t)(uintptr_t)tb_idt;
+    __asm__ volatile("lidt %0" : : "m"(tb_idtr));
     // контроллер прерываний: железо 0..15 → 32..47; таймер и клавиатура открыты
     tb_outb(0x20, 0x11); tb_outb(0xA0, 0x11); tb_outb(0x21, 0x20); tb_outb(0xA1, 0x28);
     tb_outb(0x21, 0x04); tb_outb(0xA1, 0x02); tb_outb(0x21, 0x01); tb_outb(0xA1, 0x01);
@@ -694,7 +681,24 @@ __attribute__((used)) static void tb_kstart(uint32_t magic, uint32_t *mbi) {
     tb_kmain();
     exit(0);
 }
-__asm__(".text\n.global _start\n_start:\n  movl $tb_stack + 1048576, %esp\n  pushl %ebx\n  pushl %eax\n  call tb_kstart\n1: cli\n  hlt\n  jmp 1b\n");
+// 32 бита → 64 бита: таблицы на 4 ГБ (страницы по 2 МБ), PAE, SSE, режим long, свой GDT
+__asm__(".section .text.boot,\"ax\"\n.code32\n.global _start\n_start:\n"
+        "  cli\n  movl %eax, tb_boot_magic\n  movl %ebx, tb_boot_mbi\n"
+        "  movl $tb_boot_pdpt, %eax\n  orl $3, %eax\n  movl %eax, tb_boot_pml4\n"
+        "  movl $tb_boot_pd, %eax\n  orl $3, %eax\n  movl $tb_boot_pdpt, %edi\n  movl $4, %ecx\n"
+        "1:\n  movl %eax, (%edi)\n  addl $4096, %eax\n  addl $8, %edi\n  loop 1b\n"
+        "  movl $tb_boot_pd, %edi\n  xorl %eax, %eax\n  movl $2048, %ecx\n"
+        "2:\n  movl %eax, %edx\n  orl $0x83, %edx\n  movl %edx, (%edi)\n  movl $0, 4(%edi)\n  addl $0x200000, %eax\n  addl $8, %edi\n  loop 2b\n"
+        "  movl $tb_boot_pml4, %eax\n  movl %eax, %cr3\n"
+        "  movl %cr4, %eax\n  orl $0x620, %eax\n  movl %eax, %cr4\n"
+        "  movl $0xC0000080, %ecx\n  rdmsr\n  orl $0x100, %eax\n  wrmsr\n"
+        "  movl %cr0, %eax\n  andl $0xFFFFFFFB, %eax\n  orl $0x80000002, %eax\n  movl %eax, %cr0\n"
+        "  lgdt tb_boot_gdtr\n  ljmp $0x08, $tb_start64\n"
+        ".code64\ntb_start64:\n"
+        "  movw $0x10, %ax\n  movw %ax, %ds\n  movw %ax, %es\n  movw %ax, %ss\n  movw %ax, %fs\n  movw %ax, %gs\n"
+        "  movq $tb_stack + 1048576, %rsp\n  call tb_kstart\n3:\n  cli\n  hlt\n  jmp 3b\n"
+        ".section .rodata.boot,\"a\"\n.balign 16\ntb_boot_gdt:\n  .quad 0, 0x00AF9A000000FFFF, 0x00CF92000000FFFF\n"
+        "tb_boot_gdtr:\n  .word 23\n  .long tb_boot_gdt\n.text\n");
 #else
 #include <stdio.h>
 #include <stdlib.h>
@@ -2744,8 +2748,8 @@ TB_INL long long tb_shr(long long a, long long n) { return (long long)((unsigned
 // чтение и запись по адресу: volatile — компилятор C не выкинет и не переставит их
 // shared x += n без замка. В ядре без ОС одно ядро процессора: хватает выключить прерывания
 #ifdef TB_BARE
-static inline void tb_atomic_addi(volatile long long *p, long long v) { uint32_t f = tb_irq_save(); *p += v; tb_irq_restore(f); }
-static inline void tb_atomic_addd(volatile double *p, double v) { uint32_t f = tb_irq_save(); *p += v; tb_irq_restore(f); }
+static inline void tb_atomic_addi(volatile long long *p, long long v) { uint64_t f = tb_irq_save(); *p += v; tb_irq_restore(f); }
+static inline void tb_atomic_addd(volatile double *p, double v) { uint64_t f = tb_irq_save(); *p += v; tb_irq_restore(f); }
 #else
 static inline void tb_atomic_addi(volatile long long *p, long long v) { __atomic_fetch_add(p, v, __ATOMIC_SEQ_CST); }
 // дробь: сравнить и заменить, пока никто не успел поменять
@@ -3133,11 +3137,11 @@ TB_INL void tb_pout32(long long p, long long v) { tb_outl((unsigned short)p, (un
 // замок в ядре: одна команда xchg + прерывания выключены, пока замок у нас
 // (так прерывание не застрянет на замке, который держит прерванная задача)
 TB_INL unsigned long tb_lock_take(int *l) {
-    uint32_t f = tb_irq_save();
+    uint64_t f = tb_irq_save();
     while (__atomic_exchange_n(l, 1, __ATOMIC_ACQUIRE)) { tb_irq_restore(f); tb_yield(); f = tb_irq_save(); }
     return f;
 }
-TB_INL void tb_lock_give(int *l, unsigned long f) { __atomic_store_n(l, 0, __ATOMIC_RELEASE); tb_irq_restore((uint32_t)f); }
+TB_INL void tb_lock_give(int *l, unsigned long f) { __atomic_store_n(l, 0, __ATOMIC_RELEASE); tb_irq_restore((uint64_t)f); }
 #else
 // замок в программе: атомарный обмен; занято — сначала коротко ждём, потом уступаем ядро
 TB_INL unsigned long tb_lock_take(int *l) {
@@ -8018,7 +8022,7 @@ TB_API void tb_listener(double x, double y, double z, double lx, double ly, doub
     pthread_mutex_unlock(&tb_slock);
 }
 #endif
-#if defined(TB_LL) && !defined(TB_BARE)
+#if defined(TB_LL)
 #define TB_X(r, n, p, a) r tb_x_##n p { return tb_##n a; }
 #define TB_XV(n, p, a) void tb_x_##n p { tb_##n a; }
 TB_XV(ps, (const char *s), (s))
@@ -8090,11 +8094,18 @@ TB_X(void *, gc_alloc, (long long n), (n))
 TB_X(void *, mem, (long long n), (n))
 TB_X(void *, resize, (void *p, long long a, long long b), (p, a, b))
 TB_XV(gc_root, (void *p, long long n), (p, n))
+#ifndef TB_BARE
 TB_XV(call_main, (void (*f)(void)), (f))
+#endif
 TB_XV(task_start, (tb_task *t, void *(*run)(void *), void *arg), (t, run, arg))
 TB_X(void *, wait, (tb_task *t), (t))
 void tb_x_show_i(long long x) { printf("%lld", x); }
 void tb_x_show_d(double x) { printf("%g", x); }
+#ifdef TB_BARE
+// ядро: начало tb_kmain из .ll и прерывания
+void tb_x_kstart(void) { tb_args = tb_list_new(sizeof(const char *)); }
+void tb_x_irq_set(int v, void (*fn)(void)) { tb_irq_set(v, fn); }
+#else
 void tb_x_start(int argc, char **argv, void *top) {
     tb_guard_init();
     tb_gc_init(top);
@@ -8103,6 +8114,7 @@ void tb_x_start(int argc, char **argv, void *top) {
     tb_args = tb_list_new(sizeof(const char *));
     for (int i = 1; i < argc; i++) *(const char **)tb_grow(tb_args) = argv[i];
 }
+#endif
 // встроенные функции языка: у каждой в конце номер строки (для сообщений об ошибке)
 #define TB_B(r, n, p, a) r tb_xb_##n p { return a; }
 #define TB_BV(n, p, a) void tb_xb_##n p { a; }
@@ -8126,15 +8138,33 @@ TB_B(_Bool, ends_with, (const char *s, const char *p, int line), tb_ends(s, p))
 TB_B(long long, run, (const char *s, int line), tb_run(s))
 TB_BV(exit, (long long x, int line), tb_exit(x))
 TB_B(_Bool, file_exists, (const char *s, int line), tb_file_exists(s))
+#ifndef TB_BARE
 TB_B(tb_list *, list_dir, (const char *s, int line), tb_list_dir(s))
+#endif
+#ifndef TB_BARE
 TB_B(_Bool, is_folder, (const char *s, int line), tb_is_folder(s))
+#endif
+#ifndef TB_BARE
 TB_BV(make_folder, (const char *s, int line), tb_make_folder(s))
+#endif
+#ifndef TB_BARE
 TB_BV(move, (const char *a, const char *b, int line), tb_move(a, b))
+#endif
+#ifndef TB_BARE
 TB_BV(remove, (const char *s, int line), tb_remove(s))
+#endif
+#ifndef TB_BARE
 TB_B(const char *, env, (const char *s, int line), tb_env(s))
+#endif
+#ifndef TB_BARE
 TB_B(long long, file_size, (const char *s, int line), tb_file_size(s))
+#endif
+#ifndef TB_BARE
 TB_B(long long, rgb, (long long r, long long g, long long b, int line), tb_rgb(r, g, b))
+#endif
+#ifndef TB_BARE
 TB_B(long long, random, (long long a, long long b, int line), tb_random(a, b))
+#endif
 TB_B(long long, bit_and, (long long a, long long b, int line), tb_band(a, b))
 TB_B(long long, bit_or, (long long a, long long b, int line), tb_bor(a, b))
 TB_B(long long, bit_xor, (long long a, long long b, int line), tb_bxor(a, b))
@@ -8142,12 +8172,24 @@ TB_B(long long, bit_not, (long long a, int line), tb_bnot(a))
 TB_B(long long, shift_left, (long long a, long long b, int line), tb_shl(a, b))
 TB_B(long long, shift_right, (long long a, long long b, int line), tb_shr(a, b))
 TB_BV(wait_ms, (long long n, int line), tb_wait_ms(n))
+#ifndef TB_BARE
 TB_B(const char *, http_get, (const char *s, int line), tb_http_get(s))
+#endif
+#ifndef TB_BARE
 TB_B(const char *, json_get, (const char *s, const char *p, int line), tb_json_get(s, p))
+#endif
+#ifndef TB_BARE
 TB_B(const char *, json_text, (const char *s, int line), tb_json_text(s))
+#endif
+#ifndef TB_BARE
 TB_B(const char *, date_now, (int line), tb_date_now())
+#endif
+#ifndef TB_BARE
 TB_B(long long, unix_time, (int line), tb_unix_time())
+#endif
+#ifndef TB_BARE
 TB_B(long long, time_ms, (int line), tb_time_ms())
+#endif
 TB_B(const char *, input, (int line), tb_input())
 TB_B(tb_list *, args, (int line), tb_args)
 TB_BV(sort_int, (tb_list *l, int line), tb_sort_list(l, tb_cmp_int))
@@ -8174,7 +8216,9 @@ TB_B(long long, zone_take, (long long z, long long n, int line), tb_zone_take(z,
 TB_BV(zone_clear, (long long z, int line), tb_zone_clear(z, line))
 TB_BV(zone_free, (long long z, int line), tb_zone_free(z, line))
 TB_B(long long, zone_used, (long long z, int line), tb_zone_used(z, line))
+#ifndef TB_BARE
 TB_B(long long, syscall, (long long n, long long a, long long b, long long c, long long d, long long e, long long f, int line), tb_syscall(n, a, b, c, d, e, f, line))
+#endif
 TB_BV(shape_set, (long long a, long long k, long long x, int line), tb_shape_set(a, k, x, line))
 TB_B(long long, shape_at, (long long a, int line), tb_shape_at(a))
 TB_B(long long, abs_i, (long long x, int line), tb_absi(x))
@@ -8183,6 +8227,21 @@ TB_B(long long, min_i, (long long a, long long b, int line), tb_mini(a, b))
 TB_B(long long, max_i, (long long a, long long b, int line), tb_maxi(a, b))
 TB_B(double, min_d, (double a, double b, int line), tb_mind(a, b))
 TB_B(double, max_d, (double a, double b, int line), tb_maxd(a, b))
+#ifdef TB_BARE
+TB_B(long long, port_in8, (long long p, int line), tb_pin8(p))
+TB_B(long long, port_in16, (long long p, int line), tb_pin16(p))
+TB_B(long long, port_in32, (long long p, int line), tb_pin32(p))
+TB_BV(port_out8, (long long p, long long v, int line), tb_pout8(p, v))
+TB_BV(port_out16, (long long p, long long v, int line), tb_pout16(p, v))
+TB_BV(port_out32, (long long p, long long v, int line), tb_pout32(p, v))
+TB_B(long long, page_new, (int line), tb_page_new())
+TB_BV(page_free, (long long a, int line), tb_page_free(a))
+TB_BV(interrupts_on, (int line), tb_irq_on())
+TB_BV(interrupts_off, (int line), tb_irq_off())
+TB_B(long long, uptime_ms, (int line), tb_uptime_ms())
+TB_B(const char *, read_key, (int line), tb_read_key())
+TB_BV(yield, (int line), tb_yield())
+#endif
 #ifdef TB_SND
 TB_B(long long, load_sound, (const char *s, int line), tb_load_sound(s))
 TB_B(long long, play_sound, (long long s, int line), tb_play_sound(s))

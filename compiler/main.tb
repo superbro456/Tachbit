@@ -426,51 +426,86 @@ func build_lib(c: Comp, path: text, exe: text)
     return 0
 
 // режим «без ОС»: файл.tb → ядро .elf, которое грузит QEMU (или GRUB) без всякой ОС
+// библиотека ядра (runtime.h с TB_BARE) в LLVM (.bc) для x86-64 без ОС; лежит в ~/.cache/tachbit
+func llvm_lib_bare(bin: text) gives lib: text, target: text, cpu: text
+    dir = env("HOME") + "/.cache/tachbit"
+    src = runtime_text()
+    base = dir + "/rt-" + text_hash(src) + "-" + len(src) + "-bare64"
+    lib = base + ".bc"
+    tpath = base + ".target"
+    if not file_exists(lib) or not file_exists(tpath)
+        if run("mkdir -p " + quote(dir)) != 0
+            lib = ""
+            return
+        write_file(base + ".c", src) else err
+            lib = ""
+            return
+        cl = "c=" + quote(bin + "/clang") + "; [ -x \"$c\" ] || c=clang; "
+        flags = " --target=x86_64-unknown-none-elf -ffreestanding -fno-builtin -nostdlib -mno-red-zone -fno-stack-protector -fno-pic -fno-asynchronous-unwind-tables -fno-unwind-tables -DTB_BARE -DTB_LL"
+        cmd = cl + "\"$c\" -O2 -w -c -emit-llvm" + flags + " -x c " + quote(base + ".c") + " -o " + quote(base + ".tmp.bc") + " 2> " + quote(base + ".log")
+        cmd += " && " + quote(bin + "/llvm-dis") + " " + quote(base + ".tmp.bc") + " -o - | grep -E '^target |^attributes #0 ' > " + quote(base + ".tmp.target")
+        cmd += " && mv " + quote(base + ".tmp.target") + " " + quote(tpath) + " && mv " + quote(base + ".tmp.bc") + " " + quote(lib)
+        ok = run(cmd) == 0
+        remove(base + ".c") else err
+            ignored = err
+        if not ok
+            print("библиотека ядра не собралась (это ошибка Tachbit): " + base + ".log")
+            lib = ""
+            return
+    target, cpu = ll_probe_parse(read_file(tpath) or "")
+
+// ядро без ОС: вся программа в .ll (никакого C от компилятора), библиотека ядра в .bc,
+// llvm-link → opt → llc (x86-64) → свой компоновщик (Python) или ld.lld
 func build_bare(c: Comp, path: text, exe: text)
     if on_windows()
         print("ядро без ОС пока собирается только на Linux и Mac")
         return 1
     c.bare = true
-    c_path = exe + ".c"
-    ld_path = exe + ".ld"
+    c.ll = true
     elf = exe + ".elf"
     program = load_program(c, path)
     check(c, program)
-    emit_c(c, program)
-    write_file(c_path, join(c.out, "")) else err
-        print("не могу записать файл: " + c_path)
+    ll_pick(c, program)
+    why = ll_pure_why(c, program)
+    if why != ""
+        print("ядро пока не собрать (это ошибка Tachbit, а не твоя): в LLVM не переводится " + why)
         return 1
-    // код и константы — только для чтения; «переменные потока» подряд; куча — с границы 4 МБ
-    script = "ENTRY(_start)\nSECTIONS {\n  . = 1M;\n  tb_code_start = .;\n  .text : { KEEP(*(.multiboot)) *(.text*) }\n"
-    script = script + "  .rodata : { *(.rodata*) }\n  . = ALIGN(4096);\n  tb_code_end = .;\n  .data : { *(.data*) }\n"
-    script = script + "  .tbtls : { tb_tls_start = .; KEEP(*(.tbtls)) tb_tls_end = .; }\n  .bss : { *(COMMON) *(.bss*) }\n"
-    script = script + "  . = ALIGN(0x400000);\n  tb_heap_area = .;\n  .tbheap (NOLOAD) : { *(.tbheap) }\n  . = ALIGN(4096);\n  tb_kernel_end = .;\n}\n"
-    write_file(ld_path, script) else err
-        print("не могу записать файл: " + ld_path)
+    c.ll_pure = true
+    bin = llvm_bin(exe + ".llvmbin")
+    if bin == ""
+        print("для ядра нужны инструменты LLVM (clang, opt, llc, llvm-link): apt install llvm clang или brew install llvm")
         return 1
-    flags = " -ffreestanding -nostdlib -fno-pie -fno-stack-protector -fno-builtin -fno-asynchronous-unwind-tables -O2 -march=i686 -mno-sse -mno-mmx -w -c "
-    o_path = quote(exe + ".o")
-    // clang умеет собирать для чужого процессора сам; иначе gcc -m32
-    cc = "if command -v clang >/dev/null 2>&1; then clang --target=i686-elf" + flags + quote(c_path) + " -o " + o_path
-    cc = cc + "; else gcc -m32" + flags + quote(c_path) + " -o " + o_path + "; fi"
-    if run(cc) != 0
-        print("компилятор C не справился (это ошибка Tachbit, а не твоя): " + c_path)
+    lib, target, cpu = llvm_lib_bare(bin)
+    if lib == ""
         return 1
-    // свой компоновщик (на Python, он есть почти везде); если Python нет — ld.lld
+    ll_path = exe + ".ll"
+    write_file(ll_path, emit_ll(c, program, target, cpu)) else err
+        print("не могу записать файл: " + ll_path)
+        return 1
+    bc = exe + ".bc"
+    o_path = exe + ".o"
+    log = exe + ".llvm.log"
+    cmd = quote(bin + "/llvm-link") + " " + quote(ll_path) + " " + quote(lib) + " -o " + quote(bc)
+    cmd += " && " + quote(bin + "/opt") + " -passes='default<O2>' " + quote(bc) + " -o " + quote(bc)
+    cmd += " && " + quote(bin + "/llc") + " -O2 -filetype=obj -mtriple=x86_64-unknown-none-elf -relocation-model=static " + quote(bc) + " -o " + quote(o_path)
+    if run(cmd + " 2> " + quote(log)) != 0
+        print("LLVM не справился (это ошибка Tachbit, а не твоя): " + log)
+        return 1
+    // свой компоновщик (на Python, он есть почти везде)
     py_path = exe + ".link.py"
     write_file(py_path, runtime_text.linker_text()) else err
         print("не могу записать файл: " + py_path)
         return 1
-    ld_cmd = "if command -v python3 >/dev/null 2>&1; then python3 " + quote(py_path) + " " + o_path + " -o " + quote(elf)
-    ld_cmd = ld_cmd + "; elif command -v ld.lld >/dev/null 2>&1; then ld.lld -m elf_i386 -T " + quote(ld_path) + " -o " + quote(elf) + " " + o_path
-    ld_cmd = ld_cmd + "; else echo 'нужен python3 или ld.lld'; false; fi"
-    if run(ld_cmd) != 0
-        print("не получилось собрать ядро из " + c_path)
+    ld_cmd = "command -v python3 >/dev/null 2>&1 || { echo 'нужен python3'; false; } && python3 " + quote(py_path) + " " + quote(o_path) + " -o " + quote(elf)
+    ok = run(ld_cmd) == 0
+    each f in [py_path, o_path, bc, log, ll_path]
+        remove(f) else err
+            ignored = err
+    if not ok
+        print("не получилось собрать ядро из " + path)
         return 1
-    removed = run("rm -f " + quote(py_path))
-    cleaned = run("rm -f " + o_path + " " + quote(ld_path))
     print("готово ядро: " + elf)
-    print("запуск:  qemu-system-i386 -kernel " + quote(elf))
+    print("запуск:  qemu-system-x86_64 -kernel " + quote(elf))
     return 0
 
 func usage()
