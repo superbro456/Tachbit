@@ -1,0 +1,43 @@
+// Омниум: клетка падает одна — ядро и другие клетки живут, запустивший узнаёт через .crashed
+func divide(a: int, b: int) gives r: int
+    return a / b
+
+func deep(n: int) gives r: int
+    if n == 0
+        return 0
+    if n % 2 == 0
+        return deep(n - 1) * 3 + 1
+    return deep(n - 1) - n
+
+func bad_list(i: int) gives r: int
+    xs = [1, 2, 3]
+    return xs[i]
+
+func null_read(x: int) gives r: int
+    danger
+        r = read32(0)
+
+func fine(n: int) gives r: int
+    count i from 1 to n
+        r += i
+
+func main()
+    a = background divide(10, 0)
+    b = background fine(100)
+    c = background bad_list(7)
+    d = background deep(100000000)
+    e = background null_read(1)
+    // сначала дождаться всех: сообщения о падениях идут сразу, как клетка упала
+    fa = a.crashed
+    fb = b.crashed
+    fc = c.crashed
+    fd = d.crashed
+    fe = e.crashed
+    print("деление упало: " + fa)
+    print("целая клетка: " + fb + ", ответ " + b.wait)
+    print("список упал: " + fc)
+    print("стек упал: " + fd)
+    print("пустой адрес упал: " + fe)
+    // после падений можно запускать новые клетки
+    f = background fine(10)
+    print("новая клетка: " + f.wait)

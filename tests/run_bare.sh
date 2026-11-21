@@ -32,6 +32,9 @@ for f in tests/ok/*.tb; do
     got=$(run_kernel "$work/$(basename "$f")")
     if [ "$got" = "$(cat "${f%.tb}.out")" ]; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "не прошёл (как ядро): $f"; fi
 done
+# Омниум (omnium/main.tb): службы и клетки на каналах; клавиатуру никто не трогает — эхо пустое
+got=$(run_kernel omnium/main.tb)
+if [ "$got" = "$(cat omnium/main.out)" ]; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "не прошёл: omnium/main.tb"; fi
 rm -rf "$work"
 echo "ядра: прошло $pass, не прошло $fail"
 [ $fail -eq 0 ]

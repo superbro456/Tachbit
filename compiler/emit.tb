@@ -708,6 +708,10 @@ func emit_expr(c: Comp, n: Node)
             put(c, ", ")
             emit_expr(c, n.kids[1])
             put(c, ", sizeof(" + t + "), " + n.line + "))")
+    else if k == "field" and kind_of(c, n.kids[0].ty) == "task" and n.name == "crashed"
+        put(c, "tb_crashed(")
+        emit_expr(c, n.kids[0])
+        put(c, ")")
     else if k == "field" and kind_of(c, n.kids[0].ty) == "task"
         rt = c.types[n.kids[0].ty].elem
         if rt == 0

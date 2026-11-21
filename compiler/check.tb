@@ -398,8 +398,10 @@ func check_move(c: Comp, value: Node, p: Node)
     var = c.vars[v]
     t = var.type
     ok = (is_list(c, t) and is_scalar(c, c.types[t].elem)) or (is_dict(c, t) and is_scalar(c, c.types[t].elem))
+    // список каналов тоже: канал и так можно держать из нескольких мест (так службе отдают каналы ответа)
+    ok = ok or ((is_list(c, t) or is_dict(c, t)) and kind_of(c, c.types[t].elem) == "channel")
     if not ok
-        error_at(c, value.line, "через move пока отдают список или dict из int, dec, bool или text: obj внутри могли бы быть видны ещё откуда-то", value.name)
+        error_at(c, value.line, "через move пока отдают список или dict из int, dec, bool, text или channel: obj внутри могли бы быть видны ещё откуда-то", value.name)
     if var.is_link or var.pno > 0 or v < c.n_globals
         error_at(c, value.line, "через move отдают только свою переменную, созданную в этой функции (не параметр и не ярлык)", value.name)
     if var.src1 > 0 or var.escaped
@@ -1644,10 +1646,13 @@ func check_expr(c: Comp, n: Node) gives r: int
             t = c.types[base].elem
         else
             error_at(c, n.line, "[номер] берут у списка или текста", "")
-    else if k == "field" and n.name == "wait" and kind_of(c, check_value(c, n.kids[0])) == "task"
+    else if k == "field" and (n.name == "wait" or n.name == "crashed") and kind_of(c, check_value(c, n.kids[0])) == "task"
         if c.par_base >= 0
-            error_at(c, n.line, "внутри " + loop_word(c) + " .wait нельзя: забери готовое до цикла или после", "")
+            error_at(c, n.line, "внутри " + loop_word(c) + " ." + n.name + " нельзя: забери готовое до цикла или после", "")
         t = c.types[n.kids[0].ty].elem
+        // a.crashed: дождаться задачи и узнать, упала ли она (в ядре клетка падает одна)
+        if n.name == "crashed"
+            t = 3
     else if k == "background"
         t = check_background(c, n)
     else if k == "field" and n.kids[0].kind == "name" and find_var(c, n.kids[0].name) < 0 and find_enum(c, n.kids[0].name) >= 0

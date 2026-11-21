@@ -1,0 +1,8 @@
+// .crashed: в обычной программе задача не падает отдельно (падение роняет программу) — тут всегда false
+func work(n: int) gives r: int
+    count i from 1 to n
+        r += i
+
+func main()
+    a = background work(10)
+    print("упала: " + a.crashed + ", ответ " + a.wait)

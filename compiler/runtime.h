@@ -467,6 +467,11 @@ TB_API void tb_task_start(tb_task *t, void *(*run)(void *), void *arg) {
     tb_nlive++;
     tb_irq_restore(f);
 }
+// a.crashed: задача упала (в ядре клетка падает одна; в обычной программе падает вся программа)
+TB_API _Bool tb_crashed(tb_task *t) {
+    while (!t->done) tb_yield();
+    return t->done == 2;
+}
 // a.wait: пока задача работает, отдаём ход другим
 TB_API void *tb_wait(tb_task *t) {
     if (tb_in_irq && !t->done) tb_panic("wait внутри прерывания нельзя", 0, 0);
@@ -584,25 +589,45 @@ TB_API void tb_page_free(long long a) {
 TB_API const char *tb_fault_name[32] = {"деление на ноль", "отладка", "NMI", "точка останова", "переполнение",
     "выход за границы", "неизвестная команда", "нет FPU", "двойная ошибка", "", "плохой TSS", "нет сегмента",
     "ошибка стека", "нарушение защиты", "ошибка страницы", "", "ошибка дробей", "выравнивание", "проверка железа", "ошибка SIMD"};
-TB_API void tb_fault(uint64_t v, uint64_t *f) {
+// клетка (задача background) упала: только она и заканчивается, ядро и другие клетки живут.
+// Тот, кто её запустил, узнаёт это из .crashed (done == 2). Main и прерывание так не умеют:
+// их падение останавливает ядро
+TB_API int tb_cell_can_fall(void) { return !tb_in_irq && tb_cur != 0; }
+TB_API void tb_cell_mark(const char *what, int line) {
+    tb_kslot *s = &tb_slots[tb_cur];
+    char buf[200];
+    if (line > 0) snprintf(buf, sizeof buf, "*** клетка %d упала: строка %d: %s\n", tb_cur, line, what);
+    else snprintf(buf, sizeof buf, "*** клетка %d упала: %s\n", tb_cur, what);
+    fputs(buf, stderr);
+    s->t->done = 2;
+    s->done = 1;
+}
+__attribute__((noreturn)) TB_API void tb_cell_fall(const char *what, int line) {
+    __asm__ volatile("cli");
+    tb_cell_mark(what, line);
+    for (;;) __asm__ volatile("int $48");
+}
+TB_API uint64_t *tb_fault(uint64_t v, uint64_t *f) {
     uint64_t rip = f[TB_F_RIP], a;
+    const char *what;
     __asm__ volatile("movq %%cr2, %0" : "=r"(a));
-    if (v == 14 || v == 8) {
-        if (tb_is_guard(a)) tb_panic("стек переполнен: слишком глубокая рекурсия", a, rip);
+    if ((v == 14 || v == 8) && tb_is_guard(a)) what = "стек переполнен: слишком глубокая рекурсия";
+    else if (v == 14 && a < 4096) what = "обращение по пустому адресу (адрес 0)";
+    else if (v == 14 && (f[TB_F_ERR] & 2) && a >= (uint64_t)(uintptr_t)tb_code_start && a < (uint64_t)(uintptr_t)tb_code_end) what = "запись в код программы";
+    else if (v == 14) what = "обращение к памяти, которой нет";
+    else if (v == 8) what = "двойная ошибка процессора";
+    else what = v < 20 && tb_fault_name[v][0] ? tb_fault_name[v] : "ошибка процессора";
+    if (tb_cell_can_fall()) {
+        tb_cell_mark(what, 0);
+        return tb_schedule(f);
     }
-    if (v == 14) {
-        if (a < 4096) tb_panic("обращение по пустому адресу (адрес 0)", a, rip);
-        if ((f[TB_F_ERR] & 2) && a >= (uint64_t)(uintptr_t)tb_code_start && a < (uint64_t)(uintptr_t)tb_code_end) tb_panic("запись в код программы", a, rip);
-        tb_panic("обращение к памяти, которой нет", a, rip);
-    }
-    if (v == 8) tb_panic("двойная ошибка процессора", a, rip);
-    tb_panic(v < 20 && tb_fault_name[v][0] ? tb_fault_name[v] : "ошибка процессора", v, rip);
+    tb_panic(what, v == 14 || v == 8 ? a : v, rip);
 }
 
 // все прерывания приходят сюда; ответ — кадр, в который вернуться (так переключаются задачи)
 __attribute__((used)) static uint64_t *tb_isr(uint64_t *f) {
     uint64_t v = f[TB_F_VEC];
-    if (v < 32) tb_fault(v, f);
+    if (v < 32) return tb_fault(v, f);
     if (v == 48) return tb_schedule(f);
     int irq = (int)v - 32;
     if (irq == 0) tb_ms++;
@@ -896,6 +921,9 @@ TB_API long tb_win_sysconf(int what) {
 typedef struct { char *data; long long len; long long cap; long long size; } tb_list;
 
 TB_COLD TB_API void tb_crash(int line, const char *msg) {
+#ifdef TB_BARE
+    if (tb_cell_can_fall()) tb_cell_fall(msg, line);
+#endif
     fflush(stdout);
     // в терминале — красным (если не задан NO_COLOR)
     int color = isatty(2) && getenv("NO_COLOR") == 0;
@@ -2614,6 +2642,8 @@ TB_API void *tb_wait(tb_task *t) {
     if (!t->done) { pthread_join(t->th, 0); t->done = 1; }
     return t->res;
 }
+// a.crashed: в обычной программе падение задачи роняет всю программу — сюда доходят только целые
+TB_API _Bool tb_crashed(tb_task *t) { tb_wait(t); return 0; }
 #endif
 TB_API int tb_dhas(tb_dict *d, const void *k) { return tb_dfind(d, k) >= 0; }
 TB_API void tb_dremove(tb_dict *d, const void *k) {
@@ -8099,6 +8129,7 @@ TB_XV(call_main, (void (*f)(void)), (f))
 #endif
 TB_XV(task_start, (tb_task *t, void *(*run)(void *), void *arg), (t, run, arg))
 TB_X(void *, wait, (tb_task *t), (t))
+TB_X(_Bool, crashed, (tb_task *t), (t))
 void tb_x_show_i(long long x) { printf("%lld", x); }
 void tb_x_show_d(double x) { printf("%g", x); }
 #ifdef TB_BARE

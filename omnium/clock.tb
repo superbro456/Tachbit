@@ -1,0 +1,6 @@
+// Служба «часы»: клетка присылает свой номер в общий канал вопросов,
+// ответ (миллисекунды с запуска) приходит в её личный канал ответов.
+modpub func clock(ask: channel int, answers: list channel int)
+    each who in ask
+        if who >= 0 and who < len(answers)
+            answers[who].send(uptime_ms())

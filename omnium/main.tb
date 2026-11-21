@@ -1,0 +1,72 @@
+// Омниум на Tachbit, шаг 1: клетки и службы на каналах.
+// Системных вызовов нет: клетка получает при запуске только нужные каналы (ключи)
+// и пишет в них. Другие службы ей не видны: взять их адрес неоткуда.
+// Сборка и запуск:  ./omnium/run.sh
+use console
+use clock
+use keyboard
+
+// клетка «счётчик»: спрашивает часы, считает, пишет в консоль
+func counter(no: int, out: channel text, ask: channel int, answer: channel int) gives r: int
+    ask.send(no)
+    start = answer.receive()
+    total = 0
+    count i from 1 to 200000
+        total += i % 7
+    ask.send(no)
+    spent = answer.receive() - start
+    out.send("[счётчик " + no + "] сумма " + total + ", время есть: " + (spent >= 0))
+    return total
+
+// клетка «эхо»: ключ только к консоли и к клавиатуре
+func echo(out: channel text, keys: channel text) gives r: int
+    line = ""
+    each k in keys
+        if k == "\n"
+            out.send("[эхо] " + line)
+            line = ""
+            r += 1
+        else
+            line += k
+    if line != ""
+        out.send("[эхо] " + line)
+        r += 1
+
+// клетка с ошибкой: делит на ноль. Падает только она, ядро и службы живут дальше
+func broken(out: channel text, n: int) gives r: int
+    out.send("[сломанная] сейчас поделю на ноль")
+    return 100 / n
+
+func main()
+    print("Омниум: ядро запущено (x86-64, Tachbit)")
+    lines = channel text
+    screen = background console(lines)
+    // часы: у каждой клетки свой канал ответа
+    ask = channel int
+    a0 = channel int
+    a1 = channel int
+    answers = list channel int
+    answers.add(a0)
+    answers.add(a1)
+    time = background clock(ask, move answers)
+    lines.send("[ядро] службы: консоль, часы, клавиатура")
+    c0 = background counter(0, lines, ask, a0)
+    c1 = background counter(1, lines, ask, a1)
+    sum = c0.wait + c1.wait
+    lines.send("[ядро] счётчики закончили, сумма " + sum)
+    bad = background broken(lines, 0)
+    if bad.crashed
+        lines.send("[ядро] клетка «сломанная» упала, остальные работают")
+    // клавиатура: 10 секунд печатай (латиница), Enter — строка
+    keys = channel text
+    kb = background keyboard(keys, 10000)
+    lines.send("[ядро] печатай 10 секунд, Enter — строка")
+    e = background echo(lines, keys)
+    got = e.wait
+    kb.wait
+    lines.send("[ядро] строк от эха: " + got)
+    ask.close()
+    time.wait
+    lines.send("[ядро] выключаюсь")
+    lines.close()
+    screen.wait

@@ -94,7 +94,7 @@ func ll_numlist(c: Comp, t: int)
     if kind_of(c, t) != "list" or is_cols_list(c, t)
         return false
     e = c.types[t].elem
-    if e == 1 or e == 2 or e == 4 or kind_of(c, e) == "enum" or ll_plainobj(c, e) or ll_dict(c, e)
+    if e == 1 or e == 2 or e == 4 or kind_of(c, e) == "enum" or ll_plainobj(c, e) or ll_dict(c, e) or ll_chan(c, e)
         return true
     // список списков: внутренний — тоже такой список
     return kind_of(c, e) == "list" and ll_numlist(c, e)
@@ -818,7 +818,7 @@ func ll_elem_ok(c: Comp, lt: int, v: Node, names: list text)
     if ll_ptr_elems(c, lt)
         if ll_box(c, v.ty)
             return ll_box_ok(c, v, names)
-        return ll_is_text(c, v.ty) and ll_expr_ok(c, v, names)
+        return (ll_is_text(c, v.ty) or ll_chan(c, v.ty)) and ll_expr_ok(c, v, names)
     return ll_simple(c, v.ty) and ll_expr_ok(c, v, names)
 
 // пометки для LLVM (TBAA): числа в списках и устройство списка (data, len) никогда не лежат
@@ -4358,6 +4358,11 @@ func ll_bg(g: LLGen, c: Comp, n: Node)
 // t.wait: дождаться потока; ответ — по адресу из задачи
 func ll_wait(g: LLGen, c: Comp, n: Node)
     t = ll_expr(g, c, n.kids[0])
+    if n.name == "crashed"
+        ll_need(g, "declare zeroext i1 @tb_x_crashed(ptr)\n")
+        r = ll_new(g, "%t")
+        ll_put(g, r + " = call zeroext i1 @tb_x_crashed(ptr " + t + ")")
+        return r
     ll_need(g, "declare ptr @tb_x_wait(ptr)\n")
     rp = ll_new(g, "%t")
     ll_put(g, rp + " = call ptr @tb_x_wait(ptr " + t + ")")

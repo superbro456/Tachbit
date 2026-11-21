@@ -1,0 +1,18 @@
+// список каналов можно отдать задаче через move: так службе дают каналы ответа
+func service(ask: channel int, answers: list channel int)
+    each who in ask
+        answers[who].send(who * 10)
+
+func main()
+    ask = channel int
+    a = channel int
+    b = channel int
+    answers = list channel int
+    answers.add(a)
+    answers.add(b)
+    s = background service(ask, move answers)
+    ask.send(1)
+    ask.send(0)
+    print("b: " + b.receive() + ", a: " + a.receive())
+    ask.close()
+    s.wait

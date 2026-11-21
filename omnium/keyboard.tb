@@ -1,0 +1,11 @@
+// Драйвер клавиатуры: берёт нажатия у ядра и отдаёт их в канал той клетки, у которой фокус.
+// Работает run_ms миллисекунд, потом закрывает канал: клетка с фокусом узнаёт, что ввод кончился.
+modpub func keyboard(keys: channel text, run_ms: int)
+    finish = uptime_ms() + run_ms
+    repeat while uptime_ms() < finish
+        k = read_key()
+        if k == ""
+            wait_ms(5)
+            skip
+        keys.send(k)
+    keys.close()

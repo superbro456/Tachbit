@@ -28,3 +28,4 @@ compiler/*
 !compiler/seed/
 compiler/seed/*
 !compiler/seed/tb.c
+omnium/*.elf
