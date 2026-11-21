@@ -431,6 +431,9 @@ func llvm_lib_bare(bin: text) gives lib: text, target: text, cpu: text
     dir = env("HOME") + "/.cache/tachbit"
     src = runtime_text()
     base = dir + "/rt-" + text_hash(src) + "-" + len(src) + "-bare64"
+    if bin == ""
+        // только clang (нет opt, llc, llvm-link — так бывает на Mac): своя копия, её читает этот же clang
+        base += "c"
     lib = base + ".bc"
     tpath = base + ".target"
     if not file_exists(lib) or not file_exists(tpath)
@@ -440,10 +443,13 @@ func llvm_lib_bare(bin: text) gives lib: text, target: text, cpu: text
         write_file(base + ".c", src) else err
             lib = ""
             return
-        cl = "c=" + quote(bin + "/clang") + "; [ -x \"$c\" ] || c=clang; "
+        cl = "c=clang; "
+        if bin != ""
+            cl = "c=" + quote(bin + "/clang") + "; [ -x \"$c\" ] || c=clang; "
         flags = " --target=x86_64-unknown-none-elf -ffreestanding -fno-builtin -nostdlib -mno-red-zone -fno-stack-protector -fno-pic -fno-asynchronous-unwind-tables -fno-unwind-tables -DTB_BARE -DTB_LL"
         cmd = cl + "\"$c\" -O2 -w -c -emit-llvm" + flags + " -x c " + quote(base + ".c") + " -o " + quote(base + ".tmp.bc") + " 2> " + quote(base + ".log")
-        cmd += " && " + quote(bin + "/llvm-dis") + " " + quote(base + ".tmp.bc") + " -o - | grep -E '^target |^attributes #0 ' > " + quote(base + ".tmp.target")
+        // цель и настройки процессора: из текстового вида библиотеки (его делает тот же clang)
+        cmd += " && \"$c\" -O2 -w -S -emit-llvm" + flags + " -x c " + quote(base + ".c") + " -o - | grep -E '^target |^attributes #0 ' > " + quote(base + ".tmp.target")
         cmd += " && mv " + quote(base + ".tmp.target") + " " + quote(tpath) + " && mv " + quote(base + ".tmp.bc") + " " + quote(lib)
         ok = run(cmd) == 0
         remove(base + ".c") else err
@@ -471,9 +477,11 @@ func build_bare(c: Comp, path: text, exe: text)
         print("ядро пока не собрать (это ошибка Tachbit, а не твоя): в LLVM не переводится " + why)
         return 1
     c.ll_pure = true
-    bin = llvm_bin(exe + ".llvmbin")
-    if bin == ""
-        print("для ядра нужны инструменты LLVM (clang, opt, llc, llvm-link): apt install llvm clang или brew install llvm")
+    bin = ""
+    if env("TB_ONLY_CLANG") == ""
+        bin = llvm_bin(exe + ".llvmbin")
+    if bin == "" and run("command -v clang > /dev/null 2>&1") != 0
+        print("для ядра нужен clang (или инструменты LLVM: opt, llc, llvm-link): на Mac — xcode-select --install, на Linux — apt install clang")
         return 1
     lib, target, cpu = llvm_lib_bare(bin)
     if lib == ""
@@ -488,6 +496,9 @@ func build_bare(c: Comp, path: text, exe: text)
     cmd = quote(bin + "/llvm-link") + " " + quote(ll_path) + " " + quote(lib) + " -o " + quote(bc)
     cmd += " && " + quote(bin + "/opt") + " -passes='default<O2>' " + quote(bc) + " -o " + quote(bc)
     cmd += " && " + quote(bin + "/llc") + " -O2 -filetype=obj -mtriple=x86_64-unknown-none-elf -relocation-model=static " + quote(bc) + " -o " + quote(o_path)
+    if bin == ""
+        // только clang: он сам склеит .ll с библиотекой (.bc), оптимизирует и сделает машинный код
+        cmd = "clang --target=x86_64-unknown-none-elf -O2 -w -c -fno-pic -mno-red-zone " + quote(ll_path) + " -Xclang -mlink-bitcode-file -Xclang " + quote(lib) + " -o " + quote(o_path)
     if run(cmd + " 2> " + quote(log)) != 0
         print("LLVM не справился (это ошибка Tachbit, а не твоя): " + log)
         return 1

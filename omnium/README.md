@@ -49,4 +49,4 @@
 | 6 | диск (virtio), файлы с ключами | — |
 | 7 | экран и оболочка | — |
 
-Сборка и запуск: `./omnium/run.sh` (нужны LLVM и QEMU: `brew install llvm qemu` на Mac).
+Сборка и запуск: `./omnium/run.sh`. Нужны clang и QEMU (на Mac: `xcode-select --install` и `brew install qemu`); если есть инструменты LLVM (opt, llc, llvm-link), берутся они.

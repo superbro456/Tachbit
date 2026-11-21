@@ -998,7 +998,7 @@ TB_GC_STRESS=1 tb run file.tb  # уборка на каждом выделени
 грузит ядро по Multiboot в 32 битах; ядро само строит таблицы страниц и переходит в 64 бита.
 
 ```
-brew install qemu llvm                         # на Mac, один раз (lld не нужен: свой компоновщик на Python)
+brew install qemu                              # на Mac, один раз (хватит clang из xcode-select --install; lld не нужен)
 sudo apt install qemu-system-x86 llvm clang    # на Linux
 ./tools/kernel.sh                             # пример examples/kernel/main.tb в окне QEMU
 ./tools/kernel.sh examples/kernel/main.tb --text   # без окна, вывод в терминал
