@@ -1,0 +1,30 @@
+// Омниум: задачи на нескольких ядрах процессора (звёздах). Ответы те же, что на одном ядре;
+// общий счётчик (shared +=) не теряет ни одного прибавления, замок не пускает двоих сразу
+shared hits = int 0
+shared inside = int 0
+shared worst = int 0
+
+func work(n: int) gives r: int
+    count i from 1 to n
+        r += i % 7
+        if i % 1000 == 0
+            hits += 1
+    lock guard
+        inside += 1
+        if inside > worst
+            worst = inside
+        count k from 1 to 1000
+            r += k % 2
+        inside -= 1
+
+func main()
+    a = background work(3000000)
+    b = background work(3000000)
+    c = background work(3000000)
+    d = background work(3000000)
+    e = background work(3000000)
+    f = background work(3000000)
+    s = a.wait + b.wait + c.wait + d.wait + e.wait + f.wait
+    print("сумма " + s)
+    print("прибавлений " + hits + " из 18000")
+    print("в замке больше одной: " + (worst > 1))

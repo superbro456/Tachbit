@@ -45,7 +45,7 @@ TB_INL unsigned int tb_inl(unsigned short port) { unsigned int v; __asm__ volati
 #define TB_NCPU 16
 typedef struct tb_cpu_s {
     struct tb_cpu_s *self;
-    int id, apic, run, slice, to_free, depth;   // run: номер задачи (-1 — пустой ход); depth: вложенность «общего замка»
+    int id, apic, run, slice, depth, prev;   // run: номер задачи (-1 — пустой ход); depth: вложенность «общего замка»; prev: задача, которую отпустить после смены стека
     uint64_t *idle_frame;
     unsigned char irq_tls[512 + 16] __attribute__((aligned(16)));   // переменные потока для функций прерывания
     unsigned char idle_stack[16384] __attribute__((aligned(16)));
@@ -417,13 +417,13 @@ __attribute__((noreturn)) static void tb_panic(const char *what, uint64_t a, uin
 }
 
 // --- таблица сегментов x86-64: код 64 бита, данные, задача процессора (TSS, 16 байт) ---
-TB_API uint64_t tb_gdt[5] __attribute__((used)) = {0, 0x00AF9A000000FFFFULL, 0x00CF92000000FFFFULL, 0, 0};
+// у каждого ядра процессора свой TSS (две записи по 8 байт): номер сегмента 0x18 + 16 × ядро
+TB_API uint64_t tb_gdt[3 + 2 * TB_NCPU] __attribute__((used)) = {0, 0x00AF9A000000FFFFULL, 0x00CF92000000FFFFULL};
 // TSS: ist[0] — отдельный стек для двойной ошибки (стек упёрся в сторожа — обработчику есть куда писать)
 typedef struct __attribute__((packed)) {
     uint32_t r0; uint64_t rsp[3]; uint64_t r1; uint64_t ist[7]; uint64_t r2; uint16_t r3, iomap;
 } tb_tss64;
-TB_API tb_tss64 tb_tss __attribute__((aligned(16)));
-TB_API unsigned char tb_df_stack[16384] __attribute__((aligned(16)));
+TB_API tb_tss64 tb_tsss[TB_NCPU] __attribute__((aligned(16)));
 TB_API uint64_t tb_idt[2 * 256] __attribute__((aligned(16)));
 TB_API struct __attribute__((packed)) { uint16_t lim; uint64_t base; } tb_gdtr, tb_idtr;
 
@@ -433,13 +433,13 @@ TB_API struct __attribute__((packed)) { uint16_t lim; uint64_t base; } tb_gdtr, 
 // у каждой задачи свои регистры и свои дроби лежат в её кадре.
 extern char tb_isr_base[];
 __asm__(".text\n.balign 16\n.global tb_isr_base\ntb_isr_base:\n"
-        ".set tb_v, 0\n.rept 49\n.balign 16\n"
+        ".set tb_v, 0\n.rept 50\n.balign 16\n"
         ".if (tb_v == 8) || (tb_v == 10) || (tb_v == 11) || (tb_v == 12) || (tb_v == 13) || (tb_v == 14) || (tb_v == 17) || (tb_v == 21)\n"
         ".else\npushq $0\n.endif\npushq $tb_v\njmp tb_isr_common\n.set tb_v, tb_v + 1\n.endr\n"
         "tb_isr_common:\ncld\n"
         "pushq %rax\npushq %rcx\npushq %rdx\npushq %rbx\npushq %rbp\npushq %rsi\npushq %rdi\n"
         "pushq %r8\npushq %r9\npushq %r10\npushq %r11\npushq %r12\npushq %r13\npushq %r14\npushq %r15\n"
-        "subq $512, %rsp\nfxsave (%rsp)\nmovq %rsp, %rdi\ncall tb_isr\nmovq %rax, %rsp\nfxrstor (%rsp)\naddq $512, %rsp\n"
+        "subq $512, %rsp\nfxsave (%rsp)\nmovq %rsp, %rdi\ncall tb_isr\nmovq %rax, %rsp\ncall tb_switch_done\nfxrstor (%rsp)\naddq $512, %rsp\n"
         "popq %r15\npopq %r14\npopq %r13\npopq %r12\npopq %r11\npopq %r10\npopq %r9\npopq %r8\n"
         "popq %rdi\npopq %rsi\npopq %rbp\npopq %rbx\npopq %rdx\npopq %rcx\npopq %rax\n"
         "addq $16, %rsp\niretq\n");
@@ -523,8 +523,6 @@ TB_API void tb_yield(void) { if (!tb_in_irq) __asm__ volatile("int $48" ::: "mem
 TB_API uint64_t *tb_schedule(uint64_t *frame) {
     tb_cpu *c = tb_me();
     uint64_t f = tb_irq_save();
-    // слот задачи, которая кончилась на этом ядре раньше: теперь мы точно не на её стеке
-    if (c->to_free > 0) { tb_slots[c->to_free].used = 0; tb_nlive--; c->to_free = 0; }
     int cur = c->run;
     if (cur >= 0) tb_slots[cur].frame = frame; else c->idle_frame = frame;
     // следующая по кругу: живая и не идущая на другом ядре
@@ -534,10 +532,9 @@ TB_API uint64_t *tb_schedule(uint64_t *frame) {
         tb_kslot *s = &tb_slots[j];
         if (s->used && !s->done && (s->on < 0 || j == cur)) { n = j; break; }
     }
-    if (cur >= 0) {
-        tb_slots[cur].on = -1;
-        if (tb_slots[cur].done && cur != 0) c->to_free = cur;
-    }
+    // прежнюю задачу отдаём другим ядрам только после смены стека (tb_switch_done):
+    // пока мы в этой функции, мы ещё на её стеке
+    c->prev = (cur >= 0 && n != cur) ? cur : -1;
     uint64_t *next;
     if (n >= 0) {
         tb_slots[n].on = c->id;
@@ -552,6 +549,17 @@ TB_API uint64_t *tb_schedule(uint64_t *frame) {
     c->slice = 10;
     tb_irq_restore(f);
     return next;
+}
+// стек уже новый: прежнюю задачу можно брать другим ядрам, а кончившуюся — освободить
+__attribute__((used)) TB_API void tb_switch_done(void) {
+    tb_cpu *c = tb_me();
+    int p = c->prev;
+    if (p < 0) return;
+    c->prev = -1;
+    uint64_t f = tb_irq_save();
+    if (tb_slots[p].done && p != 0) { tb_slots[p].used = 0; tb_nlive--; }
+    tb_slots[p].on = -1;
+    tb_irq_restore(f);
 }
 TB_API void tb_task_entry(void) {
     tb_kslot *s = &tb_slots[tb_cur];
@@ -683,6 +691,9 @@ TB_API void tb_paging_init(void) {
     for (uint64_t g = 0; g < gbs; g++) tb_pdpt[g] = (uint64_t)(uintptr_t)tb_pdir[g] | 3;
     for (uint64_t t = 0; t < low >> 21; t++) tb_pdir[0][t] = (uint64_t)(uintptr_t)tb_pt[t] | 3;
     for (uint64_t a = low; a < tb_ram_end; a += 0x200000ull) tb_pdir[a >> 30][(a >> 21) & 511] = a | 0x83;
+    // APIC: окно устройства, без кэша
+    tb_pdpt[3] = (uint64_t)(uintptr_t)tb_pdir[3] | 3;
+    tb_pdir[3][(0xFEE00000ull >> 21) & 511] = 0xFEE00000ull | 0x83 | 0x18;
     // CR0.WP: и ядро не может писать в страницы «только читать»
     __asm__ volatile("movq %0, %%cr3\nmovq %%cr0, %%rax\norq $0x10000, %%rax\nmovq %%rax, %%cr0\n" : : "r"(tb_pml4) : "rax", "memory");
     tb_pg_next = (uint64_t)(uintptr_t)tb_kernel_end;
@@ -705,6 +716,11 @@ TB_API void tb_page_free(long long a) {
     tb_irq_restore(f);
 }
 
+// --- APIC: контроллер прерываний у каждого ядра процессора (по адресу 0xFEE00000) ---
+TB_API volatile uint32_t *tb_lapic = (volatile uint32_t *)0xFEE00000;
+TB_API uint32_t tb_lapic_ms = 0;            // сколько тактов таймера APIC в 1 мс (меряем по PIT)
+TB_INL void tb_lapic_w(int r, uint32_t v) { tb_lapic[r / 4] = v; }
+TB_INL uint32_t tb_lapic_r(int r) { return tb_lapic[r / 4]; }
 // --- ошибки процессора ---
 TB_API const char *tb_fault_name[32] = {"деление на ноль", "отладка", "NMI", "точка останова", "переполнение",
     "выход за границы", "неизвестная команда", "нет FPU", "двойная ошибка", "", "плохой TSS", "нет сегмента",
@@ -754,6 +770,12 @@ __attribute__((used)) static uint64_t *tb_isr(uint64_t *f) {
     uint64_t v = f[TB_F_VEC];
     if (v < 32) return tb_fault(v, f);
     if (v == 48) return tb_schedule(f);
+    if (v == 49) {
+        // таймер своего ядра процессора (APIC): 1000 раз в секунду
+        tb_lapic_w(0xB0, 0);
+        if (--tb_me()->slice <= 0) return tb_schedule(f);
+        return f;
+    }
     int irq = (int)v - 32;
     if (irq == 0) tb_ms++;
     if (irq == 1) tb_key_irq();
@@ -779,6 +801,15 @@ TB_API void tb_idt_set(int v, uint64_t a, int ist) {
 // строит таблицы страниц на первые 4 ГБ, включает режим 64 бит и прыгает в tb_kstart
 __attribute__((section(".multiboot"), used, aligned(4)))
 TB_API const unsigned int tb_multiboot[3] = {0x1BADB002u, 2u, (unsigned int)-(0x1BADB002 + 2)};
+// TSS ядра процессора i: ist1 — его стек для двойной ошибки
+TB_API void tb_tss_make(int i) {
+    tb_tss64 *t = &tb_tsss[i];
+    t->ist[0] = (uint64_t)(uintptr_t)(tb_cpus[i].df_stack + sizeof tb_cpus[i].df_stack);
+    t->iomap = sizeof *t;
+    uint64_t a = (uint64_t)(uintptr_t)t;
+    tb_gdt[3 + 2 * i] = (sizeof *t - 1) | ((a & 0xFFFFFFull) << 16) | (0x89ull << 40) | (((a >> 24) & 0xFF) << 56);
+    tb_gdt[4 + 2 * i] = a >> 32;
+}
 TB_API void tb_set_gs(tb_cpu *c) {
     uint64_t v = (uint64_t)(uintptr_t)c;
     __asm__ volatile("wrmsr" : : "c"(0xC0000101u), "a"((uint32_t)v), "d"((uint32_t)(v >> 32)) : "memory");
@@ -787,7 +818,7 @@ TB_API void tb_set_gs(tb_cpu *c) {
 __attribute__((noreturn)) TB_API void tb_idle(void) { for (;;) __asm__ volatile("sti\nhlt"); }
 // запись ядра процессора: стек и кадр пустого хода, переменные потока для прерываний
 TB_API void tb_cpu_init(tb_cpu *c, int id) {
-    c->self = c; c->id = id; c->run = -1; c->slice = 10; c->to_free = 0;
+    c->self = c; c->id = id; c->run = -1; c->slice = 10; c->prev = -1;
     unsigned char *tp = tb_tls_fresh(c->irq_tls);
     *(int *)(tp - ((unsigned char *)tb_tls_self() - (unsigned char *)&tb_in_irq)) = 1;
     unsigned char *top = c->idle_stack + sizeof c->idle_stack;
@@ -798,6 +829,135 @@ TB_API void tb_cpu_init(tb_cpu *c, int id) {
     fr[TB_F_RIP + 1] = 0x08; fr[TB_F_RIP + 2] = 0x202;
     fr[TB_F_RIP + 3] = (uint64_t)(uintptr_t)(top - 8); fr[TB_F_RIP + 4] = 0x10;
     c->idle_frame = fr;
+}
+
+// --- несколько ядер процессора («звёзды») ---
+// Какие ядра есть — из таблицы ACPI «APIC» (MADT). Каждое будим так: INIT, потом дважды
+// SIPI с адресом 0x8000; там маленький код (ниже) переводит ядро из 16 бит сразу в 64
+// и прыгает в tb_ap_main со своим стеком.
+TB_API int tb_apic_ids[TB_NCPU];
+// таблицы ACPI лежат выше памяти, которую назвал загрузчик: показываем их кусок 2 МБ (только читать)
+TB_API void tb_map_2m(uint64_t a) {
+    if (a >= (4ull << 30) || a < (uint64_t)(uintptr_t)tb_heap_area) return;
+    uint64_t *e = &tb_pdir[a >> 30][(a >> 21) & 511];
+    if (*e) return;
+    tb_pdpt[a >> 30] = (uint64_t)(uintptr_t)tb_pdir[a >> 30] | 3;
+    *e = (a & ~0x1FFFFFull) | 0x81;
+    __asm__ volatile("invlpg (%0)" : : "r"(a) : "memory");
+}
+TB_API int tb_find_cpus(void) {
+    unsigned char *rsdp = 0;
+    for (uint64_t a = 0xE0000; a < 0x100000 && !rsdp; a += 16)
+        if (memcmp((void *)(uintptr_t)a, "RSD PTR ", 8) == 0) rsdp = (unsigned char *)(uintptr_t)a;
+    if (!rsdp) return 0;
+    unsigned char *rsdt = (unsigned char *)(uintptr_t)*(uint32_t *)(rsdp + 16);
+    tb_map_2m((uint64_t)(uintptr_t)rsdt);
+    uint32_t len = *(uint32_t *)(rsdt + 4);
+    int n = 0;
+    for (uint32_t o = 36; o + 4 <= len; o += 4) {
+        unsigned char *t = (unsigned char *)(uintptr_t)*(uint32_t *)(rsdt + o);
+        tb_map_2m((uint64_t)(uintptr_t)t);
+        if (memcmp(t, "APIC", 4) != 0) continue;
+        uint32_t tl = *(uint32_t *)(t + 4);
+        for (uint32_t e = 44; e + 2 <= tl && n < TB_NCPU; e += t[e + 1]) {
+            if (t[e + 1] < 2) break;
+            if (t[e] == 0 && (t[e + 4] & 1)) tb_apic_ids[n++] = t[e + 3];
+        }
+    }
+    return n;
+}
+// код пробуждения: копируется в 0x8000; адреса внутри считаются от 0x8000
+extern char tb_tramp[], tb_tramp_end[];
+TB_API volatile uint64_t tb_ap_stack = 0, tb_ap_cr3 = 0;
+TB_API volatile int tb_ap_up = 0, tb_ap_id = 0;
+__asm__(".text\n.global tb_tramp\n.global tb_tramp_end\n.global tb_tr_cr3\n.global tb_tr_stack\n.code16\ntb_tramp:\n"
+        "  cli\n  xorw %ax, %ax\n  movw %ax, %ds\n"
+        "  lgdtl 0x8000 + (tb_tr_gdtr - tb_tramp)\n"
+        "  movl %cr0, %eax\n  orl $1, %eax\n  movl %eax, %cr0\n"
+        "  ljmpl $0x08, $(0x8000 + (tb_tr32 - tb_tramp))\n"
+        ".code32\ntb_tr32:\n"
+        "  movw $0x10, %ax\n  movw %ax, %ds\n  movw %ax, %ss\n"
+        "  movl %cr4, %eax\n  orl $0x620, %eax\n  movl %eax, %cr4\n"
+        "  movl 0x8000 + (tb_tr_cr3 - tb_tramp), %eax\n  movl %eax, %cr3\n"
+        "  movl $0xC0000080, %ecx\n  rdmsr\n  orl $0x100, %eax\n  wrmsr\n"
+        "  movl %cr0, %eax\n  andl $0xFFFFFFFB, %eax\n  orl $0x80010002, %eax\n  movl %eax, %cr0\n"
+        "  ljmpl $0x18, $(0x8000 + (tb_tr64 - tb_tramp))\n"
+        ".code64\ntb_tr64:\n"
+        "  movq 0x8000 + (tb_tr_stack - tb_tramp), %rsp\n"
+        "  movabsq $tb_ap_main, %rax\n  call *%rax\n"
+        "1:\n  cli\n  hlt\n  jmp 1b\n"
+        ".balign 8\ntb_tr_gdt:\n  .quad 0, 0x00CF9A000000FFFF, 0x00CF92000000FFFF, 0x00AF9A000000FFFF\n"
+        "tb_tr_gdtr:\n  .word 31\n  .long 0x8000 + (tb_tr_gdt - tb_tramp)\n"
+        ".balign 8\ntb_tr_cr3:\n  .quad 0\ntb_tr_stack:\n  .quad 0\n"
+        "tb_tramp_end:\n");
+TB_API void tb_lapic_timer_start(void) {
+    tb_lapic_w(0x3E0, 3);                              // делитель 16
+    tb_lapic_w(0x320, 49 | 0x20000);                   // вектор 49, по кругу
+    tb_lapic_w(0x380, tb_lapic_ms);
+}
+TB_API void tb_load_tables(int i) {
+    tb_gdtr.lim = sizeof tb_gdt - 1; tb_gdtr.base = (uint64_t)(uintptr_t)tb_gdt;
+    __asm__ volatile("lgdt %0\n"
+                     "pushq $0x08\nleaq 1f(%%rip), %%rax\npushq %%rax\nlretq\n1:\n"
+                     "movw $0x10, %%ax\nmovw %%ax, %%ds\nmovw %%ax, %%es\nmovw %%ax, %%fs\nmovw %%ax, %%gs\nmovw %%ax, %%ss\n"
+                     : : "m"(tb_gdtr) : "rax", "memory");
+    __asm__ volatile("ltr %w0" : : "r"(0x18 + 16 * i));
+    __asm__ volatile("lidt %0" : : "m"(tb_idtr));
+}
+// ядро процессора проснулось: свои сегменты, своя запись, таймер APIC — и в пустой ход
+__attribute__((used, noreturn)) TB_API void tb_ap_main(void) {
+    int i = tb_ap_id;
+    tb_cpu *c = &tb_cpus[i];
+    c->self = c;
+    tb_set_gs(c);
+    __asm__ volatile("fninit");
+    tb_load_tables(i);
+    tb_set_gs(c);
+    tb_set_fs(tb_tls_tp(c->irq_tls));
+    tb_lapic_w(0xF0, 0x100 | 48);                      // APIC включён; ложные прерывания — как «уступить ход»
+    tb_lapic_timer_start();
+    __atomic_store_n(&tb_ap_up, 1, __ATOMIC_RELEASE);
+    tb_idle();
+}
+TB_API void tb_spin_ms(uint64_t n) { uint64_t end = tb_ms + n; while (tb_ms < end) __asm__ volatile("pause"); }
+TB_API void tb_smp_start(void) {
+    // такты APIC за 10 мс (по таймеру PIT, он уже идёт)
+    tb_lapic_w(0xF0, 0x100 | 48);
+    tb_lapic_w(0x3E0, 3);
+    tb_lapic_w(0x320, 0x10000 | 49);                   // пока без прерывания
+    uint64_t t0 = tb_ms; while (tb_ms == t0) __asm__ volatile("pause");
+    tb_lapic_w(0x380, 0xFFFFFFFFu);
+    tb_spin_ms(10);
+    tb_lapic_ms = (0xFFFFFFFFu - tb_lapic_r(0x390)) / 10;
+    tb_lapic_w(0x380, 0);
+    int n = tb_find_cpus();
+    int me = (int)(tb_lapic_r(0x20) >> 24);
+    tb_cpus[0].apic = me;
+    memcpy((void *)0x8000, tb_tramp, (size_t)(tb_tramp_end - tb_tramp));
+    for (int k = 0; k < n && tb_ncpu < TB_NCPU; k++) {
+        if (tb_apic_ids[k] == me) continue;
+        int i = tb_ncpu;
+        tb_cpu *c = &tb_cpus[i];
+        tb_cpu_init(c, i);
+        c->apic = tb_apic_ids[k];
+        tb_tss_make(i);
+        uint64_t cr3; __asm__ volatile("movq %%cr3, %0" : "=r"(cr3));
+        char *base = (char *)0x8000;
+        extern char tb_tr_cr3[], tb_tr_stack[];
+        *(volatile uint64_t *)(base + (tb_tr_cr3 - tb_tramp)) = cr3;
+        *(volatile uint64_t *)(base + (tb_tr_stack - tb_tramp)) = (uint64_t)(uintptr_t)(c->idle_stack + sizeof c->idle_stack - 64);
+        tb_ap_id = i;
+        tb_ap_up = 0;
+        tb_lapic_w(0x310, (uint32_t)c->apic << 24); tb_lapic_w(0x300, 0x4500);        // INIT
+        tb_spin_ms(10);
+        for (int r = 0; r < 2 && !tb_ap_up; r++) {
+            tb_lapic_w(0x310, (uint32_t)c->apic << 24); tb_lapic_w(0x300, 0x4600 | (0x8000 >> 12));   // SIPI
+            tb_spin_ms(2);
+        }
+        uint64_t end = tb_ms + 200;
+        while (!__atomic_load_n(&tb_ap_up, __ATOMIC_ACQUIRE) && tb_ms < end) __asm__ volatile("pause");
+        if (tb_ap_up) tb_ncpu++;
+    }
 }
 __attribute__((used)) static void tb_kstart(void) {
     tb_cpus[0].self = &tb_cpus[0];
@@ -818,11 +978,7 @@ __attribute__((used)) static void tb_kstart(void) {
     if (tb_tls_size() > TB_TLS_MAX) tb_panic("переменных потока больше, чем место для них", tb_tls_size(), 0);
     for (int i = 0; i < 256; i++) { tb_ktext[i][0] = (char)i; tb_ktext[i][1] = 0; }
     // сегменты и TSS (ist1 — стек для двойной ошибки)
-    uint64_t tss = (uint64_t)(uintptr_t)&tb_tss;
-    tb_tss.ist[0] = (uint64_t)(uintptr_t)(tb_df_stack + sizeof tb_df_stack);
-    tb_tss.iomap = sizeof tb_tss;
-    tb_gdt[3] = (sizeof tb_tss - 1) | ((tss & 0xFFFFFFull) << 16) | (0x89ull << 40) | (((tss >> 24) & 0xFF) << 56);
-    tb_gdt[4] = tss >> 32;
+    tb_tss_make(0);
     tb_gdtr.lim = sizeof tb_gdt - 1; tb_gdtr.base = (uint64_t)(uintptr_t)tb_gdt;
     __asm__ volatile("lgdt %0\n"
                      "pushq $0x08\nleaq 1f(%%rip), %%rax\npushq %%rax\nlretq\n1:\n"
@@ -835,7 +991,7 @@ __attribute__((used)) static void tb_kstart(void) {
     tb_cpu_init(&tb_cpus[0], 0);
     tb_cpus[0].run = 0;
     // прерывания
-    for (int v = 0; v < 49; v++) tb_idt_set(v, (uint64_t)(uintptr_t)tb_isr_base + 16u * (uint64_t)v, v == 8 ? 1 : 0);
+    for (int v = 0; v < 50; v++) tb_idt_set(v, (uint64_t)(uintptr_t)tb_isr_base + 16u * (uint64_t)v, v == 8 ? 1 : 0);
     tb_idtr.lim = sizeof tb_idt - 1; tb_idtr.base = (uint64_t)(uintptr_t)tb_idt;
     __asm__ volatile("lidt %0" : : "m"(tb_idtr));
     // контроллер прерываний: железо 0..15 → 32..47; таймер и клавиатура открыты
@@ -849,6 +1005,7 @@ __attribute__((used)) static void tb_kstart(void) {
     tb_slots[0].used = 1;
     tb_slots[0].on = 0;
     __asm__ volatile("sti");
+    tb_smp_start();
     tb_kmain();
     exit(0);
 }

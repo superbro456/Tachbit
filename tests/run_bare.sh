@@ -14,7 +14,7 @@ run_kernel() {
     ./build/tb bare "$1" > "$work/build.txt" 2>&1 || { cat "$work/build.txt"; return 1; }
     # адреса в сообщении об аварии меняются от сборки к сборке — их убираем
     # на Mac нет команды timeout: ограничение по времени через perl (он есть везде)
-    perl -e 'alarm shift; exec @ARGV' 60 qemu-system-x86_64 -no-reboot -kernel "${1%.tb}.elf" -serial stdio -display none \
+    perl -e 'alarm shift; exec @ARGV' 60 qemu-system-x86_64 -smp "${TB_SMP:-1}" -no-reboot -kernel "${1%.tb}.elf" -serial stdio -display none \
         -device isa-debug-exit,iobase=0xf4,iosize=0x04 2> "$work/qemu.txt" < /dev/null | tr -d '\r' | sed -E 's/ \(0x[0-9a-f]+, 0x[0-9a-f]+\)$//'
     # QEMU ничего не напечатал — покажем, что он сказал сам
     [ -s "$work/qemu.txt" ] && sed 's/^/qemu: /' "$work/qemu.txt" | head -3
@@ -35,6 +35,14 @@ done
 # Омниум (omnium/main.tb): службы и клетки на каналах; клавиатуру никто не трогает — эхо пустое
 got=$(run_kernel omnium/main.tb)
 if [ "$got" = "$(cat omnium/main.out)" ]; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "не прошёл: omnium/main.tb"; fi
+# те же проверки ядра на 4 ядрах процессора (задачи идут по-настоящему одновременно)
+for f in tests/bare/*.tb; do
+    got=$(TB_SMP=4 run_kernel "$f")
+    if [ "$got" = "$(cat "${f%.tb}.out")" ]; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "не прошёл на 4 ядрах: $f"; fi
+done
+# Омниум на 4 ядрах: клетки пишут одновременно — порядок строк бывает разный, сами строки те же
+got=$(TB_SMP=4 run_kernel omnium/main.tb | sort)
+if [ "$got" = "$(sort omnium/main.out)" ]; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "не прошёл на 4 ядрах: omnium/main.tb"; fi
 rm -rf "$work"
 echo "ядра: прошло $pass, не прошло $fail"
 [ $fail -eq 0 ]
