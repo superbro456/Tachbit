@@ -1,0 +1,934 @@
+// Футбол на Tachbit: 3D-поле, мяч катится и крутится, удар ногой, бросок руками, вратарь, ворота, ауты.
+//   Стрелки — бежать, Shift — быстрее
+//   X — удар: коротко нажать — пас по земле, держать — сильнее и выше (полоска силы)
+//   C — взять мяч в руки, ещё раз C — бросить (можно далеко за поле: будет аут)
+//   Esc — выход
+//   tb run examples/apps/football/main.tb
+//   tb run examples/apps/football/main.tb demo   — играет сам 1200 кадров и закрывается
+// Только встроенные слова и библиотеки physics и anim. Свет считается при постройке сеток;
+// кости рисуются коробками, заранее повёрнутыми на нужный угол (каждые 6 градусов).
+use physics
+use anim
+
+shared SUN_X = dec -0.45
+shared SUN_Y = dec 0.8
+shared SUN_Z = dec -0.4
+shared HALF_X = dec 15.0     // поле: x от −15 до 15
+shared HALF_Z = dec 9.0      //       z от −9 до 9
+shared GOAL_Z = dec 2.5      // ворота: ширина 5, высота 2.2, глубина 1.8
+shared GOAL_H = dec 2.2
+shared GOAL_D = dec 1.8
+shared BALL_R = dec 0.33
+shared LIMB_STEP = int 6     // кости: сетка на каждые 6 градусов
+shared ROLL_FRAMES = int 12  // мяч: 12 положений вращения
+shared ROLL_DIRS = int 16    //       в 16 сторон
+
+// человечек: скелет, проигрыватель и его сетки
+obj Figure
+    s: Skeleton
+    p: Player
+    turn: dec
+    legs: list int       // сетка ноги на каждый угол
+    arms: list int
+    torso: int
+    head: int
+    body: int            // номер тела в мире physics
+    kick_t: dec          // идёт удар: сколько прошло, −1 — нет
+    throw_t: dec
+
+func main()
+    try window_open(1100, 650, "Футбол на Tachbit")
+    set_fps(60)
+    a = args()
+    demo = len(a) > 0 and a[len(a) - 1] == "demo"
+
+    // ---------- мир ----------
+    w = physics.world()
+    w.air = 0.05
+    ground = physics.add_box(w, 0, -1, 0, 60, 1, 45, 0)
+    nets = list int        // сетка ворот: мяч в неё почти не отскакивает
+    posts = list int
+    each side in [-1.0, 1.0]
+        gx = side * HALF_X
+        back = side * (HALF_X + GOAL_D)
+        posts.add(physics.add_box(w, gx, GOAL_H / 2, GOAL_Z, 0.08, GOAL_H / 2, 0.08, 0))
+        posts.add(physics.add_box(w, gx, GOAL_H / 2, -GOAL_Z, 0.08, GOAL_H / 2, 0.08, 0))
+        posts.add(physics.add_box(w, gx, GOAL_H, 0, 0.08, 0.08, GOAL_Z + 0.08, 0))
+        nets.add(physics.add_box(w, back, GOAL_H / 2, 0, 0.05, GOAL_H / 2, GOAL_Z, 0))
+        nets.add(physics.add_box(w, (gx + back) / 2, GOAL_H / 2, GOAL_Z + 0.05, GOAL_D / 2, GOAL_H / 2, 0.05, 0))
+        nets.add(physics.add_box(w, (gx + back) / 2, GOAL_H / 2, -GOAL_Z - 0.05, GOAL_D / 2, GOAL_H / 2, 0.05, 0))
+        nets.add(physics.add_box(w, (gx + back) / 2, GOAL_H + 0.05, 0, GOAL_D / 2, 0.05, GOAL_Z, 0))
+    ball = physics.add_sphere(w, 0, BALL_R, 0, BALL_R, 0.45)
+    w.bodies[ball].bounce = 0.6
+    w.bodies[ball].friction = 0.25
+    keeper_body = physics.add_box(w, HALF_X - 0.6, 0.9, 0, 0.35, 0.9, 0.35, 0)
+
+    // ---------- сетки ----------
+    pitch = make_pitch()
+    stands = make_stands()
+    goal_l = make_goal(-1)
+    goal_r = make_goal(1)
+    ball_meshes = make_ball_frames()
+    discs = list int
+    count i from 0 to 11
+        discs.add(make_disc(0.1 + i * 0.05))
+    man_shadow = make_disc(0.5)
+
+    hero = make_figure(w, -3, 0, 230, 70, 60, 250, 250, 250)
+    keeper = make_figure(w, HALF_X - 0.6, 0, 250, 200, 40, 40, 40, 50)
+    keeper.body = keeper_body
+    w.bodies[hero.body].friction = 0.0
+    clips = make_clips()
+
+    // ---------- игра ----------
+    goals = 0
+    outs = 0
+    saves = 0
+    message = ""
+    message_t = 0.0
+    reset_t = -1.0           // через сколько секунд мяч вернётся
+    reset_x = 0.0
+    reset_z = 0.0
+    holding = false
+    charging = false
+    charge = 0.0
+    spin = 0.0               // угол вращения мяча, градусы
+    spin_dir = 0             // в какую сторону катится (0..15)
+    was_x = false
+    was_c = false
+    keeper_z = 0.0
+    keeper_jump = 0.0
+    keeper_hold = 0.0       // вратарь держит мяч: сколько ещё секунд
+    cam_x = 0.0
+    cam_z = 0.0
+    frames = 0
+    demo_throw = false
+
+    repeat while window_alive()
+        if key_down("escape") or (demo and frames >= 1200)
+            stop
+        dt = min(frame_ms() / 1000, 0.05)
+        frames += 1
+        h = w.bodies[hero.body]
+        b = w.bodies[ball]
+
+        // ---------- управление ----------
+        mx = 0.0
+        mz = 0.0
+        if key_down("left")
+            mx -= 1
+        if key_down("right")
+            mx += 1
+        if key_down("up")
+            mz += 1
+        if key_down("down")
+            mz -= 1
+        fast = key_down("shift")
+        x_now = key_down("x")
+        c_now = key_down("c")
+        if demo
+            // сам: заходит за мяч со стороны своих ворот и бьёт в правые; один раз берёт мяч и бросает за поле
+            mx, mz, x_now, c_now, fast = demo_brain(h, b, hero.turn, holding, charging, charge, frames, demo_throw, keeper_z, keeper_hold > 0)
+            if holding
+                demo_throw = true
+        c_press = c_now and not was_c
+        was_c = c_now
+
+        n = sqrt(mx * mx + mz * mz)
+        speed = 0.0
+        if n > 0.01 and hero.throw_t < 0
+            speed = 4.5
+            if fast
+                speed = 7.0
+            if holding
+                speed = 3.5
+            h.vx = mx / n * speed
+            h.vz = mz / n * speed
+            want = atan_deg(-mz, mx)
+            hero.turn += wrap_deg(want - hero.turn) * min(1.0, dt * 12)
+        else
+            h.vx = 0
+            h.vz = 0
+        fx = anim.cos_deg(hero.turn)       // куда смотрит
+        fz = -anim.sin_deg(hero.turn)
+
+        // удар: держим X — копим силу, отпустили — замах и удар
+        if holding
+            charging = false
+        else if x_now and hero.kick_t < 0
+            charging = true
+            charge = min(1.0, charge + dt * 1.4)
+        if charging and not x_now
+            charging = false
+            hero.kick_t = 0.0
+        if x_now != was_x and x_now
+            charge = 0.0
+        was_x = x_now
+        if hero.kick_t >= 0
+            before = hero.kick_t
+            hero.kick_t += dt
+            // нога доходит до мяча на 0.16 с
+            if before < 0.16 and hero.kick_t >= 0.16
+                footx = h.x + fx * 0.55
+                footz = h.z + fz * 0.55
+                d = sqrt((b.x - footx) * (b.x - footx) + (b.z - footz) * (b.z - footz))
+                if d < 0.85 and b.y < 1.2
+                    power = 7 + 15 * charge
+                    b.vx = fx * power + h.vx * 0.3
+                    b.vz = fz * power + h.vz * 0.3
+                    b.vy = 1.0 + 7 * charge * charge
+                    v = play_tone(90 + 40 * charge, 60)
+                    sound_volume(v, 0.6 + 0.4 * charge)
+                    v2 = play_tone(180, 25)
+                    sound_volume(v2, 0.4)
+            if hero.kick_t > 0.4
+                hero.kick_t = -1.0
+                charge = 0.0
+
+        // руки: C — взять мяч рядом, ещё раз C — бросить
+        if c_press and reset_t < 0
+            if holding
+                holding = false
+                b.ghost = false
+                b.vx = fx * 13 + h.vx
+                b.vz = fz * 13 + h.vz
+                b.vy = 6.5
+                hero.throw_t = 0.0
+                v = play_tone(140, 50)
+                sound_volume(v, 0.4)
+            else
+                dx = b.x - h.x
+                dz = b.z - h.z
+                if dx * dx + dz * dz < 1.4 * 1.4 and b.y < 1.0
+                    holding = true
+                    b.ghost = true
+        if hero.throw_t >= 0
+            hero.throw_t += dt
+            if hero.throw_t > 0.35
+                hero.throw_t = -1.0
+        if holding
+            b.x = h.x + fx * 0.15
+            b.y = h.y + 1.35
+            b.z = h.z + fz * 0.15
+            b.vx = 0
+            b.vy = 0
+            b.vz = 0
+
+        // вратарь: идёт за мячом вдоль ворот, прыгает к высокому мячу
+        if reset_t < 0 and not holding and keeper_hold <= 0
+            target = 0.0
+            if b.x > 0
+                target = max(-GOAL_Z + 0.3, min(GOAL_Z - 0.3, b.z))
+            step_z = 2.6 * dt
+            if b.vx > 5 and b.x > HALF_X - 7
+                step_z = 4.0 * dt
+            keeper_z += max(-step_z, min(step_z, target - keeper_z))
+            if keeper_jump <= 0 and b.vx > 4 and b.x > HALF_X - 4 and b.y > 1.1 and abs(b.z - keeper_z) < 1.5
+                keeper_jump = 0.01
+        if keeper_jump > 0
+            keeper_jump += dt
+            if keeper_jump > 0.7
+                keeper_jump = 0.0
+        kj = 0.0
+        if keeper_jump > 0
+            kj = anim.sin_deg(keeper_jump / 0.7 * 180) * 1.0
+        physics.place(w, keeper_body, HALF_X - 0.6, 0.9 + kj, keeper_z)
+        kb = w.bodies[keeper_body]
+        kturn = 180.0
+        if abs(b.x - kb.x) > 0.01 or abs(b.z - kb.z) > 0.01
+            kturn = atan_deg(-(b.z - kb.z), b.x - kb.x)
+        keeper.turn += wrap_deg(kturn - keeper.turn) * min(1.0, dt * 6)
+
+        // ---------- мир ----------
+        physics.step(w, dt)
+        // игрок не уходит дальше беговой дорожки (трибуны и рекламные щиты),
+        // а если всё же провалился ниже земли — встаёт обратно на поле
+        h.x = max(-HALF_X - 4.0, min(HALF_X + 4.0, h.x))
+        h.z = max(-HALF_Z - 2.8, min(HALF_Z + 2.8, h.z))
+        // в ворота и на сетку не заходит: упирается в линию ворот
+        if abs(h.x) > HALF_X - 0.35 and abs(h.z) < GOAL_Z + 0.45
+            if abs(h.x) < HALF_X + 0.6
+                h.x = (HALF_X - 0.35) * sign(h.x)
+            else if abs(h.x) < HALF_X + GOAL_D + 0.45
+                h.x = (HALF_X + GOAL_D + 0.45) * sign(h.x)
+        // забрался на что-то высокое (ворота, мяч) — спрыгивает вниз
+        if h.y > 1.6 and h.on_ground
+            h.vy = 2.0
+            h.vx = -sign(h.x) * 2.0
+        if h.y < -2
+            physics.place(w, hero.body, -3, 1, 0)
+            h.vx = 0
+            h.vy = 0
+            h.vz = 0
+            message = "НАЗАД НА ПОЛЕ"
+            message_t = 1.5
+        if b.y < -2
+            physics.place(w, ball, 0, 1.5, 0)
+            b.vy = 0
+        each hit in w.hits
+            other = -1
+            if hit.a == ball
+                other = hit.b
+            if hit.b == ball
+                other = hit.a
+            if other < 0
+                skip
+            if has(nets, other)
+                b.vx *= 0.25
+                b.vy *= 0.5
+                b.vz *= 0.25
+            if hit.speed > 1.2
+                tone = 150 + hit.speed * 25
+                if has(posts, other)
+                    tone = 900          // штанга звенит
+                if other == keeper_body
+                    tone = 120
+                v = play_tone(tone, 60)
+                sound_volume(v, min(0.8, hit.speed / 12))
+        // вратарь ловит мяч рядом с собой, держит и выбивает в поле
+        if keeper_hold == 0.0 and reset_t < 0 and not holding
+            kdx = b.x - kb.x
+            kdz = b.z - kb.z
+            fly = sqrt(b.vx * b.vx + b.vz * b.vz)
+            // сильный удар вратарь иногда не удерживает: мяч отлетает от рук
+            if kdx * kdx + kdz * kdz < 0.8 * 0.8 and b.y - kb.y < 1.5 and fly > 11 and random(0, 99) < 50
+                b.vx = -b.vx * 0.4
+                b.vz = b.vz + random(-30, 30) / 10.0
+                keeper_hold = -0.4       // чуть-чуть не может поймать снова
+            else if kdx * kdx + kdz * kdz < 0.8 * 0.8 and b.y - kb.y < 1.5
+                if fly > 3
+                    saves += 1
+                    message = "СЕЙВ!"
+                    message_t = 1.2
+                keeper_hold = 0.9
+                b.ghost = true
+                v = play_tone(110, 80)
+                sound_volume(v, 0.6)
+        if keeper_hold < 0
+            keeper_hold = min(0.0, keeper_hold + dt)
+        if keeper_hold > 0
+            keeper_hold -= dt
+            b.x = kb.x - 0.4
+            b.y = kb.y + 0.35
+            b.z = kb.z
+            b.vx = 0
+            b.vy = 0
+            b.vz = 0
+            if keeper_hold <= 0
+                b.ghost = false
+                b.vx = -8.0 - random(0, 30) / 10.0
+                b.vy = 6.5
+                b.vz = random(-40, 40) / 10.0
+                v = play_tone(95, 70)
+                sound_volume(v, 0.8)
+        // мяч катится и понемногу останавливается
+        if b.y < BALL_R + 0.05 and not holding
+            k = 1.0 - min(1.0, 0.9 * dt)
+            b.vx *= k
+            b.vz *= k
+            sp = sqrt(b.vx * b.vx + b.vz * b.vz)
+            if sp > 0.05
+                spin += sp * dt / BALL_R * 57.3
+                spin_dir = (round(atan_deg(b.vz, b.vx) / (360.0 / ROLL_DIRS)) + ROLL_DIRS * 2) % ROLL_DIRS
+
+        // гол или аут
+        if reset_t < 0 and not holding and keeper_hold <= 0
+            inside_goal = abs(b.z) < GOAL_Z and b.y < GOAL_H and abs(b.x) > HALF_X + BALL_R
+            if inside_goal
+                goals += 1
+                message = "ГОЛ!"
+                message_t = 2.0
+                reset_t = 2.0
+                reset_x = 0.0
+                reset_z = 0.0
+                count i from 0 to 4
+                    v = play_tone(523 + i * 131, 400 - i * 40)
+                    sound_volume(v, 0.35)
+            else if abs(b.x) > HALF_X + 0.2 or abs(b.z) > HALF_Z + 0.2
+                outs += 1
+                message = "АУТ"
+                message_t = 1.5
+                reset_t = 1.5
+                reset_x = max(-HALF_X + 3, min(HALF_X - 3, b.x))
+                reset_z = max(-HALF_Z + 1, min(HALF_Z - 1, b.z))
+                v = play_tone(2600, 350)
+                sound_volume(v, 0.3)
+        if reset_t >= 0
+            reset_t -= dt
+            if reset_t < 0
+                physics.place(w, ball, reset_x, 1.5, reset_z)
+                b.vx = 0
+                b.vy = 0
+                b.vz = 0
+                if message == "ГОЛ!"
+                    physics.place(w, hero.body, -3, 1, 0)
+        if message_t > 0
+            message_t -= dt
+
+        // ---------- анимация ----------
+        moving = speed > 0
+        choose_clip(hero, clips, h.on_ground or holding, moving, fast, holding)
+        pose_figure(hero, h, dt)
+        keeper_moves = abs(kb.z - keeper.s.z) > 0.002
+        keeper.kick_t = -1.0
+        choose_clip(keeper, clips, keeper_jump <= 0, keeper_moves, false, keeper_hold > 0)
+        pose_figure(keeper, kb, dt)
+
+        // ---------- камера, как по телевизору ----------
+        tx = max(-8.0, min(8.0, b.x * 0.75 + h.x * 0.25))
+        tz = max(-3.0, min(3.0, b.z * 0.35))
+        cam_x += (tx - cam_x) * min(1.0, dt * 2.5)
+        cam_z += (tz - cam_z) * min(1.0, dt * 2.5)
+        camera(cam_x, 9.5, cam_z - 15, cam_x, 0.3, cam_z + 0.5)
+        listener(cam_x, 9.5, cam_z - 15, cam_x, 0.3, cam_z + 0.5)
+
+        // ---------- кадр ----------
+        W = window_w()
+        H = window_h()
+        clear_window(rgb(140, 190, 235))
+        count i from 0 to 23
+            draw_rect(0, i * H / 48, W, H / 48 + 1, rgb(100 + i * 3, 155 + i * 2, 220 + i / 2))
+        draw_mesh(stands, 0, 0, 0, 0)
+        draw_mesh(pitch, 0, 0, 0, 0)
+        draw_mesh(goal_l, -HALF_X, 0, 0, 0)
+        draw_mesh(goal_r, HALF_X, 0, 0, 0)
+        // тени: луч вниз
+        r = physics.ray(w, b.x, b.y, b.z, 0, -1, 0, 40, ball)
+        if r.body >= 0 and r.body != hero.body and r.body != keeper_body
+            high = r.dist - BALL_R
+            k2 = max(0, min(11, round(5 - high * 0.8)))
+            draw_mesh(discs[k2], b.x, b.y - r.dist + 0.015, b.z, 0)
+        draw_mesh(man_shadow, h.x, 0.016, h.z, 0)
+        draw_mesh(man_shadow, kb.x, 0.016, kb.z, 0)
+        frame = (round(spin / (360.0 / ROLL_FRAMES)) % ROLL_FRAMES + ROLL_FRAMES) % ROLL_FRAMES
+        draw_mesh(ball_meshes[spin_dir * ROLL_FRAMES + frame], b.x, b.y, b.z, 0)
+        draw_figure(hero)
+        draw_figure(keeper)
+
+        // счёт и подсказки
+        draw_rect(12, 10, 470, 34, rgb(20, 40, 30))
+        draw_text(24, 16, "ГОЛЫ " + goals + "   АУТЫ " + outs + "   СЕЙВЫ " + saves, 2, rgb(255, 255, 255))
+        draw_text(14, H - 24, "стрелки — бег, Shift — быстрее, X — удар (держать — сильнее), C — взять / бросить   " + fps() + " к/с", 1, rgb(20, 40, 30))
+        if charging
+            draw_rect(W / 2 - 101, H - 60, 202, 16, rgb(20, 40, 30))
+            draw_rect(W / 2 - 100, H - 59, round(200 * charge), 14, rgb(250, round(220 - 160 * charge), 60))
+        if message_t > 0
+            size = 6
+            draw_text(W / 2 - len(message) * 4 * size, H / 2 - 120, message, size, rgb(255, 250, 230))
+    if demo
+        print("голы:", goals, " ауты:", outs, " сейвы:", saves)
+
+// ---------- человечек ----------
+
+func make_figure(w: World, x: dec, z: dec, sr: int, sg: int, sb: int, pr: int, pg: int, pb: int) gives f: Figure
+    s = anim.skeleton()
+    body = anim.bone(s, "тело", -1, 0, -0.1, 0, 0, 0.75, 0)
+    head = anim.bone(s, "голова", body, 0, 0.75, 0, 0, 0.32, 0)
+    leg1 = anim.bone(s, "нога1", body, 0, 0, 0.11, 0, -0.8, 0)
+    leg2 = anim.bone(s, "нога2", body, 0, 0, -0.11, 0, -0.8, 0)
+    arm1 = anim.bone(s, "рука1", body, 0, 0.7, 0.28, 0, -0.62, 0)
+    arm2 = anim.bone(s, "рука2", body, 0, 0.7, -0.28, 0, -0.62, 0)
+    f = Figure(s: s, p: anim.player(), kick_t: -1.0, throw_t: -1.0)
+    f.body = physics.add_box(w, x, 0.95, z, 0.3, 0.9, 0.3, 1)
+    f.torso = mesh_new()
+    box_at(f.torso, 0, 0.42, 0, 0.13, 0.42, 0.23, 0, sr, sg, sb)
+    box_at(f.torso, 0, 0.03, 0, 0.14, 0.09, 0.24, 0, pr, pg, pb)
+    f.head = make_head(0.21)
+    count i from 0 to 270 / LIMB_STEP
+        roll = -90.0 + i * LIMB_STEP
+        lg = mesh_new()
+        box_at(lg, 0, -0.17, 0, 0.1, 0.17, 0.1, roll, pr, pg, pb)          // шорты
+        box_at(lg, 0, -0.52, 0, 0.075, 0.2, 0.075, roll, sr, sg, sb)       // гетры
+        box_at(lg, 0.06, -0.77, 0, 0.14, 0.05, 0.085, roll, 30, 30, 34)     // бутса носком вперёд
+        f.legs.add(lg)
+        am = mesh_new()
+        box_at(am, 0, -0.14, 0, 0.075, 0.14, 0.075, roll, sr, sg, sb)      // рукав
+        box_at(am, 0, -0.42, 0, 0.055, 0.17, 0.055, roll, 240, 200, 165)   // рука
+        f.arms.add(am)
+
+obj Clips
+    stand: Clip
+    run: Clip
+    sprint: Clip
+    jump: Clip
+    kick: Clip
+    throw: Clip
+    carry: Clip
+    carry_run: Clip
+
+func make_clips() gives c: Clips
+    c = Clips(stand: anim.clip("стоит", 2.0, true), run: anim.clip("бег", 0.5, true), sprint: anim.clip("рывок", 0.38, true), jump: anim.clip("прыжок", 0.3, false), kick: anim.clip("удар", 0.4, false), throw: anim.clip("бросок", 0.35, false), carry: anim.clip("держит", 1.0, true), carry_run: anim.clip("несёт", 0.55, true))
+    breath = anim.curve(c.stand, "тело.y")
+    anim.key(breath, 0.0, 0.0)
+    anim.key(breath, 1.0, 0.025)
+    anim.key(breath, 2.0, 0.0)
+    anim.key(anim.curve(c.stand, "рука1.roll"), 0, 6)
+    anim.key(anim.curve(c.stand, "рука2.roll"), 0, -6)
+    swing(c.run, 0.5, 40, 35, 0.05)
+    swing(c.sprint, 0.38, 55, 50, 0.08)
+    anim.key(anim.curve(c.jump, "нога1.roll"), 0, 45)
+    anim.key(anim.curve(c.jump, "нога2.roll"), 0, -25)
+    anim.key(anim.curve(c.jump, "рука1.roll"), 0, 160)
+    anim.key(anim.curve(c.jump, "рука2.roll"), 0, 160)
+    // удар второй ногой: замах назад, удар вперёд, возврат
+    kl = anim.curve(c.kick, "нога2.roll")
+    anim.key(kl, 0.0, 0)
+    anim.key(kl, 0.1, -55)
+    anim.key(kl, 0.18, 75)
+    anim.key(kl, 0.4, 0)
+    ks = anim.curve(c.kick, "нога1.roll")
+    anim.key(ks, 0.0, 0)
+    anim.key(ks, 0.18, -10)
+    anim.key(ks, 0.4, 0)
+    ka = anim.curve(c.kick, "рука1.roll")
+    anim.key(ka, 0.0, 0)
+    anim.key(ka, 0.18, 50)
+    anim.key(ka, 0.4, 0)
+    kb = anim.curve(c.kick, "рука2.roll")
+    anim.key(kb, 0.0, 0)
+    anim.key(kb, 0.18, -40)
+    anim.key(kb, 0.4, 0)
+    // бросок: руки из-за головы вперёд
+    each arm in ["рука1.roll", "рука2.roll"]
+        t = anim.curve(c.throw, arm)
+        anim.key(t, 0.0, 190)
+        anim.key(t, 0.15, 90)
+        anim.key(t, 0.35, 20)
+        anim.key(anim.curve(c.carry, arm), 0, 175)
+        anim.key(anim.curve(c.carry_run, arm), 0, 175)
+    walk_legs(c.carry_run, 0.55, 30)
+
+// бег: ноги и руки ходят навстречу, тело подпрыгивает
+func swing(c: Clip, len_s: dec, legs: dec, arms: dec, hop: dec)
+    walk_legs(c, len_s, legs)
+    each pair in [["рука1", "-1"], ["рука2", "1"]]
+        k = anim.curve(c, pair[0] + ".roll")
+        sgn = to_int(pair[1]) or 1
+        anim.key(k, 0.0, arms * sgn)
+        anim.key(k, len_s / 2, -arms * sgn)
+        anim.key(k, len_s, arms * sgn)
+    bob = anim.curve(c, "тело.y")
+    anim.key(bob, 0.0, 0.0)
+    anim.key(bob, len_s / 4, hop)
+    anim.key(bob, len_s / 2, 0.0)
+    anim.key(bob, len_s * 3 / 4, hop)
+    anim.key(bob, len_s, 0.0)
+
+func walk_legs(c: Clip, len_s: dec, legs: dec)
+    each pair in [["нога1", "1"], ["нога2", "-1"]]
+        k = anim.curve(c, pair[0] + ".roll")
+        sgn = to_int(pair[1]) or 1
+        anim.key(k, 0.0, legs * sgn)
+        anim.key(k, len_s / 2, -legs * sgn)
+        anim.key(k, len_s, legs * sgn)
+
+func choose_clip(f: Figure, c: Clips, ground: bool, moving: bool, fast: bool, holding: bool)
+    if f.kick_t >= 0
+        anim.play(f.p, c.kick, 0.05)
+    else if f.throw_t >= 0
+        anim.play(f.p, c.throw, 0.03)
+    else if not ground
+        anim.play(f.p, c.jump, 0.08)
+    else if holding and moving
+        anim.play(f.p, c.carry_run, 0.12)
+    else if holding
+        anim.play(f.p, c.carry, 0.12)
+    else if moving and fast
+        anim.play(f.p, c.sprint, 0.12)
+    else if moving
+        anim.play(f.p, c.run, 0.12)
+    else
+        anim.play(f.p, c.stand, 0.2)
+
+func pose_figure(f: Figure, b: Body, dt: dec)
+    f.s.x = b.x
+    f.s.y = b.y - 0.05
+    f.s.z = b.z
+    f.s.turn = f.turn
+    anim.update(f.p, f.s, dt)
+
+func limb_index(roll: dec) gives i: int
+    r = wrap_deg(roll)
+    if r < -90
+        r += 360
+    i = max(0, min(270 / LIMB_STEP, round((r + 90) / LIMB_STEP)))
+
+func draw_figure(f: Figure)
+    s = f.s
+    each k in [2, 3]
+        bn = s.bones[k]
+        draw_mesh(f.legs[limb_index(bn.roll)], bn.wx, bn.wy, bn.wz, f.turn)
+    bd = s.bones[0]
+    draw_mesh(f.torso, bd.wx, bd.wy, bd.wz, f.turn)
+    each k in [4, 5]
+        bn = s.bones[k]
+        draw_mesh(f.arms[limb_index(bn.roll)], bn.wx, bn.wy, bn.wz, f.turn)
+    hd = s.bones[1]
+    draw_mesh(f.head, (hd.wx + hd.ex) / 2, (hd.wy + hd.ey) / 2 + 0.04, (hd.wz + hd.ez) / 2, f.turn)
+
+// сам играет: заходит за мяч и бьёт в дальний от вратаря угол; после 700-го кадра один раз
+// берёт мяч в руки и бросает за боковую линию
+func demo_brain(h: Body, b: Body, turn: dec, holding: bool, charging: bool, charge: dec, frames: int, thrown: bool, keeper_z: dec, keeper_has: bool) gives mx: dec, mz: dec, kick: bool, grab: bool, fast: bool
+    mx = 0.0
+    mz = 0.0
+    kick = false
+    grab = false
+    fast = false
+    if holding
+        // к ближней боковой линии и бросок
+        mz = -1.0
+        grab = frames % 45 == 0
+        return
+    if keeper_has
+        mx = -1.0        // назад к центру, ждать мяч
+        return
+    aim_z = 1.7
+    if keeper_z > 0
+        aim_z = -1.7
+    gx = HALF_X + 1 - b.x
+    gz = aim_z - b.z
+    gl = sqrt(gx * gx + gz * gz)
+    gx /= gl
+    gz /= gl
+    px = max(-HALF_X + 0.5, min(HALF_X - 0.5, b.x - gx * 0.9))
+    pz = max(-HALF_Z - 1.0, min(HALF_Z + 1.0, b.z - gz * 0.9))
+    dbx = b.x - h.x
+    dbz = b.z - h.z
+    db = sqrt(dbx * dbx + dbz * dbz)
+    // стоит со стороны ворот — обойти мяч сбоку, а не толкать его к себе
+    ahead = -(dbx * gx + dbz * gz)
+    if ahead > -0.3 and db < 2.5
+        side = 1.0
+        if dbx * gz - dbz * gx > 0
+            side = -1.0
+        px = b.x - gx * 0.6 - gz * side * 1.3
+        pz = b.z - gz * 0.6 + gx * side * 1.3
+    dx = px - h.x
+    dz = pz - h.z
+    d = sqrt(dx * dx + dz * dz)
+    if d > 0.3
+        mx = dx
+        mz = dz
+        fast = d > 5
+    else
+        mx = gx          // уже за мячом: повернуться к воротам
+        mz = gz
+    if frames > 700 and not thrown and db < 1.2
+        grab = frames % 8 == 0
+        return
+    // смотрит на ворота и мяч прямо перед ним: замах; сила — от расстояния до ворот
+    fx = anim.cos_deg(turn)
+    fz = -anim.sin_deg(turn)
+    facing = fx * gx + fz * gz > 0.85
+    want = min(0.9, 0.15 + (HALF_X - b.x) / 25)
+    if charging
+        kick = charge < want
+        mx = 0
+        mz = 0
+    else if db < 1.25 and d < 0.7 and facing and b.y < 0.6
+        kick = true
+        mx = 0
+        mz = 0
+
+// ---------- свет и сетки ----------
+
+func lit(r: dec, g: dec, b: dec, nx: dec, ny: dec, nz: dec) gives c: int
+    d = max(0.0, nx * SUN_X + ny * SUN_Y + nz * SUN_Z)
+    k = 0.45 + 0.6 * d + 0.1 * max(0.0, ny)
+    spec = 0.0
+    if d > 0.94
+        spec = (d - 0.94) * 900
+    c = rgb(round(r * k + spec), round(g * k + spec), round(b * k + spec))
+
+// треугольник наружу от точки (cx, cy, cz)
+func tri(m: int, ax: dec, ay: dec, az: dec, bx: dec, py: dec, bz: dec, qx: dec, qy: dec, qz: dec, cx: dec, cy: dec, cz: dec, r: dec, g: dec, b: dec)
+    nx, ny, nz, ok = normal(ax, ay, az, bx, py, bz, qx, qy, qz)
+    if not ok
+        return
+    if nx * (ax - cx) + ny * (ay - cy) + nz * (az - cz) >= 0
+        mesh_add(m, ax, ay, az, bx, py, bz, qx, qy, qz, lit(r, g, b, nx, ny, nz))
+    else
+        mesh_add(m, ax, ay, az, qx, qy, qz, bx, py, bz, lit(r, g, b, -nx, -ny, -nz))
+
+func normal(ax: dec, ay: dec, az: dec, bx: dec, py: dec, bz: dec, qx: dec, qy: dec, qz: dec) gives nx: dec, ny: dec, nz: dec, ok: bool
+    ux = bx - ax
+    uy = py - ay
+    uz = bz - az
+    vx = qx - ax
+    vy = qy - ay
+    vz = qz - az
+    nx = uy * vz - uz * vy
+    ny = uz * vx - ux * vz
+    nz = ux * vy - uy * vx
+    l = sqrt(nx * nx + ny * ny + nz * nz)
+    ok = l > 0.0000001
+    if ok
+        nx /= l
+        ny /= l
+        nz /= l
+
+// коробка с центром (x, y, z) и половинами (hx, hy, hz), повёрнутая на roll градусов вокруг z (вокруг нуля)
+func box_at(m: int, x: dec, y: dec, z: dec, hx: dec, hy: dec, hz: dec, roll: dec, r: dec, g: dec, b: dec)
+    cr = anim.cos_deg(roll)
+    sr = anim.sin_deg(roll)
+    xs = list dec
+    ys = list dec
+    zs = list dec
+    each c in [[-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1], [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]]
+        px = x + c[0] * hx
+        py = y + c[1] * hy
+        xs.add(cr * px - sr * py)
+        ys.add(sr * px + cr * py)
+        zs.add(z + c[2] * hz)
+    cx = cr * x - sr * y
+    cy = sr * x + cr * y
+    each f in [[0, 1, 2, 3], [4, 5, 6, 7], [0, 4, 7, 3], [1, 5, 6, 2], [3, 2, 6, 7], [0, 1, 5, 4]]
+        tri(m, xs[f[0]], ys[f[0]], zs[f[0]], xs[f[1]], ys[f[1]], zs[f[1]], xs[f[2]], ys[f[2]], zs[f[2]], cx, cy, z, r, g, b)
+        tri(m, xs[f[0]], ys[f[0]], zs[f[0]], xs[f[2]], ys[f[2]], zs[f[2]], xs[f[3]], ys[f[3]], zs[f[3]], cx, cy, z, r, g, b)
+
+func sphere_pt(rad: dec, la: dec, lo: dec) gives x: dec, y: dec, z: dec
+    x = rad * anim.cos_deg(la) * anim.cos_deg(lo)
+    y = rad * anim.sin_deg(la)
+    z = rad * anim.cos_deg(la) * anim.sin_deg(lo)
+
+func make_ball(rad: dec, r: dec, g: dec, b: dec) gives m: int
+    m = mesh_new()
+    count i from 0 to 9
+        a1 = -90 + 18.0 * i
+        a2 = -90 + 18.0 * (i + 1)
+        count j from 0 to 17
+            o1 = 20.0 * j
+            o2 = 20.0 * (j + 1)
+            x11, y11, z11 = sphere_pt(rad, a1, o1)
+            x12, y12, z12 = sphere_pt(rad, a1, o2)
+            x21, y21, z21 = sphere_pt(rad, a2, o1)
+            x22, y22, z22 = sphere_pt(rad, a2, o2)
+            tri(m, x11, y11, z11, x12, y12, z12, x22, y22, z22, 0, 0, 0, r, g, b)
+            tri(m, x11, y11, z11, x22, y22, z22, x21, y21, z21, 0, 0, 0, r, g, b)
+
+// голова смотрит вдоль x: глаза спереди, волосы сверху
+func make_head(rad: dec) gives m: int
+    m = make_ball(rad, 240, 200, 165)
+    each side in [-1.0, 1.0]
+        ez = side * rad * 0.38
+        ex = rad * 0.94
+        mesh_add(m, ex, rad * 0.22, ez - 0.035, ex, rad * 0.22, ez + 0.035, ex + 0.01, rad * 0.05, ez, rgb(30, 30, 40))
+    hair = rad * 1.06
+    count j from 0 to 13
+        o1 = 360.0 * j / 14
+        o2 = 360.0 * (j + 1) / 14
+        count i from 0 to 2
+            a1 = 25 + 22.0 * i
+            a2 = 25 + 22.0 * (i + 1)
+            x11, y11, z11 = sphere_pt(hair, a1, o1)
+            x12, y12, z12 = sphere_pt(hair, a1, o2)
+            x21, y21, z21 = sphere_pt(hair, a2, o1)
+            x22, y22, z22 = sphere_pt(hair, a2, o2)
+            tri(m, x11, y11, z11, x12, y12, z12, x22, y22, z22, 0, 0, 0, 70, 45, 30)
+            tri(m, x11, y11, z11, x22, y22, z22, x21, y21, z21, 0, 0, 0, 70, 45, 30)
+
+// мяч: белый с чёрными пятнами (12 пятен по вершинам икосаэдра).
+// Повернуть сетку во все стороны нечем, поэтому заранее строим ROLL_DIRS × ROLL_FRAMES сеток:
+// для каждой стороны качения и каждого угла — те же треугольники, а пятна повёрнуты.
+func make_ball_frames() gives out: list int
+    t = 1.618034
+    spots = list dec
+    each v in [[0, 1, t], [0, -1, t], [0, 1, -t], [0, -1, -t], [1, t, 0], [-1, t, 0], [1, -t, 0], [-1, -t, 0], [t, 0, 1], [-t, 0, 1], [t, 0, -1], [-t, 0, -1]]
+        l = sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2])
+        spots.add(v[0] / l)
+        spots.add(v[1] / l)
+        spots.add(v[2] / l)
+    count d from 0 to ROLL_DIRS - 1
+        ang = 360.0 * d / ROLL_DIRS
+        // катится в сторону (cos, 0, sin) — ось вращения (sin, 0, −cos)
+        ax = anim.sin_deg(ang)
+        az = -anim.cos_deg(ang)
+        count f from 0 to ROLL_FRAMES - 1
+            spin = -360.0 * f / ROLL_FRAMES       // назад во времени: какая точка мяча сейчас здесь
+            m = mesh_new()
+            count i from 0 to 9
+                a1 = -90 + 18.0 * i
+                a2 = -90 + 18.0 * (i + 1)
+                count j from 0 to 17
+                    o1 = 20.0 * j
+                    o2 = 20.0 * (j + 1)
+                    x11, y11, z11 = sphere_pt(BALL_R, a1, o1)
+                    x12, y12, z12 = sphere_pt(BALL_R, a1, o2)
+                    x21, y21, z21 = sphere_pt(BALL_R, a2, o1)
+                    x22, y22, z22 = sphere_pt(BALL_R, a2, o2)
+                    ball_tri(m, x11, y11, z11, x12, y12, z12, x22, y22, z22, ax, az, spin, spots)
+                    ball_tri(m, x11, y11, z11, x22, y22, z22, x21, y21, z21, ax, az, spin, spots)
+            out.add(m)
+
+func ball_tri(m: int, ax: dec, ay: dec, az: dec, bx: dec, py: dec, bz: dec, qx: dec, qy: dec, qz: dec, kx: dec, kz: dec, spin: dec, spots: list dec)
+    cx = (ax + bx + qx) / 3
+    cy = (ay + py + qy) / 3
+    cz = (az + bz + qz) / 3
+    // поворот точки (cx, cy, cz) вокруг оси (kx, 0, kz) на spin (формула Родрига)
+    c = anim.cos_deg(spin)
+    s = anim.sin_deg(spin)
+    dot = kx * cx + kz * cz
+    crx = 0 * cz - kz * cy
+    cry = kz * cx - kx * cz
+    crz = kx * cy - 0 * cx
+    rx = cx * c + crx * s + kx * dot * (1 - c)
+    ry = cy * c + cry * s
+    rz = cz * c + crz * s + kz * dot * (1 - c)
+    l = sqrt(rx * rx + ry * ry + rz * rz)
+    black = false
+    count i from 0 to 11
+        if (rx * spots[i * 3] + ry * spots[i * 3 + 1] + rz * spots[i * 3 + 2]) / l > 0.9
+            black = true
+    if black
+        tri(m, ax, ay, az, bx, py, bz, qx, qy, qz, 0, 0, 0, 40, 40, 46)
+    else
+        tri(m, ax, ay, az, bx, py, bz, qx, qy, qz, 0, 0, 0, 250, 250, 245)
+
+// поле: полосы газона, белая разметка, вокруг беговая дорожка и трава
+func make_pitch() gives m: int
+    m = mesh_new()
+    // газон полосами по 2.5 метра
+    count i from 0 to 13
+        x0 = -17.5 + i * 2.5
+        g = 150
+        if i % 2 == 0
+            g = 165
+        flat(m, x0, -11.5, x0 + 2.5, 11.5, 0, 70, g, 60)
+    // за полем
+    flat(m, -60, -45, 60, -11.5, -0.01, 60, 120, 60)
+    flat(m, -60, 11.5, 60, 45, -0.01, 60, 120, 60)
+    flat(m, -60, -11.5, -17.5, 11.5, -0.01, 60, 120, 60)
+    flat(m, 17.5, -11.5, 60, 11.5, -0.01, 60, 120, 60)
+    // разметка
+    lw = 0.07
+    y = 0.006
+    line(m, -HALF_X, -HALF_Z, HALF_X, -HALF_Z, lw, y)
+    line(m, -HALF_X, HALF_Z, HALF_X, HALF_Z, lw, y)
+    line(m, -HALF_X, -HALF_Z, -HALF_X, HALF_Z, lw, y)
+    line(m, HALF_X, -HALF_Z, HALF_X, HALF_Z, lw, y)
+    line(m, 0, -HALF_Z, 0, HALF_Z, lw, y)
+    each side in [-1.0, 1.0]
+        gx = side * HALF_X
+        line(m, gx - side * 4.5, -5.5, gx - side * 4.5, 5.5, lw, y)
+        line(m, gx, -5.5, gx - side * 4.5, -5.5, lw, y)
+        line(m, gx, 5.5, gx - side * 4.5, 5.5, lw, y)
+        line(m, gx - side * 1.6, -3.2, gx - side * 1.6, 3.2, lw, y)
+        line(m, gx, -3.2, gx - side * 1.6, -3.2, lw, y)
+        line(m, gx, 3.2, gx - side * 1.6, 3.2, lw, y)
+        flat(m, gx - side * 3.3 - 0.1, -0.1, gx - side * 3.3 + 0.1, 0.1, y, 245, 245, 240)
+    // центральный круг
+    count j from 0 to 35
+        a1 = 10.0 * j
+        a2 = 10.0 * (j + 1)
+        line(m, 2.6 * anim.cos_deg(a1), 2.6 * anim.sin_deg(a1), 2.6 * anim.cos_deg(a2), 2.6 * anim.sin_deg(a2), lw, y)
+    flat(m, -0.12, -0.12, 0.12, 0.12, y, 245, 245, 240)
+
+// плоский прямоугольник на высоте y
+func flat(m: int, x0: dec, z0: dec, x1: dec, z1: dec, y: dec, r: dec, g: dec, b: dec)
+    c = lit(r, g, b, 0, 1, 0)
+    mesh_add(m, x0, y, z0, x0, y, z1, x1, y, z1, c)
+    mesh_add(m, x0, y, z0, x1, y, z1, x1, y, z0, c)
+
+// белая полоса от (x0, z0) до (x1, z1)
+func line(m: int, x0: dec, z0: dec, x1: dec, z1: dec, w: dec, y: dec)
+    dx = x1 - x0
+    dz = z1 - z0
+    l = sqrt(dx * dx + dz * dz)
+    nx = -dz / l * w
+    nz = dx / l * w
+    c = lit(245, 245, 240, 0, 1, 0)
+    mesh_add(m, x0 - nx - dx / l * w, y, z0 - nz - dz / l * w, x1 - nx + dx / l * w, y, z1 - nz + dz / l * w, x1 + nx + dx / l * w, y, z1 + nz + dz / l * w, c)
+    mesh_add(m, x0 - nx - dx / l * w, y, z0 - nz - dz / l * w, x1 + nx + dx / l * w, y, z1 + nz + dz / l * w, x0 + nx - dx / l * w, y, z0 + nz - dz / l * w, c)
+
+// ворота у x = 0, сетка уходит в сторону side
+func make_goal(side: int) gives m: int
+    m = mesh_new()
+    s = side * 1.0
+    box_at(m, 0, GOAL_H / 2, GOAL_Z, 0.07, GOAL_H / 2, 0.07, 0, 250, 250, 250)
+    box_at(m, 0, GOAL_H / 2, -GOAL_Z, 0.07, GOAL_H / 2, 0.07, 0, 250, 250, 250)
+    box_at(m, 0, GOAL_H, 0, 0.07, 0.07, GOAL_Z + 0.07, 0, 250, 250, 250)
+    // сетка: тонкие нити сзади, сверху и по бокам
+    nw = 0.012
+    count i from 0 to 10
+        z = -GOAL_Z + i * GOAL_Z / 5
+        net(m, s * GOAL_D, 0, z, s * GOAL_D, GOAL_H, z, nw)
+        net(m, 0, GOAL_H, z, s * GOAL_D, GOAL_H, z, nw)
+    count i from 0 to 5
+        y = i * GOAL_H / 5
+        net(m, s * GOAL_D, y, -GOAL_Z, s * GOAL_D, y, GOAL_Z, nw)
+        net(m, 0, y, GOAL_Z, s * GOAL_D, y, GOAL_Z, nw)
+        net(m, 0, y, -GOAL_Z, s * GOAL_D, y, -GOAL_Z, nw)
+    count i from 0 to 4
+        x = s * GOAL_D * i / 4
+        net(m, x, 0, GOAL_Z, x, GOAL_H, GOAL_Z, nw)
+        net(m, x, 0, -GOAL_Z, x, GOAL_H, -GOAL_Z, nw)
+        net(m, x, GOAL_H, -GOAL_Z, x, GOAL_H, GOAL_Z, nw)
+
+// нить сетки: узкая лента, видна с обеих сторон
+func net(m: int, x0: dec, y0: dec, z0: dec, x1: dec, y1: dec, z1: dec, w: dec)
+    c = rgb(225, 228, 230)
+    if abs(y1 - y0) > 0.01
+        mesh_add(m, x0 - w, y0, z0 - w, x1 - w, y1, z1 - w, x1 + w, y1, z1 + w, c)
+        mesh_add(m, x0 - w, y0, z0 - w, x1 + w, y1, z1 + w, x0 + w, y0, z0 + w, c)
+    else
+        mesh_add(m, x0, y0 - w, z0, x1, y1 - w, z1, x1, y1 + w, z1, c)
+        mesh_add(m, x0, y0 - w, z0, x1, y1 + w, z1, x0, y0 + w, z0, c)
+
+// трибуны вдоль длинных сторон: ступени и зрители
+func make_stands() gives m: int
+    m = mesh_new()
+    each side in [-1.0, 1.0]
+        count row from 0 to 4
+            z = side * (13.0 + row * 1.1)
+            y = 0.4 + row * 0.55
+            box_at(m, 0, y / 2, z, 21, y / 2, 0.55, 0, 150 - row * 6, 150 - row * 6, 160 - row * 6)
+            if side > 0
+                count k from 0 to 69
+                    x = -20 + k * 0.58 + (row % 2) * 0.29
+                    cr = random(60, 250)
+                    cg = random(60, 250)
+                    cb = random(60, 250)
+                    box_at(m, x, y + 0.25, z, 0.17, 0.25, 0.12, 0, cr, cg, cb)
+                    box_at(m, x, y + 0.6, z, 0.11, 0.1, 0.1, 0, 235, 195, 160)
+
+func make_disc(rad: dec) gives m: int
+    m = mesh_new()
+    c = lit(45, 95, 45, 0, 1, 0)
+    count j from 0 to 15
+        o1 = 360.0 * j / 16
+        o2 = 360.0 * (j + 1) / 16
+        mesh_add(m, 0, 0, 0, rad * anim.cos_deg(o1), 0, rad * anim.sin_deg(o1), rad * anim.cos_deg(o2), 0, rad * anim.sin_deg(o2), c)
+
+func sign(v: dec) gives r: dec
+    r = 1.0
+    if v < 0
+        r = -1.0
+
+func has(xs: list int, v: int) gives yes: bool
+    yes = false
+    each x in xs
+        if x == v
+            yes = true
+
+// ---------- углы ----------
+
+func atan_deg(y: dec, x: dec) gives a: dec
+    ax = abs(x)
+    ay = abs(y)
+    if ax < 0.000001 and ay < 0.000001
+        return 0.0
+    r = min(ax, ay) / max(ax, ay)
+    a = 45 * r + 15.64 * r * (1 - r)
+    if ay > ax
+        a = 90 - a
+    if x < 0
+        a = 180 - a
+    if y < 0
+        a = -a
+
+func wrap_deg(a: dec) gives r: dec
+    r = a
+    repeat while r > 180
+        r -= 360
+    repeat while r < -180
+        r += 360
