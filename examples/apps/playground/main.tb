@@ -152,6 +152,15 @@ func main()
             ball_colors.add(len(balls) % 4)
 
         physics.step(w, dt)
+        // человечек не перепрыгивает бортик: держим его внутри двора,
+        // а если всё же провалился ниже пола — ставим обратно в угол
+        h.x = max(-9.6, min(9.6, h.x))
+        h.z = max(-5.6, min(5.6, h.z))
+        if h.y < -2
+            physics.place(w, hero, -8, 1.2, 0)
+            h.vx = 0
+            h.vy = 0
+            h.vz = 0
         // звук ударов: громкость и высота от силы удара
         each hit in w.hits
             if hit.speed > 1.5
