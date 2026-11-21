@@ -1,0 +1,39 @@
+// Драйвер часов реального времени (RTC в микросхеме CMOS). Доверенный модуль: ему можно danger
+// (порты 0x70 и 0x71). Служба отдаёт время в канал: кто держит канал — тот знает время.
+
+func cmos(reg: int) gives v: int
+    danger
+        port_out8(0x70, reg)
+        v = port_in8(0x71)
+
+// числа в CMOS обычно записаны «двоично-десятично»: 0x21 — это 21
+func bcd(v: int, binary: bool) gives r: int
+    if binary
+        return v
+    return shift_right(v, 4) * 10 + bit_and(v, 15)
+
+// время сейчас: "21:53" и дата "21.11.2026"
+modpub func rtc_now() gives clock: text, date: text
+    // пока часы обновляются (бит 0x80), числа читать нельзя
+    repeat 100000 times
+        if bit_and(cmos(0x0A), 0x80) == 0
+            stop
+    binary = bit_and(cmos(0x0B), 4) != 0
+    m = bcd(cmos(0x02), binary)
+    h = bcd(bit_and(cmos(0x04), 0x7F), binary)
+    day = bcd(cmos(0x07), binary)
+    month = bcd(cmos(0x08), binary)
+    year = 2000 + bcd(cmos(0x09), binary)
+    clock = two(h) + ":" + two(m)
+    date = two(day) + "." + two(month) + "." + year
+
+func two(n: int) gives s: text
+    if n < 10
+        return "0" + n
+    return "" + n
+
+// служба «время»: на каждый запрос (любое число) отвечает текстом "ЧЧ:ММ ДД.ММ.ГГГГ"
+modpub func rtc(ask: channel int, answer: channel text)
+    each q in ask
+        c, d = rtc_now()
+        answer.send(c + " " + d)

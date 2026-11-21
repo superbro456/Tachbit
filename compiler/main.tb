@@ -427,10 +427,12 @@ func build_lib(c: Comp, path: text, exe: text)
 
 // режим «без ОС»: файл.tb → ядро .elf, которое грузит QEMU (или GRUB) без всякой ОС
 // библиотека ядра (runtime.h с TB_BARE) в LLVM (.bc) для x86-64 без ОС; лежит в ~/.cache/tachbit
-func llvm_lib_bare(bin: text) gives lib: text, target: text, cpu: text
+func llvm_lib_bare(bin: text, gfx: bool) gives lib: text, target: text, cpu: text
     dir = env("HOME") + "/.cache/tachbit"
     src = runtime_text()
     base = dir + "/rt-" + text_hash(src) + "-" + len(src) + "-bare64"
+    if gfx
+        base += "g"
     if bin == ""
         // только clang (нет opt, llc, llvm-link — так бывает на Mac): своя копия, её читает этот же clang
         base += "c"
@@ -447,6 +449,8 @@ func llvm_lib_bare(bin: text) gives lib: text, target: text, cpu: text
         if bin != ""
             cl = "c=" + quote(bin + "/clang") + "; [ -x \"$c\" ] || c=clang; "
         flags = " --target=x86_64-unknown-none-elf -ffreestanding -fno-builtin -nostdlib -mno-red-zone -fno-stack-protector -fno-pic -fno-asynchronous-unwind-tables -fno-unwind-tables -DTB_BARE -DTB_LL"
+        if gfx
+            flags += " -DTB_GFX"
         cmd = cl + "\"$c\" -O2 -w -c -emit-llvm" + flags + " -x c " + quote(base + ".c") + " -o " + quote(base + ".tmp.bc") + " 2> " + quote(base + ".log")
         // цель и настройки процессора: из текстового вида библиотеки (его делает тот же clang)
         cmd += " && \"$c\" -O2 -w -S -emit-llvm" + flags + " -x c " + quote(base + ".c") + " -o - | grep -E '^target |^attributes #0 ' > " + quote(base + ".tmp.target")
@@ -483,7 +487,7 @@ func build_bare(c: Comp, path: text, exe: text)
     if bin == "" and run("command -v clang > /dev/null 2>&1") != 0
         print("для ядра нужен clang (или инструменты LLVM: opt, llc, llvm-link): на Mac — xcode-select --install, на Linux — apt install clang")
         return 1
-    lib, target, cpu = llvm_lib_bare(bin)
+    lib, target, cpu = llvm_lib_bare(bin, c.gfx)
     if lib == ""
         return 1
     ll_path = exe + ".ll"

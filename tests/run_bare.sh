@@ -35,10 +35,14 @@ done
 # Омниум (omnium/main.tb): службы и клетки на каналах; клавиатуру никто не трогает — эхо пустое
 got=$(run_kernel omnium/main.tb)
 if [ "$got" = "$(cat omnium/main.out)" ]; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "не прошёл: omnium/main.tb"; fi
-# те же проверки ядра на 4 ядрах процессора (задачи идут по-настоящему одновременно)
+# оболочка «Капля» (omnium/desktop.tb): здесь только сборка — ей нужен живой экран и мышь
+if ./build/tb bare omnium/desktop.tb > "$work/build.txt" 2>&1; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "не собралась: omnium/desktop.tb"; cat "$work/build.txt"; fi
+rm -f omnium/desktop.elf omnium/desktop.c
+# те же проверки ядра на 4 ядрах процессора (задачи идут по-настоящему одновременно:
+# строки разных клеток могут прийти в другом порядке — сравниваем сами строки)
 for f in tests/bare/*.tb; do
-    got=$(TB_SMP=4 run_kernel "$f")
-    if [ "$got" = "$(cat "${f%.tb}.out")" ]; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "не прошёл на 4 ядрах: $f"; fi
+    got=$(TB_SMP=4 run_kernel "$f" | sort)
+    if [ "$got" = "$(sort "${f%.tb}.out")" ]; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "не прошёл на 4 ядрах: $f"; fi
 done
 # Омниум на 4 ядрах: клетки пишут одновременно — порядок строк бывает разный, сами строки те же
 got=$(TB_SMP=4 run_kernel omnium/main.tb | sort)

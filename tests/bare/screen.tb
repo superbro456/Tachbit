@@ -1,0 +1,25 @@
+// Экран в ядре: видеокарта QEMU, кадр 640×480, рисование и буквы; мышь и клавиши тоже включаются
+func main()
+    window_open(640, 480, "Омниум") else err
+        print("нет экрана: " + err)
+        return
+    print("экран " + window_w() + "×" + window_h())
+    n = 0
+    repeat while window_alive()
+        clear_window(rgb(30, 40, 60))
+        draw_rect(100, 100, 200, 100, rgb(240, 200, 80))
+        draw_circle(400, 240, 60, rgb(80, 200, 160))
+        draw_text(110, 130, "Привет, Омниум!", 1, rgb(20, 20, 20))
+        draw_rect(50, 50, 300, 300, rgba(255, 255, 255, 128))
+        n += 1
+        if n == 10
+            stop
+    print("кадров: " + n)
+    print("мышь посередине: " + (mouse_x() == 320 and mouse_y() == 240))
+    print("набрано: «" + typed_text() + "»")
+    shot = screen_image()
+    print("снимок: " + (shot >= 0) + " " + image_w(shot) + "×" + image_h(shot))
+    ch = channel int
+    print("канал пуст: " + (not ch.ready()))
+    ch.send(7)
+    print("в канале есть: " + ch.ready() + " " + ch.receive())

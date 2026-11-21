@@ -1,0 +1,6 @@
+{
+    // compiler/runtime.h и omnium/kernel/*.h — куски для разных систем (Mac, Windows, Linux, ядро),
+    // компилятор берёт только нужный; расширение C читает всё разом и видит ложные ошибки
+    "C_Cpp.errorSquiggles": "disabled",
+    "files.associations": { "runtime.h": "c", "*.h": "c" }
+}

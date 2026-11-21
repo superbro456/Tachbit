@@ -1,0 +1,37 @@
+// Омниум с оболочкой «Капля»: ядро запускает службы и клетки, оболочка рисует экран.
+// Клетки пишут в журнал (канал), оболочка показывает его в «Терминале».
+// Сборка и запуск:  ./omnium/run.sh
+use rtc
+use shell
+
+// клетка «счётчик»: считает и пишет в журнал
+func counter(no: int, log: channel text) gives r: int
+    total = 0
+    count i from 1 to 300000
+        total += i % 7
+    log.send("[счётчик " + no + "] сумма " + total)
+    return total
+
+// клетка с ошибкой: падает только она
+func broken(log: channel text, n: int) gives r: int
+    log.send("[сломанная] сейчас поделю на ноль")
+    return 100 / n
+
+func main()
+    log = channel text
+    log.send("Омниум: ядро запущено (x86-64, Tachbit)")
+    ask = channel int
+    answer = channel text
+    time = background rtc(ask, answer)
+    log.send("[ядро] службы: часы, экран, мышь, клавиатура")
+    c0 = background counter(0, log)
+    c1 = background counter(1, log)
+    bad = background broken(log, 0)
+    if bad.crashed
+        log.send("[ядро] клетка «сломанная» упала, остальные работают")
+    log.send("[ядро] печатай — откроется поиск; Enter открывает первое")
+    shell.shell(1024, 768, log, ask, answer, 0, ["Терминал", "О системе"])
+    ask.close()
+    time.wait
+    sum = c0.wait + c1.wait
+    print("[ядро] выключаюсь, сумма " + sum)

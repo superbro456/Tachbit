@@ -1,0 +1,9 @@
+// ch.ready(): есть ли в канале значение — чтобы не ждать receive()
+func main()
+    ch = channel text
+    print(ch.ready())
+    ch.send("привет")
+    ch.send("мир")
+    repeat while ch.ready()
+        print(ch.receive())
+    print(ch.ready())
