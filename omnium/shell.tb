@@ -56,6 +56,8 @@ obj Shell
     fs_files: list text    // для окна «Файлы»
     usb_files: list text
     place: text        // что открыто в «Файлах»: "ofs" или "usb"
+    icon_names: list text  // значки-картинки (omnium/icons, гладкие края)
+    icon_ids: list int
 
 // ---------- стиль «Капли» ----------
 func ink() gives c: int
@@ -92,8 +94,7 @@ func frost(x: int, y: int, w: int, h: int, r: int, corners: text, c: int)
 
 // мягкая тень: слои всё шире и прозрачнее
 func shadow(x: int, y: int, w: int, h: int, r: int, corners: text)
-    count k from 0 to 13
-        draw_round(x - k, y + 12 - k, w + 2 * k, h + 2 * k, r + k, corners, rgba(40, 50, 90, 4))
+    draw_shadow(x, y + 10, w, h, r, 24, rgba(40, 50, 90, 40))
 
 func rbox(x: int, y: int, w: int, h: int, r: int, c: int)
     draw_round(x, y, w, h, r, "all", c)
@@ -329,7 +330,8 @@ func dock(s: Shell)
     shoulder(x - 28, base - 28, 28, false, c)
     shoulder(x + w, base - 28, 28, true, c)
     cy = y + h / 2
-    logo(x + 42, cy, 20)
+    if not pic(s, "logo", x + 42, cy)
+        logo(x + 42, cy, 20)
     // поиск
     sx = x + 80
     rbox(sx, cy - 22, 290, 44, 22, rgba(255, 255, 255, 235))
@@ -345,7 +347,8 @@ func dock(s: Shell)
     i = 0
     each a in dock_apps()
         ax = sx + 326 + i * 66
-        icon(ax + 22, cy - 3, a)
+        if not pic(s, app_pic(a), ax + 22, cy - 3)
+            icon(ax + 22, cy - 3, a)
         if shown_any(s, a)
             draw_circle(ax + 22, cy + 25, 2, rgb(150, 156, 170))
         i += 1
@@ -395,11 +398,62 @@ func drop(s: Shell)
         bx = x + 298 + (i % 2) * 124
         cy = y + 46 + (i / 2) * 108
         rbox(bx, cy, 112, 96, 18, rgba(255, 255, 255, 180))
-        icon(bx + 56, cy + 36, a)
+        if not pic(s, app_pic(a), bx + 56, cy + 36)
+            icon(bx + 56, cy + 36, a)
         label(s, bx + (112 - text_w(s, a, 12)) / 2, cy + 68, a, 12, ink())
         i += 1
 
 // значки приложений 44×44 (центр cx, cy)
+// значок-картинка по имени: рисуется по центру (cx, cy); false — такой картинки нет
+func pic(s: Shell, name: text, cx: int, cy: int) gives ok: bool
+    count i from 0 to len(s.icon_names) - 1
+        if s.icon_names[i] == name
+            p = s.icon_ids[i]
+            draw_image_alpha(p, cx - image_w(p) / 2, cy - image_h(p) / 2)
+            return true
+    return false
+
+func load_icons(s: Shell)
+    each name in ["terminal", "notes", "files", "about", "clock", "folder", "doc", "photo", "logo", "logo_small"]
+        p = -1
+        match name
+            "terminal"
+                p = load_image("icons/terminal.png") or -1
+            "notes"
+                p = load_image("icons/notes.png") or -1
+            "files"
+                p = load_image("icons/files.png") or -1
+            "about"
+                p = load_image("icons/about.png") or -1
+            "clock"
+                p = load_image("icons/clock.png") or -1
+            "folder"
+                p = load_image("icons/folder.png") or -1
+            "doc"
+                p = load_image("icons/doc.png") or -1
+            "photo"
+                p = load_image("icons/photo.png") or -1
+            "logo"
+                p = load_image("icons/logo.png") or -1
+            else
+                p = load_image("icons/logo_small.png") or -1
+        if p >= 0
+            s.icon_names.add(name)
+            s.icon_ids.add(p)
+
+func app_pic(app: text) gives name: text
+    match app
+        "Терминал"
+            name = "terminal"
+        "Заметки"
+            name = "notes"
+        "Файлы"
+            name = "files"
+        "О системе"
+            name = "about"
+        else
+            name = "clock"
+
 func icon(cx: int, cy: int, app: text)
     match app
         "Терминал"
@@ -490,7 +544,8 @@ func window(s: Shell, win: Win, top: bool)
     frost(win.x, win.y, win.w, win.h, 24, "tr bl br", body)
     // переход ушка в тело — плечом
     shoulder(win.x + ew, win.y - 20, 20, true, body)
-    logo(win.x + 28, win.y - eh / 2 + 2, 11)
+    if not pic(s, "logo_small", win.x + 28, win.y - eh / 2 + 2)
+        logo(win.x + 28, win.y - eh / 2 + 2, 11)
     bold(s, win.x + 48, win.y - eh / 2 - 8, win.title, 15, ink())
     // кнопки справа: свернуть, развернуть, закрыть
     bt_y = win.y + 24
@@ -551,8 +606,7 @@ func content(s: Shell, win: Win)
             py = ty + 16 + (n - first) * 20 + 8
             pr = "naz@omnium:~$ "
             label(s, tx + 18, py, pr, 13, rgb(140, 236, 150))
-            if (s.frames / 30) % 2 == 0
-                draw_rect(tx + 20 + text_w(s, pr, 13), py, 8, 17, rgb(226, 232, 242))
+            draw_rect(tx + 20 + text_w(s, pr, 13), py, 8, 17, rgb(226, 232, 242))
         "Заметки"
             // как редактор: полоса значков слева, номера строк, текст
             rx = win.x + 10
@@ -586,7 +640,7 @@ func content(s: Shell, win: Win)
                 label(s, tx, yy, l, 14, ink())
                 yy += 24
                 k += 1
-            if s.note_on and (s.frames / 30) % 2 == 0
+            if s.note_on
                 last = lines[len(lines) - 1]
                 draw_rect(tx + 1 + text_w(s, last, 14), yy - 24, 2, 18, accent())
             // строка состояния
@@ -643,12 +697,15 @@ func content(s: Shell, win: Win)
                     stop
                 nm = f
                 if ends_with(f, "/")
-                    folder(cx, cy, 30, rgb(80, 150, 250), rgb(120, 180, 255))
+                    if not pic(s, "folder", cx, cy)
+                        folder(cx, cy, 30, rgb(80, 150, 250), rgb(120, 180, 255))
                     nm = cut(f, 0, len(f) - 2)
                 else if picture.is_picture(f)
-                    photo_icon(cx, cy)
+                    if not pic(s, "photo", cx, cy)
+                        photo_icon(cx, cy)
                 else
-                    doc_icon(cx, cy, rgb(190, 198, 214))
+                    if not pic(s, "doc", cx, cy)
+                        doc_icon(cx, cy, rgb(190, 198, 214))
                 nm = fit(nm, 15)
                 label(s, cx - text_w(s, nm, 13) / 2, cy + 36, nm, 13, ink())
                 i += 1
@@ -678,7 +735,8 @@ func tabs(s: Shell)
         if win.hidden
             shadow(0, y, ear_w(s, win) - 30, 38, 18, "right")
             frost(0, y, ear_w(s, win) - 30, 38, 18, "right", glass())
-            logo(22, y + 19, 9)
+            if not pic(s, "logo_small", 22, y + 19)
+                logo(22, y + 19, 9)
             bold(s, 40, y + 10, win.title, 14, ink())
             y += 48
 
@@ -934,6 +992,7 @@ modpub func shell(w: int, h: int, log: channel text, ask: channel int, answer: c
         fs_info(s)
     s.f = load_font("fonts/Inter-Regular.ttf") or -1
     s.fb = load_font("fonts/Inter-SemiBold.ttf") or -1
+    load_icons(s)
     each a in start
         open_app(s, a)
     repeat while window_alive()
@@ -967,8 +1026,7 @@ modpub func shell(w: int, h: int, log: channel text, ask: channel int, answer: c
             s.dirty = true
         s.down = down
         keys(s)
-        if (s.note_on or s.menu) and s.frames % 30 == 0
-            s.dirty = true
+        // курсор не мигает: мигание перерисовывало бы весь экран дважды в секунду
         if s.frames % 60 == 0 and shown(s, "О системе")
             s.dirty = true
         if s.note_save > 0 and uptime_ms() > s.note_save
@@ -977,6 +1035,7 @@ modpub func shell(w: int, h: int, log: channel text, ask: channel int, answer: c
                 v = ofs.put(s.fs, "заметки", s.note) else err
                     s.log.add("[файлы] не сохранила заметки: " + err)
                 fs_info(s)
+                s.dirty = true
         if s.dirty
             draw(s)
             s.dirty = false

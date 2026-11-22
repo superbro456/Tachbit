@@ -6729,6 +6729,37 @@ TB_INL void tb_cover(long long x, long long y, uint32_t c, double cov) {
     uint32_t *p = &tb_px[y * tb_gw + x];
     *p = a >= 255 ? (c & 0xFFFFFF) : tb_mix(*p, ((255 - a) << 24) | (c & 0xFFFFFF));
 }
+// draw_shadow(x, y, w, h, r, size, c): мягкая тень скруглённого прямоугольника — внутри цвет c,
+// снаружи к size точкам сходит на нет. Корень считается только у кольца и углов, середина — простое смешивание.
+TB_API void tb_draw_shadow(long long x, long long y, long long w, long long h, long long r, long long size, long long c) {
+    if (!tb_px || w <= 0 || h <= 0 || size <= 0) return;
+    if (r * 2 > w) r = w / 2;
+    if (r * 2 > h) r = h / 2;
+    if (tb_gpu_on) {                                   // видеокарта: слоями (без сглаживания)
+        for (long long k = size; k > 0; k -= 2) {
+            double f = 1.0 - (double)k / size;
+            long long a = (long long)((255 - ((c >> 24) & 255)) * f * f / (size / 2.0) + 0.5);
+            if (a > 0) tb_gpu_rect(x - k, y - k + r, w + 2 * k, h + 2 * k - 2 * r, ((255 - a) << 24) | (c & 0xFFFFFF));
+        }
+        if (!TB_CPU_DRAW) return;
+    }
+    double hw = w / 2.0, hh = h / 2.0, cx = x + hw, cy = y + hh;
+    long long y0 = y - size < 0 ? 0 : y - size, y1 = y + h + size > tb_gh ? tb_gh : y + h + size;
+    for (long long j = y0; j < y1; j++) {
+        double py = j + 0.5, dy = fabs(py - cy) - (hh - r);
+        if (dy < 0) dy = 0;
+        long long xa = x - size < 0 ? 0 : x - size, xb = x + w + size > tb_gw ? tb_gw : x + w + size;
+        for (long long i = xa; i < xb; i++) {
+            double px = i + 0.5, dx = fabs(px - cx) - (hw - r);
+            if (dx < 0) dx = 0;
+            if (dx == 0 && dy == 0) { tb_px[j * tb_gw + i] = tb_mix(tb_px[j * tb_gw + i], (uint32_t)c); continue; }
+            double d = sqrt(dx * dx + dy * dy) - r;
+            if (d >= size) continue;
+            double f = d <= 0 ? 1 : 1 - d / size;
+            tb_cover(i, j, (uint32_t)c, f * f);
+        }
+    }
+}
 // скругление углов: "" или "all" — все; иначе слова top bottom left right tl tr bl br через пробел
 TB_API int tb_corners(const char *s) {
     if (!s || !*s) return 15;
@@ -6785,35 +6816,70 @@ TB_API void tb_draw_round(long long x, long long y, long long w, long long h, lo
     }
 }
 // размыть то, что уже нарисовано в прямоугольнике (матовое стекло, мягкий фон): три прохода «ящиком»
+// размытие одного ряда (n точек с шагом step в буфере b) скользящей суммой окна 2r+1; tmp — n точек
+TB_INL void tb_blur_run(uint32_t *b, long long n, long long step, long long r, uint32_t *tmp) {
+    for (long long k = 0; k < n; k++) tmp[k] = b[k * step];
+    long long win = 2 * r + 1, sr = 0, sg = 0, sb = 0;
+    uint64_t mul = (uint64_t)(((1u << 24) + win / 2) / win);   // деление — умножением (оно в десятки раз быстрее)
+    for (long long k = -r; k <= r; k++) {
+        uint32_t v = tmp[k < 0 ? 0 : k >= n ? n - 1 : k];
+        sr += (v >> 16) & 255; sg += (v >> 8) & 255; sb += v & 255;
+    }
+    for (long long k = 0; k < n; k++) {
+        uint64_t vr = ((uint64_t)sr * mul + (1u << 23)) >> 24, vg = ((uint64_t)sg * mul + (1u << 23)) >> 24, vb = ((uint64_t)sb * mul + (1u << 23)) >> 24;
+        b[k * step] = (uint32_t)((vr > 255 ? 255 : vr) << 16 | (vg > 255 ? 255 : vg) << 8 | (vb > 255 ? 255 : vb));
+        uint32_t out = tmp[k - r < 0 ? 0 : k - r], in = tmp[k + r + 1 >= n ? n - 1 : k + r + 1];
+        sr += (long long)((in >> 16) & 255) - ((out >> 16) & 255);
+        sg += (long long)((in >> 8) & 255) - ((out >> 8) & 255);
+        sb += (long long)(in & 255) - (out & 255);
+    }
+}
+// матовое стекло: размытие прямоугольника кадра. Большое размытие (r >= 4) считается на картинке
+// вдвое меньше (в 4 раза меньше точек), потом плавно растягивается обратно — на глаз то же самое.
 TB_API void tb_blur_rect(long long x, long long y, long long w, long long h, long long r) {
     if (!tb_px || r <= 0) return;
     long long x0 = x < 0 ? 0 : x, y0 = y < 0 ? 0 : y, x1 = x + w > tb_gw ? tb_gw : x + w, y1 = y + h > tb_gh ? tb_gh : y + h;
-    long long W = x1 - x0, H = y1 - y0, n = W > H ? W : H;
+    long long W = x1 - x0, H = y1 - y0;
     if (W <= 1 || H <= 1) return;
-    uint32_t *line = malloc((size_t)n * 4);
-    if (!line) return;
-    for (int pass = 0; pass < 3; pass++)
-        for (int dir = 0; dir < 2; dir++) {
-            long long outer = dir ? W : H, len = dir ? H : W;
-            for (long long o = 0; o < outer; o++) {
-                // строка (или столбец) — во временный ряд, потом скользящая сумма окна 2r+1
-                for (long long k = 0; k < len; k++) line[k] = dir ? tb_px[(y0 + k) * tb_gw + x0 + o] : tb_px[(y0 + o) * tb_gw + x0 + k];
-                long long sr = 0, sg = 0, sb = 0, win = 2 * r + 1;
-                for (long long k = -r; k <= r; k++) {
-                    uint32_t v = line[k < 0 ? 0 : k >= len ? len - 1 : k];
-                    sr += (v >> 16) & 255; sg += (v >> 8) & 255; sb += v & 255;
+    int half = r >= 4 && W >= 8 && H >= 8;
+    long long bw = half ? (W + 1) / 2 : W, bh = half ? (H + 1) / 2 : H, br = half ? r / 2 : r;
+    uint32_t *b = malloc((size_t)(bw * bh + (bw > bh ? bw : bh)) * 4);
+    if (!b) return;
+    uint32_t *tmp = b + bw * bh;
+    if (half)
+        for (long long yy = 0; yy < bh; yy++)
+            for (long long xx = 0; xx < bw; xx++) {
+                long long sx = x0 + xx * 2, sy = y0 + yy * 2, sx2 = sx + 1 < x1 ? sx + 1 : sx, sy2 = sy + 1 < y1 ? sy + 1 : sy;
+                uint32_t p = tb_px[sy * tb_gw + sx], q = tb_px[sy * tb_gw + sx2], u = tb_px[sy2 * tb_gw + sx], v = tb_px[sy2 * tb_gw + sx2];
+                b[yy * bw + xx] = (((p >> 16 & 255) + (q >> 16 & 255) + (u >> 16 & 255) + (v >> 16 & 255) + 2) / 4) << 16
+                    | (((p >> 8 & 255) + (q >> 8 & 255) + (u >> 8 & 255) + (v >> 8 & 255) + 2) / 4) << 8
+                    | (((p & 255) + (q & 255) + (u & 255) + (v & 255) + 2) / 4);
+            }
+    else
+        for (long long yy = 0; yy < bh; yy++) memcpy(b + yy * bw, tb_px + (y0 + yy) * tb_gw + x0, (size_t)bw * 4);
+    for (int pass = 0; pass < 3; pass++) {
+        for (long long yy = 0; yy < bh; yy++) tb_blur_run(b + yy * bw, bw, 1, br, tmp);
+        for (long long xx = 0; xx < bw; xx++) tb_blur_run(b + xx, bh, bw, br, tmp);
+    }
+    if (half)
+        // обратно: каждая точка — смесь четырёх соседних из маленькой картинки
+        for (long long yy = 0; yy < H; yy++) {
+            long long fy = yy * 128 - 64; if (fy < 0) fy = 0;
+            long long iy = fy >> 8, ty = fy & 255, iy2 = iy + 1 < bh ? iy + 1 : iy;
+            for (long long xx = 0; xx < W; xx++) {
+                long long fx = xx * 128 - 64; if (fx < 0) fx = 0;
+                long long ix = fx >> 8, tx = fx & 255, ix2 = ix + 1 < bw ? ix + 1 : ix;
+                uint32_t p = b[iy * bw + ix], q = b[iy * bw + ix2], u = b[iy2 * bw + ix], v = b[iy2 * bw + ix2], o = 0;
+                for (int sh = 0; sh <= 16; sh += 8) {
+                    long long a = (p >> sh & 255) * (256 - tx) + (q >> sh & 255) * tx, c = (u >> sh & 255) * (256 - tx) + (v >> sh & 255) * tx;
+                    o |= (uint32_t)(((a * (256 - ty) + c * ty + 32768) >> 16) & 255) << sh;
                 }
-                for (long long k = 0; k < len; k++) {
-                    uint32_t v = (uint32_t)((sr / win) << 16 | (sg / win) << 8 | (sb / win));
-                    if (dir) tb_px[(y0 + k) * tb_gw + x0 + o] = v; else tb_px[(y0 + o) * tb_gw + x0 + k] = v;
-                    uint32_t out = line[k - r < 0 ? 0 : k - r], in = line[k + r + 1 >= len ? len - 1 : k + r + 1];
-                    sr += (long long)((in >> 16) & 255) - ((out >> 16) & 255);
-                    sg += (long long)((in >> 8) & 255) - ((out >> 8) & 255);
-                    sb += (long long)(in & 255) - (out & 255);
-                }
+                tb_px[(y0 + yy) * tb_gw + x0 + xx] = o;
             }
         }
-    free(line);
+    else
+        for (long long yy = 0; yy < bh; yy++) memcpy(tb_px + (y0 + yy) * tb_gw + x0, b + yy * bw, (size_t)bw * 4);
+    free(b);
 }
 TB_API void tb_draw_circle(long long cx, long long cy, long long r, long long c) {
     if (!tb_px) return;
@@ -8281,6 +8347,7 @@ TB_BV(draw_rect, (long long x, long long y, long long w, long long h, long long 
 TB_BV(draw_circle, (long long x, long long y, long long r, long long c, int line), tb_draw_circle(x, y, r, c))
 TB_BV(draw_round, (long long x, long long y, long long w, long long h, long long r, const char *k, long long c, int line), tb_draw_round(x, y, w, h, r, k, c))
 TB_BV(blur_rect, (long long x, long long y, long long w, long long h, long long r, int line), tb_blur_rect(x, y, w, h, r))
+TB_BV(draw_shadow, (long long x, long long y, long long w, long long h, long long r, long long size, long long c, int line), tb_draw_shadow(x, y, w, h, r, size, c))
 TB_BV(draw_line, (long long x0, long long y0, long long x1, long long y1, long long c, int line), tb_draw_line(x0, y0, x1, y1, c))
 TB_BV(draw_text, (long long x, long long y, const char *s, long long n, long long c, int line), tb_draw_text(x, y, s, n, c))
 TB_B(_Bool, key_down, (const char *s, int line), tb_key_down(s))
@@ -8304,6 +8371,7 @@ TB_B(long long, window_h, (int line), tb_window_h())
 TB_B(long long, load_image, (const char *s, int line), tb_load_image(s))
 TB_B(long long, image_from_mem, (long long a, long long n, int line), tb_image_from_mem(a, n, line))
 TB_B(long long, image_scaled, (long long i, long long w, long long h, int line), tb_image_scaled(i, w, h))
+TB_BV(draw_image_alpha, (long long i, long long x, long long y, int line), tb_draw_image_a(i, x, y))
 TB_BV(draw_image, (long long i, long long x, long long y, int line), tb_draw_image(i, x, y))
 TB_B(long long, mesh_new, (int line), tb_mesh_new())
 TB_BV(mesh_add, (long long m, double x1, double y1, double z1, double x2, double y2, double z2, double x3, double y3, double z3, long long c, int line), tb_mesh_add(m, x1, y1, z1, x2, y2, z2, x3, y3, z3, c))
