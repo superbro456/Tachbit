@@ -41,7 +41,7 @@ obj LLGen
     vec_slots: list text
 
 // имя функции: то же, что у вывода C
-func ll_fname(f: Node)
+modpub func ll_fname(f: Node)
     mod = ""
     each ch in f.mod
         k = code(ch)
@@ -1021,7 +1021,7 @@ func ll_decimal(g: LLGen, v: text)
     return r
 
 // текст в кавычках, как его понимает C ("a\\n\\x41"): байты без кавычек; ok = false — LLVM не берём
-func ll_str_bytes(v: text) gives bytes: list int, ok: bool
+modpub func ll_str_bytes(v: text) gives bytes: list int, ok: bool
     ok = true
     i = 1
     last = byte_len(v) - 2

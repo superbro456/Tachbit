@@ -1,0 +1,40 @@
+// программа Омниума своим машинным кодом (tb app --own): без LLVM
+shared calls = 0
+
+func fib(n: int) gives r: int
+    calls += 1
+    if n < 2
+        return n
+    return fib(n - 1) + fib(n - 2)
+
+func even(n: int) gives yes: bool
+    yes = n % 2 == 0
+
+func name_of(k: int) gives s: text
+    if k == 1
+        s = "один"
+    else if k == 2
+        s = "два"
+    else
+        s = "много"
+
+func main()
+    print("свой машинный код:", fib(20), "вызовов", calls)
+    total = 0
+    count i from 1 to 100
+        if i % 7 == 0
+            skip
+        if i > 90
+            stop
+        total += i
+    print("сумма", total, even(total), not even(total) and true)
+    n = 0
+    repeat while n * n < 200
+        n += 1
+    repeat 3 times
+        n -= 1
+    print("корень почти", n, name_of(1) + " и " + name_of(5) + " " + n)
+    print(100 / 7, 100 % 7, -100 / 7, 7 - 10 * 3)
+    big = 4611686018427387904
+    print("сейчас упадёт:", big)
+    print(big * 2)

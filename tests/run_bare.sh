@@ -42,8 +42,9 @@ if [ "$got" = "$(cat omnium/ofs_test.out)" ]; then pass=$((pass + 1)); else fail
 got=$(run_kernel omnium/image_test.tb)
 if [ "$got" = "$(cat omnium/image_test.out)" ]; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "не прошёл: omnium/image_test.tb"; fi
 # программы Омниума: tb app делает .oapp, ядро грузит их из модулей (-initrd) и запускает клетками
-./build/tb app tests/apps/hello.tb > /dev/null && ./build/tb app tests/apps/crash.tb > /dev/null
-got=$(TB_INITRD="tests/apps/hello.oapp,tests/apps/crash.oapp" run_kernel omnium/app_test.tb)
+# (own.tb — своим машинным кодом: tb app --own, без LLVM)
+./build/tb app tests/apps/hello.tb > /dev/null && ./build/tb app tests/apps/crash.tb > /dev/null && ./build/tb app tests/apps/own.tb --own > /dev/null
+got=$(TB_INITRD="tests/apps/hello.oapp,tests/apps/crash.oapp,tests/apps/own.oapp" run_kernel omnium/app_test.tb)
 rm -f tests/apps/*.oapp
 if [ "$got" = "$(cat omnium/app_test.out)" ]; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "не прошёл: omnium/app_test.tb"; printf '%s\n' "$got" | head -8 | sed 's/^/    /'; fi
 # OFS3 на диске: несколько запусков на одном образе, сбой суперблока, испорченный сектор

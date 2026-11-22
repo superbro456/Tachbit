@@ -1,0 +1,693 @@
+// Слой 4в. СВОЙ МАШИННЫЙ КОД x86-64 — без LLVM и без C.
+// tb app --own файл.tb: компилятор сам пишет команды процессора и сам собирает файл .oapp
+// (ELF64 «до компоновки», тот же, что грузит omnium/app.tb). Функции ядра (печать, тексты)
+// зовутся по именам tb_x_..., их адреса подставляет загрузчик Омниума.
+// Пока умеет: int, bool, текст (готовый и склеенный), shared int/bool, функции до 6 параметров
+// и с одним выходом (gives), if / else if / else, repeat while, repeat N times, count, skip, stop,
+// + - * / % (переполнение и деление на ноль — остановка, как везде), сравнения, and / or / not, print/show.
+// Чего не умеет — говорит прямо, и тогда собирай без --own (через LLVM).
+// Устройство простое: значение выражения всегда в rax, промежуточные — в стеке (push/pop),
+// переменные — в кадре функции [rbp - 8k].
+use types
+use check
+use emit_ll
+
+obj X64
+    code: list int
+    ro: list int
+    bss: int
+    err: text
+    // имена символов: 0 — пусто, 1..3 — части .text/.rodata/.bss; дальше функции и чужие имена
+    snames: list text
+    sdef: list int
+    // поправки: где, какой символ, вид, прибавка
+    r_at: list int
+    r_sym: list int
+    r_type: list int
+    r_add: list int
+    // переменные функции и shared
+    vars: list text
+    gnames: list text
+    goffs: list int
+    // метки: где стоят (-1 — ещё нет), и прыжки, которые надо дописать
+    lpos: list int
+    fix_at: list int
+    fix_l: list int
+    cont: list int
+    brk: list int
+    depth: int
+    ret_l: int
+    out_name: text
+    fn: Node
+
+func xb(g: X64, b: int)
+    g.code.add(bit_and(b, 255))
+
+func xbs(g: X64, bs: list int)
+    each b in bs
+        g.code.add(b)
+
+func x32(g: X64, v: int)
+    count i from 0 to 3
+        g.code.add(bit_and(shift_right(v, i * 8), 255))
+
+func x64v(g: X64, v: int)
+    count i from 0 to 7
+        g.code.add(bit_and(shift_right(v, i * 8), 255))
+
+func put32(g: X64, at: int, v: int)
+    count i from 0 to 3
+        g.code[at + i] = bit_and(shift_right(v, i * 8), 255)
+
+func xfail(g: X64, line: int, what: text)
+    if g.err == ""
+        g.err = "строка " + line + ": свой машинный код пока не умеет " + what + " (собери без --own)"
+
+func xsym(g: X64, name: text) gives k: int
+    count i from 0 to len(g.snames) - 1
+        if g.snames[i] == name
+            return i
+    g.snames.add(name)
+    g.sdef.add(-1)
+    return len(g.snames) - 1
+
+func xreloc(g: X64, sym: int, typ: int, add: int)
+    g.r_at.add(len(g.code))
+    g.r_sym.add(sym)
+    g.r_type.add(typ)
+    g.r_add.add(add)
+    x32(g, 0)
+
+// call имя (ядро или своя функция): E8 + 4 байта, поправка PLT32
+func xcall(g: X64, name: text)
+    odd = g.depth % 2 == 1
+    if odd
+        xbs(g, [0x48, 0x83, 0xEC, 0x08])
+    xb(g, 0xE8)
+    xreloc(g, xsym(g, name), 4, -4)
+    if odd
+        xbs(g, [0x48, 0x83, 0xC4, 0x08])
+
+func xpush(g: X64)
+    xb(g, 0x50)
+    g.depth += 1
+
+// pop в rcx
+func xpop_rcx(g: X64)
+    xb(g, 0x59)
+    g.depth -= 1
+
+func xlabel(g: X64) gives l: int
+    g.lpos.add(-1)
+    return len(g.lpos) - 1
+
+func xplace(g: X64, l: int)
+    g.lpos[l] = len(g.code)
+
+// прыжок: op — байты команды (E9 — jmp, 0F 84 — je, 0F 85 — jne ...), дальше 4 байта до метки
+func xjump(g: X64, op: list int, l: int)
+    xbs(g, op)
+    g.fix_at.add(len(g.code))
+    g.fix_l.add(l)
+    x32(g, 0)
+
+// rax = число
+func xconst(g: X64, v: int)
+    if v >= -2147483648 and v <= 2147483647
+        xbs(g, [0x48, 0xC7, 0xC0])
+        x32(g, v)
+    else
+        xbs(g, [0x48, 0xB8])
+        x64v(g, v)
+
+// остановка программы: tb_ll_crash(строка, что) — 19 байт, стек выравниваем сами
+func xcrash(g: X64, line: int, what: int)
+    xb(g, 0xBF)
+    x32(g, line)
+    xb(g, 0xBE)
+    x32(g, what)
+    xbs(g, [0x48, 0x83, 0xE4, 0xF0])
+    xb(g, 0xE8)
+    xreloc(g, xsym(g, "tb_ll_crash"), 4, -4)
+
+// переменная функции: номер ячейки (новая — в конец)
+func xslot(g: X64, name: text) gives k: int
+    count i from 0 to len(g.vars) - 1
+        if g.vars[i] == name
+            return i
+    g.vars.add(name)
+    return len(g.vars) - 1
+
+func xglobal(g: X64, name: text) gives k: int
+    k = -1
+    count i from 0 to len(g.gnames) - 1
+        if g.gnames[i] == name
+            k = i
+
+// mov rax, [rbp - 8(k+1)] / mov [rbp - 8(k+1)], rax
+func xload_var(g: X64, k: int)
+    xbs(g, [0x48, 0x8B, 0x85])
+    x32(g, -8 * (k + 1))
+
+func xstore_var(g: X64, k: int)
+    xbs(g, [0x48, 0x89, 0x85])
+    x32(g, -8 * (k + 1))
+
+// shared: mov rax, [rip + место в .bss] и обратно
+func xload_global(g: X64, k: int)
+    xbs(g, [0x48, 0x8B, 0x05])
+    xreloc(g, 3, 2, g.goffs[k] - 4)
+
+func xstore_global(g: X64, k: int)
+    xbs(g, [0x48, 0x89, 0x05])
+    xreloc(g, 3, 2, g.goffs[k] - 4)
+
+func xload_name(g: X64, n: Node)
+    gk = xglobal(g, n.name)
+    if gk >= 0 and not has_var(g, n.name)
+        xload_global(g, gk)
+    else if has_var(g, n.name)
+        xload_var(g, xslot(g, n.name))
+    else
+        xfail(g, n.line, "переменную " + n.name)
+
+func has_var(g: X64, name: text) gives yes: bool
+    each v in g.vars
+        if v == name
+            return true
+    return false
+
+func xstore_name(g: X64, name: text)
+    gk = xglobal(g, name)
+    if gk >= 0 and not has_var(g, name)
+        xstore_global(g, gk)
+    else
+        xstore_var(g, xslot(g, name))
+
+// текст из программы: байты в .rodata, rax = их адрес (lea rax, [rip + ...])
+func xstring(g: X64, v: text)
+    bytes, ok = ll_str_bytes(v)
+    at = len(g.ro)
+    each b in bytes
+        g.ro.add(b)
+    g.ro.add(0)
+    xbs(g, [0x48, 0x8D, 0x05])
+    xreloc(g, 2, 2, at - 4)
+
+func xstring_raw(g: X64, s: text)
+    xstring(g, "\"" + s + "\"")
+
+// rax = rax op rcx
+func xarith(g: X64, op: text, line: int)
+    if op == "+"
+        xbs(g, [0x48, 0x01, 0xC8])
+    else if op == "-"
+        xbs(g, [0x48, 0x29, 0xC8])
+    else if op == "*"
+        xbs(g, [0x48, 0x0F, 0xAF, 0xC1])
+    else if op == "/" or op == "%"
+        // деление на ноль — остановка; на -1 — это смена знака (MIN / -1 переполняется)
+        what = 0
+        if op == "%"
+            what = 1
+        xbs(g, [0x48, 0x85, 0xC9, 0x75, 19])
+        xcrash(g, line, what)
+        minus = xlabel(g)
+        done = xlabel(g)
+        xbs(g, [0x48, 0x83, 0xF9, 0xFF])
+        xjump(g, [0x0F, 0x84], minus)
+        xbs(g, [0x48, 0x99, 0x48, 0xF7, 0xF9])
+        if op == "%"
+            xbs(g, [0x48, 0x89, 0xD0])
+        xjump(g, [0xE9], done)
+        xplace(g, minus)
+        if op == "%"
+            xbs(g, [0x31, 0xC0])
+        else
+            xbs(g, [0x48, 0xF7, 0xD8, 0x71, 19])
+            xcrash(g, line, 8)
+        xplace(g, done)
+        return
+    else
+        cc = 0
+        if op == "=="
+            cc = 0x94
+        else if op == "!="
+            cc = 0x95
+        else if op == "<"
+            cc = 0x9C
+        else if op == "<="
+            cc = 0x9E
+        else if op == ">"
+            cc = 0x9F
+        else if op == ">="
+            cc = 0x9D
+        else
+            xfail(g, line, "знак " + op)
+            return
+        xbs(g, [0x48, 0x39, 0xC8, 0x0F, cc, 0xC0, 0x48, 0x0F, 0xB6, 0xC0])
+        return
+    // + - *: переполнение int — остановка (jno мимо)
+    xbs(g, [0x71, 19])
+    xcrash(g, line, 8)
+
+// значение как текст: число и да/нет — через ядро
+func xas_text(g: X64, c: Comp, n: Node)
+    xexpr(g, c, n)
+    k = kind_of(c, n.ty)
+    if k == "int"
+        xmov_rdi(g)
+        xcall(g, "tb_x_itos")
+    else if k == "bool"
+        xmov_rdi(g)
+        xcall(g, "tb_x_btos")
+    else if k != "text"
+        xfail(g, n.line, "такой тип в тексте")
+
+// mov rdi, rax
+func xmov_rdi(g: X64)
+    xbs(g, [0x48, 0x89, 0xC7])
+
+func xexpr(g: X64, c: Comp, n: Node)
+    k = n.kind
+    if k == "number"
+        v = to_int(n.value) else err
+            xfail(g, n.line, "число " + n.value)
+            return
+        xconst(g, v)
+    else if k == "bool"
+        if n.value == "true"
+            xconst(g, 1)
+        else
+            xconst(g, 0)
+    else if k == "string"
+        xstring(g, n.value)
+    else if k == "name"
+        xload_name(g, n)
+    else if k == "unary"
+        xexpr(g, c, n.kids[0])
+        if n.value == "not"
+            xbs(g, [0x48, 0x83, 0xF0, 0x01])
+        else if kind_of(c, n.ty) == "int"
+            xbs(g, [0x48, 0xF7, 0xD8, 0x71, 19])
+            xcrash(g, n.line, 8)
+        else
+            xfail(g, n.line, "минус у такого типа")
+    else if k == "binop" and (n.value == "and" or n.value == "or")
+        // правую часть — только если нужна
+        done = xlabel(g)
+        xexpr(g, c, n.kids[0])
+        xbs(g, [0x48, 0x85, 0xC0])
+        if n.value == "and"
+            xjump(g, [0x0F, 0x84], done)
+        else
+            xjump(g, [0x0F, 0x85], done)
+        xexpr(g, c, n.kids[1])
+        xplace(g, done)
+    else if k == "binop" and kind_of(c, n.ty) == "text"
+        xas_text(g, c, n.kids[0])
+        xpush(g)
+        xas_text(g, c, n.kids[1])
+        xbs(g, [0x48, 0x89, 0xC6])
+        xb(g, 0x5F)
+        g.depth -= 1
+        xcall(g, "tb_x_cat")
+    else if k == "binop"
+        if kind_of(c, n.kids[0].ty) != "int" and kind_of(c, n.kids[0].ty) != "bool"
+            xfail(g, n.line, "знак " + n.value + " у такого типа")
+            return
+        xexpr(g, c, n.kids[0])
+        xpush(g)
+        xexpr(g, c, n.kids[1])
+        xbs(g, [0x48, 0x89, 0xC1])
+        xb(g, 0x58)
+        g.depth -= 1
+        xarith(g, n.value, n.line)
+    else if k == "call" and n.has_ref and n.ref.kind == "func"
+        xcall_user(g, c, n)
+    else if k == "call" and not n.has_ref and (n.name == "print" or n.name == "show")
+        xprint(g, c, n, n.name == "print")
+    else
+        xfail(g, n.line, "«" + k + " " + n.name + "»")
+
+func xcall_user(g: X64, c: Comp, n: Node)
+    f = n.ref
+    if len(f.kids[2].kids) > 1
+        xfail(g, n.line, "функции с несколькими выходами")
+        return
+    if len(n.kids) > 6
+        xfail(g, n.line, "больше 6 параметров")
+        return
+    each p in f.kids[0].kids
+        if p.is_link
+            xfail(g, n.line, "параметры link")
+            return
+        pk = kind_of(c, p.ty)
+        if pk != "int" and pk != "bool" and pk != "text"
+            xfail(g, n.line, "параметры типа " + pk)
+            return
+    each a in n.kids
+        xexpr(g, c, a.kids[0])
+        xpush(g)
+    // pop в rdi, rsi, rdx, rcx, r8, r9 — с конца
+    regs = [[0x5F], [0x5E], [0x5A], [0x59], [0x41, 0x58], [0x41, 0x59]]
+    i = len(n.kids) - 1
+    repeat while i >= 0
+        xbs(g, regs[i])
+        g.depth -= 1
+        i -= 1
+    xcall(g, ll_fname(f))
+
+func xprint(g: X64, c: Comp, n: Node, newline: bool)
+    count i from 0 to len(n.kids) - 1
+        v = n.kids[i].kids[0]
+        if i > 0
+            xstring_raw(g, " ")
+            xmov_rdi(g)
+            xcall(g, "tb_x_ps")
+        xexpr(g, c, v)
+        xmov_rdi(g)
+        vk = kind_of(c, v.ty)
+        if vk == "int"
+            xcall(g, "tb_x_show_i")
+        else if vk == "bool"
+            xcall(g, "tb_x_btos")
+            xmov_rdi(g)
+            xcall(g, "tb_x_ps")
+        else if vk == "text"
+            xcall(g, "tb_x_ps")
+        else
+            xfail(g, v.line, "печать типа " + vk)
+    if newline
+        xstring_raw(g, "\\n")
+        xmov_rdi(g)
+        xcall(g, "tb_x_ps")
+
+func xblock(g: X64, c: Comp, b: Node)
+    each s in b.kids
+        xstmt(g, c, s)
+
+func xloop_body(g: X64, c: Comp, body: Node, cont: int, out: int)
+    g.cont.add(cont)
+    g.brk.add(out)
+    xblock(g, c, body)
+    gone_c = g.cont.pop()
+    gone_b = g.brk.pop()
+
+func xstmt(g: X64, c: Comp, n: Node)
+    k = n.kind
+    if k == "assign"
+        if len(n.kids) == 0
+            xconst(g, 0)
+        else
+            xexpr(g, c, n.kids[0])
+        xstore_name(g, n.name)
+    else if k == "set" and n.kids[0].kind == "name"
+        name = n.kids[0].name
+        xexpr(g, c, n.kids[1])
+        if n.value != "="
+            op = cut(n.value, 0, len(n.value) - 2)
+            if kind_of(c, n.ty) == "text"
+                if op != "+"
+                    xfail(g, n.line, "знак " + n.value + " у текста")
+                    return
+                xfail(g, n.line, "s += ... (склей так: s = s + ...)")
+                return
+            xbs(g, [0x48, 0x89, 0xC1])
+            xload_name(g, n.kids[0])
+            xarith(g, op, n.line)
+        xstore_name(g, name)
+    else if k == "if"
+        done = xlabel(g)
+        i = 0
+        repeat while i + 1 < len(n.kids)
+            no = xlabel(g)
+            xexpr(g, c, n.kids[i])
+            xbs(g, [0x48, 0x85, 0xC0])
+            xjump(g, [0x0F, 0x84], no)
+            xblock(g, c, n.kids[i + 1])
+            xjump(g, [0xE9], done)
+            xplace(g, no)
+            i += 2
+        if len(n.kids) % 2 == 1
+            xblock(g, c, n.kids[len(n.kids) - 1])
+        xplace(g, done)
+    else if k == "repeat_while"
+        head = xlabel(g)
+        out = xlabel(g)
+        xplace(g, head)
+        xexpr(g, c, n.kids[0])
+        xbs(g, [0x48, 0x85, 0xC0])
+        xjump(g, [0x0F, 0x84], out)
+        xloop_body(g, c, n.kids[1], head, out)
+        xjump(g, [0xE9], head)
+        xplace(g, out)
+    else if k == "repeat_times" or (k == "count" and not n.is_par)
+        // count i from a to b: конец считается один раз (как везде); repeat N times — счётчик свой
+        cnt = ""
+        endk = xslot(g, "#end" + len(g.vars))
+        if k == "count"
+            cnt = n.name
+            xexpr(g, c, n.kids[1])
+            xstore_var(g, endk)
+            xexpr(g, c, n.kids[0])
+        else
+            cnt = "#n" + len(g.vars)
+            xexpr(g, c, n.kids[0])
+            xbs(g, [0x48, 0xFF, 0xC8])
+            xstore_var(g, endk)
+            xconst(g, 0)
+        ck = xslot(g, cnt)
+        xstore_var(g, ck)
+        head = xlabel(g)
+        step = xlabel(g)
+        out = xlabel(g)
+        xplace(g, head)
+        xload_var(g, ck)
+        xbs(g, [0x48, 0x3B, 0x85])
+        x32(g, -8 * (endk + 1))
+        xjump(g, [0x0F, 0x8F], out)
+        body = n.kids[len(n.kids) - 1]
+        xloop_body(g, c, body, step, out)
+        xplace(g, step)
+        xload_var(g, ck)
+        xbs(g, [0x48, 0xFF, 0xC0])
+        xstore_var(g, ck)
+        xjump(g, [0xE9], head)
+        xplace(g, out)
+    else if k == "skip"
+        xjump(g, [0xE9], g.cont[len(g.cont) - 1])
+    else if k == "stop"
+        xjump(g, [0xE9], g.brk[len(g.brk) - 1])
+    else if k == "return"
+        if len(n.kids) == 1
+            xexpr(g, c, n.kids[0])
+        else if g.out_name != ""
+            xload_var(g, xslot(g, g.out_name))
+        xjump(g, [0xE9], g.ret_l)
+    else if k == "expr_stmt"
+        xexpr(g, c, n.kids[0])
+    else if k == "danger"
+        xblock(g, c, n.kids[0])
+    else
+        xfail(g, n.line, "«" + k + "»")
+
+// одна функция: пролог, тело, эпилог; прыжки дописываются в конце
+func xfunc(g: X64, c: Comp, f: Node, name: text)
+    g.vars.clear()
+    g.lpos.clear()
+    g.fix_at.clear()
+    g.fix_l.clear()
+    g.depth = 0
+    g.fn = f
+    g.out_name = ""
+    s = xsym(g, name)
+    g.sdef[s] = len(g.code)
+    // push rbp; mov rbp, rsp; sub rsp, размер кадра (допишем)
+    xbs(g, [0x55, 0x48, 0x89, 0xE5, 0x48, 0x81, 0xEC])
+    frame_at = len(g.code)
+    x32(g, 0)
+    g.ret_l = xlabel(g)
+    if f.kind == "func"
+        params = f.kids[0].kids
+        if len(params) > 6
+            xfail(g, f.line, "больше 6 параметров")
+        stores = [[0x48, 0x89, 0xBD], [0x48, 0x89, 0xB5], [0x48, 0x89, 0x95], [0x48, 0x89, 0x8D], [0x4C, 0x89, 0x85], [0x4C, 0x89, 0x8D]]
+        count i from 0 to min(len(params), 6) - 1
+            xbs(g, stores[i])
+            x32(g, -8 * (xslot(g, params[i].name) + 1))
+        outs = f.kids[2].kids
+        if len(outs) > 1
+            xfail(g, f.line, "функции с несколькими выходами")
+        if len(outs) == 1
+            g.out_name = outs[0].name
+            if not has_var(g, g.out_name)
+                xconst(g, 0)
+                xstore_var(g, xslot(g, g.out_name))
+        xblock(g, c, f.kids[1])
+        if g.out_name != ""
+            xload_var(g, xslot(g, g.out_name))
+    else
+        // tb_appmain: shared получают начальные значения, потом main
+        each gl in c.globals
+            if len(gl.kids) > 0
+                xexpr(g, c, gl.kids[0])
+                xstore_global(g, xglobal(g, gl.name))
+        xcall(g, ll_fname(f.ref))
+    xplace(g, g.ret_l)
+    // mov rsp, rbp; pop rbp; ret
+    xbs(g, [0x48, 0x89, 0xEC, 0x5D, 0xC3])
+    put32(g, frame_at, (len(g.vars) * 8 + 15) / 16 * 16)
+    count i from 0 to len(g.fix_at) - 1
+        at = g.fix_at[i]
+        put32(g, at, g.lpos[g.fix_l[i]] - (at + 4))
+
+// ---------- файл ELF64 REL ----------
+
+func eb(out: list int, v: int, n: int)
+    count i from 0 to n - 1
+        out.add(bit_and(shift_right(v, i * 8), 255))
+
+func eal(out: list int, a: int)
+    repeat while len(out) % a != 0
+        out.add(0)
+
+func estr(tab: list int, s: text) gives at: int
+    at = len(tab)
+    count i from 0 to byte_len(s) - 1
+        tab.add(byte_at(s, i))
+    tab.add(0)
+
+func eshdr(out: list int, name: int, typ: int, flags: int, off: int, size: int, lnk: int, info: int, align: int, ent: int)
+    eb(out, name, 4)
+    eb(out, typ, 4)
+    eb(out, flags, 8)
+    eb(out, 0, 8)
+    eb(out, off, 8)
+    eb(out, size, 8)
+    eb(out, lnk, 4)
+    eb(out, info, 4)
+    eb(out, align, 8)
+    eb(out, ent, 8)
+
+func xelf(g: X64) gives out: list int
+    // символы: сначала местные (пусто, три части), потом общие — номера меняются, поправки следом
+    strtab = [0]
+    symtab = list int
+    eb(symtab, 0, 24)
+    count s from 1 to 3
+        eb(symtab, 0, 4)
+        eb(symtab, 3, 1)
+        eb(symtab, 0, 1)
+        eb(symtab, s, 2)
+        eb(symtab, 0, 16)
+    count k from 4 to len(g.snames) - 1
+        eb(symtab, estr(strtab, g.snames[k]), 4)
+        if g.sdef[k] >= 0
+            eb(symtab, 0x12, 1)
+            eb(symtab, 0, 1)
+            eb(symtab, 1, 2)
+            eb(symtab, g.sdef[k], 8)
+        else
+            eb(symtab, 0x10, 1)
+            eb(symtab, 0, 1)
+            eb(symtab, 0, 2)
+            eb(symtab, 0, 8)
+        eb(symtab, 0, 8)
+    rela = list int
+    count i from 0 to len(g.r_at) - 1
+        eb(rela, g.r_at[i], 8)
+        eb(rela, g.r_sym[i] * 4294967296 + g.r_type[i], 8)
+        eb(rela, g.r_add[i], 8)
+    sh = [0]
+    n_text = estr(sh, ".text")
+    n_ro = estr(sh, ".rodata")
+    n_bss = estr(sh, ".bss")
+    n_sym = estr(sh, ".symtab")
+    n_str = estr(sh, ".strtab")
+    n_rela = estr(sh, ".rela.text")
+    n_sh = estr(sh, ".shstrtab")
+    eb(out, 0x464C457F, 4)
+    eb(out, 0x00010102, 4)
+    eb(out, 0, 8)
+    eb(out, 1, 2)
+    eb(out, 62, 2)
+    eb(out, 1, 4)
+    eb(out, 0, 8)
+    eb(out, 0, 8)
+    shoff_at = len(out)
+    eb(out, 0, 8)
+    eb(out, 0, 4)
+    eb(out, 64, 2)
+    eb(out, 0, 2)
+    eb(out, 0, 2)
+    eb(out, 64, 2)
+    eb(out, 8, 2)
+    eb(out, 7, 2)
+    eal(out, 16)
+    o_text = len(out)
+    each b in g.code
+        out.add(b)
+    o_ro = len(out)
+    each b in g.ro
+        out.add(b)
+    eal(out, 8)
+    o_sym = len(out)
+    each b in symtab
+        out.add(b)
+    o_str = len(out)
+    each b in strtab
+        out.add(b)
+    eal(out, 8)
+    o_rela = len(out)
+    each b in rela
+        out.add(b)
+    o_sh = len(out)
+    each b in sh
+        out.add(b)
+    eal(out, 8)
+    shoff = len(out)
+    count i from 0 to 7
+        out[shoff_at + i] = bit_and(shift_right(shoff, i * 8), 255)
+    eb(out, 0, 64)
+    eshdr(out, n_text, 1, 6, o_text, len(g.code), 0, 0, 16, 0)
+    eshdr(out, n_ro, 1, 2, o_ro, len(g.ro), 0, 0, 1, 0)
+    eshdr(out, n_bss, 8, 3, o_rela, g.bss, 0, 0, 8, 0)
+    eshdr(out, n_sym, 2, 0, o_sym, len(symtab), 5, 4, 8, 24)
+    eshdr(out, n_str, 3, 0, o_str, len(strtab), 0, 0, 1, 0)
+    eshdr(out, n_rela, 4, 0x40, o_rela, len(rela), 4, 1, 8, 24)
+    eshdr(out, n_sh, 3, 0, o_sh, len(sh), 0, 0, 1, 0)
+
+// вся программа → байты файла .oapp; err — чего не смогли (тогда байты не нужны)
+modpub func x64_app(c: Comp, program: Node) gives bytes: list int, err: text
+    g = X64(err: "")
+    g.snames = ["", ".text", ".rodata", ".bss"]
+    g.sdef = [-1, -1, -1, -1]
+    each gl in c.globals
+        gk = kind_of(c, gl.ty)
+        if gk != "int" and gk != "bool"
+            xfail(g, gl.line, "shared типа " + gk)
+        g.gnames.add(gl.name)
+        g.goffs.add(g.bss)
+        g.bss += 8
+    main_func = program.kids[0]
+    each top in program.kids
+        if top.kind == "func" and top.name == "main" and top.mod == program.kids[0].mod
+            main_func = top
+    each top in program.kids
+        if top.kind == "func"
+            each p in top.kids[0].kids
+                pk = kind_of(c, p.ty)
+                if pk != "int" and pk != "bool" and pk != "text"
+                    xfail(g, top.line, "параметры типа " + pk)
+            rk = kind_of(c, top.ty)
+            if rk != "int" and rk != "bool" and rk != "text" and rk != "none"
+                xfail(g, top.line, "ответ типа " + rk)
+            xfunc(g, c, top, ll_fname(top))
+        else if top.kind != "use" and top.kind != "global"
+            xfail(g, top.line, "«" + top.kind + "» в начале файла")
+    start = Node(kind: "appmain", ref: main_func, has_ref: true)
+    xfunc(g, c, start, "tb_appmain")
+    err = g.err
+    if err == ""
+        bytes = xelf(g)
