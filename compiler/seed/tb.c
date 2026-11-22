@@ -11300,6 +11300,9 @@ struct tb_o_X64 {
     tb_list * q_brk;
     long long q_depth;
     long long q_in_danger;
+    long long q_fa_slot;
+    long long q_fm_slot;
+    _Bool q_byte_store;
     long long q_ret_l;
     const char * q_out_name;
     tb_o_Node * q_fn;
@@ -11591,7 +11594,7 @@ TB_LLV tb_o_LLGen *tb_new_LLGen(tb_list * a0, tb_list * a1, tb_list * a2, long l
     o->q_vec_slots = a20;
     return o;
 }
-TB_LLV tb_o_X64 *tb_new_X64(tb_list * a0, tb_list * a1, long long a2, const char * a3, tb_list * a4, tb_list * a5, tb_list * a6, tb_list * a7, tb_list * a8, tb_list * a9, tb_list * a10, tb_list * a11, tb_list * a12, tb_list * a13, tb_list * a14, tb_list * a15, tb_list * a16, tb_list * a17, long long a18, long long a19, long long a20, const char * a21, tb_o_Node * a22, tb_list * a23, tb_list * a24, tb_list * a25, tb_list * a26) {
+TB_LLV tb_o_X64 *tb_new_X64(tb_list * a0, tb_list * a1, long long a2, const char * a3, tb_list * a4, tb_list * a5, tb_list * a6, tb_list * a7, tb_list * a8, tb_list * a9, tb_list * a10, tb_list * a11, tb_list * a12, tb_list * a13, tb_list * a14, tb_list * a15, tb_list * a16, tb_list * a17, long long a18, long long a19, long long a20, long long a21, _Bool a22, long long a23, const char * a24, tb_o_Node * a25, tb_list * a26, tb_list * a27, tb_list * a28, tb_list * a29) {
     tb_o_X64 *o = tb_obj_mem(sizeof(tb_o_X64));
     o->q_code = a0;
     o->q_ro = a1;
@@ -11613,13 +11616,16 @@ TB_LLV tb_o_X64 *tb_new_X64(tb_list * a0, tb_list * a1, long long a2, const char
     o->q_brk = a17;
     o->q_depth = a18;
     o->q_in_danger = a19;
-    o->q_ret_l = a20;
-    o->q_out_name = a21;
-    o->q_fn = a22;
-    o->q_show_need = a23;
-    o->q_lnames = a24;
-    o->q_loffs = a25;
-    o->q_lheld = a26;
+    o->q_fa_slot = a20;
+    o->q_fm_slot = a21;
+    o->q_byte_store = a22;
+    o->q_ret_l = a23;
+    o->q_out_name = a24;
+    o->q_fn = a25;
+    o->q_show_need = a26;
+    o->q_lnames = a27;
+    o->q_loffs = a28;
+    o->q_lheld = a29;
     return o;
 }
 TB_API const char * f_main__folder_of(const char * v_path);
@@ -12214,6 +12220,18 @@ TB_API void f_x64__xshow_func(tb_o_X64 * v_g, tb_o_Comp * v_c, long long v_t);
 TB_API long long f_x64__xlock_index(tb_o_X64 * v_g, const char * v_name);
 TB_API void f_x64__xlock_addr(tb_o_X64 * v_g, long long v_li);
 TB_API void f_x64__xlock_give(tb_o_X64 * v_g, long long v_li, long long v_fk);
+TB_API long long f_x64__xdict_text(tb_o_Comp * v_c, long long v_t);
+TB_API long long f_x64__xdict_vsize(tb_o_Comp * v_c, long long v_t);
+TB_API _Bool f_x64__xdict_ok(tb_o_X64 * v_g, tb_o_Comp * v_c, long long v_t, long long v_line);
+TB_API void f_x64__xdict_new(tb_o_X64 * v_g, tb_o_Comp * v_c, long long v_t);
+TB_API long long f_x64__xkey_rsi(tb_o_X64 * v_g, tb_o_Comp * v_c, tb_o_Node * v_key);
+TB_API void f_x64__xlea_rsi(tb_o_X64 * v_g, long long v_slot);
+TB_API void f_x64__xdput(tb_o_X64 * v_g, tb_o_Comp * v_c, long long v_dt, tb_o_Node * v_base, tb_o_Node * v_key);
+TB_API void f_x64__xload_dval(tb_o_X64 * v_g, tb_o_Comp * v_c, long long v_vt);
+TB_API void f_x64__xdict_lit(tb_o_X64 * v_g, tb_o_Comp * v_c, tb_o_Node * v_n);
+TB_API void f_x64__xdput_slot(tb_o_X64 * v_g, tb_o_Comp * v_c, long long v_dt, long long v_dk, tb_o_Node * v_key);
+TB_API void f_x64__xconcat_parts(tb_o_Comp * v_c, tb_o_Node * v_n, tb_list * v_parts);
+TB_API void f_x64__xconcat(tb_o_X64 * v_g, tb_o_Comp * v_c, tb_list * v_parts);
 TB_API void f_x64__xexpr(tb_o_X64 * v_g, tb_o_Comp * v_c, tb_o_Node * v_n);
 TB_API void f_x64__xcall_user(tb_o_X64 * v_g, tb_o_Comp * v_c, tb_o_Node * v_n);
 TB_API void f_x64__xprint(tb_o_X64 * v_g, tb_o_Comp * v_c, tb_o_Node * v_n, _Bool v_newline);
@@ -12783,6 +12801,12 @@ TB_LLV void tb_show_42(tb_o_X64 * x) {
     tb_show_1(x->q_depth);
     tb_ps(", in_danger: ");
     tb_show_1(x->q_in_danger);
+    tb_ps(", fa_slot: ");
+    tb_show_1(x->q_fa_slot);
+    tb_ps(", fm_slot: ");
+    tb_show_1(x->q_fm_slot);
+    tb_ps(", byte_store: ");
+    tb_show_3(x->q_byte_store);
     tb_ps(", ret_l: ");
     tb_show_1(x->q_ret_l);
     tb_ps(", out_name: ");
@@ -42149,7 +42173,7 @@ TB_API void f_emit_ll__ll_glue_put_row(tb_o_LLGen * v_g, tb_o_Comp * v_c, tb_o_N
 }
 
 TB_API void f_x64__xb(tb_o_X64 * v_g, long long v_b) {
-    { long long tb_v15704 = tb_band(v_b, 255LL); *(long long *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 52))->q_code) = tb_v15704; }
+    { long long tb_v15704 = tb_band(v_b, 255LL); *(long long *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 57))->q_code) = tb_v15704; }
 }
 
 TB_API void f_x64__xbs(tb_o_X64 * v_g, tb_list * v_bs) {
@@ -42157,7 +42181,7 @@ TB_API void f_x64__xbs(tb_o_X64 * v_g, tb_list * v_bs) {
         tb_list * tb_l15705 = v_bs;
         for (long long tb_i15705 = 0; tb_i15705 < tb_l15705->len; tb_i15705++) {
             long long const v_b = ((long long *)tb_l15705->data)[tb_i15705];
-            { long long tb_v15706 = v_b; *(long long *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 56))->q_code) = tb_v15706; }
+            { long long tb_v15706 = v_b; *(long long *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 61))->q_code) = tb_v15706; }
         }
     }
 }
@@ -42166,7 +42190,7 @@ TB_API void f_x64__x32(tb_o_X64 * v_g, long long v_v) {
     {
         long long tb_end15707 = 3LL;
         for (long long v_i = 0LL; v_i <= tb_end15707; v_i++) {
-            { long long tb_v15708 = tb_band(tb_shr(v_v, tb_mulo(v_i, 8LL, 60)), 255LL); *(long long *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 60))->q_code) = tb_v15708; }
+            { long long tb_v15708 = tb_band(tb_shr(v_v, tb_mulo(v_i, 8LL, 65)), 255LL); *(long long *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 65))->q_code) = tb_v15708; }
         }
     }
 }
@@ -42175,7 +42199,7 @@ TB_API void f_x64__x64v(tb_o_X64 * v_g, long long v_v) {
     {
         long long tb_end15709 = 7LL;
         for (long long v_i = 0LL; v_i <= tb_end15709; v_i++) {
-            { long long tb_v15710 = tb_band(tb_shr(v_v, tb_mulo(v_i, 8LL, 64)), 255LL); *(long long *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 64))->q_code) = tb_v15710; }
+            { long long tb_v15710 = tb_band(tb_shr(v_v, tb_mulo(v_i, 8LL, 69)), 255LL); *(long long *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 69))->q_code) = tb_v15710; }
         }
     }
 }
@@ -42184,48 +42208,48 @@ TB_API void f_x64__put32(tb_o_X64 * v_g, long long v_at, long long v_v) {
     {
         long long tb_end15711 = 3LL;
         for (long long v_i = 0LL; v_i <= tb_end15711; v_i++) {
-            { long long tb_v15712 = tb_band(tb_shr(v_v, tb_mulo(v_i, 8LL, 68)), 255LL); long long *tb_p15712 = &((*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 68))->q_code, tb_addo(v_at, v_i, 68), sizeof(long long), 68))); *tb_p15712 = tb_v15712; }
+            { long long tb_v15712 = tb_band(tb_shr(v_v, tb_mulo(v_i, 8LL, 73)), 255LL); long long *tb_p15712 = &((*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 73))->q_code, tb_addo(v_at, v_i, 73), sizeof(long long), 73))); *tb_p15712 = tb_v15712; }
         }
     }
 }
 
 TB_API void f_x64__xfail(tb_o_X64 * v_g, long long v_line, const char * v_what) {
-    if (({ const char *tb_s15713 = ((tb_o_X64 *)tb_nn(v_g, 71))->q_err; (tb_s15713[0] == 0); })) {
-        { const char * tb_v15714 = ({ const char *tb_c15715_0 = "строка "; long long tb_c15715_0n = sizeof("строка ") - 1; char tb_c15715_1d[24]; long long tb_c15715_1n; const char *tb_c15715_1 = tb_digits(v_line, tb_c15715_1d, &tb_c15715_1n); const char *tb_c15715_2 = ": свой машинный код пока не умеет "; long long tb_c15715_2n = sizeof(": свой машинный код пока не умеет ") - 1; const char *tb_c15715_3 = v_what; long long tb_c15715_3n = (long long)strlen(tb_c15715_3); const char *tb_c15715_4 = " (собери без --own)"; long long tb_c15715_4n = sizeof(" (собери без --own)") - 1; char *tb_c15715r = tb_tmem(tb_c15715_0n + tb_c15715_1n + tb_c15715_2n + tb_c15715_3n + tb_c15715_4n + 1), *tb_c15715rw = tb_c15715r; memcpy(tb_c15715rw, tb_c15715_0, tb_c15715_0n); tb_c15715rw += tb_c15715_0n; memcpy(tb_c15715rw, tb_c15715_1, tb_c15715_1n); tb_c15715rw += tb_c15715_1n; memcpy(tb_c15715rw, tb_c15715_2, tb_c15715_2n); tb_c15715rw += tb_c15715_2n; memcpy(tb_c15715rw, tb_c15715_3, tb_c15715_3n); tb_c15715rw += tb_c15715_3n; memcpy(tb_c15715rw, tb_c15715_4, tb_c15715_4n); tb_c15715rw += tb_c15715_4n; *tb_c15715rw = 0; (const char *)tb_c15715r; }); const char * *tb_p15714 = &(((tb_o_X64 *)tb_nn(v_g, 72))->q_err); *tb_p15714 = tb_v15714; }
+    if (({ const char *tb_s15713 = ((tb_o_X64 *)tb_nn(v_g, 76))->q_err; (tb_s15713[0] == 0); })) {
+        { const char * tb_v15714 = ({ const char *tb_c15715_0 = "строка "; long long tb_c15715_0n = sizeof("строка ") - 1; char tb_c15715_1d[24]; long long tb_c15715_1n; const char *tb_c15715_1 = tb_digits(v_line, tb_c15715_1d, &tb_c15715_1n); const char *tb_c15715_2 = ": свой машинный код пока не умеет "; long long tb_c15715_2n = sizeof(": свой машинный код пока не умеет ") - 1; const char *tb_c15715_3 = v_what; long long tb_c15715_3n = (long long)strlen(tb_c15715_3); const char *tb_c15715_4 = " (собери без --own)"; long long tb_c15715_4n = sizeof(" (собери без --own)") - 1; char *tb_c15715r = tb_tmem(tb_c15715_0n + tb_c15715_1n + tb_c15715_2n + tb_c15715_3n + tb_c15715_4n + 1), *tb_c15715rw = tb_c15715r; memcpy(tb_c15715rw, tb_c15715_0, tb_c15715_0n); tb_c15715rw += tb_c15715_0n; memcpy(tb_c15715rw, tb_c15715_1, tb_c15715_1n); tb_c15715rw += tb_c15715_1n; memcpy(tb_c15715rw, tb_c15715_2, tb_c15715_2n); tb_c15715rw += tb_c15715_2n; memcpy(tb_c15715rw, tb_c15715_3, tb_c15715_3n); tb_c15715rw += tb_c15715_3n; memcpy(tb_c15715rw, tb_c15715_4, tb_c15715_4n); tb_c15715rw += tb_c15715_4n; *tb_c15715rw = 0; (const char *)tb_c15715r; }); const char * *tb_p15714 = &(((tb_o_X64 *)tb_nn(v_g, 77))->q_err); *tb_p15714 = tb_v15714; }
     }
 }
 
 TB_API long long f_x64__xsym(tb_o_X64 * v_g, const char * v_name) {
     long long v_k = 0LL;
     {
-        long long tb_end15716 = tb_subo((((tb_o_X64 *)tb_nn(v_g, 75))->q_snames)->len, 1LL, 75);
+        long long tb_end15716 = tb_subo((((tb_o_X64 *)tb_nn(v_g, 80))->q_snames)->len, 1LL, 80);
         for (long long v_i = 0LL; v_i <= tb_end15716; v_i++) {
-            if ((strcmp((*(const char * *)tb_at(((tb_o_X64 *)tb_nn(v_g, 76))->q_snames, v_i, sizeof(const char *), 76)), v_name) == 0)) {
+            if ((strcmp((*(const char * *)tb_at(((tb_o_X64 *)tb_nn(v_g, 81))->q_snames, v_i, sizeof(const char *), 81)), v_name) == 0)) {
                 return v_i;
             }
         }
     }
-    { const char * tb_v15717 = v_name; *(const char * *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 78))->q_snames) = tb_v15717; }
-    { long long tb_v15718 = tb_nego(1LL, 79); *(long long *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 79))->q_sdef) = tb_v15718; }
-    return tb_subo((((tb_o_X64 *)tb_nn(v_g, 80))->q_snames)->len, 1LL, 80);
+    { const char * tb_v15717 = v_name; *(const char * *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 83))->q_snames) = tb_v15717; }
+    { long long tb_v15718 = tb_nego(1LL, 84); *(long long *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 84))->q_sdef) = tb_v15718; }
+    return tb_subo((((tb_o_X64 *)tb_nn(v_g, 85))->q_snames)->len, 1LL, 85);
     return v_k;
 }
 
 TB_API void f_x64__xreloc(tb_o_X64 * v_g, long long v_sym, long long v_typ, long long v_add) {
-    { long long tb_v15719 = (((tb_o_X64 *)tb_nn(v_g, 83))->q_code)->len; *(long long *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 83))->q_r_at) = tb_v15719; }
-    { long long tb_v15720 = v_sym; *(long long *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 84))->q_r_sym) = tb_v15720; }
-    { long long tb_v15721 = v_typ; *(long long *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 85))->q_r_type) = tb_v15721; }
-    { long long tb_v15722 = v_add; *(long long *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 86))->q_r_add) = tb_v15722; }
+    { long long tb_v15719 = (((tb_o_X64 *)tb_nn(v_g, 88))->q_code)->len; *(long long *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 88))->q_r_at) = tb_v15719; }
+    { long long tb_v15720 = v_sym; *(long long *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 89))->q_r_sym) = tb_v15720; }
+    { long long tb_v15721 = v_typ; *(long long *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 90))->q_r_type) = tb_v15721; }
+    { long long tb_v15722 = v_add; *(long long *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 91))->q_r_add) = tb_v15722; }
     f_x64__x32(v_g, 0LL);
 }
 
 TB_API void f_x64__xcall(tb_o_X64 * v_g, const char * v_name) {
-    _Bool v_odd = (tb_mod(((tb_o_X64 *)tb_nn(v_g, 91))->q_depth, 2LL, 91) == 1LL);
+    _Bool v_odd = (tb_mod(((tb_o_X64 *)tb_nn(v_g, 96))->q_depth, 2LL, 96) == 1LL);
     if (v_odd) {
         f_x64__xbs(v_g, tb_list_from_np(4, sizeof(long long), (long long[]){72LL, 131LL, 236LL, 8LL}));
     }
     f_x64__xb(v_g, 232LL);
-    f_x64__xreloc(v_g, f_x64__xsym(v_g, v_name), 4LL, tb_nego(4LL, 95));
+    f_x64__xreloc(v_g, f_x64__xsym(v_g, v_name), 4LL, tb_nego(4LL, 100));
     if (v_odd) {
         f_x64__xbs(v_g, tb_list_from_np(4, sizeof(long long), (long long[]){72LL, 131LL, 196LL, 8LL}));
     }
@@ -42233,34 +42257,34 @@ TB_API void f_x64__xcall(tb_o_X64 * v_g, const char * v_name) {
 
 TB_API void f_x64__xpush(tb_o_X64 * v_g) {
     f_x64__xb(v_g, 80LL);
-    { long long tb_v15723 = 1LL; long long *tb_p15723 = &(((tb_o_X64 *)tb_nn(v_g, 101))->q_depth); *tb_p15723 = tb_addo(*tb_p15723, tb_v15723, 101); }
+    { long long tb_v15723 = 1LL; long long *tb_p15723 = &(((tb_o_X64 *)tb_nn(v_g, 106))->q_depth); *tb_p15723 = tb_addo(*tb_p15723, tb_v15723, 106); }
 }
 
 TB_API void f_x64__xpop_rcx(tb_o_X64 * v_g) {
     f_x64__xb(v_g, 89LL);
-    { long long tb_v15724 = 1LL; long long *tb_p15724 = &(((tb_o_X64 *)tb_nn(v_g, 106))->q_depth); *tb_p15724 = tb_subo(*tb_p15724, tb_v15724, 106); }
+    { long long tb_v15724 = 1LL; long long *tb_p15724 = &(((tb_o_X64 *)tb_nn(v_g, 111))->q_depth); *tb_p15724 = tb_subo(*tb_p15724, tb_v15724, 111); }
 }
 
 TB_API long long f_x64__xlabel(tb_o_X64 * v_g) {
     long long v_l = 0LL;
-    { long long tb_v15725 = tb_nego(1LL, 109); *(long long *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 109))->q_lpos) = tb_v15725; }
-    return tb_subo((((tb_o_X64 *)tb_nn(v_g, 110))->q_lpos)->len, 1LL, 110);
+    { long long tb_v15725 = tb_nego(1LL, 114); *(long long *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 114))->q_lpos) = tb_v15725; }
+    return tb_subo((((tb_o_X64 *)tb_nn(v_g, 115))->q_lpos)->len, 1LL, 115);
     return v_l;
 }
 
 TB_API void f_x64__xplace(tb_o_X64 * v_g, long long v_l) {
-    { long long tb_v15726 = (((tb_o_X64 *)tb_nn(v_g, 113))->q_code)->len; long long *tb_p15726 = &((*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 113))->q_lpos, v_l, sizeof(long long), 113))); *tb_p15726 = tb_v15726; }
+    { long long tb_v15726 = (((tb_o_X64 *)tb_nn(v_g, 118))->q_code)->len; long long *tb_p15726 = &((*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 118))->q_lpos, v_l, sizeof(long long), 118))); *tb_p15726 = tb_v15726; }
 }
 
 TB_API void f_x64__xjump(tb_o_X64 * v_g, tb_list * v_op, long long v_l) {
     f_x64__xbs(v_g, v_op);
-    { long long tb_v15727 = (((tb_o_X64 *)tb_nn(v_g, 118))->q_code)->len; *(long long *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 118))->q_fix_at) = tb_v15727; }
-    { long long tb_v15728 = v_l; *(long long *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 119))->q_fix_l) = tb_v15728; }
+    { long long tb_v15727 = (((tb_o_X64 *)tb_nn(v_g, 123))->q_code)->len; *(long long *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 123))->q_fix_at) = tb_v15727; }
+    { long long tb_v15728 = v_l; *(long long *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 124))->q_fix_l) = tb_v15728; }
     f_x64__x32(v_g, 0LL);
 }
 
 TB_API void f_x64__xconst(tb_o_X64 * v_g, long long v_v) {
-    if (((v_v >= tb_nego(2147483648LL, 124)) && (v_v <= 2147483647LL))) {
+    if (((v_v >= tb_nego(2147483648LL, 129)) && (v_v <= 2147483647LL))) {
         f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 199LL, 192LL}));
         f_x64__x32(v_g, v_v);
     } else {
@@ -42276,31 +42300,31 @@ TB_API void f_x64__xcrash(tb_o_X64 * v_g, long long v_line, long long v_what) {
     f_x64__x32(v_g, v_what);
     f_x64__xbs(v_g, tb_list_from_np(4, sizeof(long long), (long long[]){72LL, 131LL, 228LL, 240LL}));
     f_x64__xb(v_g, 232LL);
-    f_x64__xreloc(v_g, f_x64__xsym(v_g, "tb_ll_crash"), 4LL, tb_nego(4LL, 139));
+    f_x64__xreloc(v_g, f_x64__xsym(v_g, "tb_ll_crash"), 4LL, tb_nego(4LL, 144));
 }
 
 TB_API long long f_x64__xslot(tb_o_X64 * v_g, const char * v_name) {
     long long v_k = 0LL;
     {
-        long long tb_end15729 = tb_subo((((tb_o_X64 *)tb_nn(v_g, 143))->q_vars)->len, 1LL, 143);
+        long long tb_end15729 = tb_subo((((tb_o_X64 *)tb_nn(v_g, 148))->q_vars)->len, 1LL, 148);
         for (long long v_i = 0LL; v_i <= tb_end15729; v_i++) {
-            if ((strcmp((*(const char * *)tb_at(((tb_o_X64 *)tb_nn(v_g, 144))->q_vars, v_i, sizeof(const char *), 144)), v_name) == 0)) {
+            if ((strcmp((*(const char * *)tb_at(((tb_o_X64 *)tb_nn(v_g, 149))->q_vars, v_i, sizeof(const char *), 149)), v_name) == 0)) {
                 return v_i;
             }
         }
     }
-    { const char * tb_v15730 = v_name; *(const char * *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 146))->q_vars) = tb_v15730; }
-    return tb_subo((((tb_o_X64 *)tb_nn(v_g, 147))->q_vars)->len, 1LL, 147);
+    { const char * tb_v15730 = v_name; *(const char * *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 151))->q_vars) = tb_v15730; }
+    return tb_subo((((tb_o_X64 *)tb_nn(v_g, 152))->q_vars)->len, 1LL, 152);
     return v_k;
 }
 
 TB_API long long f_x64__xglobal(tb_o_X64 * v_g, const char * v_name) {
     long long v_k = 0LL;
-    v_k = tb_nego(1LL, 150);
+    v_k = tb_nego(1LL, 155);
     {
-        long long tb_end15731 = tb_subo((((tb_o_X64 *)tb_nn(v_g, 151))->q_gnames)->len, 1LL, 151);
+        long long tb_end15731 = tb_subo((((tb_o_X64 *)tb_nn(v_g, 156))->q_gnames)->len, 1LL, 156);
         for (long long v_i = 0LL; v_i <= tb_end15731; v_i++) {
-            if ((strcmp((*(const char * *)tb_at(((tb_o_X64 *)tb_nn(v_g, 152))->q_gnames, v_i, sizeof(const char *), 152)), v_name) == 0)) {
+            if ((strcmp((*(const char * *)tb_at(((tb_o_X64 *)tb_nn(v_g, 157))->q_gnames, v_i, sizeof(const char *), 157)), v_name) == 0)) {
                 v_k = v_i;
             }
         }
@@ -42310,39 +42334,39 @@ TB_API long long f_x64__xglobal(tb_o_X64 * v_g, const char * v_name) {
 
 TB_API void f_x64__xload_var(tb_o_X64 * v_g, long long v_k) {
     f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 139LL, 133LL}));
-    f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 158), tb_addo(v_k, 1LL, 158), 158));
+    f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 163), tb_addo(v_k, 1LL, 163), 163));
 }
 
 TB_API void f_x64__xstore_var(tb_o_X64 * v_g, long long v_k) {
     f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 137LL, 133LL}));
-    f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 162), tb_addo(v_k, 1LL, 162), 162));
+    f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 167), tb_addo(v_k, 1LL, 167), 167));
 }
 
 TB_API void f_x64__xload_global(tb_o_X64 * v_g, long long v_k) {
     f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 139LL, 5LL}));
-    f_x64__xreloc(v_g, 3LL, 2LL, tb_subo((*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 167))->q_goffs, v_k, sizeof(long long), 167)), 4LL, 167));
+    f_x64__xreloc(v_g, 3LL, 2LL, tb_subo((*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 172))->q_goffs, v_k, sizeof(long long), 172)), 4LL, 172));
 }
 
 TB_API void f_x64__xstore_global(tb_o_X64 * v_g, long long v_k) {
     f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 137LL, 5LL}));
-    f_x64__xreloc(v_g, 3LL, 2LL, tb_subo((*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 171))->q_goffs, v_k, sizeof(long long), 171)), 4LL, 171));
+    f_x64__xreloc(v_g, 3LL, 2LL, tb_subo((*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 176))->q_goffs, v_k, sizeof(long long), 176)), 4LL, 176));
 }
 
 TB_API void f_x64__xload_name(tb_o_X64 * v_g, tb_o_Node * v_n) {
-    long long v_gk = f_x64__xglobal(v_g, ((tb_o_Node *)tb_nn(v_n, 174))->q_name);
-    if (((v_gk >= 0LL) && (!f_x64__has_var(v_g, ((tb_o_Node *)tb_nn(v_n, 175))->q_name)))) {
+    long long v_gk = f_x64__xglobal(v_g, ((tb_o_Node *)tb_nn(v_n, 179))->q_name);
+    if (((v_gk >= 0LL) && (!f_x64__has_var(v_g, ((tb_o_Node *)tb_nn(v_n, 180))->q_name)))) {
         f_x64__xload_global(v_g, v_gk);
-    } else if (f_x64__has_var(v_g, ((tb_o_Node *)tb_nn(v_n, 177))->q_name)) {
-        f_x64__xload_var(v_g, f_x64__xslot(v_g, ((tb_o_Node *)tb_nn(v_n, 178))->q_name));
+    } else if (f_x64__has_var(v_g, ((tb_o_Node *)tb_nn(v_n, 182))->q_name)) {
+        f_x64__xload_var(v_g, f_x64__xslot(v_g, ((tb_o_Node *)tb_nn(v_n, 183))->q_name));
     } else {
-        f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_n, 180))->q_line, ({ const char *tb_c15732_0 = "переменную "; long long tb_c15732_0n = sizeof("переменную ") - 1; const char *tb_c15732_1 = ((tb_o_Node *)tb_nn(v_n, 180))->q_name; long long tb_c15732_1n = (long long)strlen(tb_c15732_1); char *tb_c15732r = tb_tmem(tb_c15732_0n + tb_c15732_1n + 1), *tb_c15732rw = tb_c15732r; memcpy(tb_c15732rw, tb_c15732_0, tb_c15732_0n); tb_c15732rw += tb_c15732_0n; memcpy(tb_c15732rw, tb_c15732_1, tb_c15732_1n); tb_c15732rw += tb_c15732_1n; *tb_c15732rw = 0; (const char *)tb_c15732r; }));
+        f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_n, 185))->q_line, ({ const char *tb_c15732_0 = "переменную "; long long tb_c15732_0n = sizeof("переменную ") - 1; const char *tb_c15732_1 = ((tb_o_Node *)tb_nn(v_n, 185))->q_name; long long tb_c15732_1n = (long long)strlen(tb_c15732_1); char *tb_c15732r = tb_tmem(tb_c15732_0n + tb_c15732_1n + 1), *tb_c15732rw = tb_c15732r; memcpy(tb_c15732rw, tb_c15732_0, tb_c15732_0n); tb_c15732rw += tb_c15732_0n; memcpy(tb_c15732rw, tb_c15732_1, tb_c15732_1n); tb_c15732rw += tb_c15732_1n; *tb_c15732rw = 0; (const char *)tb_c15732r; }));
     }
 }
 
 TB_API _Bool f_x64__has_var(tb_o_X64 * v_g, const char * v_name) {
     _Bool v_yes = 0;
     {
-        tb_list * tb_l15733 = ((tb_o_X64 *)tb_nn(v_g, 183))->q_vars;
+        tb_list * tb_l15733 = ((tb_o_X64 *)tb_nn(v_g, 188))->q_vars;
         for (long long tb_i15733 = 0; tb_i15733 < tb_l15733->len; tb_i15733++) {
             const char * const v_v = ((const char * *)tb_l15733->data)[tb_i15733];
             if ((strcmp(v_v, v_name) == 0)) {
@@ -42371,17 +42395,17 @@ TB_API void f_x64__xstring(tb_o_X64 * v_g, const char * v_v) {
         v_bytes = tb_m15734.o0;
         v_ok = tb_m15734.o1;
     }
-    long long v_at = (((tb_o_X64 *)tb_nn(v_g, 198))->q_ro)->len;
+    long long v_at = (((tb_o_X64 *)tb_nn(v_g, 203))->q_ro)->len;
     {
         tb_list * tb_l15735 = v_bytes;
         for (long long tb_i15735 = 0; tb_i15735 < tb_l15735->len; tb_i15735++) {
             long long const v_b = ((long long *)tb_l15735->data)[tb_i15735];
-            { long long tb_v15736 = v_b; *(long long *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 200))->q_ro) = tb_v15736; }
+            { long long tb_v15736 = v_b; *(long long *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 205))->q_ro) = tb_v15736; }
         }
     }
-    { long long tb_v15737 = 0LL; *(long long *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 201))->q_ro) = tb_v15737; }
+    { long long tb_v15737 = 0LL; *(long long *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 206))->q_ro) = tb_v15737; }
     f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 141LL, 5LL}));
-    f_x64__xreloc(v_g, 2LL, 2LL, tb_subo(v_at, 4LL, 203));
+    f_x64__xreloc(v_g, 2LL, 2LL, tb_subo(v_at, 4LL, 208));
 }
 
 TB_API void f_x64__xstring_raw(tb_o_X64 * v_g, const char * v_s) {
@@ -42441,7 +42465,7 @@ TB_API void f_x64__xarith(tb_o_X64 * v_g, const char * v_op, long long v_line) {
         f_x64__xbs(v_g, tb_list_from_np(10, sizeof(long long), (long long[]){72LL, 57LL, 200LL, 15LL, v_cc, 192LL, 72LL, 15LL, 182LL, 192LL}));
         return;
     }
-    if ((((tb_o_X64 *)tb_nn(v_g, 259))->q_in_danger == 0LL)) {
+    if ((((tb_o_X64 *)tb_nn(v_g, 264))->q_in_danger == 0LL)) {
         f_x64__xbs(v_g, tb_list_from_np(2, sizeof(long long), (long long[]){113LL, 19LL}));
         f_x64__xcrash(v_g, v_line, 8LL);
     }
@@ -42449,7 +42473,7 @@ TB_API void f_x64__xarith(tb_o_X64 * v_g, const char * v_op, long long v_line) {
 
 TB_API void f_x64__xas_text(tb_o_X64 * v_g, tb_o_Comp * v_c, tb_o_Node * v_n) {
     f_x64__xexpr(v_g, v_c, v_n);
-    const char * v_k = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_n, 266))->q_ty);
+    const char * v_k = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_n, 271))->q_ty);
     if (({ const char *tb_s15754 = v_k; ((unsigned char)tb_s15754[0] == 105 && (unsigned char)tb_s15754[1] == 110 && (unsigned char)tb_s15754[2] == 116 && tb_s15754[3] == 0); })) {
         f_x64__xmov_rdi(v_g);
         f_x64__xcall(v_g, "tb_x_itos");
@@ -42460,7 +42484,7 @@ TB_API void f_x64__xas_text(tb_o_X64 * v_g, tb_o_Comp * v_c, tb_o_Node * v_n) {
         f_x64__xmov_xmm0(v_g);
         f_x64__xcall(v_g, "tb_x_dtos");
     } else if (({ const char *tb_s15757 = v_k; !((unsigned char)tb_s15757[0] == 116 && (unsigned char)tb_s15757[1] == 101 && (unsigned char)tb_s15757[2] == 120 && (unsigned char)tb_s15757[3] == 116 && tb_s15757[4] == 0); })) {
-        f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_n, 277))->q_line, "такой тип в тексте");
+        f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_n, 282))->q_line, "такой тип в тексте");
     }
 }
 
@@ -42483,7 +42507,7 @@ TB_API void f_x64__xint_to_dec(tb_o_X64 * v_g) {
 
 TB_API void f_x64__xas_dec(tb_o_X64 * v_g, tb_o_Comp * v_c, tb_o_Node * v_n) {
     f_x64__xexpr(v_g, v_c, v_n);
-    if (({ const char *tb_s15758 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_n, 298))->q_ty); ((unsigned char)tb_s15758[0] == 105 && (unsigned char)tb_s15758[1] == 110 && (unsigned char)tb_s15758[2] == 116 && tb_s15758[3] == 0); })) {
+    if (({ const char *tb_s15758 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_n, 303))->q_ty); ((unsigned char)tb_s15758[0] == 105 && (unsigned char)tb_s15758[1] == 110 && (unsigned char)tb_s15758[2] == 116 && tb_s15758[3] == 0); })) {
         f_x64__xint_to_dec(v_g);
     }
 }
@@ -42518,7 +42542,7 @@ TB_API void f_x64__xdecimal(tb_o_X64 * v_g, const char * v_v, long long v_line) 
     }
     long long v_p = 1LL;
     for (long long tb_r15764 = 0, tb_n15764 = v_k; tb_r15764 < tb_n15764; tb_r15764++) {
-        { long long tb_v15765 = 10LL; long long *tb_p15765 = &(v_p); *tb_p15765 = tb_mulo(*tb_p15765, tb_v15765, 319); }
+        { long long tb_v15765 = 10LL; long long *tb_p15765 = &(v_p); *tb_p15765 = tb_mulo(*tb_p15765, tb_v15765, 324); }
     }
     f_x64__xconst(v_g, v_mv);
     f_x64__xbs(v_g, tb_list_from_np(5, sizeof(long long), (long long[]){242LL, 72LL, 15LL, 42LL, 192LL}));
@@ -42573,7 +42597,7 @@ TB_API void f_x64__xarith_dec(tb_o_X64 * v_g, const char * v_op, long long v_lin
 
 TB_API void f_x64__xstrcmp(tb_o_X64 * v_g) {
     f_x64__xbs(v_g, tb_list_from_np(4, sizeof(long long), (long long[]){72LL, 137LL, 199LL, 94LL}));
-    { long long tb_v15780 = 1LL; long long *tb_p15780 = &(((tb_o_X64 *)tb_nn(v_g, 371))->q_depth); *tb_p15780 = tb_subo(*tb_p15780, tb_v15780, 371); }
+    { long long tb_v15780 = 1LL; long long *tb_p15780 = &(((tb_o_X64 *)tb_nn(v_g, 376))->q_depth); *tb_p15780 = tb_subo(*tb_p15780, tb_v15780, 376); }
     f_x64__xbs(v_g, tb_list_from_np(22, sizeof(long long), (long long[]){15LL, 182LL, 6LL, 15LL, 182LL, 15LL, 41LL, 200LL, 117LL, 12LL, 133LL, 201LL, 116LL, 8LL, 72LL, 255LL, 198LL, 72LL, 255LL, 199LL, 235LL, 234LL}));
     f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 99LL, 192LL}));
 }
@@ -42602,35 +42626,39 @@ TB_API void f_x64__xdefault(tb_o_X64 * v_g, tb_o_Comp * v_c, long long v_t, long
                 f_x64__xcall(v_g, "tb_x_list_new_np");
             }
         }
-    } else if ((((((({ const char *tb_s15784 = v_k; ((unsigned char)tb_s15784[0] == 105 && (unsigned char)tb_s15784[1] == 110 && (unsigned char)tb_s15784[2] == 116 && tb_s15784[3] == 0); }) || ({ const char *tb_s15785 = v_k; ((unsigned char)tb_s15785[0] == 98 && (unsigned char)tb_s15785[1] == 111 && (unsigned char)tb_s15785[2] == 111 && (unsigned char)tb_s15785[3] == 108 && tb_s15785[4] == 0); })) || ({ const char *tb_s15786 = v_k; ((unsigned char)tb_s15786[0] == 100 && (unsigned char)tb_s15786[1] == 101 && (unsigned char)tb_s15786[2] == 99 && tb_s15786[3] == 0); })) || ({ const char *tb_s15787 = v_k; ((unsigned char)tb_s15787[0] == 110 && (unsigned char)tb_s15787[1] == 111 && (unsigned char)tb_s15787[2] == 110 && (unsigned char)tb_s15787[3] == 101 && tb_s15787[4] == 0); })) || ({ const char *tb_s15788 = v_k; ((unsigned char)tb_s15788[0] == 111 && (unsigned char)tb_s15788[1] == 98 && (unsigned char)tb_s15788[2] == 106 && tb_s15788[3] == 0); })) || ({ const char *tb_s15789 = v_k; ((unsigned char)tb_s15789[0] == 101 && (unsigned char)tb_s15789[1] == 110 && (unsigned char)tb_s15789[2] == 117 && (unsigned char)tb_s15789[3] == 109 && tb_s15789[4] == 0); }))) {
+    } else if (({ const char *tb_s15784 = v_k; ((unsigned char)tb_s15784[0] == 100 && (unsigned char)tb_s15784[1] == 105 && (unsigned char)tb_s15784[2] == 99 && (unsigned char)tb_s15784[3] == 116 && tb_s15784[4] == 0); })) {
+        if (f_x64__xdict_ok(v_g, v_c, v_t, v_line)) {
+            f_x64__xdict_new(v_g, v_c, v_t);
+        }
+    } else if ((((((({ const char *tb_s15785 = v_k; ((unsigned char)tb_s15785[0] == 105 && (unsigned char)tb_s15785[1] == 110 && (unsigned char)tb_s15785[2] == 116 && tb_s15785[3] == 0); }) || ({ const char *tb_s15786 = v_k; ((unsigned char)tb_s15786[0] == 98 && (unsigned char)tb_s15786[1] == 111 && (unsigned char)tb_s15786[2] == 111 && (unsigned char)tb_s15786[3] == 108 && tb_s15786[4] == 0); })) || ({ const char *tb_s15787 = v_k; ((unsigned char)tb_s15787[0] == 100 && (unsigned char)tb_s15787[1] == 101 && (unsigned char)tb_s15787[2] == 99 && tb_s15787[3] == 0); })) || ({ const char *tb_s15788 = v_k; ((unsigned char)tb_s15788[0] == 110 && (unsigned char)tb_s15788[1] == 111 && (unsigned char)tb_s15788[2] == 110 && (unsigned char)tb_s15788[3] == 101 && tb_s15788[4] == 0); })) || ({ const char *tb_s15789 = v_k; ((unsigned char)tb_s15789[0] == 111 && (unsigned char)tb_s15789[1] == 98 && (unsigned char)tb_s15789[2] == 106 && tb_s15789[3] == 0); })) || ({ const char *tb_s15790 = v_k; ((unsigned char)tb_s15790[0] == 101 && (unsigned char)tb_s15790[1] == 110 && (unsigned char)tb_s15790[2] == 117 && (unsigned char)tb_s15790[3] == 109 && tb_s15790[4] == 0); }))) {
         f_x64__xconst(v_g, 0LL);
     } else {
-        f_x64__xfail(v_g, v_line, ({ const char *tb_c15790_0 = "пустое значение типа "; long long tb_c15790_0n = sizeof("пустое значение типа ") - 1; const char *tb_c15790_1 = v_k; long long tb_c15790_1n = (long long)strlen(tb_c15790_1); char *tb_c15790r = tb_tmem(tb_c15790_0n + tb_c15790_1n + 1), *tb_c15790rw = tb_c15790r; memcpy(tb_c15790rw, tb_c15790_0, tb_c15790_0n); tb_c15790rw += tb_c15790_0n; memcpy(tb_c15790rw, tb_c15790_1, tb_c15790_1n); tb_c15790rw += tb_c15790_1n; *tb_c15790rw = 0; (const char *)tb_c15790r; }));
+        f_x64__xfail(v_g, v_line, ({ const char *tb_c15791_0 = "пустое значение типа "; long long tb_c15791_0n = sizeof("пустое значение типа ") - 1; const char *tb_c15791_1 = v_k; long long tb_c15791_1n = (long long)strlen(tb_c15791_1); char *tb_c15791r = tb_tmem(tb_c15791_0n + tb_c15791_1n + 1), *tb_c15791rw = tb_c15791r; memcpy(tb_c15791rw, tb_c15791_0, tb_c15791_0n); tb_c15791rw += tb_c15791_0n; memcpy(tb_c15791rw, tb_c15791_1, tb_c15791_1n); tb_c15791rw += tb_c15791_1n; *tb_c15791rw = 0; (const char *)tb_c15791r; }));
     }
 }
 
 TB_API void f_x64__xlist_lit(tb_o_X64 * v_g, tb_o_Comp * v_c, tb_o_Node * v_n) {
-    if ((!f_x64__xlist_ok(v_g, v_c, ((tb_o_Node *)tb_nn(v_n, 403))->q_ty, ((tb_o_Node *)tb_nn(v_n, 403))->q_line))) {
+    if ((!f_x64__xlist_ok(v_g, v_c, ((tb_o_Node *)tb_nn(v_n, 411))->q_ty, ((tb_o_Node *)tb_nn(v_n, 411))->q_line))) {
         return;
     }
-    long long v_nk = (((tb_o_Node *)tb_nn(v_n, 405))->q_kids)->len;
+    long long v_nk = (((tb_o_Node *)tb_nn(v_n, 413))->q_kids)->len;
     if ((v_nk == 0LL)) {
-        f_x64__xdefault(v_g, v_c, ((tb_o_Node *)tb_nn(v_n, 407))->q_ty, ((tb_o_Node *)tb_nn(v_n, 407))->q_line);
+        f_x64__xdefault(v_g, v_c, ((tb_o_Node *)tb_nn(v_n, 415))->q_ty, ((tb_o_Node *)tb_nn(v_n, 415))->q_line);
         return;
     }
-    long long v_first = (((tb_o_X64 *)tb_nn(v_g, 409))->q_vars)->len;
-    const char * v_tag = ({ const char *tb_c15791_0 = "#arr"; long long tb_c15791_0n = sizeof("#arr") - 1; char tb_c15791_1d[24]; long long tb_c15791_1n; const char *tb_c15791_1 = tb_digits(v_first, tb_c15791_1d, &tb_c15791_1n); char *tb_c15791r = tb_tmem(tb_c15791_0n + tb_c15791_1n + 1), *tb_c15791rw = tb_c15791r; memcpy(tb_c15791rw, tb_c15791_0, tb_c15791_0n); tb_c15791rw += tb_c15791_0n; memcpy(tb_c15791rw, tb_c15791_1, tb_c15791_1n); tb_c15791rw += tb_c15791_1n; *tb_c15791rw = 0; (const char *)tb_c15791r; });
+    long long v_first = (((tb_o_X64 *)tb_nn(v_g, 417))->q_vars)->len;
+    const char * v_tag = ({ const char *tb_c15792_0 = "#arr"; long long tb_c15792_0n = sizeof("#arr") - 1; char tb_c15792_1d[24]; long long tb_c15792_1n; const char *tb_c15792_1 = tb_digits(v_first, tb_c15792_1d, &tb_c15792_1n); char *tb_c15792r = tb_tmem(tb_c15792_0n + tb_c15792_1n + 1), *tb_c15792rw = tb_c15792r; memcpy(tb_c15792rw, tb_c15792_0, tb_c15792_0n); tb_c15792rw += tb_c15792_0n; memcpy(tb_c15792rw, tb_c15792_1, tb_c15792_1n); tb_c15792rw += tb_c15792_1n; *tb_c15792rw = 0; (const char *)tb_c15792r; });
     {
-        long long tb_end15792 = tb_subo(v_nk, 1LL, 411);
-        for (long long v_i = 0LL; v_i <= tb_end15792; v_i++) {
-            { const char * tb_v15793 = ({ const char *tb_c15794_0 = v_tag; long long tb_c15794_0n = (long long)strlen(tb_c15794_0); const char *tb_c15794_1 = "_"; long long tb_c15794_1n = sizeof("_") - 1; char tb_c15794_2d[24]; long long tb_c15794_2n; const char *tb_c15794_2 = tb_digits(v_i, tb_c15794_2d, &tb_c15794_2n); char *tb_c15794r = tb_tmem(tb_c15794_0n + tb_c15794_1n + tb_c15794_2n + 1), *tb_c15794rw = tb_c15794r; memcpy(tb_c15794rw, tb_c15794_0, tb_c15794_0n); tb_c15794rw += tb_c15794_0n; memcpy(tb_c15794rw, tb_c15794_1, tb_c15794_1n); tb_c15794rw += tb_c15794_1n; memcpy(tb_c15794rw, tb_c15794_2, tb_c15794_2n); tb_c15794rw += tb_c15794_2n; *tb_c15794rw = 0; (const char *)tb_c15794r; }); *(const char * *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 412))->q_vars) = tb_v15793; }
+        long long tb_end15793 = tb_subo(v_nk, 1LL, 419);
+        for (long long v_i = 0LL; v_i <= tb_end15793; v_i++) {
+            { const char * tb_v15794 = ({ const char *tb_c15795_0 = v_tag; long long tb_c15795_0n = (long long)strlen(tb_c15795_0); const char *tb_c15795_1 = "_"; long long tb_c15795_1n = sizeof("_") - 1; char tb_c15795_2d[24]; long long tb_c15795_2n; const char *tb_c15795_2 = tb_digits(v_i, tb_c15795_2d, &tb_c15795_2n); char *tb_c15795r = tb_tmem(tb_c15795_0n + tb_c15795_1n + tb_c15795_2n + 1), *tb_c15795rw = tb_c15795r; memcpy(tb_c15795rw, tb_c15795_0, tb_c15795_0n); tb_c15795rw += tb_c15795_0n; memcpy(tb_c15795rw, tb_c15795_1, tb_c15795_1n); tb_c15795rw += tb_c15795_1n; memcpy(tb_c15795rw, tb_c15795_2, tb_c15795_2n); tb_c15795rw += tb_c15795_2n; *tb_c15795rw = 0; (const char *)tb_c15795r; }); *(const char * *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 420))->q_vars) = tb_v15794; }
         }
     }
     {
-        long long tb_end15795 = tb_subo(v_nk, 1LL, 413);
-        for (long long v_i = 0LL; v_i <= tb_end15795; v_i++) {
-            f_x64__xas(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 414))->q_kids, v_i, sizeof(tb_o_Node *), 414)), ((tb_o_Type *)tb_nn((*(tb_o_Type * *)tb_at(((tb_o_Comp *)tb_nn(v_c, 414))->q_types, ((tb_o_Node *)tb_nn(v_n, 414))->q_ty, sizeof(tb_o_Type *), 414)), 414))->q_elem);
-            f_x64__xstore_var(v_g, tb_subo(tb_subo(tb_addo(v_first, v_nk, 416), 1LL, 416), v_i, 416));
+        long long tb_end15796 = tb_subo(v_nk, 1LL, 421);
+        for (long long v_i = 0LL; v_i <= tb_end15796; v_i++) {
+            f_x64__xas(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 422))->q_kids, v_i, sizeof(tb_o_Node *), 422)), ((tb_o_Type *)tb_nn((*(tb_o_Type * *)tb_at(((tb_o_Comp *)tb_nn(v_c, 422))->q_types, ((tb_o_Node *)tb_nn(v_n, 422))->q_ty, sizeof(tb_o_Type *), 422)), 422))->q_elem);
+            f_x64__xstore_var(v_g, tb_subo(tb_subo(tb_addo(v_first, v_nk, 424), 1LL, 424), v_i, 424));
         }
     }
     f_x64__xb(v_g, 191LL);
@@ -42638,8 +42666,8 @@ TB_API void f_x64__xlist_lit(tb_o_X64 * v_g, tb_o_Comp * v_c, tb_o_Node * v_n) {
     f_x64__xb(v_g, 190LL);
     f_x64__x32(v_g, 8LL);
     f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 141LL, 149LL}));
-    f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 422), tb_addo(v_first, v_nk, 422), 422));
-    if (f_emit_ll__ll_ptr_elems(v_c, ((tb_o_Node *)tb_nn(v_n, 423))->q_ty)) {
+    f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 430), tb_addo(v_first, v_nk, 430), 430));
+    if (f_emit_ll__ll_ptr_elems(v_c, ((tb_o_Node *)tb_nn(v_n, 431))->q_ty)) {
         f_x64__xcall(v_g, "tb_x_list_from");
     } else {
         f_x64__xcall(v_g, "tb_x_list_from_np");
@@ -42648,7 +42676,7 @@ TB_API void f_x64__xlist_lit(tb_o_X64 * v_g, tb_o_Comp * v_c, tb_o_Node * v_n) {
 
 TB_API void f_x64__xelem_addr(tb_o_X64 * v_g, long long v_line) {
     f_x64__xbs(v_g, tb_list_from_np(4, sizeof(long long), (long long[]){72LL, 137LL, 193LL, 88LL}));
-    { long long tb_v15796 = 1LL; long long *tb_p15796 = &(((tb_o_X64 *)tb_nn(v_g, 431))->q_depth); *tb_p15796 = tb_subo(*tb_p15796, tb_v15796, 431); }
+    { long long tb_v15797 = 1LL; long long *tb_p15797 = &(((tb_o_X64 *)tb_nn(v_g, 439))->q_depth); *tb_p15797 = tb_subo(*tb_p15797, tb_v15797, 439); }
     f_x64__xbs(v_g, tb_list_from_np(6, sizeof(long long), (long long[]){72LL, 59LL, 72LL, 8LL, 114LL, 19LL}));
     f_x64__xcrash(v_g, v_line, 3LL);
     f_x64__xbs(v_g, tb_list_from_np(7, sizeof(long long), (long long[]){72LL, 139LL, 16LL, 72LL, 141LL, 20LL, 202LL}));
@@ -42658,12 +42686,12 @@ TB_API void f_x64__xbuiltin(tb_o_X64 * v_g, tb_o_Comp * v_c, tb_o_Node * v_n) {
     const char * v_xn;
     const char * v_xp;
     {
-        tb_r_f_emit_ll__ll_xb tb_m15797 = f_emit_ll__ll_xb(v_c, v_n);
-        v_xn = tb_m15797.o0;
-        v_xp = tb_m15797.o1;
+        tb_r_f_emit_ll__ll_xb tb_m15798 = f_emit_ll__ll_xb(v_c, v_n);
+        v_xn = tb_m15798.o0;
+        v_xp = tb_m15798.o1;
     }
-    if (({ const char *tb_s15798 = v_xn; (tb_s15798[0] == 0); })) {
-        f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_n, 440))->q_line, ({ const char *tb_c15799_0 = "слово "; long long tb_c15799_0n = sizeof("слово ") - 1; const char *tb_c15799_1 = ((tb_o_Node *)tb_nn(v_n, 440))->q_name; long long tb_c15799_1n = (long long)strlen(tb_c15799_1); char *tb_c15799r = tb_tmem(tb_c15799_0n + tb_c15799_1n + 1), *tb_c15799rw = tb_c15799r; memcpy(tb_c15799rw, tb_c15799_0, tb_c15799_0n); tb_c15799rw += tb_c15799_0n; memcpy(tb_c15799rw, tb_c15799_1, tb_c15799_1n); tb_c15799rw += tb_c15799_1n; *tb_c15799rw = 0; (const char *)tb_c15799r; }));
+    if (({ const char *tb_s15799 = v_xn; (tb_s15799[0] == 0); })) {
+        f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_n, 448))->q_line, ({ const char *tb_c15800_0 = "слово "; long long tb_c15800_0n = sizeof("слово ") - 1; const char *tb_c15800_1 = ((tb_o_Node *)tb_nn(v_n, 448))->q_name; long long tb_c15800_1n = (long long)strlen(tb_c15800_1); char *tb_c15800r = tb_tmem(tb_c15800_0n + tb_c15800_1n + 1), *tb_c15800rw = tb_c15800r; memcpy(tb_c15800rw, tb_c15800_0, tb_c15800_0n); tb_c15800rw += tb_c15800_0n; memcpy(tb_c15800rw, tb_c15800_1, tb_c15800_1n); tb_c15800rw += tb_c15800_1n; *tb_c15800rw = 0; (const char *)tb_c15800r; }));
         return;
     }
     tb_list * v_bargs = f_memplan__ll_bi_args(v_n);
@@ -42671,44 +42699,44 @@ TB_API void f_x64__xbuiltin(tb_o_X64 * v_g, tb_o_Comp * v_c, tb_o_Node * v_n) {
     long long v_ni = 0LL;
     long long v_nf = 0LL;
     {
-        long long tb_end15800 = tb_subo((v_bargs)->len, 1LL, 446);
-        for (long long v_i = 0LL; v_i <= tb_end15800; v_i++) {
-            if (({ const char *tb_s15801 = tb_cut(v_xp, v_i, v_i, 447); ((unsigned char)tb_s15801[0] == 100 && tb_s15801[1] == 0); })) {
-                f_x64__xas_dec(v_g, v_c, (*(tb_o_Node * *)tb_at(v_bargs, v_i, sizeof(tb_o_Node *), 448)));
-                { long long tb_v15802 = tb_addo(100LL, v_nf, 449); *(long long *)tb_grow(v_cls) = tb_v15802; }
-                { long long tb_v15803 = 1LL; long long *tb_p15803 = &(v_nf); *tb_p15803 = tb_addo(*tb_p15803, tb_v15803, 450); }
+        long long tb_end15801 = tb_subo((v_bargs)->len, 1LL, 454);
+        for (long long v_i = 0LL; v_i <= tb_end15801; v_i++) {
+            if (({ const char *tb_s15802 = tb_cut(v_xp, v_i, v_i, 455); ((unsigned char)tb_s15802[0] == 100 && tb_s15802[1] == 0); })) {
+                f_x64__xas_dec(v_g, v_c, (*(tb_o_Node * *)tb_at(v_bargs, v_i, sizeof(tb_o_Node *), 456)));
+                { long long tb_v15803 = tb_addo(100LL, v_nf, 457); *(long long *)tb_grow(v_cls) = tb_v15803; }
+                { long long tb_v15804 = 1LL; long long *tb_p15804 = &(v_nf); *tb_p15804 = tb_addo(*tb_p15804, tb_v15804, 458); }
             } else {
-                f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(v_bargs, v_i, sizeof(tb_o_Node *), 452)));
-                { long long tb_v15804 = v_ni; *(long long *)tb_grow(v_cls) = tb_v15804; }
-                { long long tb_v15805 = 1LL; long long *tb_p15805 = &(v_ni); *tb_p15805 = tb_addo(*tb_p15805, tb_v15805, 454); }
+                f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(v_bargs, v_i, sizeof(tb_o_Node *), 460)));
+                { long long tb_v15805 = v_ni; *(long long *)tb_grow(v_cls) = tb_v15805; }
+                { long long tb_v15806 = 1LL; long long *tb_p15806 = &(v_ni); *tb_p15806 = tb_addo(*tb_p15806, tb_v15806, 462); }
             }
             f_x64__xpush(v_g);
         }
     }
     if (((v_ni > 5LL) || (v_nf > 8LL))) {
-        f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_n, 457))->q_line, ({ const char *tb_c15806_0 = "слово "; long long tb_c15806_0n = sizeof("слово ") - 1; const char *tb_c15806_1 = ((tb_o_Node *)tb_nn(v_n, 457))->q_name; long long tb_c15806_1n = (long long)strlen(tb_c15806_1); const char *tb_c15806_2 = " с таким числом параметров"; long long tb_c15806_2n = sizeof(" с таким числом параметров") - 1; char *tb_c15806r = tb_tmem(tb_c15806_0n + tb_c15806_1n + tb_c15806_2n + 1), *tb_c15806rw = tb_c15806r; memcpy(tb_c15806rw, tb_c15806_0, tb_c15806_0n); tb_c15806rw += tb_c15806_0n; memcpy(tb_c15806rw, tb_c15806_1, tb_c15806_1n); tb_c15806rw += tb_c15806_1n; memcpy(tb_c15806rw, tb_c15806_2, tb_c15806_2n); tb_c15806rw += tb_c15806_2n; *tb_c15806rw = 0; (const char *)tb_c15806r; }));
+        f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_n, 465))->q_line, ({ const char *tb_c15807_0 = "слово "; long long tb_c15807_0n = sizeof("слово ") - 1; const char *tb_c15807_1 = ((tb_o_Node *)tb_nn(v_n, 465))->q_name; long long tb_c15807_1n = (long long)strlen(tb_c15807_1); const char *tb_c15807_2 = " с таким числом параметров"; long long tb_c15807_2n = sizeof(" с таким числом параметров") - 1; char *tb_c15807r = tb_tmem(tb_c15807_0n + tb_c15807_1n + tb_c15807_2n + 1), *tb_c15807rw = tb_c15807r; memcpy(tb_c15807rw, tb_c15807_0, tb_c15807_0n); tb_c15807rw += tb_c15807_0n; memcpy(tb_c15807rw, tb_c15807_1, tb_c15807_1n); tb_c15807rw += tb_c15807_1n; memcpy(tb_c15807rw, tb_c15807_2, tb_c15807_2n); tb_c15807rw += tb_c15807_2n; *tb_c15807rw = 0; (const char *)tb_c15807r; }));
         return;
     }
     tb_list * v_regs = tb_list_from(6, sizeof(tb_list *), (tb_list *[]){tb_list_from_np(1, sizeof(long long), (long long[]){95LL}), tb_list_from_np(1, sizeof(long long), (long long[]){94LL}), tb_list_from_np(1, sizeof(long long), (long long[]){90LL}), tb_list_from_np(1, sizeof(long long), (long long[]){89LL}), tb_list_from_np(2, sizeof(long long), (long long[]){65LL, 88LL}), tb_list_from_np(2, sizeof(long long), (long long[]){65LL, 89LL})});
-    long long v_i = tb_subo((v_bargs)->len, 1LL, 460);
+    long long v_i = tb_subo((v_bargs)->len, 1LL, 468);
     while ((v_i >= 0LL)) {
-        if (((*(long long *)tb_at(v_cls, v_i, sizeof(long long), 462)) >= 100LL)) {
+        if (((*(long long *)tb_at(v_cls, v_i, sizeof(long long), 470)) >= 100LL)) {
             f_x64__xb(v_g, 88LL);
-            f_x64__xbs(v_g, tb_list_from_np(5, sizeof(long long), (long long[]){102LL, 72LL, 15LL, 110LL, tb_addo(192LL, tb_mulo(tb_subo((*(long long *)tb_at(v_cls, v_i, sizeof(long long), 464)), 100LL, 464), 8LL, 464), 464)}));
+            f_x64__xbs(v_g, tb_list_from_np(5, sizeof(long long), (long long[]){102LL, 72LL, 15LL, 110LL, tb_addo(192LL, tb_mulo(tb_subo((*(long long *)tb_at(v_cls, v_i, sizeof(long long), 472)), 100LL, 472), 8LL, 472), 472)}));
         } else {
-            f_x64__xbs(v_g, (*(tb_list * *)tb_at(v_regs, (*(long long *)tb_at(v_cls, v_i, sizeof(long long), 466)), sizeof(tb_list *), 466)));
+            f_x64__xbs(v_g, (*(tb_list * *)tb_at(v_regs, (*(long long *)tb_at(v_cls, v_i, sizeof(long long), 474)), sizeof(tb_list *), 474)));
         }
-        { long long tb_v15807 = 1LL; long long *tb_p15807 = &(((tb_o_X64 *)tb_nn(v_g, 467))->q_depth); *tb_p15807 = tb_subo(*tb_p15807, tb_v15807, 467); }
-        { long long tb_v15808 = 1LL; long long *tb_p15808 = &(v_i); *tb_p15808 = tb_subo(*tb_p15808, tb_v15808, 468); }
+        { long long tb_v15808 = 1LL; long long *tb_p15808 = &(((tb_o_X64 *)tb_nn(v_g, 475))->q_depth); *tb_p15808 = tb_subo(*tb_p15808, tb_v15808, 475); }
+        { long long tb_v15809 = 1LL; long long *tb_p15809 = &(v_i); *tb_p15809 = tb_subo(*tb_p15809, tb_v15809, 476); }
     }
     tb_list * v_imm = tb_list_from(6, sizeof(tb_list *), (tb_list *[]){tb_list_from_np(1, sizeof(long long), (long long[]){191LL}), tb_list_from_np(1, sizeof(long long), (long long[]){190LL}), tb_list_from_np(1, sizeof(long long), (long long[]){186LL}), tb_list_from_np(1, sizeof(long long), (long long[]){185LL}), tb_list_from_np(2, sizeof(long long), (long long[]){65LL, 184LL}), tb_list_from_np(2, sizeof(long long), (long long[]){65LL, 185LL})});
-    f_x64__xbs(v_g, (*(tb_list * *)tb_at(v_imm, v_ni, sizeof(tb_list *), 470)));
-    f_x64__x32(v_g, ((tb_o_Node *)tb_nn(v_n, 471))->q_line);
-    f_x64__xcall(v_g, ({ const char *tb_c15809_0 = "tb_xb_"; long long tb_c15809_0n = sizeof("tb_xb_") - 1; const char *tb_c15809_1 = v_xn; long long tb_c15809_1n = (long long)strlen(tb_c15809_1); char *tb_c15809r = tb_tmem(tb_c15809_0n + tb_c15809_1n + 1), *tb_c15809rw = tb_c15809r; memcpy(tb_c15809rw, tb_c15809_0, tb_c15809_0n); tb_c15809rw += tb_c15809_0n; memcpy(tb_c15809rw, tb_c15809_1, tb_c15809_1n); tb_c15809rw += tb_c15809_1n; *tb_c15809rw = 0; (const char *)tb_c15809r; }));
-    const char * v_rk = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_n, 473))->q_ty);
-    if (({ const char *tb_s15810 = v_rk; ((unsigned char)tb_s15810[0] == 100 && (unsigned char)tb_s15810[1] == 101 && (unsigned char)tb_s15810[2] == 99 && tb_s15810[3] == 0); })) {
+    f_x64__xbs(v_g, (*(tb_list * *)tb_at(v_imm, v_ni, sizeof(tb_list *), 478)));
+    f_x64__x32(v_g, ((tb_o_Node *)tb_nn(v_n, 479))->q_line);
+    f_x64__xcall(v_g, ({ const char *tb_c15810_0 = "tb_xb_"; long long tb_c15810_0n = sizeof("tb_xb_") - 1; const char *tb_c15810_1 = v_xn; long long tb_c15810_1n = (long long)strlen(tb_c15810_1); char *tb_c15810r = tb_tmem(tb_c15810_0n + tb_c15810_1n + 1), *tb_c15810rw = tb_c15810r; memcpy(tb_c15810rw, tb_c15810_0, tb_c15810_0n); tb_c15810rw += tb_c15810_0n; memcpy(tb_c15810rw, tb_c15810_1, tb_c15810_1n); tb_c15810rw += tb_c15810_1n; *tb_c15810rw = 0; (const char *)tb_c15810r; }));
+    const char * v_rk = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_n, 481))->q_ty);
+    if (({ const char *tb_s15811 = v_rk; ((unsigned char)tb_s15811[0] == 100 && (unsigned char)tb_s15811[1] == 101 && (unsigned char)tb_s15811[2] == 99 && tb_s15811[3] == 0); })) {
         f_x64__xmov_from_xmm0(v_g);
-    } else if (({ const char *tb_s15811 = v_rk; ((unsigned char)tb_s15811[0] == 98 && (unsigned char)tb_s15811[1] == 111 && (unsigned char)tb_s15811[2] == 111 && (unsigned char)tb_s15811[3] == 108 && tb_s15811[4] == 0); })) {
+    } else if (({ const char *tb_s15812 = v_rk; ((unsigned char)tb_s15812[0] == 98 && (unsigned char)tb_s15812[1] == 111 && (unsigned char)tb_s15812[2] == 111 && (unsigned char)tb_s15812[3] == 108 && tb_s15812[4] == 0); })) {
         f_x64__xbs(v_g, tb_list_from_np(4, sizeof(long long), (long long[]){72LL, 15LL, 182LL, 192LL}));
     }
 }
@@ -42719,28 +42747,28 @@ TB_API void f_x64__xerr_load(tb_o_X64 * v_g) {
 }
 
 TB_API void f_x64__xbail(tb_o_X64 * v_g) {
-    if (({ const char *tb_s15812 = ((tb_o_Node *)tb_nn(((tb_o_X64 *)tb_nn(v_g, 488))->q_fn, 488))->q_name; ((unsigned char)tb_s15812[0] == 109 && (unsigned char)tb_s15812[1] == 97 && (unsigned char)tb_s15812[2] == 105 && (unsigned char)tb_s15812[3] == 110 && tb_s15812[4] == 0); })) {
+    if (({ const char *tb_s15813 = ((tb_o_Node *)tb_nn(((tb_o_X64 *)tb_nn(v_g, 496))->q_fn, 496))->q_name; ((unsigned char)tb_s15813[0] == 109 && (unsigned char)tb_s15813[1] == 97 && (unsigned char)tb_s15813[2] == 105 && (unsigned char)tb_s15813[3] == 110 && tb_s15813[4] == 0); })) {
         f_x64__xerr_load(v_g);
         f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 137LL, 207LL}));
         f_x64__xcall(v_g, "tb_x_die");
         return;
     }
-    if (({ const char *tb_s15813 = ((tb_o_X64 *)tb_nn(v_g, 493))->q_out_name; !(tb_s15813[0] == 0); })) {
-        f_x64__xload_var(v_g, f_x64__xslot(v_g, ((tb_o_X64 *)tb_nn(v_g, 494))->q_out_name));
+    if (({ const char *tb_s15814 = ((tb_o_X64 *)tb_nn(v_g, 501))->q_out_name; !(tb_s15814[0] == 0); })) {
+        f_x64__xload_var(v_g, f_x64__xslot(v_g, ((tb_o_X64 *)tb_nn(v_g, 502))->q_out_name));
     } else {
         f_x64__xconst(v_g, 0LL);
     }
-    f_x64__xjump(v_g, tb_list_from_np(1, sizeof(long long), (long long[]){233LL}), ((tb_o_X64 *)tb_nn(v_g, 497))->q_ret_l);
+    f_x64__xjump(v_g, tb_list_from_np(1, sizeof(long long), (long long[]){233LL}), ((tb_o_X64 *)tb_nn(v_g, 505))->q_ret_l);
 }
 
 TB_API long long f_x64__xfield_index(tb_o_Comp * v_c, long long v_t, const char * v_name) {
     long long v_at = 0LL;
-    v_at = tb_nego(1LL, 502);
-    tb_o_Node * v_o = ((tb_o_Type *)tb_nn((*(tb_o_Type * *)tb_at(((tb_o_Comp *)tb_nn(v_c, 503))->q_types, v_t, sizeof(tb_o_Type *), 503)), 503))->q_obj_node;
+    v_at = tb_nego(1LL, 510);
+    tb_o_Node * v_o = ((tb_o_Type *)tb_nn((*(tb_o_Type * *)tb_at(((tb_o_Comp *)tb_nn(v_c, 511))->q_types, v_t, sizeof(tb_o_Type *), 511)), 511))->q_obj_node;
     {
-        long long tb_end15814 = tb_subo((((tb_o_Node *)tb_nn(v_o, 504))->q_kids)->len, 1LL, 504);
-        for (long long v_i = 0LL; v_i <= tb_end15814; v_i++) {
-            if ((strcmp(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_o, 505))->q_kids, v_i, sizeof(tb_o_Node *), 505)), 505))->q_name, v_name) == 0)) {
+        long long tb_end15815 = tb_subo((((tb_o_Node *)tb_nn(v_o, 512))->q_kids)->len, 1LL, 512);
+        for (long long v_i = 0LL; v_i <= tb_end15815; v_i++) {
+            if ((strcmp(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_o, 513))->q_kids, v_i, sizeof(tb_o_Node *), 513)), 513))->q_name, v_name) == 0)) {
                 v_at = v_i;
             }
         }
@@ -42750,7 +42778,7 @@ TB_API long long f_x64__xfield_index(tb_o_Comp * v_c, long long v_t, const char 
 
 TB_API _Bool f_x64__xobj_ok(tb_o_X64 * v_g, tb_o_Comp * v_c, long long v_t, long long v_line) {
     _Bool v_ok = 0;
-    if ((({ const char *tb_s15815 = f_check__kind_of(v_c, v_t); !((unsigned char)tb_s15815[0] == 111 && (unsigned char)tb_s15815[1] == 98 && (unsigned char)tb_s15815[2] == 106 && tb_s15815[3] == 0); }) || ((tb_o_Node *)tb_nn(((tb_o_Type *)tb_nn((*(tb_o_Type * *)tb_at(((tb_o_Comp *)tb_nn(v_c, 509))->q_types, v_t, sizeof(tb_o_Type *), 509)), 509))->q_obj_node, 509))->q_by_cols)) {
+    if ((({ const char *tb_s15816 = f_check__kind_of(v_c, v_t); !((unsigned char)tb_s15816[0] == 111 && (unsigned char)tb_s15816[1] == 98 && (unsigned char)tb_s15816[2] == 106 && tb_s15816[3] == 0); }) || ((tb_o_Node *)tb_nn(((tb_o_Type *)tb_nn((*(tb_o_Type * *)tb_at(((tb_o_Comp *)tb_nn(v_c, 517))->q_types, v_t, sizeof(tb_o_Type *), 517)), 517))->q_obj_node, 517))->q_by_cols)) {
         f_x64__xfail(v_g, v_line, "такие obj");
         return 0;
     }
@@ -42764,55 +42792,59 @@ TB_API void f_x64__xnull_check(tb_o_X64 * v_g, long long v_line) {
 }
 
 TB_API void f_x64__xnew_obj(tb_o_X64 * v_g, tb_o_Comp * v_c, tb_o_Node * v_n) {
-    tb_o_Node * v_o = ((tb_o_Node *)tb_nn(v_n, 520))->q_ref;
-    long long v_nf = (((tb_o_Node *)tb_nn(v_o, 521))->q_kids)->len;
+    tb_o_Node * v_o = ((tb_o_Node *)tb_nn(v_n, 528))->q_ref;
+    long long v_nf = (((tb_o_Node *)tb_nn(v_o, 529))->q_kids)->len;
     if ((v_nf == 0LL)) {
         v_nf = 1LL;
     }
-    f_x64__xconst(v_g, tb_mulo(v_nf, 8LL, 524));
+    f_x64__xconst(v_g, tb_mulo(v_nf, 8LL, 532));
     f_x64__xmov_rdi(v_g);
     f_x64__xcall(v_g, "tb_x_obj_mem");
-    long long v_hold = f_x64__xslot(v_g, ({ const char *tb_c15816_0 = "#o"; long long tb_c15816_0n = sizeof("#o") - 1; char tb_c15816_1d[24]; long long tb_c15816_1n; const char *tb_c15816_1 = tb_digits((((tb_o_X64 *)tb_nn(v_g, 527))->q_vars)->len, tb_c15816_1d, &tb_c15816_1n); char *tb_c15816r = tb_tmem(tb_c15816_0n + tb_c15816_1n + 1), *tb_c15816rw = tb_c15816r; memcpy(tb_c15816rw, tb_c15816_0, tb_c15816_0n); tb_c15816rw += tb_c15816_0n; memcpy(tb_c15816rw, tb_c15816_1, tb_c15816_1n); tb_c15816rw += tb_c15816_1n; *tb_c15816rw = 0; (const char *)tb_c15816r; }));
+    long long v_hold = f_x64__xslot(v_g, ({ const char *tb_c15817_0 = "#o"; long long tb_c15817_0n = sizeof("#o") - 1; char tb_c15817_1d[24]; long long tb_c15817_1n; const char *tb_c15817_1 = tb_digits((((tb_o_X64 *)tb_nn(v_g, 535))->q_vars)->len, tb_c15817_1d, &tb_c15817_1n); char *tb_c15817r = tb_tmem(tb_c15817_0n + tb_c15817_1n + 1), *tb_c15817rw = tb_c15817r; memcpy(tb_c15817rw, tb_c15817_0, tb_c15817_0n); tb_c15817rw += tb_c15817_0n; memcpy(tb_c15817rw, tb_c15817_1, tb_c15817_1n); tb_c15817rw += tb_c15817_1n; *tb_c15817rw = 0; (const char *)tb_c15817r; }));
     f_x64__xstore_var(v_g, v_hold);
     {
-        long long tb_end15817 = tb_subo((((tb_o_Node *)tb_nn(v_o, 529))->q_kids)->len, 1LL, 529);
-        for (long long v_i = 0LL; v_i <= tb_end15817; v_i++) {
-            long long v_ft = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_o, 530))->q_kids, v_i, sizeof(tb_o_Node *), 530)), 530))->q_ty;
-            if (({ const char *tb_s15818 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 531))->q_kids, v_i, sizeof(tb_o_Node *), 531)), 531))->q_kind; ((unsigned char)tb_s15818[0] == 109 && (unsigned char)tb_s15818[1] == 105 && (unsigned char)tb_s15818[2] == 115 && (unsigned char)tb_s15818[3] == 115 && (unsigned char)tb_s15818[4] == 105 && (unsigned char)tb_s15818[5] == 110 && (unsigned char)tb_s15818[6] == 103 && tb_s15818[7] == 0); })) {
-                f_x64__xdefault(v_g, v_c, v_ft, ((tb_o_Node *)tb_nn(v_n, 532))->q_line);
+        long long tb_end15818 = tb_subo((((tb_o_Node *)tb_nn(v_o, 537))->q_kids)->len, 1LL, 537);
+        for (long long v_i = 0LL; v_i <= tb_end15818; v_i++) {
+            long long v_ft = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_o, 538))->q_kids, v_i, sizeof(tb_o_Node *), 538)), 538))->q_ty;
+            if (({ const char *tb_s15819 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 539))->q_kids, v_i, sizeof(tb_o_Node *), 539)), 539))->q_kind; ((unsigned char)tb_s15819[0] == 109 && (unsigned char)tb_s15819[1] == 105 && (unsigned char)tb_s15819[2] == 115 && (unsigned char)tb_s15819[3] == 115 && (unsigned char)tb_s15819[4] == 105 && (unsigned char)tb_s15819[5] == 110 && (unsigned char)tb_s15819[6] == 103 && tb_s15819[7] == 0); })) {
+                f_x64__xdefault(v_g, v_c, v_ft, ((tb_o_Node *)tb_nn(v_n, 540))->q_line);
             } else {
-                f_x64__xas(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 534))->q_kids, v_i, sizeof(tb_o_Node *), 534)), 534))->q_kids, 0LL, sizeof(tb_o_Node *), 534)), v_ft);
+                f_x64__xas(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 542))->q_kids, v_i, sizeof(tb_o_Node *), 542)), 542))->q_kids, 0LL, sizeof(tb_o_Node *), 542)), v_ft);
             }
             f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 139LL, 149LL}));
-            f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 536), tb_addo(v_hold, 1LL, 536), 536));
+            f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 544), tb_addo(v_hold, 1LL, 544), 544));
             f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 137LL, 130LL}));
-            f_x64__x32(v_g, tb_mulo(v_i, 8LL, 538));
+            f_x64__x32(v_g, tb_mulo(v_i, 8LL, 546));
         }
     }
     f_x64__xload_var(v_g, v_hold);
 }
 
 TB_API void f_x64__xstore_at_rdx(tb_o_X64 * v_g, tb_o_Comp * v_c, const char * v_op, long long v_et, long long v_hold, long long v_line) {
-    if (({ const char *tb_s15819 = v_op; ((unsigned char)tb_s15819[0] == 61 && tb_s15819[1] == 0); })) {
+    if (({ const char *tb_s15820 = v_op; ((unsigned char)tb_s15820[0] == 61 && tb_s15820[1] == 0); })) {
         f_x64__xload_var(v_g, v_hold);
     } else {
-        const char * v_o2 = tb_cut(v_op, 0LL, tb_subo(tb_ulen(v_op), 2LL, 546), 546);
+        const char * v_o2 = tb_cut(v_op, 0LL, tb_subo(tb_ulen(v_op), 2LL, 554), 554);
         const char * v_ek = f_check__kind_of(v_c, v_et);
-        if (((({ const char *tb_s15820 = v_o2; !((unsigned char)tb_s15820[0] == 43 && tb_s15820[1] == 0); }) && ({ const char *tb_s15821 = v_o2; !((unsigned char)tb_s15821[0] == 45 && tb_s15821[1] == 0); })) && ({ const char *tb_s15822 = v_o2; !((unsigned char)tb_s15822[0] == 42 && tb_s15822[1] == 0); }))) {
-            f_x64__xfail(v_g, v_line, ({ const char *tb_c15823_0 = "знак "; long long tb_c15823_0n = sizeof("знак ") - 1; const char *tb_c15823_1 = v_op; long long tb_c15823_1n = (long long)strlen(tb_c15823_1); const char *tb_c15823_2 = " здесь"; long long tb_c15823_2n = sizeof(" здесь") - 1; char *tb_c15823r = tb_tmem(tb_c15823_0n + tb_c15823_1n + tb_c15823_2n + 1), *tb_c15823rw = tb_c15823r; memcpy(tb_c15823rw, tb_c15823_0, tb_c15823_0n); tb_c15823rw += tb_c15823_0n; memcpy(tb_c15823rw, tb_c15823_1, tb_c15823_1n); tb_c15823rw += tb_c15823_1n; memcpy(tb_c15823rw, tb_c15823_2, tb_c15823_2n); tb_c15823rw += tb_c15823_2n; *tb_c15823rw = 0; (const char *)tb_c15823r; }));
+        if (((({ const char *tb_s15821 = v_o2; !((unsigned char)tb_s15821[0] == 43 && tb_s15821[1] == 0); }) && ({ const char *tb_s15822 = v_o2; !((unsigned char)tb_s15822[0] == 45 && tb_s15822[1] == 0); })) && ({ const char *tb_s15823 = v_o2; !((unsigned char)tb_s15823[0] == 42 && tb_s15823[1] == 0); }))) {
+            f_x64__xfail(v_g, v_line, ({ const char *tb_c15824_0 = "знак "; long long tb_c15824_0n = sizeof("знак ") - 1; const char *tb_c15824_1 = v_op; long long tb_c15824_1n = (long long)strlen(tb_c15824_1); const char *tb_c15824_2 = " здесь"; long long tb_c15824_2n = sizeof(" здесь") - 1; char *tb_c15824r = tb_tmem(tb_c15824_0n + tb_c15824_1n + tb_c15824_2n + 1), *tb_c15824rw = tb_c15824r; memcpy(tb_c15824rw, tb_c15824_0, tb_c15824_0n); tb_c15824rw += tb_c15824_0n; memcpy(tb_c15824rw, tb_c15824_1, tb_c15824_1n); tb_c15824rw += tb_c15824_1n; memcpy(tb_c15824rw, tb_c15824_2, tb_c15824_2n); tb_c15824rw += tb_c15824_2n; *tb_c15824rw = 0; (const char *)tb_c15824r; }));
             return;
         }
         f_x64__xbs(v_g, tb_list_from_np(6, sizeof(long long), (long long[]){72LL, 139LL, 2LL, 72LL, 139LL, 141LL}));
-        f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 553), tb_addo(v_hold, 1LL, 553), 553));
-        if (({ const char *tb_s15824 = v_ek; ((unsigned char)tb_s15824[0] == 100 && (unsigned char)tb_s15824[1] == 101 && (unsigned char)tb_s15824[2] == 99 && tb_s15824[3] == 0); })) {
+        f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 561), tb_addo(v_hold, 1LL, 561), 561));
+        if (({ const char *tb_s15825 = v_ek; ((unsigned char)tb_s15825[0] == 100 && (unsigned char)tb_s15825[1] == 101 && (unsigned char)tb_s15825[2] == 99 && tb_s15825[3] == 0); })) {
             f_x64__xarith_dec(v_g, v_o2, v_line);
-        } else if (({ const char *tb_s15825 = v_ek; ((unsigned char)tb_s15825[0] == 105 && (unsigned char)tb_s15825[1] == 110 && (unsigned char)tb_s15825[2] == 116 && tb_s15825[3] == 0); })) {
+        } else if (({ const char *tb_s15826 = v_ek; ((unsigned char)tb_s15826[0] == 105 && (unsigned char)tb_s15826[1] == 110 && (unsigned char)tb_s15826[2] == 116 && tb_s15826[3] == 0); })) {
             f_x64__xarith(v_g, v_o2, v_line);
         } else {
-            f_x64__xfail(v_g, v_line, ({ const char *tb_c15826_0 = "знак "; long long tb_c15826_0n = sizeof("знак ") - 1; const char *tb_c15826_1 = v_op; long long tb_c15826_1n = (long long)strlen(tb_c15826_1); const char *tb_c15826_2 = " у такого значения"; long long tb_c15826_2n = sizeof(" у такого значения") - 1; char *tb_c15826r = tb_tmem(tb_c15826_0n + tb_c15826_1n + tb_c15826_2n + 1), *tb_c15826rw = tb_c15826r; memcpy(tb_c15826rw, tb_c15826_0, tb_c15826_0n); tb_c15826rw += tb_c15826_0n; memcpy(tb_c15826rw, tb_c15826_1, tb_c15826_1n); tb_c15826rw += tb_c15826_1n; memcpy(tb_c15826rw, tb_c15826_2, tb_c15826_2n); tb_c15826rw += tb_c15826_2n; *tb_c15826rw = 0; (const char *)tb_c15826r; }));
+            f_x64__xfail(v_g, v_line, ({ const char *tb_c15827_0 = "знак "; long long tb_c15827_0n = sizeof("знак ") - 1; const char *tb_c15827_1 = v_op; long long tb_c15827_1n = (long long)strlen(tb_c15827_1); const char *tb_c15827_2 = " у такого значения"; long long tb_c15827_2n = sizeof(" у такого значения") - 1; char *tb_c15827r = tb_tmem(tb_c15827_0n + tb_c15827_1n + tb_c15827_2n + 1), *tb_c15827rw = tb_c15827r; memcpy(tb_c15827rw, tb_c15827_0, tb_c15827_0n); tb_c15827rw += tb_c15827_0n; memcpy(tb_c15827rw, tb_c15827_1, tb_c15827_1n); tb_c15827rw += tb_c15827_1n; memcpy(tb_c15827rw, tb_c15827_2, tb_c15827_2n); tb_c15827rw += tb_c15827_2n; *tb_c15827rw = 0; (const char *)tb_c15827r; }));
         }
     }
-    f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 137LL, 2LL}));
+    if ((({ const char *tb_s15828 = f_check__kind_of(v_c, v_et); ((unsigned char)tb_s15828[0] == 98 && (unsigned char)tb_s15828[1] == 111 && (unsigned char)tb_s15828[2] == 111 && (unsigned char)tb_s15828[3] == 108 && tb_s15828[4] == 0); }) && ((tb_o_X64 *)tb_nn(v_g, 568))->q_byte_store)) {
+        f_x64__xbs(v_g, tb_list_from_np(2, sizeof(long long), (long long[]){136LL, 2LL}));
+    } else {
+        f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 137LL, 2LL}));
+    }
 }
 
 TB_API void f_x64__xps_lit(tb_o_X64 * v_g, const char * v_s) {
@@ -42824,55 +42856,55 @@ TB_API void f_x64__xps_lit(tb_o_X64 * v_g, const char * v_s) {
 TB_API void f_x64__xshow_val(tb_o_X64 * v_g, tb_o_Comp * v_c, long long v_t, long long v_line) {
     const char * v_k = f_check__kind_of(v_c, v_t);
     f_x64__xmov_rdi(v_g);
-    if (({ const char *tb_s15827 = v_k; ((unsigned char)tb_s15827[0] == 105 && (unsigned char)tb_s15827[1] == 110 && (unsigned char)tb_s15827[2] == 116 && tb_s15827[3] == 0); })) {
+    if (({ const char *tb_s15829 = v_k; ((unsigned char)tb_s15829[0] == 105 && (unsigned char)tb_s15829[1] == 110 && (unsigned char)tb_s15829[2] == 116 && tb_s15829[3] == 0); })) {
         f_x64__xcall(v_g, "tb_x_show_i");
-    } else if (({ const char *tb_s15828 = v_k; ((unsigned char)tb_s15828[0] == 98 && (unsigned char)tb_s15828[1] == 111 && (unsigned char)tb_s15828[2] == 111 && (unsigned char)tb_s15828[3] == 108 && tb_s15828[4] == 0); })) {
+    } else if (({ const char *tb_s15830 = v_k; ((unsigned char)tb_s15830[0] == 98 && (unsigned char)tb_s15830[1] == 111 && (unsigned char)tb_s15830[2] == 111 && (unsigned char)tb_s15830[3] == 108 && tb_s15830[4] == 0); })) {
         f_x64__xcall(v_g, "tb_x_btos");
         f_x64__xmov_rdi(v_g);
         f_x64__xcall(v_g, "tb_x_ps");
-    } else if (({ const char *tb_s15829 = v_k; ((unsigned char)tb_s15829[0] == 116 && (unsigned char)tb_s15829[1] == 101 && (unsigned char)tb_s15829[2] == 120 && (unsigned char)tb_s15829[3] == 116 && tb_s15829[4] == 0); })) {
+    } else if (({ const char *tb_s15831 = v_k; ((unsigned char)tb_s15831[0] == 116 && (unsigned char)tb_s15831[1] == 101 && (unsigned char)tb_s15831[2] == 120 && (unsigned char)tb_s15831[3] == 116 && tb_s15831[4] == 0); })) {
         f_x64__xcall(v_g, "tb_x_ps");
-    } else if (({ const char *tb_s15830 = v_k; ((unsigned char)tb_s15830[0] == 100 && (unsigned char)tb_s15830[1] == 101 && (unsigned char)tb_s15830[2] == 99 && tb_s15830[3] == 0); })) {
+    } else if (({ const char *tb_s15832 = v_k; ((unsigned char)tb_s15832[0] == 100 && (unsigned char)tb_s15832[1] == 101 && (unsigned char)tb_s15832[2] == 99 && tb_s15832[3] == 0); })) {
         f_x64__xmov_xmm0(v_g);
         f_x64__xcall(v_g, "tb_x_show_d");
-    } else if ((((({ const char *tb_s15831 = v_k; ((unsigned char)tb_s15831[0] == 108 && (unsigned char)tb_s15831[1] == 105 && (unsigned char)tb_s15831[2] == 115 && (unsigned char)tb_s15831[3] == 116 && tb_s15831[4] == 0); }) && f_x64__xlist_ok(v_g, v_c, v_t, v_line)) || (({ const char *tb_s15832 = v_k; ((unsigned char)tb_s15832[0] == 111 && (unsigned char)tb_s15832[1] == 98 && (unsigned char)tb_s15832[2] == 106 && tb_s15832[3] == 0); }) && f_x64__xobj_ok(v_g, v_c, v_t, v_line))) || ({ const char *tb_s15833 = v_k; ((unsigned char)tb_s15833[0] == 101 && (unsigned char)tb_s15833[1] == 110 && (unsigned char)tb_s15833[2] == 117 && (unsigned char)tb_s15833[3] == 109 && tb_s15833[4] == 0); }))) {
+    } else if (((((({ const char *tb_s15833 = v_k; ((unsigned char)tb_s15833[0] == 108 && (unsigned char)tb_s15833[1] == 105 && (unsigned char)tb_s15833[2] == 115 && (unsigned char)tb_s15833[3] == 116 && tb_s15833[4] == 0); }) && f_x64__xlist_ok(v_g, v_c, v_t, v_line)) || (({ const char *tb_s15834 = v_k; ((unsigned char)tb_s15834[0] == 111 && (unsigned char)tb_s15834[1] == 98 && (unsigned char)tb_s15834[2] == 106 && tb_s15834[3] == 0); }) && f_x64__xobj_ok(v_g, v_c, v_t, v_line))) || ({ const char *tb_s15835 = v_k; ((unsigned char)tb_s15835[0] == 101 && (unsigned char)tb_s15835[1] == 110 && (unsigned char)tb_s15835[2] == 117 && (unsigned char)tb_s15835[3] == 109 && tb_s15835[4] == 0); })) || (({ const char *tb_s15836 = v_k; ((unsigned char)tb_s15836[0] == 100 && (unsigned char)tb_s15836[1] == 105 && (unsigned char)tb_s15836[2] == 99 && (unsigned char)tb_s15836[3] == 116 && tb_s15836[4] == 0); }) && f_x64__xdict_ok(v_g, v_c, v_t, v_line)))) {
         _Bool v_has = 0;
         {
-            tb_list * tb_l15834 = ((tb_o_X64 *)tb_nn(v_g, 586))->q_show_need;
-            for (long long tb_i15834 = 0; tb_i15834 < tb_l15834->len; tb_i15834++) {
-                long long const v_d = ((long long *)tb_l15834->data)[tb_i15834];
+            tb_list * tb_l15837 = ((tb_o_X64 *)tb_nn(v_g, 597))->q_show_need;
+            for (long long tb_i15837 = 0; tb_i15837 < tb_l15837->len; tb_i15837++) {
+                long long const v_d = ((long long *)tb_l15837->data)[tb_i15837];
                 if ((v_d == v_t)) {
                     v_has = 1;
                 }
             }
         }
         if ((!v_has)) {
-            { long long tb_v15835 = v_t; *(long long *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 590))->q_show_need) = tb_v15835; }
+            { long long tb_v15838 = v_t; *(long long *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 601))->q_show_need) = tb_v15838; }
         }
-        f_x64__xcall(v_g, ({ const char *tb_c15836_0 = "tb_xshow_"; long long tb_c15836_0n = sizeof("tb_xshow_") - 1; char tb_c15836_1d[24]; long long tb_c15836_1n; const char *tb_c15836_1 = tb_digits(v_t, tb_c15836_1d, &tb_c15836_1n); char *tb_c15836r = tb_tmem(tb_c15836_0n + tb_c15836_1n + 1), *tb_c15836rw = tb_c15836r; memcpy(tb_c15836rw, tb_c15836_0, tb_c15836_0n); tb_c15836rw += tb_c15836_0n; memcpy(tb_c15836rw, tb_c15836_1, tb_c15836_1n); tb_c15836rw += tb_c15836_1n; *tb_c15836rw = 0; (const char *)tb_c15836r; }));
+        f_x64__xcall(v_g, ({ const char *tb_c15839_0 = "tb_xshow_"; long long tb_c15839_0n = sizeof("tb_xshow_") - 1; char tb_c15839_1d[24]; long long tb_c15839_1n; const char *tb_c15839_1 = tb_digits(v_t, tb_c15839_1d, &tb_c15839_1n); char *tb_c15839r = tb_tmem(tb_c15839_0n + tb_c15839_1n + 1), *tb_c15839rw = tb_c15839r; memcpy(tb_c15839rw, tb_c15839_0, tb_c15839_0n); tb_c15839rw += tb_c15839_0n; memcpy(tb_c15839rw, tb_c15839_1, tb_c15839_1n); tb_c15839rw += tb_c15839_1n; *tb_c15839rw = 0; (const char *)tb_c15839r; }));
     } else {
-        f_x64__xfail(v_g, v_line, ({ const char *tb_c15837_0 = "печать типа "; long long tb_c15837_0n = sizeof("печать типа ") - 1; const char *tb_c15837_1 = v_k; long long tb_c15837_1n = (long long)strlen(tb_c15837_1); char *tb_c15837r = tb_tmem(tb_c15837_0n + tb_c15837_1n + 1), *tb_c15837rw = tb_c15837r; memcpy(tb_c15837rw, tb_c15837_0, tb_c15837_0n); tb_c15837rw += tb_c15837_0n; memcpy(tb_c15837rw, tb_c15837_1, tb_c15837_1n); tb_c15837rw += tb_c15837_1n; *tb_c15837rw = 0; (const char *)tb_c15837r; }));
+        f_x64__xfail(v_g, v_line, ({ const char *tb_c15840_0 = "печать типа "; long long tb_c15840_0n = sizeof("печать типа ") - 1; const char *tb_c15840_1 = v_k; long long tb_c15840_1n = (long long)strlen(tb_c15840_1); char *tb_c15840r = tb_tmem(tb_c15840_0n + tb_c15840_1n + 1), *tb_c15840rw = tb_c15840r; memcpy(tb_c15840rw, tb_c15840_0, tb_c15840_0n); tb_c15840rw += tb_c15840_0n; memcpy(tb_c15840rw, tb_c15840_1, tb_c15840_1n); tb_c15840rw += tb_c15840_1n; *tb_c15840rw = 0; (const char *)tb_c15840r; }));
     }
 }
 
 TB_API void f_x64__xshow_func(tb_o_X64 * v_g, tb_o_Comp * v_c, long long v_t) {
-    tb_lclear(((tb_o_X64 *)tb_nn(v_g, 596))->q_vars, 596);
-    tb_lclear(((tb_o_X64 *)tb_nn(v_g, 597))->q_lpos, 597);
-    tb_lclear(((tb_o_X64 *)tb_nn(v_g, 598))->q_fix_at, 598);
-    tb_lclear(((tb_o_X64 *)tb_nn(v_g, 599))->q_fix_l, 599);
-    { long long tb_v15838 = 0LL; long long *tb_p15838 = &(((tb_o_X64 *)tb_nn(v_g, 600))->q_depth); *tb_p15838 = tb_v15838; }
-    { const char * tb_v15839 = ""; const char * *tb_p15839 = &(((tb_o_X64 *)tb_nn(v_g, 601))->q_out_name); *tb_p15839 = tb_v15839; }
-    long long v_sk = f_x64__xsym(v_g, ({ const char *tb_c15840_0 = "tb_xshow_"; long long tb_c15840_0n = sizeof("tb_xshow_") - 1; char tb_c15840_1d[24]; long long tb_c15840_1n; const char *tb_c15840_1 = tb_digits(v_t, tb_c15840_1d, &tb_c15840_1n); char *tb_c15840r = tb_tmem(tb_c15840_0n + tb_c15840_1n + 1), *tb_c15840rw = tb_c15840r; memcpy(tb_c15840rw, tb_c15840_0, tb_c15840_0n); tb_c15840rw += tb_c15840_0n; memcpy(tb_c15840rw, tb_c15840_1, tb_c15840_1n); tb_c15840rw += tb_c15840_1n; *tb_c15840rw = 0; (const char *)tb_c15840r; }));
-    { long long tb_v15841 = (((tb_o_X64 *)tb_nn(v_g, 603))->q_code)->len; long long *tb_p15841 = &((*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 603))->q_sdef, v_sk, sizeof(long long), 603))); *tb_p15841 = tb_v15841; }
+    tb_lclear(((tb_o_X64 *)tb_nn(v_g, 607))->q_vars, 607);
+    tb_lclear(((tb_o_X64 *)tb_nn(v_g, 608))->q_lpos, 608);
+    tb_lclear(((tb_o_X64 *)tb_nn(v_g, 609))->q_fix_at, 609);
+    tb_lclear(((tb_o_X64 *)tb_nn(v_g, 610))->q_fix_l, 610);
+    { long long tb_v15841 = 0LL; long long *tb_p15841 = &(((tb_o_X64 *)tb_nn(v_g, 611))->q_depth); *tb_p15841 = tb_v15841; }
+    { const char * tb_v15842 = ""; const char * *tb_p15842 = &(((tb_o_X64 *)tb_nn(v_g, 612))->q_out_name); *tb_p15842 = tb_v15842; }
+    long long v_sk = f_x64__xsym(v_g, ({ const char *tb_c15843_0 = "tb_xshow_"; long long tb_c15843_0n = sizeof("tb_xshow_") - 1; char tb_c15843_1d[24]; long long tb_c15843_1n; const char *tb_c15843_1 = tb_digits(v_t, tb_c15843_1d, &tb_c15843_1n); char *tb_c15843r = tb_tmem(tb_c15843_0n + tb_c15843_1n + 1), *tb_c15843rw = tb_c15843r; memcpy(tb_c15843rw, tb_c15843_0, tb_c15843_0n); tb_c15843rw += tb_c15843_0n; memcpy(tb_c15843rw, tb_c15843_1, tb_c15843_1n); tb_c15843rw += tb_c15843_1n; *tb_c15843rw = 0; (const char *)tb_c15843r; }));
+    { long long tb_v15844 = (((tb_o_X64 *)tb_nn(v_g, 614))->q_code)->len; long long *tb_p15844 = &((*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 614))->q_sdef, v_sk, sizeof(long long), 614))); *tb_p15844 = tb_v15844; }
     f_x64__xbs(v_g, tb_list_from_np(7, sizeof(long long), (long long[]){85LL, 72LL, 137LL, 229LL, 72LL, 129LL, 236LL}));
-    long long v_frame_at = (((tb_o_X64 *)tb_nn(v_g, 605))->q_code)->len;
+    long long v_frame_at = (((tb_o_X64 *)tb_nn(v_g, 616))->q_code)->len;
     f_x64__x32(v_g, 0LL);
-    { long long tb_v15842 = f_x64__xlabel(v_g); long long *tb_p15842 = &(((tb_o_X64 *)tb_nn(v_g, 607))->q_ret_l); *tb_p15842 = tb_v15842; }
+    { long long tb_v15845 = f_x64__xlabel(v_g); long long *tb_p15845 = &(((tb_o_X64 *)tb_nn(v_g, 618))->q_ret_l); *tb_p15845 = tb_v15845; }
     long long v_v = f_x64__xslot(v_g, "#x");
     f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 137LL, 189LL}));
-    f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 610), tb_addo(v_v, 1LL, 610), 610));
+    f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 621), tb_addo(v_v, 1LL, 621), 621));
     const char * v_k = f_check__kind_of(v_c, v_t);
-    if (({ const char *tb_s15843 = v_k; ((unsigned char)tb_s15843[0] == 108 && (unsigned char)tb_s15843[1] == 105 && (unsigned char)tb_s15843[2] == 115 && (unsigned char)tb_s15843[3] == 116 && tb_s15843[4] == 0); })) {
+    if (({ const char *tb_s15846 = v_k; ((unsigned char)tb_s15846[0] == 108 && (unsigned char)tb_s15846[1] == 105 && (unsigned char)tb_s15846[2] == 115 && (unsigned char)tb_s15846[3] == 116 && tb_s15846[4] == 0); })) {
         long long v_ik = f_x64__xslot(v_g, "#i");
         f_x64__xps_lit(v_g, "[");
         f_x64__xconst(v_g, 0LL);
@@ -42883,7 +42915,7 @@ TB_API void f_x64__xshow_func(tb_o_X64 * v_g, tb_o_Comp * v_c, long long v_t) {
         f_x64__xplace(v_g, v_head);
         f_x64__xload_var(v_g, v_v);
         f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 139LL, 141LL}));
-        f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 623), tb_addo(v_ik, 1LL, 623), 623));
+        f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 634), tb_addo(v_ik, 1LL, 634), 634));
         f_x64__xbs(v_g, tb_list_from_np(4, sizeof(long long), (long long[]){72LL, 59LL, 72LL, 8LL}));
         f_x64__xjump(v_g, tb_list_from_np(2, sizeof(long long), (long long[]){15LL, 141LL}), v_out);
         f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 133LL, 201LL}));
@@ -42892,56 +42924,101 @@ TB_API void f_x64__xshow_func(tb_o_X64 * v_g, tb_o_Comp * v_c, long long v_t) {
         f_x64__xplace(v_g, v_first);
         f_x64__xload_var(v_g, v_v);
         f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 139LL, 141LL}));
-        f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 632), tb_addo(v_ik, 1LL, 632), 632));
+        f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 643), tb_addo(v_ik, 1LL, 643), 643));
         f_x64__xbs(v_g, tb_list_from_np(7, sizeof(long long), (long long[]){72LL, 139LL, 0LL, 72LL, 139LL, 4LL, 200LL}));
-        f_x64__xshow_val(v_g, v_c, ((tb_o_Type *)tb_nn((*(tb_o_Type * *)tb_at(((tb_o_Comp *)tb_nn(v_c, 634))->q_types, v_t, sizeof(tb_o_Type *), 634)), 634))->q_elem, 0LL);
+        f_x64__xshow_val(v_g, v_c, ((tb_o_Type *)tb_nn((*(tb_o_Type * *)tb_at(((tb_o_Comp *)tb_nn(v_c, 645))->q_types, v_t, sizeof(tb_o_Type *), 645)), 645))->q_elem, 0LL);
         f_x64__xload_var(v_g, v_ik);
         f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 255LL, 192LL}));
         f_x64__xstore_var(v_g, v_ik);
         f_x64__xjump(v_g, tb_list_from_np(1, sizeof(long long), (long long[]){233LL}), v_head);
         f_x64__xplace(v_g, v_out);
         f_x64__xps_lit(v_g, "]");
-    } else if (({ const char *tb_s15844 = v_k; ((unsigned char)tb_s15844[0] == 111 && (unsigned char)tb_s15844[1] == 98 && (unsigned char)tb_s15844[2] == 106 && tb_s15844[3] == 0); })) {
-        tb_o_Node * v_o = ((tb_o_Type *)tb_nn((*(tb_o_Type * *)tb_at(((tb_o_Comp *)tb_nn(v_c, 642))->q_types, v_t, sizeof(tb_o_Type *), 642)), 642))->q_obj_node;
-        f_x64__xps_lit(v_g, ({ const char *tb_c15845_0 = ((tb_o_Node *)tb_nn(v_o, 643))->q_name; long long tb_c15845_0n = (long long)strlen(tb_c15845_0); const char *tb_c15845_1 = "("; long long tb_c15845_1n = sizeof("(") - 1; char *tb_c15845r = tb_tmem(tb_c15845_0n + tb_c15845_1n + 1), *tb_c15845rw = tb_c15845r; memcpy(tb_c15845rw, tb_c15845_0, tb_c15845_0n); tb_c15845rw += tb_c15845_0n; memcpy(tb_c15845rw, tb_c15845_1, tb_c15845_1n); tb_c15845rw += tb_c15845_1n; *tb_c15845rw = 0; (const char *)tb_c15845r; }));
+    } else if (({ const char *tb_s15847 = v_k; ((unsigned char)tb_s15847[0] == 100 && (unsigned char)tb_s15847[1] == 105 && (unsigned char)tb_s15847[2] == 99 && (unsigned char)tb_s15847[3] == 116 && tb_s15847[4] == 0); })) {
+        long long v_kl = f_x64__xslot(v_g, "#kl");
+        long long v_ik = f_x64__xslot(v_g, "#i");
+        long long v_kv = f_x64__xslot(v_g, "#kv");
+        f_x64__xps_lit(v_g, "{");
+        f_x64__xload_var(v_g, v_v);
+        f_x64__xmov_rdi(v_g);
+        f_x64__xcall(v_g, "tb_x_dkeys_copy");
+        f_x64__xstore_var(v_g, v_kl);
+        f_x64__xconst(v_g, 0LL);
+        f_x64__xstore_var(v_g, v_ik);
+        long long v_head = f_x64__xlabel(v_g);
+        long long v_out = f_x64__xlabel(v_g);
+        long long v_first = f_x64__xlabel(v_g);
+        f_x64__xplace(v_g, v_head);
+        f_x64__xload_var(v_g, v_kl);
+        f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 139LL, 141LL}));
+        f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 670), tb_addo(v_ik, 1LL, 670), 670));
+        f_x64__xbs(v_g, tb_list_from_np(4, sizeof(long long), (long long[]){72LL, 59LL, 72LL, 8LL}));
+        f_x64__xjump(v_g, tb_list_from_np(2, sizeof(long long), (long long[]){15LL, 141LL}), v_out);
+        f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 133LL, 201LL}));
+        f_x64__xjump(v_g, tb_list_from_np(2, sizeof(long long), (long long[]){15LL, 132LL}), v_first);
+        f_x64__xps_lit(v_g, ", ");
+        f_x64__xplace(v_g, v_first);
+        f_x64__xload_var(v_g, v_kl);
+        f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 139LL, 141LL}));
+        f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 679), tb_addo(v_ik, 1LL, 679), 679));
+        f_x64__xbs(v_g, tb_list_from_np(7, sizeof(long long), (long long[]){72LL, 139LL, 0LL, 72LL, 139LL, 4LL, 200LL}));
+        f_x64__xstore_var(v_g, v_kv);
+        f_x64__xshow_val(v_g, v_c, ((tb_o_Type *)tb_nn((*(tb_o_Type * *)tb_at(((tb_o_Comp *)tb_nn(v_c, 682))->q_types, v_t, sizeof(tb_o_Type *), 682)), 682))->q_key, 0LL);
+        f_x64__xps_lit(v_g, ": ");
+        f_x64__xload_var(v_g, v_v);
+        f_x64__xmov_rdi(v_g);
+        f_x64__xlea_rsi(v_g, v_kv);
+        f_x64__xb(v_g, 186LL);
+        f_x64__x32(v_g, 0LL);
+        f_x64__xcall(v_g, "tb_x_dget");
+        f_x64__xload_dval(v_g, v_c, ((tb_o_Type *)tb_nn((*(tb_o_Type * *)tb_at(((tb_o_Comp *)tb_nn(v_c, 690))->q_types, v_t, sizeof(tb_o_Type *), 690)), 690))->q_elem);
+        f_x64__xshow_val(v_g, v_c, ((tb_o_Type *)tb_nn((*(tb_o_Type * *)tb_at(((tb_o_Comp *)tb_nn(v_c, 691))->q_types, v_t, sizeof(tb_o_Type *), 691)), 691))->q_elem, 0LL);
+        f_x64__xload_var(v_g, v_ik);
+        f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 255LL, 192LL}));
+        f_x64__xstore_var(v_g, v_ik);
+        f_x64__xjump(v_g, tb_list_from_np(1, sizeof(long long), (long long[]){233LL}), v_head);
+        f_x64__xplace(v_g, v_out);
+        f_x64__xps_lit(v_g, "}");
+    } else if (({ const char *tb_s15848 = v_k; ((unsigned char)tb_s15848[0] == 111 && (unsigned char)tb_s15848[1] == 98 && (unsigned char)tb_s15848[2] == 106 && tb_s15848[3] == 0); })) {
+        tb_o_Node * v_o = ((tb_o_Type *)tb_nn((*(tb_o_Type * *)tb_at(((tb_o_Comp *)tb_nn(v_c, 699))->q_types, v_t, sizeof(tb_o_Type *), 699)), 699))->q_obj_node;
+        f_x64__xps_lit(v_g, ({ const char *tb_c15849_0 = ((tb_o_Node *)tb_nn(v_o, 700))->q_name; long long tb_c15849_0n = (long long)strlen(tb_c15849_0); const char *tb_c15849_1 = "("; long long tb_c15849_1n = sizeof("(") - 1; char *tb_c15849r = tb_tmem(tb_c15849_0n + tb_c15849_1n + 1), *tb_c15849rw = tb_c15849r; memcpy(tb_c15849rw, tb_c15849_0, tb_c15849_0n); tb_c15849rw += tb_c15849_0n; memcpy(tb_c15849rw, tb_c15849_1, tb_c15849_1n); tb_c15849rw += tb_c15849_1n; *tb_c15849rw = 0; (const char *)tb_c15849r; }));
         {
-            long long tb_end15846 = tb_subo((((tb_o_Node *)tb_nn(v_o, 644))->q_kids)->len, 1LL, 644);
-            for (long long v_i = 0LL; v_i <= tb_end15846; v_i++) {
+            long long tb_end15850 = tb_subo((((tb_o_Node *)tb_nn(v_o, 701))->q_kids)->len, 1LL, 701);
+            for (long long v_i = 0LL; v_i <= tb_end15850; v_i++) {
                 if ((v_i > 0LL)) {
                     f_x64__xps_lit(v_g, ", ");
                 }
-                f_x64__xps_lit(v_g, ({ const char *tb_c15847_0 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_o, 647))->q_kids, v_i, sizeof(tb_o_Node *), 647)), 647))->q_name; long long tb_c15847_0n = (long long)strlen(tb_c15847_0); const char *tb_c15847_1 = ": "; long long tb_c15847_1n = sizeof(": ") - 1; char *tb_c15847r = tb_tmem(tb_c15847_0n + tb_c15847_1n + 1), *tb_c15847rw = tb_c15847r; memcpy(tb_c15847rw, tb_c15847_0, tb_c15847_0n); tb_c15847rw += tb_c15847_0n; memcpy(tb_c15847rw, tb_c15847_1, tb_c15847_1n); tb_c15847rw += tb_c15847_1n; *tb_c15847rw = 0; (const char *)tb_c15847r; }));
+                f_x64__xps_lit(v_g, ({ const char *tb_c15851_0 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_o, 704))->q_kids, v_i, sizeof(tb_o_Node *), 704)), 704))->q_name; long long tb_c15851_0n = (long long)strlen(tb_c15851_0); const char *tb_c15851_1 = ": "; long long tb_c15851_1n = sizeof(": ") - 1; char *tb_c15851r = tb_tmem(tb_c15851_0n + tb_c15851_1n + 1), *tb_c15851rw = tb_c15851r; memcpy(tb_c15851rw, tb_c15851_0, tb_c15851_0n); tb_c15851rw += tb_c15851_0n; memcpy(tb_c15851rw, tb_c15851_1, tb_c15851_1n); tb_c15851rw += tb_c15851_1n; *tb_c15851rw = 0; (const char *)tb_c15851r; }));
                 f_x64__xload_var(v_g, v_v);
                 f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 139LL, 128LL}));
-                f_x64__x32(v_g, tb_mulo(v_i, 8LL, 650));
-                f_x64__xshow_val(v_g, v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_o, 651))->q_kids, v_i, sizeof(tb_o_Node *), 651)), 651))->q_ty, ((tb_o_Node *)tb_nn(v_o, 651))->q_line);
+                f_x64__x32(v_g, tb_mulo(v_i, 8LL, 707));
+                f_x64__xshow_val(v_g, v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_o, 708))->q_kids, v_i, sizeof(tb_o_Node *), 708)), 708))->q_ty, ((tb_o_Node *)tb_nn(v_o, 708))->q_line);
             }
         }
         f_x64__xps_lit(v_g, ")");
     } else {
-        tb_list * v_names = ((tb_o_Node *)tb_nn(((tb_o_Type *)tb_nn((*(tb_o_Type * *)tb_at(((tb_o_Comp *)tb_nn(v_c, 654))->q_types, v_t, sizeof(tb_o_Type *), 654)), 654))->q_obj_node, 654))->q_kids;
+        tb_list * v_names = ((tb_o_Node *)tb_nn(((tb_o_Type *)tb_nn((*(tb_o_Type * *)tb_at(((tb_o_Comp *)tb_nn(v_c, 711))->q_types, v_t, sizeof(tb_o_Type *), 711)), 711))->q_obj_node, 711))->q_kids;
         {
-            long long tb_end15848 = tb_subo((v_names)->len, 1LL, 655);
-            for (long long v_i = 0LL; v_i <= tb_end15848; v_i++) {
+            long long tb_end15852 = tb_subo((v_names)->len, 1LL, 712);
+            for (long long v_i = 0LL; v_i <= tb_end15852; v_i++) {
                 long long v_nx = f_x64__xlabel(v_g);
                 f_x64__xload_var(v_g, v_v);
                 f_x64__xbs(v_g, tb_list_from_np(2, sizeof(long long), (long long[]){72LL, 61LL}));
                 f_x64__x32(v_g, v_i);
                 f_x64__xjump(v_g, tb_list_from_np(2, sizeof(long long), (long long[]){15LL, 133LL}), v_nx);
-                f_x64__xps_lit(v_g, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(v_names, v_i, sizeof(tb_o_Node *), 661)), 661))->q_name);
-                f_x64__xjump(v_g, tb_list_from_np(1, sizeof(long long), (long long[]){233LL}), ((tb_o_X64 *)tb_nn(v_g, 662))->q_ret_l);
+                f_x64__xps_lit(v_g, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(v_names, v_i, sizeof(tb_o_Node *), 718)), 718))->q_name);
+                f_x64__xjump(v_g, tb_list_from_np(1, sizeof(long long), (long long[]){233LL}), ((tb_o_X64 *)tb_nn(v_g, 719))->q_ret_l);
                 f_x64__xplace(v_g, v_nx);
             }
         }
     }
-    f_x64__xplace(v_g, ((tb_o_X64 *)tb_nn(v_g, 664))->q_ret_l);
+    f_x64__xplace(v_g, ((tb_o_X64 *)tb_nn(v_g, 721))->q_ret_l);
     f_x64__xbs(v_g, tb_list_from_np(5, sizeof(long long), (long long[]){72LL, 137LL, 236LL, 93LL, 195LL}));
-    f_x64__put32(v_g, v_frame_at, tb_mulo(tb_div(tb_addo(tb_mulo((((tb_o_X64 *)tb_nn(v_g, 666))->q_vars)->len, 8LL, 666), 15LL, 666), 16LL, 666), 16LL, 666));
+    f_x64__put32(v_g, v_frame_at, tb_mulo(tb_div(tb_addo(tb_mulo((((tb_o_X64 *)tb_nn(v_g, 723))->q_vars)->len, 8LL, 723), 15LL, 723), 16LL, 723), 16LL, 723));
     {
-        long long tb_end15849 = tb_subo((((tb_o_X64 *)tb_nn(v_g, 667))->q_fix_at)->len, 1LL, 667);
-        for (long long v_i = 0LL; v_i <= tb_end15849; v_i++) {
-            long long v_at = (*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 668))->q_fix_at, v_i, sizeof(long long), 668));
-            f_x64__put32(v_g, v_at, tb_subo((*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 669))->q_lpos, (*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 669))->q_fix_l, v_i, sizeof(long long), 669)), sizeof(long long), 669)), tb_addo(v_at, 4LL, 669), 669));
+        long long tb_end15853 = tb_subo((((tb_o_X64 *)tb_nn(v_g, 724))->q_fix_at)->len, 1LL, 724);
+        for (long long v_i = 0LL; v_i <= tb_end15853; v_i++) {
+            long long v_at = (*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 725))->q_fix_at, v_i, sizeof(long long), 725));
+            f_x64__put32(v_g, v_at, tb_subo((*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 726))->q_lpos, (*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 726))->q_fix_l, v_i, sizeof(long long), 726)), sizeof(long long), 726)), tb_addo(v_at, 4LL, 726), 726));
         }
     }
 }
@@ -42949,195 +43026,442 @@ TB_API void f_x64__xshow_func(tb_o_X64 * v_g, tb_o_Comp * v_c, long long v_t) {
 TB_API long long f_x64__xlock_index(tb_o_X64 * v_g, const char * v_name) {
     long long v_k = 0LL;
     {
-        long long tb_end15850 = tb_subo((((tb_o_X64 *)tb_nn(v_g, 674))->q_lnames)->len, 1LL, 674);
-        for (long long v_i = 0LL; v_i <= tb_end15850; v_i++) {
-            if ((strcmp((*(const char * *)tb_at(((tb_o_X64 *)tb_nn(v_g, 675))->q_lnames, v_i, sizeof(const char *), 675)), v_name) == 0)) {
+        long long tb_end15854 = tb_subo((((tb_o_X64 *)tb_nn(v_g, 731))->q_lnames)->len, 1LL, 731);
+        for (long long v_i = 0LL; v_i <= tb_end15854; v_i++) {
+            if ((strcmp((*(const char * *)tb_at(((tb_o_X64 *)tb_nn(v_g, 732))->q_lnames, v_i, sizeof(const char *), 732)), v_name) == 0)) {
                 return v_i;
             }
         }
     }
-    { const char * tb_v15851 = v_name; *(const char * *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 677))->q_lnames) = tb_v15851; }
-    { long long tb_v15852 = ((tb_o_X64 *)tb_nn(v_g, 678))->q_bss; *(long long *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 678))->q_loffs) = tb_v15852; }
-    { long long tb_v15853 = 8LL; long long *tb_p15853 = &(((tb_o_X64 *)tb_nn(v_g, 679))->q_bss); *tb_p15853 = tb_addo(*tb_p15853, tb_v15853, 679); }
-    return tb_subo((((tb_o_X64 *)tb_nn(v_g, 680))->q_lnames)->len, 1LL, 680);
+    { const char * tb_v15855 = v_name; *(const char * *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 734))->q_lnames) = tb_v15855; }
+    { long long tb_v15856 = ((tb_o_X64 *)tb_nn(v_g, 735))->q_bss; *(long long *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 735))->q_loffs) = tb_v15856; }
+    { long long tb_v15857 = 8LL; long long *tb_p15857 = &(((tb_o_X64 *)tb_nn(v_g, 736))->q_bss); *tb_p15857 = tb_addo(*tb_p15857, tb_v15857, 736); }
+    return tb_subo((((tb_o_X64 *)tb_nn(v_g, 737))->q_lnames)->len, 1LL, 737);
     return v_k;
 }
 
 TB_API void f_x64__xlock_addr(tb_o_X64 * v_g, long long v_li) {
     f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 141LL, 61LL}));
-    f_x64__xreloc(v_g, 3LL, 2LL, tb_subo((*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 685))->q_loffs, v_li, sizeof(long long), 685)), 4LL, 685));
+    f_x64__xreloc(v_g, 3LL, 2LL, tb_subo((*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 742))->q_loffs, v_li, sizeof(long long), 742)), 4LL, 742));
 }
 
 TB_API void f_x64__xlock_give(tb_o_X64 * v_g, long long v_li, long long v_fk) {
     f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 139LL, 181LL}));
-    f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 689), tb_addo(v_fk, 1LL, 689), 689));
+    f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 746), tb_addo(v_fk, 1LL, 746), 746));
     f_x64__xlock_addr(v_g, v_li);
     f_x64__xcall(v_g, "tb_x_lock_give");
 }
 
+TB_API long long f_x64__xdict_text(tb_o_Comp * v_c, long long v_t) {
+    long long v_r = 0LL;
+    v_r = 0LL;
+    if (({ const char *tb_s15858 = f_check__kind_of(v_c, ((tb_o_Type *)tb_nn((*(tb_o_Type * *)tb_at(((tb_o_Comp *)tb_nn(v_c, 754))->q_types, v_t, sizeof(tb_o_Type *), 754)), 754))->q_key); ((unsigned char)tb_s15858[0] == 116 && (unsigned char)tb_s15858[1] == 101 && (unsigned char)tb_s15858[2] == 120 && (unsigned char)tb_s15858[3] == 116 && tb_s15858[4] == 0); })) {
+        v_r = 1LL;
+    }
+    return v_r;
+}
+
+TB_API long long f_x64__xdict_vsize(tb_o_Comp * v_c, long long v_t) {
+    long long v_r = 0LL;
+    v_r = 8LL;
+    if (({ const char *tb_s15859 = f_check__kind_of(v_c, ((tb_o_Type *)tb_nn((*(tb_o_Type * *)tb_at(((tb_o_Comp *)tb_nn(v_c, 759))->q_types, v_t, sizeof(tb_o_Type *), 759)), 759))->q_elem); ((unsigned char)tb_s15859[0] == 98 && (unsigned char)tb_s15859[1] == 111 && (unsigned char)tb_s15859[2] == 111 && (unsigned char)tb_s15859[3] == 108 && tb_s15859[4] == 0); })) {
+        v_r = 1LL;
+    }
+    return v_r;
+}
+
+TB_API _Bool f_x64__xdict_ok(tb_o_X64 * v_g, tb_o_Comp * v_c, long long v_t, long long v_line) {
+    _Bool v_ok = 0;
+    const char * v_ek = f_check__kind_of(v_c, ((tb_o_Type *)tb_nn((*(tb_o_Type * *)tb_at(((tb_o_Comp *)tb_nn(v_c, 763))->q_types, v_t, sizeof(tb_o_Type *), 763)), 763))->q_elem);
+    const char * v_kk = f_check__kind_of(v_c, ((tb_o_Type *)tb_nn((*(tb_o_Type * *)tb_at(((tb_o_Comp *)tb_nn(v_c, 764))->q_types, v_t, sizeof(tb_o_Type *), 764)), 764))->q_key);
+    if (((({ const char *tb_s15860 = v_kk; !((unsigned char)tb_s15860[0] == 105 && (unsigned char)tb_s15860[1] == 110 && (unsigned char)tb_s15860[2] == 116 && tb_s15860[3] == 0); }) && ({ const char *tb_s15861 = v_kk; !((unsigned char)tb_s15861[0] == 116 && (unsigned char)tb_s15861[1] == 101 && (unsigned char)tb_s15861[2] == 120 && (unsigned char)tb_s15861[3] == 116 && tb_s15861[4] == 0); })) || (({ const char *tb_s15862 = v_ek; ((unsigned char)tb_s15862[0] == 108 && (unsigned char)tb_s15862[1] == 105 && (unsigned char)tb_s15862[2] == 115 && (unsigned char)tb_s15862[3] == 116 && tb_s15862[4] == 0); }) && (f_emit_ll__ll_bits(v_c, ((tb_o_Type *)tb_nn((*(tb_o_Type * *)tb_at(((tb_o_Comp *)tb_nn(v_c, 765))->q_types, v_t, sizeof(tb_o_Type *), 765)), 765))->q_elem) || f_emit_ll__ll_colist(v_c, ((tb_o_Type *)tb_nn((*(tb_o_Type * *)tb_at(((tb_o_Comp *)tb_nn(v_c, 765))->q_types, v_t, sizeof(tb_o_Type *), 765)), 765))->q_elem))))) {
+        f_x64__xfail(v_g, v_line, "такие dict");
+        return 0;
+    }
+    return 1;
+    return v_ok;
+}
+
+TB_API void f_x64__xdict_new(tb_o_X64 * v_g, tb_o_Comp * v_c, long long v_t) {
+    f_x64__xb(v_g, 191LL);
+    f_x64__x32(v_g, f_x64__xdict_text(v_c, v_t));
+    f_x64__xb(v_g, 190LL);
+    f_x64__x32(v_g, f_x64__xdict_vsize(v_c, v_t));
+    f_x64__xcall(v_g, "tb_x_dict_new");
+}
+
+TB_API long long f_x64__xkey_rsi(tb_o_X64 * v_g, tb_o_Comp * v_c, tb_o_Node * v_key) {
+    long long v_slot = 0LL;
+    v_slot = f_x64__xslot(v_g, ({ const char *tb_c15863_0 = "#k"; long long tb_c15863_0n = sizeof("#k") - 1; char tb_c15863_1d[24]; long long tb_c15863_1n; const char *tb_c15863_1 = tb_digits((((tb_o_X64 *)tb_nn(v_g, 779))->q_vars)->len, tb_c15863_1d, &tb_c15863_1n); char *tb_c15863r = tb_tmem(tb_c15863_0n + tb_c15863_1n + 1), *tb_c15863rw = tb_c15863r; memcpy(tb_c15863rw, tb_c15863_0, tb_c15863_0n); tb_c15863rw += tb_c15863_0n; memcpy(tb_c15863rw, tb_c15863_1, tb_c15863_1n); tb_c15863rw += tb_c15863_1n; *tb_c15863rw = 0; (const char *)tb_c15863r; }));
+    f_x64__xexpr(v_g, v_c, v_key);
+    f_x64__xstore_var(v_g, v_slot);
+    return v_slot;
+}
+
+TB_API void f_x64__xlea_rsi(tb_o_X64 * v_g, long long v_slot) {
+    f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 141LL, 181LL}));
+    f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 785), tb_addo(v_slot, 1LL, 785), 785));
+}
+
+TB_API void f_x64__xdput(tb_o_X64 * v_g, tb_o_Comp * v_c, long long v_dt, tb_o_Node * v_base, tb_o_Node * v_key) {
+    long long v_vt = ((tb_o_Type *)tb_nn((*(tb_o_Type * *)tb_at(((tb_o_Comp *)tb_nn(v_c, 789))->q_types, v_dt, sizeof(tb_o_Type *), 789)), 789))->q_elem;
+    long long v_dk = f_x64__xslot(v_g, ({ const char *tb_c15864_0 = "#dd"; long long tb_c15864_0n = sizeof("#dd") - 1; char tb_c15864_1d[24]; long long tb_c15864_1n; const char *tb_c15864_1 = tb_digits((((tb_o_X64 *)tb_nn(v_g, 790))->q_vars)->len, tb_c15864_1d, &tb_c15864_1n); char *tb_c15864r = tb_tmem(tb_c15864_0n + tb_c15864_1n + 1), *tb_c15864rw = tb_c15864r; memcpy(tb_c15864rw, tb_c15864_0, tb_c15864_0n); tb_c15864rw += tb_c15864_0n; memcpy(tb_c15864rw, tb_c15864_1, tb_c15864_1n); tb_c15864rw += tb_c15864_1n; *tb_c15864rw = 0; (const char *)tb_c15864r; }));
+    f_x64__xexpr(v_g, v_c, v_base);
+    f_x64__xstore_var(v_g, v_dk);
+    long long v_ks = f_x64__xkey_rsi(v_g, v_c, v_key);
+    long long v_df = f_x64__xslot(v_g, ({ const char *tb_c15865_0 = "#df"; long long tb_c15865_0n = sizeof("#df") - 1; char tb_c15865_1d[24]; long long tb_c15865_1n; const char *tb_c15865_1 = tb_digits((((tb_o_X64 *)tb_nn(v_g, 794))->q_vars)->len, tb_c15865_1d, &tb_c15865_1n); char *tb_c15865r = tb_tmem(tb_c15865_0n + tb_c15865_1n + 1), *tb_c15865rw = tb_c15865r; memcpy(tb_c15865rw, tb_c15865_0, tb_c15865_0n); tb_c15865rw += tb_c15865_0n; memcpy(tb_c15865rw, tb_c15865_1, tb_c15865_1n); tb_c15865rw += tb_c15865_1n; *tb_c15865rw = 0; (const char *)tb_c15865r; }));
+    f_x64__xdefault(v_g, v_c, v_vt, ((tb_o_Node *)tb_nn(v_key, 795))->q_line);
+    f_x64__xstore_var(v_g, v_df);
+    f_x64__xload_var(v_g, v_dk);
+    f_x64__xmov_rdi(v_g);
+    f_x64__xlea_rsi(v_g, v_ks);
+    f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 141LL, 149LL}));
+    f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 801), tb_addo(v_df, 1LL, 801), 801));
+    f_x64__xcall(v_g, "tb_x_dput");
+}
+
+TB_API void f_x64__xload_dval(tb_o_X64 * v_g, tb_o_Comp * v_c, long long v_vt) {
+    if (({ const char *tb_s15866 = f_check__kind_of(v_c, v_vt); ((unsigned char)tb_s15866[0] == 98 && (unsigned char)tb_s15866[1] == 111 && (unsigned char)tb_s15866[2] == 111 && (unsigned char)tb_s15866[3] == 108 && tb_s15866[4] == 0); })) {
+        f_x64__xbs(v_g, tb_list_from_np(4, sizeof(long long), (long long[]){72LL, 15LL, 182LL, 0LL}));
+    } else {
+        f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 139LL, 0LL}));
+    }
+}
+
+TB_API void f_x64__xdict_lit(tb_o_X64 * v_g, tb_o_Comp * v_c, tb_o_Node * v_n) {
+    long long v_t = ((tb_o_Node *)tb_nn(v_n, 812))->q_ty;
+    if ((!f_x64__xdict_ok(v_g, v_c, v_t, ((tb_o_Node *)tb_nn(v_n, 813))->q_line))) {
+        return;
+    }
+    long long v_vt = ((tb_o_Type *)tb_nn((*(tb_o_Type * *)tb_at(((tb_o_Comp *)tb_nn(v_c, 815))->q_types, v_t, sizeof(tb_o_Type *), 815)), 815))->q_elem;
+    long long v_hold = f_x64__xslot(v_g, ({ const char *tb_c15867_0 = "#d"; long long tb_c15867_0n = sizeof("#d") - 1; char tb_c15867_1d[24]; long long tb_c15867_1n; const char *tb_c15867_1 = tb_digits((((tb_o_X64 *)tb_nn(v_g, 816))->q_vars)->len, tb_c15867_1d, &tb_c15867_1n); char *tb_c15867r = tb_tmem(tb_c15867_0n + tb_c15867_1n + 1), *tb_c15867rw = tb_c15867r; memcpy(tb_c15867rw, tb_c15867_0, tb_c15867_0n); tb_c15867rw += tb_c15867_0n; memcpy(tb_c15867rw, tb_c15867_1, tb_c15867_1n); tb_c15867rw += tb_c15867_1n; *tb_c15867rw = 0; (const char *)tb_c15867r; }));
+    f_x64__xdict_new(v_g, v_c, v_t);
+    f_x64__xstore_var(v_g, v_hold);
+    {
+        long long tb_end15868 = tb_subo(tb_div((((tb_o_Node *)tb_nn(v_n, 819))->q_kids)->len, 2LL, 819), 1LL, 819);
+        for (long long v_i = 0LL; v_i <= tb_end15868; v_i++) {
+            long long v_vh = f_x64__xslot(v_g, ({ const char *tb_c15869_0 = "#dv"; long long tb_c15869_0n = sizeof("#dv") - 1; char tb_c15869_1d[24]; long long tb_c15869_1n; const char *tb_c15869_1 = tb_digits((((tb_o_X64 *)tb_nn(v_g, 820))->q_vars)->len, tb_c15869_1d, &tb_c15869_1n); char *tb_c15869r = tb_tmem(tb_c15869_0n + tb_c15869_1n + 1), *tb_c15869rw = tb_c15869r; memcpy(tb_c15869rw, tb_c15869_0, tb_c15869_0n); tb_c15869rw += tb_c15869_0n; memcpy(tb_c15869rw, tb_c15869_1, tb_c15869_1n); tb_c15869rw += tb_c15869_1n; *tb_c15869rw = 0; (const char *)tb_c15869r; }));
+            f_x64__xas(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 821))->q_kids, tb_addo(tb_mulo(2LL, v_i, 821), 1LL, 821), sizeof(tb_o_Node *), 821)), v_vt);
+            f_x64__xstore_var(v_g, v_vh);
+            f_x64__xdput_slot(v_g, v_c, v_t, v_hold, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 823))->q_kids, tb_mulo(2LL, v_i, 823), sizeof(tb_o_Node *), 823)));
+            f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 137LL, 194LL}));
+            { _Bool tb_v15870 = 1; _Bool *tb_p15870 = &(((tb_o_X64 *)tb_nn(v_g, 825))->q_byte_store); *tb_p15870 = tb_v15870; }
+            f_x64__xstore_at_rdx(v_g, v_c, "=", v_vt, v_vh, ((tb_o_Node *)tb_nn(v_n, 826))->q_line);
+            { _Bool tb_v15871 = 0; _Bool *tb_p15871 = &(((tb_o_X64 *)tb_nn(v_g, 827))->q_byte_store); *tb_p15871 = tb_v15871; }
+        }
+    }
+    f_x64__xload_var(v_g, v_hold);
+}
+
+TB_API void f_x64__xdput_slot(tb_o_X64 * v_g, tb_o_Comp * v_c, long long v_dt, long long v_dk, tb_o_Node * v_key) {
+    long long v_vt = ((tb_o_Type *)tb_nn((*(tb_o_Type * *)tb_at(((tb_o_Comp *)tb_nn(v_c, 832))->q_types, v_dt, sizeof(tb_o_Type *), 832)), 832))->q_elem;
+    long long v_ks = f_x64__xkey_rsi(v_g, v_c, v_key);
+    long long v_df = f_x64__xslot(v_g, ({ const char *tb_c15872_0 = "#df"; long long tb_c15872_0n = sizeof("#df") - 1; char tb_c15872_1d[24]; long long tb_c15872_1n; const char *tb_c15872_1 = tb_digits((((tb_o_X64 *)tb_nn(v_g, 834))->q_vars)->len, tb_c15872_1d, &tb_c15872_1n); char *tb_c15872r = tb_tmem(tb_c15872_0n + tb_c15872_1n + 1), *tb_c15872rw = tb_c15872r; memcpy(tb_c15872rw, tb_c15872_0, tb_c15872_0n); tb_c15872rw += tb_c15872_0n; memcpy(tb_c15872rw, tb_c15872_1, tb_c15872_1n); tb_c15872rw += tb_c15872_1n; *tb_c15872rw = 0; (const char *)tb_c15872r; }));
+    f_x64__xdefault(v_g, v_c, v_vt, ((tb_o_Node *)tb_nn(v_key, 835))->q_line);
+    f_x64__xstore_var(v_g, v_df);
+    f_x64__xload_var(v_g, v_dk);
+    f_x64__xmov_rdi(v_g);
+    f_x64__xlea_rsi(v_g, v_ks);
+    f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 141LL, 149LL}));
+    f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 841), tb_addo(v_df, 1LL, 841), 841));
+    f_x64__xcall(v_g, "tb_x_dput");
+}
+
+TB_API void f_x64__xconcat_parts(tb_o_Comp * v_c, tb_o_Node * v_n, tb_list * v_parts) {
+    if (((({ const char *tb_s15873 = ((tb_o_Node *)tb_nn(v_n, 846))->q_kind; !((unsigned char)tb_s15873[0] == 98 && (unsigned char)tb_s15873[1] == 105 && (unsigned char)tb_s15873[2] == 110 && (unsigned char)tb_s15873[3] == 111 && (unsigned char)tb_s15873[4] == 112 && tb_s15873[5] == 0); }) || ({ const char *tb_s15874 = ((tb_o_Node *)tb_nn(v_n, 846))->q_value; !((unsigned char)tb_s15874[0] == 43 && tb_s15874[1] == 0); })) || ({ const char *tb_s15875 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_n, 846))->q_ty); !((unsigned char)tb_s15875[0] == 116 && (unsigned char)tb_s15875[1] == 101 && (unsigned char)tb_s15875[2] == 120 && (unsigned char)tb_s15875[3] == 116 && tb_s15875[4] == 0); }))) {
+        { tb_o_Node * tb_v15876 = v_n; *(tb_o_Node * *)tb_grow(v_parts) = tb_v15876; }
+        return;
+    }
+    f_x64__xconcat_parts(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 849))->q_kids, 0LL, sizeof(tb_o_Node *), 849)), v_parts);
+    f_x64__xconcat_parts(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 850))->q_kids, 1LL, sizeof(tb_o_Node *), 850)), v_parts);
+}
+
+TB_API void f_x64__xconcat(tb_o_X64 * v_g, tb_o_Comp * v_c, tb_list * v_parts) {
+    tb_list * v_ps = tb_list_new_np(sizeof(long long));
+    tb_list * v_ls = tb_list_new_np(sizeof(long long));
+    tb_list * v_lits = tb_list_new_np(sizeof(long long));
+    {
+        tb_list * tb_l15877 = v_parts;
+        for (long long tb_i15877 = 0; tb_i15877 < tb_l15877->len; tb_i15877++) {
+            tb_o_Node * const v_part = ((tb_o_Node * *)tb_l15877->data)[tb_i15877];
+            long long v_pk = f_x64__xslot(v_g, ({ const char *tb_c15878_0 = "#cp"; long long tb_c15878_0n = sizeof("#cp") - 1; char tb_c15878_1d[24]; long long tb_c15878_1n; const char *tb_c15878_1 = tb_digits((((tb_o_X64 *)tb_nn(v_g, 857))->q_vars)->len, tb_c15878_1d, &tb_c15878_1n); char *tb_c15878r = tb_tmem(tb_c15878_0n + tb_c15878_1n + 1), *tb_c15878rw = tb_c15878r; memcpy(tb_c15878rw, tb_c15878_0, tb_c15878_0n); tb_c15878rw += tb_c15878_0n; memcpy(tb_c15878rw, tb_c15878_1, tb_c15878_1n); tb_c15878rw += tb_c15878_1n; *tb_c15878rw = 0; (const char *)tb_c15878r; }));
+            long long v_lk = f_x64__xslot(v_g, ({ const char *tb_c15879_0 = "#cl"; long long tb_c15879_0n = sizeof("#cl") - 1; char tb_c15879_1d[24]; long long tb_c15879_1n; const char *tb_c15879_1 = tb_digits((((tb_o_X64 *)tb_nn(v_g, 858))->q_vars)->len, tb_c15879_1d, &tb_c15879_1n); char *tb_c15879r = tb_tmem(tb_c15879_0n + tb_c15879_1n + 1), *tb_c15879rw = tb_c15879r; memcpy(tb_c15879rw, tb_c15879_0, tb_c15879_0n); tb_c15879rw += tb_c15879_0n; memcpy(tb_c15879rw, tb_c15879_1, tb_c15879_1n); tb_c15879rw += tb_c15879_1n; *tb_c15879rw = 0; (const char *)tb_c15879r; }));
+            { long long tb_v15880 = v_pk; *(long long *)tb_grow(v_ps) = tb_v15880; }
+            { long long tb_v15881 = v_lk; *(long long *)tb_grow(v_ls) = tb_v15881; }
+            const char * v_k = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_part, 861))->q_ty);
+            if (({ const char *tb_s15882 = v_k; ((unsigned char)tb_s15882[0] == 105 && (unsigned char)tb_s15882[1] == 110 && (unsigned char)tb_s15882[2] == 116 && tb_s15882[3] == 0); })) {
+                long long v_first = (((tb_o_X64 *)tb_nn(v_g, 864))->q_vars)->len;
+                {
+                    long long tb_end15883 = 2LL;
+                    for (long long v_q = 0LL; v_q <= tb_end15883; v_q++) {
+                        { const char * tb_v15884 = ({ const char *tb_c15885_0 = "#cb"; long long tb_c15885_0n = sizeof("#cb") - 1; char tb_c15885_1d[24]; long long tb_c15885_1n; const char *tb_c15885_1 = tb_digits(v_first, tb_c15885_1d, &tb_c15885_1n); const char *tb_c15885_2 = "_"; long long tb_c15885_2n = sizeof("_") - 1; char tb_c15885_3d[24]; long long tb_c15885_3n; const char *tb_c15885_3 = tb_digits(v_q, tb_c15885_3d, &tb_c15885_3n); char *tb_c15885r = tb_tmem(tb_c15885_0n + tb_c15885_1n + tb_c15885_2n + tb_c15885_3n + 1), *tb_c15885rw = tb_c15885r; memcpy(tb_c15885rw, tb_c15885_0, tb_c15885_0n); tb_c15885rw += tb_c15885_0n; memcpy(tb_c15885rw, tb_c15885_1, tb_c15885_1n); tb_c15885rw += tb_c15885_1n; memcpy(tb_c15885rw, tb_c15885_2, tb_c15885_2n); tb_c15885rw += tb_c15885_2n; memcpy(tb_c15885rw, tb_c15885_3, tb_c15885_3n); tb_c15885rw += tb_c15885_3n; *tb_c15885rw = 0; (const char *)tb_c15885r; }); *(const char * *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 866))->q_vars) = tb_v15884; }
+                    }
+                }
+                f_x64__xexpr(v_g, v_c, v_part);
+                f_x64__xmov_rdi(v_g);
+                f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 141LL, 181LL}));
+                f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 870), tb_addo(v_first, 3LL, 870), 870));
+                f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 141LL, 149LL}));
+                f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 872), tb_addo(v_lk, 1LL, 872), 872));
+                f_x64__xcall(v_g, "tb_x_digits");
+                f_x64__xstore_var(v_g, v_pk);
+            } else {
+                if (({ const char *tb_s15886 = v_k; ((unsigned char)tb_s15886[0] == 116 && (unsigned char)tb_s15886[1] == 101 && (unsigned char)tb_s15886[2] == 120 && (unsigned char)tb_s15886[3] == 116 && tb_s15886[4] == 0); })) {
+                    f_x64__xexpr(v_g, v_c, v_part);
+                } else {
+                    f_x64__xas_text(v_g, v_c, v_part);
+                }
+                f_x64__xstore_var(v_g, v_pk);
+                f_x64__xbs(v_g, tb_list_from_np(19, sizeof(long long), (long long[]){72LL, 137LL, 199LL, 49LL, 201LL, 128LL, 60LL, 15LL, 0LL, 116LL, 5LL, 72LL, 255LL, 193LL, 235LL, 245LL, 72LL, 137LL, 200LL}));
+                f_x64__xstore_var(v_g, v_lk);
+            }
+        }
+    }
+    f_x64__xconst(v_g, 1LL);
+    {
+        tb_list * tb_l15887 = v_ls;
+        for (long long tb_i15887 = 0; tb_i15887 < tb_l15887->len; tb_i15887++) {
+            long long const v_lk = ((long long *)tb_l15887->data)[tb_i15887];
+            f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 3LL, 133LL}));
+            f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 887), tb_addo(v_lk, 1LL, 887), 887));
+        }
+    }
+    f_x64__xmov_rdi(v_g);
+    f_x64__xcall(v_g, "tb_x_mem_np");
+    long long v_res = f_x64__xslot(v_g, ({ const char *tb_c15888_0 = "#cr"; long long tb_c15888_0n = sizeof("#cr") - 1; char tb_c15888_1d[24]; long long tb_c15888_1n; const char *tb_c15888_1 = tb_digits((((tb_o_X64 *)tb_nn(v_g, 890))->q_vars)->len, tb_c15888_1d, &tb_c15888_1n); char *tb_c15888r = tb_tmem(tb_c15888_0n + tb_c15888_1n + 1), *tb_c15888rw = tb_c15888r; memcpy(tb_c15888rw, tb_c15888_0, tb_c15888_0n); tb_c15888rw += tb_c15888_0n; memcpy(tb_c15888rw, tb_c15888_1, tb_c15888_1n); tb_c15888rw += tb_c15888_1n; *tb_c15888rw = 0; (const char *)tb_c15888r; }));
+    f_x64__xstore_var(v_g, v_res);
+    f_x64__xmov_rdi(v_g);
+    {
+        long long tb_end15889 = tb_subo((v_ps)->len, 1LL, 893);
+        for (long long v_i = 0LL; v_i <= tb_end15889; v_i++) {
+            f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 139LL, 181LL}));
+            f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 895), tb_addo((*(long long *)tb_at(v_ps, v_i, sizeof(long long), 895)), 1LL, 895), 895));
+            f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 139LL, 141LL}));
+            f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 897), tb_addo((*(long long *)tb_at(v_ls, v_i, sizeof(long long), 897)), 1LL, 897), 897));
+            f_x64__xbs(v_g, tb_list_from_np(2, sizeof(long long), (long long[]){243LL, 164LL}));
+        }
+    }
+    f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){198LL, 7LL, 0LL}));
+    f_x64__xload_var(v_g, v_res);
+}
+
 TB_API void f_x64__xexpr(tb_o_X64 * v_g, tb_o_Comp * v_c, tb_o_Node * v_n) {
-    const char * v_k = ((tb_o_Node *)tb_nn(v_n, 694))->q_kind;
-    if (({ const char *tb_s15854 = v_k; ((unsigned char)tb_s15854[0] == 110 && (unsigned char)tb_s15854[1] == 117 && (unsigned char)tb_s15854[2] == 109 && (unsigned char)tb_s15854[3] == 98 && (unsigned char)tb_s15854[4] == 101 && (unsigned char)tb_s15854[5] == 114 && tb_s15854[6] == 0); })) {
-        long long tb_v15855 = tb_to_int(((tb_o_Node *)tb_nn(v_n, 696))->q_value);
+    const char * v_k = ((tb_o_Node *)tb_nn(v_n, 903))->q_kind;
+    if (({ const char *tb_s15890 = v_k; ((unsigned char)tb_s15890[0] == 110 && (unsigned char)tb_s15890[1] == 117 && (unsigned char)tb_s15890[2] == 109 && (unsigned char)tb_s15890[3] == 98 && (unsigned char)tb_s15890[4] == 101 && (unsigned char)tb_s15890[5] == 114 && tb_s15890[6] == 0); })) {
+        long long tb_v15891 = tb_to_int(((tb_o_Node *)tb_nn(v_n, 905))->q_value);
         if (tb_err != 0) {
             const char * const v_err = tb_err;
             tb_err = 0;
-            f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_n, 697))->q_line, ({ const char *tb_c15856_0 = "число "; long long tb_c15856_0n = sizeof("число ") - 1; const char *tb_c15856_1 = ((tb_o_Node *)tb_nn(v_n, 697))->q_value; long long tb_c15856_1n = (long long)strlen(tb_c15856_1); char *tb_c15856r = tb_tmem(tb_c15856_0n + tb_c15856_1n + 1), *tb_c15856rw = tb_c15856r; memcpy(tb_c15856rw, tb_c15856_0, tb_c15856_0n); tb_c15856rw += tb_c15856_0n; memcpy(tb_c15856rw, tb_c15856_1, tb_c15856_1n); tb_c15856rw += tb_c15856_1n; *tb_c15856rw = 0; (const char *)tb_c15856r; }));
+            f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_n, 906))->q_line, ({ const char *tb_c15892_0 = "число "; long long tb_c15892_0n = sizeof("число ") - 1; const char *tb_c15892_1 = ((tb_o_Node *)tb_nn(v_n, 906))->q_value; long long tb_c15892_1n = (long long)strlen(tb_c15892_1); char *tb_c15892r = tb_tmem(tb_c15892_0n + tb_c15892_1n + 1), *tb_c15892rw = tb_c15892r; memcpy(tb_c15892rw, tb_c15892_0, tb_c15892_0n); tb_c15892rw += tb_c15892_0n; memcpy(tb_c15892rw, tb_c15892_1, tb_c15892_1n); tb_c15892rw += tb_c15892_1n; *tb_c15892rw = 0; (const char *)tb_c15892r; }));
             return;
         }
-        long long v_v = tb_v15855;
+        long long v_v = tb_v15891;
         f_x64__xconst(v_g, v_v);
-    } else if (({ const char *tb_s15857 = v_k; ((unsigned char)tb_s15857[0] == 98 && (unsigned char)tb_s15857[1] == 111 && (unsigned char)tb_s15857[2] == 111 && (unsigned char)tb_s15857[3] == 108 && tb_s15857[4] == 0); })) {
-        if (({ const char *tb_s15858 = ((tb_o_Node *)tb_nn(v_n, 701))->q_value; ((unsigned char)tb_s15858[0] == 116 && (unsigned char)tb_s15858[1] == 114 && (unsigned char)tb_s15858[2] == 117 && (unsigned char)tb_s15858[3] == 101 && tb_s15858[4] == 0); })) {
+    } else if (({ const char *tb_s15893 = v_k; ((unsigned char)tb_s15893[0] == 98 && (unsigned char)tb_s15893[1] == 111 && (unsigned char)tb_s15893[2] == 111 && (unsigned char)tb_s15893[3] == 108 && tb_s15893[4] == 0); })) {
+        if (({ const char *tb_s15894 = ((tb_o_Node *)tb_nn(v_n, 910))->q_value; ((unsigned char)tb_s15894[0] == 116 && (unsigned char)tb_s15894[1] == 114 && (unsigned char)tb_s15894[2] == 117 && (unsigned char)tb_s15894[3] == 101 && tb_s15894[4] == 0); })) {
             f_x64__xconst(v_g, 1LL);
         } else {
             f_x64__xconst(v_g, 0LL);
         }
-    } else if (({ const char *tb_s15859 = v_k; ((unsigned char)tb_s15859[0] == 115 && (unsigned char)tb_s15859[1] == 116 && (unsigned char)tb_s15859[2] == 114 && (unsigned char)tb_s15859[3] == 105 && (unsigned char)tb_s15859[4] == 110 && (unsigned char)tb_s15859[5] == 103 && tb_s15859[6] == 0); })) {
-        f_x64__xstring(v_g, ((tb_o_Node *)tb_nn(v_n, 706))->q_value);
-    } else if (({ const char *tb_s15860 = v_k; ((unsigned char)tb_s15860[0] == 110 && (unsigned char)tb_s15860[1] == 97 && (unsigned char)tb_s15860[2] == 109 && (unsigned char)tb_s15860[3] == 101 && tb_s15860[4] == 0); })) {
+    } else if (({ const char *tb_s15895 = v_k; ((unsigned char)tb_s15895[0] == 115 && (unsigned char)tb_s15895[1] == 116 && (unsigned char)tb_s15895[2] == 114 && (unsigned char)tb_s15895[3] == 105 && (unsigned char)tb_s15895[4] == 110 && (unsigned char)tb_s15895[5] == 103 && tb_s15895[6] == 0); })) {
+        f_x64__xstring(v_g, ((tb_o_Node *)tb_nn(v_n, 915))->q_value);
+    } else if (({ const char *tb_s15896 = v_k; ((unsigned char)tb_s15896[0] == 110 && (unsigned char)tb_s15896[1] == 97 && (unsigned char)tb_s15896[2] == 109 && (unsigned char)tb_s15896[3] == 101 && tb_s15896[4] == 0); })) {
         f_x64__xload_name(v_g, v_n);
-    } else if (({ const char *tb_s15861 = v_k; ((unsigned char)tb_s15861[0] == 117 && (unsigned char)tb_s15861[1] == 110 && (unsigned char)tb_s15861[2] == 97 && (unsigned char)tb_s15861[3] == 114 && (unsigned char)tb_s15861[4] == 121 && tb_s15861[5] == 0); })) {
-        f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 710))->q_kids, 0LL, sizeof(tb_o_Node *), 710)));
-        if (({ const char *tb_s15862 = ((tb_o_Node *)tb_nn(v_n, 711))->q_value; ((unsigned char)tb_s15862[0] == 110 && (unsigned char)tb_s15862[1] == 111 && (unsigned char)tb_s15862[2] == 116 && tb_s15862[3] == 0); })) {
+    } else if (({ const char *tb_s15897 = v_k; ((unsigned char)tb_s15897[0] == 117 && (unsigned char)tb_s15897[1] == 110 && (unsigned char)tb_s15897[2] == 97 && (unsigned char)tb_s15897[3] == 114 && (unsigned char)tb_s15897[4] == 121 && tb_s15897[5] == 0); })) {
+        f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 919))->q_kids, 0LL, sizeof(tb_o_Node *), 919)));
+        if (({ const char *tb_s15898 = ((tb_o_Node *)tb_nn(v_n, 920))->q_value; ((unsigned char)tb_s15898[0] == 110 && (unsigned char)tb_s15898[1] == 111 && (unsigned char)tb_s15898[2] == 116 && tb_s15898[3] == 0); })) {
             f_x64__xbs(v_g, tb_list_from_np(4, sizeof(long long), (long long[]){72LL, 131LL, 240LL, 1LL}));
-        } else if (({ const char *tb_s15863 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_n, 713))->q_ty); ((unsigned char)tb_s15863[0] == 105 && (unsigned char)tb_s15863[1] == 110 && (unsigned char)tb_s15863[2] == 116 && tb_s15863[3] == 0); })) {
+        } else if (({ const char *tb_s15899 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_n, 922))->q_ty); ((unsigned char)tb_s15899[0] == 105 && (unsigned char)tb_s15899[1] == 110 && (unsigned char)tb_s15899[2] == 116 && tb_s15899[3] == 0); })) {
             f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 247LL, 216LL}));
-            if ((((tb_o_X64 *)tb_nn(v_g, 715))->q_in_danger == 0LL)) {
+            if ((((tb_o_X64 *)tb_nn(v_g, 924))->q_in_danger == 0LL)) {
                 f_x64__xbs(v_g, tb_list_from_np(2, sizeof(long long), (long long[]){113LL, 19LL}));
-                f_x64__xcrash(v_g, ((tb_o_Node *)tb_nn(v_n, 717))->q_line, 8LL);
+                f_x64__xcrash(v_g, ((tb_o_Node *)tb_nn(v_n, 926))->q_line, 8LL);
             }
-        } else if (({ const char *tb_s15864 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_n, 718))->q_ty); ((unsigned char)tb_s15864[0] == 100 && (unsigned char)tb_s15864[1] == 101 && (unsigned char)tb_s15864[2] == 99 && tb_s15864[3] == 0); })) {
+        } else if (({ const char *tb_s15900 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_n, 927))->q_ty); ((unsigned char)tb_s15900[0] == 100 && (unsigned char)tb_s15900[1] == 101 && (unsigned char)tb_s15900[2] == 99 && tb_s15900[3] == 0); })) {
             f_x64__xbs(v_g, tb_list_from_np(13, sizeof(long long), (long long[]){72LL, 185LL, 0LL, 0LL, 0LL, 0LL, 0LL, 0LL, 0LL, 128LL, 72LL, 49LL, 200LL}));
         } else {
-            f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_n, 721))->q_line, "минус у такого типа");
+            f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_n, 930))->q_line, "минус у такого типа");
         }
-    } else if ((({ const char *tb_s15865 = v_k; ((unsigned char)tb_s15865[0] == 98 && (unsigned char)tb_s15865[1] == 105 && (unsigned char)tb_s15865[2] == 110 && (unsigned char)tb_s15865[3] == 111 && (unsigned char)tb_s15865[4] == 112 && tb_s15865[5] == 0); }) && (({ const char *tb_s15866 = ((tb_o_Node *)tb_nn(v_n, 722))->q_value; ((unsigned char)tb_s15866[0] == 97 && (unsigned char)tb_s15866[1] == 110 && (unsigned char)tb_s15866[2] == 100 && tb_s15866[3] == 0); }) || ({ const char *tb_s15867 = ((tb_o_Node *)tb_nn(v_n, 722))->q_value; ((unsigned char)tb_s15867[0] == 111 && (unsigned char)tb_s15867[1] == 114 && tb_s15867[2] == 0); })))) {
+    } else if ((({ const char *tb_s15901 = v_k; ((unsigned char)tb_s15901[0] == 98 && (unsigned char)tb_s15901[1] == 105 && (unsigned char)tb_s15901[2] == 110 && (unsigned char)tb_s15901[3] == 111 && (unsigned char)tb_s15901[4] == 112 && tb_s15901[5] == 0); }) && (({ const char *tb_s15902 = ((tb_o_Node *)tb_nn(v_n, 931))->q_value; ((unsigned char)tb_s15902[0] == 97 && (unsigned char)tb_s15902[1] == 110 && (unsigned char)tb_s15902[2] == 100 && tb_s15902[3] == 0); }) || ({ const char *tb_s15903 = ((tb_o_Node *)tb_nn(v_n, 931))->q_value; ((unsigned char)tb_s15903[0] == 111 && (unsigned char)tb_s15903[1] == 114 && tb_s15903[2] == 0); })))) {
         long long v_done = f_x64__xlabel(v_g);
-        f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 725))->q_kids, 0LL, sizeof(tb_o_Node *), 725)));
+        f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 934))->q_kids, 0LL, sizeof(tb_o_Node *), 934)));
         f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 133LL, 192LL}));
-        if (({ const char *tb_s15868 = ((tb_o_Node *)tb_nn(v_n, 727))->q_value; ((unsigned char)tb_s15868[0] == 97 && (unsigned char)tb_s15868[1] == 110 && (unsigned char)tb_s15868[2] == 100 && tb_s15868[3] == 0); })) {
+        if (({ const char *tb_s15904 = ((tb_o_Node *)tb_nn(v_n, 936))->q_value; ((unsigned char)tb_s15904[0] == 97 && (unsigned char)tb_s15904[1] == 110 && (unsigned char)tb_s15904[2] == 100 && tb_s15904[3] == 0); })) {
             f_x64__xjump(v_g, tb_list_from_np(2, sizeof(long long), (long long[]){15LL, 132LL}), v_done);
         } else {
             f_x64__xjump(v_g, tb_list_from_np(2, sizeof(long long), (long long[]){15LL, 133LL}), v_done);
         }
-        f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 731))->q_kids, 1LL, sizeof(tb_o_Node *), 731)));
+        f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 940))->q_kids, 1LL, sizeof(tb_o_Node *), 940)));
         f_x64__xplace(v_g, v_done);
-    } else if (((({ const char *tb_s15869 = v_k; ((unsigned char)tb_s15869[0] == 98 && (unsigned char)tb_s15869[1] == 105 && (unsigned char)tb_s15869[2] == 110 && (unsigned char)tb_s15869[3] == 111 && (unsigned char)tb_s15869[4] == 112 && tb_s15869[5] == 0); }) && ({ const char *tb_s15870 = ((tb_o_Node *)tb_nn(v_n, 733))->q_value; !((unsigned char)tb_s15870[0] == 111 && (unsigned char)tb_s15870[1] == 114 && (unsigned char)tb_s15870[2] == 101 && (unsigned char)tb_s15870[3] == 108 && (unsigned char)tb_s15870[4] == 115 && (unsigned char)tb_s15870[5] == 101 && tb_s15870[6] == 0); })) && ({ const char *tb_s15871 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_n, 733))->q_ty); ((unsigned char)tb_s15871[0] == 116 && (unsigned char)tb_s15871[1] == 101 && (unsigned char)tb_s15871[2] == 120 && (unsigned char)tb_s15871[3] == 116 && tb_s15871[4] == 0); }))) {
-        f_x64__xas_text(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 734))->q_kids, 0LL, sizeof(tb_o_Node *), 734)));
+    } else if (((({ const char *tb_s15905 = v_k; ((unsigned char)tb_s15905[0] == 98 && (unsigned char)tb_s15905[1] == 105 && (unsigned char)tb_s15905[2] == 110 && (unsigned char)tb_s15905[3] == 111 && (unsigned char)tb_s15905[4] == 112 && tb_s15905[5] == 0); }) && ({ const char *tb_s15906 = ((tb_o_Node *)tb_nn(v_n, 942))->q_value; !((unsigned char)tb_s15906[0] == 111 && (unsigned char)tb_s15906[1] == 114 && (unsigned char)tb_s15906[2] == 101 && (unsigned char)tb_s15906[3] == 108 && (unsigned char)tb_s15906[4] == 115 && (unsigned char)tb_s15906[5] == 101 && tb_s15906[6] == 0); })) && ({ const char *tb_s15907 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_n, 942))->q_ty); ((unsigned char)tb_s15907[0] == 116 && (unsigned char)tb_s15907[1] == 101 && (unsigned char)tb_s15907[2] == 120 && (unsigned char)tb_s15907[3] == 116 && tb_s15907[4] == 0); }))) {
+        tb_list * v_parts = tb_list_new(sizeof(tb_o_Node *));
+        f_x64__xconcat_parts(v_c, v_n, v_parts);
+        f_x64__xconcat(v_g, v_c, v_parts);
+    } else if (((({ const char *tb_s15908 = v_k; ((unsigned char)tb_s15908[0] == 98 && (unsigned char)tb_s15908[1] == 105 && (unsigned char)tb_s15908[2] == 110 && (unsigned char)tb_s15908[3] == 111 && (unsigned char)tb_s15908[4] == 112 && tb_s15908[5] == 0); }) && ({ const char *tb_s15909 = ((tb_o_Node *)tb_nn(v_n, 946))->q_value; !((unsigned char)tb_s15909[0] == 111 && (unsigned char)tb_s15909[1] == 114 && (unsigned char)tb_s15909[2] == 101 && (unsigned char)tb_s15909[3] == 108 && (unsigned char)tb_s15909[4] == 115 && (unsigned char)tb_s15909[5] == 101 && tb_s15909[6] == 0); })) && (({ const char *tb_s15910 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 946))->q_kids, 0LL, sizeof(tb_o_Node *), 946)), 946))->q_ty); ((unsigned char)tb_s15910[0] == 100 && (unsigned char)tb_s15910[1] == 101 && (unsigned char)tb_s15910[2] == 99 && tb_s15910[3] == 0); }) || ({ const char *tb_s15911 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 946))->q_kids, 1LL, sizeof(tb_o_Node *), 946)), 946))->q_ty); ((unsigned char)tb_s15911[0] == 100 && (unsigned char)tb_s15911[1] == 101 && (unsigned char)tb_s15911[2] == 99 && tb_s15911[3] == 0); })))) {
+        f_x64__xas_dec(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 947))->q_kids, 0LL, sizeof(tb_o_Node *), 947)));
         f_x64__xpush(v_g);
-        f_x64__xas_text(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 736))->q_kids, 1LL, sizeof(tb_o_Node *), 736)));
-        f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 137LL, 198LL}));
-        f_x64__xb(v_g, 95LL);
-        { long long tb_v15872 = 1LL; long long *tb_p15872 = &(((tb_o_X64 *)tb_nn(v_g, 739))->q_depth); *tb_p15872 = tb_subo(*tb_p15872, tb_v15872, 739); }
-        f_x64__xcall(v_g, "tb_x_cat");
-    } else if (((({ const char *tb_s15873 = v_k; ((unsigned char)tb_s15873[0] == 98 && (unsigned char)tb_s15873[1] == 105 && (unsigned char)tb_s15873[2] == 110 && (unsigned char)tb_s15873[3] == 111 && (unsigned char)tb_s15873[4] == 112 && tb_s15873[5] == 0); }) && ({ const char *tb_s15874 = ((tb_o_Node *)tb_nn(v_n, 741))->q_value; !((unsigned char)tb_s15874[0] == 111 && (unsigned char)tb_s15874[1] == 114 && (unsigned char)tb_s15874[2] == 101 && (unsigned char)tb_s15874[3] == 108 && (unsigned char)tb_s15874[4] == 115 && (unsigned char)tb_s15874[5] == 101 && tb_s15874[6] == 0); })) && (({ const char *tb_s15875 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 741))->q_kids, 0LL, sizeof(tb_o_Node *), 741)), 741))->q_ty); ((unsigned char)tb_s15875[0] == 100 && (unsigned char)tb_s15875[1] == 101 && (unsigned char)tb_s15875[2] == 99 && tb_s15875[3] == 0); }) || ({ const char *tb_s15876 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 741))->q_kids, 1LL, sizeof(tb_o_Node *), 741)), 741))->q_ty); ((unsigned char)tb_s15876[0] == 100 && (unsigned char)tb_s15876[1] == 101 && (unsigned char)tb_s15876[2] == 99 && tb_s15876[3] == 0); })))) {
-        f_x64__xas_dec(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 742))->q_kids, 0LL, sizeof(tb_o_Node *), 742)));
-        f_x64__xpush(v_g);
-        f_x64__xas_dec(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 744))->q_kids, 1LL, sizeof(tb_o_Node *), 744)));
+        f_x64__xas_dec(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 949))->q_kids, 1LL, sizeof(tb_o_Node *), 949)));
         f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 137LL, 193LL}));
         f_x64__xb(v_g, 88LL);
-        { long long tb_v15877 = 1LL; long long *tb_p15877 = &(((tb_o_X64 *)tb_nn(v_g, 747))->q_depth); *tb_p15877 = tb_subo(*tb_p15877, tb_v15877, 747); }
-        f_x64__xarith_dec(v_g, ((tb_o_Node *)tb_nn(v_n, 748))->q_value, ((tb_o_Node *)tb_nn(v_n, 748))->q_line);
-    } else if ((((({ const char *tb_s15878 = v_k; ((unsigned char)tb_s15878[0] == 98 && (unsigned char)tb_s15878[1] == 105 && (unsigned char)tb_s15878[2] == 110 && (unsigned char)tb_s15878[3] == 111 && (unsigned char)tb_s15878[4] == 112 && tb_s15878[5] == 0); }) && ({ const char *tb_s15879 = ((tb_o_Node *)tb_nn(v_n, 749))->q_value; !((unsigned char)tb_s15879[0] == 111 && (unsigned char)tb_s15879[1] == 114 && (unsigned char)tb_s15879[2] == 101 && (unsigned char)tb_s15879[3] == 108 && (unsigned char)tb_s15879[4] == 115 && (unsigned char)tb_s15879[5] == 101 && tb_s15879[6] == 0); })) && ({ const char *tb_s15880 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_n, 749))->q_ty); !((unsigned char)tb_s15880[0] == 116 && (unsigned char)tb_s15880[1] == 101 && (unsigned char)tb_s15880[2] == 120 && (unsigned char)tb_s15880[3] == 116 && tb_s15880[4] == 0); })) && ({ const char *tb_s15881 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 749))->q_kids, 0LL, sizeof(tb_o_Node *), 749)), 749))->q_ty); ((unsigned char)tb_s15881[0] == 116 && (unsigned char)tb_s15881[1] == 101 && (unsigned char)tb_s15881[2] == 120 && (unsigned char)tb_s15881[3] == 116 && tb_s15881[4] == 0); }))) {
-        f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 750))->q_kids, 0LL, sizeof(tb_o_Node *), 750)));
+        { long long tb_v15912 = 1LL; long long *tb_p15912 = &(((tb_o_X64 *)tb_nn(v_g, 952))->q_depth); *tb_p15912 = tb_subo(*tb_p15912, tb_v15912, 952); }
+        f_x64__xarith_dec(v_g, ((tb_o_Node *)tb_nn(v_n, 953))->q_value, ((tb_o_Node *)tb_nn(v_n, 953))->q_line);
+    } else if ((((({ const char *tb_s15913 = v_k; ((unsigned char)tb_s15913[0] == 98 && (unsigned char)tb_s15913[1] == 105 && (unsigned char)tb_s15913[2] == 110 && (unsigned char)tb_s15913[3] == 111 && (unsigned char)tb_s15913[4] == 112 && tb_s15913[5] == 0); }) && ({ const char *tb_s15914 = ((tb_o_Node *)tb_nn(v_n, 954))->q_value; !((unsigned char)tb_s15914[0] == 111 && (unsigned char)tb_s15914[1] == 114 && (unsigned char)tb_s15914[2] == 101 && (unsigned char)tb_s15914[3] == 108 && (unsigned char)tb_s15914[4] == 115 && (unsigned char)tb_s15914[5] == 101 && tb_s15914[6] == 0); })) && ({ const char *tb_s15915 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_n, 954))->q_ty); !((unsigned char)tb_s15915[0] == 116 && (unsigned char)tb_s15915[1] == 101 && (unsigned char)tb_s15915[2] == 120 && (unsigned char)tb_s15915[3] == 116 && tb_s15915[4] == 0); })) && ({ const char *tb_s15916 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 954))->q_kids, 0LL, sizeof(tb_o_Node *), 954)), 954))->q_ty); ((unsigned char)tb_s15916[0] == 116 && (unsigned char)tb_s15916[1] == 101 && (unsigned char)tb_s15916[2] == 120 && (unsigned char)tb_s15916[3] == 116 && tb_s15916[4] == 0); }))) {
+        f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 955))->q_kids, 0LL, sizeof(tb_o_Node *), 955)));
         f_x64__xpush(v_g);
-        f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 752))->q_kids, 1LL, sizeof(tb_o_Node *), 752)));
+        f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 957))->q_kids, 1LL, sizeof(tb_o_Node *), 957)));
         f_x64__xstrcmp(v_g);
         f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 49LL, 201LL}));
-        f_x64__xarith(v_g, ((tb_o_Node *)tb_nn(v_n, 755))->q_value, ((tb_o_Node *)tb_nn(v_n, 755))->q_line);
-    } else if ((({ const char *tb_s15882 = v_k; ((unsigned char)tb_s15882[0] == 98 && (unsigned char)tb_s15882[1] == 105 && (unsigned char)tb_s15882[2] == 110 && (unsigned char)tb_s15882[3] == 111 && (unsigned char)tb_s15882[4] == 112 && tb_s15882[5] == 0); }) && ({ const char *tb_s15883 = ((tb_o_Node *)tb_nn(v_n, 756))->q_value; !((unsigned char)tb_s15883[0] == 111 && (unsigned char)tb_s15883[1] == 114 && (unsigned char)tb_s15883[2] == 101 && (unsigned char)tb_s15883[3] == 108 && (unsigned char)tb_s15883[4] == 115 && (unsigned char)tb_s15883[5] == 101 && tb_s15883[6] == 0); }))) {
-        const char * v_k0 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 757))->q_kids, 0LL, sizeof(tb_o_Node *), 757)), 757))->q_ty);
-        if (((({ const char *tb_s15884 = v_k0; !((unsigned char)tb_s15884[0] == 105 && (unsigned char)tb_s15884[1] == 110 && (unsigned char)tb_s15884[2] == 116 && tb_s15884[3] == 0); }) && ({ const char *tb_s15885 = v_k0; !((unsigned char)tb_s15885[0] == 98 && (unsigned char)tb_s15885[1] == 111 && (unsigned char)tb_s15885[2] == 111 && (unsigned char)tb_s15885[3] == 108 && tb_s15885[4] == 0); })) && ({ const char *tb_s15886 = v_k0; !((unsigned char)tb_s15886[0] == 101 && (unsigned char)tb_s15886[1] == 110 && (unsigned char)tb_s15886[2] == 117 && (unsigned char)tb_s15886[3] == 109 && tb_s15886[4] == 0); }))) {
-            f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_n, 759))->q_line, ({ const char *tb_c15887_0 = "знак "; long long tb_c15887_0n = sizeof("знак ") - 1; const char *tb_c15887_1 = ((tb_o_Node *)tb_nn(v_n, 759))->q_value; long long tb_c15887_1n = (long long)strlen(tb_c15887_1); const char *tb_c15887_2 = " у такого типа"; long long tb_c15887_2n = sizeof(" у такого типа") - 1; char *tb_c15887r = tb_tmem(tb_c15887_0n + tb_c15887_1n + tb_c15887_2n + 1), *tb_c15887rw = tb_c15887r; memcpy(tb_c15887rw, tb_c15887_0, tb_c15887_0n); tb_c15887rw += tb_c15887_0n; memcpy(tb_c15887rw, tb_c15887_1, tb_c15887_1n); tb_c15887rw += tb_c15887_1n; memcpy(tb_c15887rw, tb_c15887_2, tb_c15887_2n); tb_c15887rw += tb_c15887_2n; *tb_c15887rw = 0; (const char *)tb_c15887r; }));
+        f_x64__xarith(v_g, ((tb_o_Node *)tb_nn(v_n, 960))->q_value, ((tb_o_Node *)tb_nn(v_n, 960))->q_line);
+    } else if ((({ const char *tb_s15917 = v_k; ((unsigned char)tb_s15917[0] == 98 && (unsigned char)tb_s15917[1] == 105 && (unsigned char)tb_s15917[2] == 110 && (unsigned char)tb_s15917[3] == 111 && (unsigned char)tb_s15917[4] == 112 && tb_s15917[5] == 0); }) && ({ const char *tb_s15918 = ((tb_o_Node *)tb_nn(v_n, 961))->q_value; !((unsigned char)tb_s15918[0] == 111 && (unsigned char)tb_s15918[1] == 114 && (unsigned char)tb_s15918[2] == 101 && (unsigned char)tb_s15918[3] == 108 && (unsigned char)tb_s15918[4] == 115 && (unsigned char)tb_s15918[5] == 101 && tb_s15918[6] == 0); }))) {
+        const char * v_k0 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 962))->q_kids, 0LL, sizeof(tb_o_Node *), 962)), 962))->q_ty);
+        if (((({ const char *tb_s15919 = v_k0; !((unsigned char)tb_s15919[0] == 105 && (unsigned char)tb_s15919[1] == 110 && (unsigned char)tb_s15919[2] == 116 && tb_s15919[3] == 0); }) && ({ const char *tb_s15920 = v_k0; !((unsigned char)tb_s15920[0] == 98 && (unsigned char)tb_s15920[1] == 111 && (unsigned char)tb_s15920[2] == 111 && (unsigned char)tb_s15920[3] == 108 && tb_s15920[4] == 0); })) && ({ const char *tb_s15921 = v_k0; !((unsigned char)tb_s15921[0] == 101 && (unsigned char)tb_s15921[1] == 110 && (unsigned char)tb_s15921[2] == 117 && (unsigned char)tb_s15921[3] == 109 && tb_s15921[4] == 0); }))) {
+            f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_n, 964))->q_line, ({ const char *tb_c15922_0 = "знак "; long long tb_c15922_0n = sizeof("знак ") - 1; const char *tb_c15922_1 = ((tb_o_Node *)tb_nn(v_n, 964))->q_value; long long tb_c15922_1n = (long long)strlen(tb_c15922_1); const char *tb_c15922_2 = " у такого типа"; long long tb_c15922_2n = sizeof(" у такого типа") - 1; char *tb_c15922r = tb_tmem(tb_c15922_0n + tb_c15922_1n + tb_c15922_2n + 1), *tb_c15922rw = tb_c15922r; memcpy(tb_c15922rw, tb_c15922_0, tb_c15922_0n); tb_c15922rw += tb_c15922_0n; memcpy(tb_c15922rw, tb_c15922_1, tb_c15922_1n); tb_c15922rw += tb_c15922_1n; memcpy(tb_c15922rw, tb_c15922_2, tb_c15922_2n); tb_c15922rw += tb_c15922_2n; *tb_c15922rw = 0; (const char *)tb_c15922r; }));
             return;
         }
-        f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 761))->q_kids, 0LL, sizeof(tb_o_Node *), 761)));
+        f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 966))->q_kids, 0LL, sizeof(tb_o_Node *), 966)));
         f_x64__xpush(v_g);
-        f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 763))->q_kids, 1LL, sizeof(tb_o_Node *), 763)));
+        f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 968))->q_kids, 1LL, sizeof(tb_o_Node *), 968)));
         f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 137LL, 193LL}));
         f_x64__xb(v_g, 88LL);
-        { long long tb_v15888 = 1LL; long long *tb_p15888 = &(((tb_o_X64 *)tb_nn(v_g, 766))->q_depth); *tb_p15888 = tb_subo(*tb_p15888, tb_v15888, 766); }
-        f_x64__xarith(v_g, ((tb_o_Node *)tb_nn(v_n, 767))->q_value, ((tb_o_Node *)tb_nn(v_n, 767))->q_line);
-    } else if (((({ const char *tb_s15889 = v_k; ((unsigned char)tb_s15889[0] == 99 && (unsigned char)tb_s15889[1] == 97 && (unsigned char)tb_s15889[2] == 108 && (unsigned char)tb_s15889[3] == 108 && tb_s15889[4] == 0); }) && ((tb_o_Node *)tb_nn(v_n, 768))->q_has_ref) && ({ const char *tb_s15890 = ((tb_o_Node *)tb_nn(((tb_o_Node *)tb_nn(v_n, 768))->q_ref, 768))->q_kind; ((unsigned char)tb_s15890[0] == 102 && (unsigned char)tb_s15890[1] == 117 && (unsigned char)tb_s15890[2] == 110 && (unsigned char)tb_s15890[3] == 99 && tb_s15890[4] == 0); }))) {
+        { long long tb_v15923 = 1LL; long long *tb_p15923 = &(((tb_o_X64 *)tb_nn(v_g, 971))->q_depth); *tb_p15923 = tb_subo(*tb_p15923, tb_v15923, 971); }
+        f_x64__xarith(v_g, ((tb_o_Node *)tb_nn(v_n, 972))->q_value, ((tb_o_Node *)tb_nn(v_n, 972))->q_line);
+    } else if (((({ const char *tb_s15924 = v_k; ((unsigned char)tb_s15924[0] == 99 && (unsigned char)tb_s15924[1] == 97 && (unsigned char)tb_s15924[2] == 108 && (unsigned char)tb_s15924[3] == 108 && tb_s15924[4] == 0); }) && ((tb_o_Node *)tb_nn(v_n, 973))->q_has_ref) && ({ const char *tb_s15925 = ((tb_o_Node *)tb_nn(((tb_o_Node *)tb_nn(v_n, 973))->q_ref, 973))->q_kind; ((unsigned char)tb_s15925[0] == 102 && (unsigned char)tb_s15925[1] == 117 && (unsigned char)tb_s15925[2] == 110 && (unsigned char)tb_s15925[3] == 99 && tb_s15925[4] == 0); }))) {
         f_x64__xcall_user(v_g, v_c, v_n);
-    } else if (((({ const char *tb_s15891 = v_k; ((unsigned char)tb_s15891[0] == 99 && (unsigned char)tb_s15891[1] == 97 && (unsigned char)tb_s15891[2] == 108 && (unsigned char)tb_s15891[3] == 108 && tb_s15891[4] == 0); }) && (!((tb_o_Node *)tb_nn(v_n, 770))->q_has_ref)) && (({ const char *tb_s15892 = ((tb_o_Node *)tb_nn(v_n, 770))->q_name; ((unsigned char)tb_s15892[0] == 112 && (unsigned char)tb_s15892[1] == 114 && (unsigned char)tb_s15892[2] == 105 && (unsigned char)tb_s15892[3] == 110 && (unsigned char)tb_s15892[4] == 116 && tb_s15892[5] == 0); }) || ({ const char *tb_s15893 = ((tb_o_Node *)tb_nn(v_n, 770))->q_name; ((unsigned char)tb_s15893[0] == 115 && (unsigned char)tb_s15893[1] == 104 && (unsigned char)tb_s15893[2] == 111 && (unsigned char)tb_s15893[3] == 119 && tb_s15893[4] == 0); })))) {
-        f_x64__xprint(v_g, v_c, v_n, ({ const char *tb_s15894 = ((tb_o_Node *)tb_nn(v_n, 771))->q_name; ((unsigned char)tb_s15894[0] == 112 && (unsigned char)tb_s15894[1] == 114 && (unsigned char)tb_s15894[2] == 105 && (unsigned char)tb_s15894[3] == 110 && (unsigned char)tb_s15894[4] == 116 && tb_s15894[5] == 0); }));
-    } else if (((({ const char *tb_s15895 = v_k; ((unsigned char)tb_s15895[0] == 99 && (unsigned char)tb_s15895[1] == 97 && (unsigned char)tb_s15895[2] == 108 && (unsigned char)tb_s15895[3] == 108 && tb_s15895[4] == 0); }) && (!((tb_o_Node *)tb_nn(v_n, 772))->q_has_ref)) && ({ const char *tb_s15896 = ((tb_o_Node *)tb_nn(v_n, 772))->q_name; ((unsigned char)tb_s15896[0] == 108 && (unsigned char)tb_s15896[1] == 101 && (unsigned char)tb_s15896[2] == 110 && tb_s15896[3] == 0); }))) {
-        tb_o_Node * v_a = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 773))->q_kids, 0LL, sizeof(tb_o_Node *), 773)), 773))->q_kids, 0LL, sizeof(tb_o_Node *), 773));
-        const char * v_ak = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_a, 774))->q_ty);
+    } else if (((({ const char *tb_s15926 = v_k; ((unsigned char)tb_s15926[0] == 99 && (unsigned char)tb_s15926[1] == 97 && (unsigned char)tb_s15926[2] == 108 && (unsigned char)tb_s15926[3] == 108 && tb_s15926[4] == 0); }) && (!((tb_o_Node *)tb_nn(v_n, 975))->q_has_ref)) && (({ const char *tb_s15927 = ((tb_o_Node *)tb_nn(v_n, 975))->q_name; ((unsigned char)tb_s15927[0] == 112 && (unsigned char)tb_s15927[1] == 114 && (unsigned char)tb_s15927[2] == 105 && (unsigned char)tb_s15927[3] == 110 && (unsigned char)tb_s15927[4] == 116 && tb_s15927[5] == 0); }) || ({ const char *tb_s15928 = ((tb_o_Node *)tb_nn(v_n, 975))->q_name; ((unsigned char)tb_s15928[0] == 115 && (unsigned char)tb_s15928[1] == 104 && (unsigned char)tb_s15928[2] == 111 && (unsigned char)tb_s15928[3] == 119 && tb_s15928[4] == 0); })))) {
+        f_x64__xprint(v_g, v_c, v_n, ({ const char *tb_s15929 = ((tb_o_Node *)tb_nn(v_n, 976))->q_name; ((unsigned char)tb_s15929[0] == 112 && (unsigned char)tb_s15929[1] == 114 && (unsigned char)tb_s15929[2] == 105 && (unsigned char)tb_s15929[3] == 110 && (unsigned char)tb_s15929[4] == 116 && tb_s15929[5] == 0); }));
+    } else if (((({ const char *tb_s15930 = v_k; ((unsigned char)tb_s15930[0] == 99 && (unsigned char)tb_s15930[1] == 97 && (unsigned char)tb_s15930[2] == 108 && (unsigned char)tb_s15930[3] == 108 && tb_s15930[4] == 0); }) && (!((tb_o_Node *)tb_nn(v_n, 977))->q_has_ref)) && ({ const char *tb_s15931 = ((tb_o_Node *)tb_nn(v_n, 977))->q_name; ((unsigned char)tb_s15931[0] == 108 && (unsigned char)tb_s15931[1] == 101 && (unsigned char)tb_s15931[2] == 110 && tb_s15931[3] == 0); }))) {
+        tb_o_Node * v_a = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 978))->q_kids, 0LL, sizeof(tb_o_Node *), 978)), 978))->q_kids, 0LL, sizeof(tb_o_Node *), 978));
+        const char * v_ak = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_a, 979))->q_ty);
         f_x64__xexpr(v_g, v_c, v_a);
-        if (({ const char *tb_s15897 = v_ak; ((unsigned char)tb_s15897[0] == 116 && (unsigned char)tb_s15897[1] == 101 && (unsigned char)tb_s15897[2] == 120 && (unsigned char)tb_s15897[3] == 116 && tb_s15897[4] == 0); })) {
+        if (({ const char *tb_s15932 = v_ak; ((unsigned char)tb_s15932[0] == 116 && (unsigned char)tb_s15932[1] == 101 && (unsigned char)tb_s15932[2] == 120 && (unsigned char)tb_s15932[3] == 116 && tb_s15932[4] == 0); })) {
             f_x64__xmov_rdi(v_g);
             f_x64__xcall(v_g, "tb_x_ulen");
-        } else if ((({ const char *tb_s15898 = v_ak; ((unsigned char)tb_s15898[0] == 108 && (unsigned char)tb_s15898[1] == 105 && (unsigned char)tb_s15898[2] == 115 && (unsigned char)tb_s15898[3] == 116 && tb_s15898[4] == 0); }) && f_x64__xlist_ok(v_g, v_c, ((tb_o_Node *)tb_nn(v_a, 779))->q_ty, ((tb_o_Node *)tb_nn(v_n, 779))->q_line))) {
+        } else if ((({ const char *tb_s15933 = v_ak; ((unsigned char)tb_s15933[0] == 108 && (unsigned char)tb_s15933[1] == 105 && (unsigned char)tb_s15933[2] == 115 && (unsigned char)tb_s15933[3] == 116 && tb_s15933[4] == 0); }) && f_x64__xlist_ok(v_g, v_c, ((tb_o_Node *)tb_nn(v_a, 984))->q_ty, ((tb_o_Node *)tb_nn(v_n, 984))->q_line))) {
             f_x64__xbs(v_g, tb_list_from_np(4, sizeof(long long), (long long[]){72LL, 139LL, 64LL, 8LL}));
+        } else if (({ const char *tb_s15934 = v_ak; ((unsigned char)tb_s15934[0] == 100 && (unsigned char)tb_s15934[1] == 105 && (unsigned char)tb_s15934[2] == 99 && (unsigned char)tb_s15934[3] == 116 && tb_s15934[4] == 0); })) {
+            f_x64__xmov_rdi(v_g);
+            f_x64__xcall(v_g, "tb_x_dlen");
         } else {
-            f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_n, 782))->q_line, "len у такого типа");
+            f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_n, 990))->q_line, "len у такого типа");
         }
-    } else if ((({ const char *tb_s15899 = v_k; ((unsigned char)tb_s15899[0] == 99 && (unsigned char)tb_s15899[1] == 97 && (unsigned char)tb_s15899[2] == 108 && (unsigned char)tb_s15899[3] == 108 && tb_s15899[4] == 0); }) && (!((tb_o_Node *)tb_nn(v_n, 783))->q_has_ref))) {
+    } else if ((({ const char *tb_s15935 = v_k; ((unsigned char)tb_s15935[0] == 99 && (unsigned char)tb_s15935[1] == 97 && (unsigned char)tb_s15935[2] == 108 && (unsigned char)tb_s15935[3] == 108 && tb_s15935[4] == 0); }) && (!((tb_o_Node *)tb_nn(v_n, 991))->q_has_ref))) {
         f_x64__xbuiltin(v_g, v_c, v_n);
-    } else if (({ const char *tb_s15900 = v_k; ((unsigned char)tb_s15900[0] == 101 && (unsigned char)tb_s15900[1] == 110 && (unsigned char)tb_s15900[2] == 117 && (unsigned char)tb_s15900[3] == 109 && (unsigned char)tb_s15900[4] == 118 && (unsigned char)tb_s15900[5] == 97 && (unsigned char)tb_s15900[6] == 108 && tb_s15900[7] == 0); })) {
-        f_x64__xconst(v_g, (tb_t12 = tb_to_int(((tb_o_Node *)tb_nn(v_n, 786))->q_value), tb_err ? (tb_err = 0, 0LL) : tb_t12));
-    } else if (((({ const char *tb_s15901 = v_k; ((unsigned char)tb_s15901[0] == 99 && (unsigned char)tb_s15901[1] == 97 && (unsigned char)tb_s15901[2] == 108 && (unsigned char)tb_s15901[3] == 108 && tb_s15901[4] == 0); }) && ((tb_o_Node *)tb_nn(v_n, 787))->q_has_ref) && ({ const char *tb_s15902 = ((tb_o_Node *)tb_nn(((tb_o_Node *)tb_nn(v_n, 787))->q_ref, 787))->q_kind; ((unsigned char)tb_s15902[0] == 111 && (unsigned char)tb_s15902[1] == 98 && (unsigned char)tb_s15902[2] == 106 && tb_s15902[3] == 0); }))) {
-        if (f_x64__xobj_ok(v_g, v_c, ((tb_o_Node *)tb_nn(v_n, 788))->q_ty, ((tb_o_Node *)tb_nn(v_n, 788))->q_line)) {
+    } else if (({ const char *tb_s15936 = v_k; ((unsigned char)tb_s15936[0] == 101 && (unsigned char)tb_s15936[1] == 110 && (unsigned char)tb_s15936[2] == 117 && (unsigned char)tb_s15936[3] == 109 && (unsigned char)tb_s15936[4] == 118 && (unsigned char)tb_s15936[5] == 97 && (unsigned char)tb_s15936[6] == 108 && tb_s15936[7] == 0); })) {
+        f_x64__xconst(v_g, (tb_t12 = tb_to_int(((tb_o_Node *)tb_nn(v_n, 994))->q_value), tb_err ? (tb_err = 0, 0LL) : tb_t12));
+    } else if (((({ const char *tb_s15937 = v_k; ((unsigned char)tb_s15937[0] == 99 && (unsigned char)tb_s15937[1] == 97 && (unsigned char)tb_s15937[2] == 108 && (unsigned char)tb_s15937[3] == 108 && tb_s15937[4] == 0); }) && ((tb_o_Node *)tb_nn(v_n, 995))->q_has_ref) && ({ const char *tb_s15938 = ((tb_o_Node *)tb_nn(((tb_o_Node *)tb_nn(v_n, 995))->q_ref, 995))->q_kind; ((unsigned char)tb_s15938[0] == 111 && (unsigned char)tb_s15938[1] == 98 && (unsigned char)tb_s15938[2] == 106 && tb_s15938[3] == 0); }))) {
+        if (f_x64__xobj_ok(v_g, v_c, ((tb_o_Node *)tb_nn(v_n, 996))->q_ty, ((tb_o_Node *)tb_nn(v_n, 996))->q_line)) {
             f_x64__xnew_obj(v_g, v_c, v_n);
         }
-    } else if ((({ const char *tb_s15903 = v_k; ((unsigned char)tb_s15903[0] == 102 && (unsigned char)tb_s15903[1] == 105 && (unsigned char)tb_s15903[2] == 101 && (unsigned char)tb_s15903[3] == 108 && (unsigned char)tb_s15903[4] == 100 && tb_s15903[5] == 0); }) && ({ const char *tb_s15904 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 790))->q_kids, 0LL, sizeof(tb_o_Node *), 790)), 790))->q_ty); ((unsigned char)tb_s15904[0] == 111 && (unsigned char)tb_s15904[1] == 98 && (unsigned char)tb_s15904[2] == 106 && tb_s15904[3] == 0); }))) {
-        if (f_x64__xobj_ok(v_g, v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 791))->q_kids, 0LL, sizeof(tb_o_Node *), 791)), 791))->q_ty, ((tb_o_Node *)tb_nn(v_n, 791))->q_line)) {
-            f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 792))->q_kids, 0LL, sizeof(tb_o_Node *), 792)));
-            f_x64__xnull_check(v_g, ((tb_o_Node *)tb_nn(v_n, 793))->q_line);
+    } else if ((({ const char *tb_s15939 = v_k; ((unsigned char)tb_s15939[0] == 102 && (unsigned char)tb_s15939[1] == 105 && (unsigned char)tb_s15939[2] == 101 && (unsigned char)tb_s15939[3] == 108 && (unsigned char)tb_s15939[4] == 100 && tb_s15939[5] == 0); }) && ({ const char *tb_s15940 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 998))->q_kids, 0LL, sizeof(tb_o_Node *), 998)), 998))->q_ty); ((unsigned char)tb_s15940[0] == 111 && (unsigned char)tb_s15940[1] == 98 && (unsigned char)tb_s15940[2] == 106 && tb_s15940[3] == 0); }))) {
+        if (f_x64__xobj_ok(v_g, v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 999))->q_kids, 0LL, sizeof(tb_o_Node *), 999)), 999))->q_ty, ((tb_o_Node *)tb_nn(v_n, 999))->q_line)) {
+            f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1000))->q_kids, 0LL, sizeof(tb_o_Node *), 1000)));
+            f_x64__xnull_check(v_g, ((tb_o_Node *)tb_nn(v_n, 1001))->q_line);
             f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 139LL, 128LL}));
-            f_x64__x32(v_g, tb_mulo(f_x64__xfield_index(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 795))->q_kids, 0LL, sizeof(tb_o_Node *), 795)), 795))->q_ty, ((tb_o_Node *)tb_nn(v_n, 795))->q_name), 8LL, 795));
+            f_x64__x32(v_g, tb_mulo(f_x64__xfield_index(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1003))->q_kids, 0LL, sizeof(tb_o_Node *), 1003)), 1003))->q_ty, ((tb_o_Node *)tb_nn(v_n, 1003))->q_name), 8LL, 1003));
         }
-    } else if (({ const char *tb_s15905 = v_k; ((unsigned char)tb_s15905[0] == 100 && (unsigned char)tb_s15905[1] == 101 && (unsigned char)tb_s15905[2] == 99 && (unsigned char)tb_s15905[3] == 105 && (unsigned char)tb_s15905[4] == 109 && (unsigned char)tb_s15905[5] == 97 && (unsigned char)tb_s15905[6] == 108 && tb_s15905[7] == 0); })) {
-        f_x64__xdecimal(v_g, ((tb_o_Node *)tb_nn(v_n, 797))->q_value, ((tb_o_Node *)tb_nn(v_n, 797))->q_line);
-    } else if (({ const char *tb_s15906 = v_k; ((unsigned char)tb_s15906[0] == 116 && (unsigned char)tb_s15906[1] == 121 && (unsigned char)tb_s15906[2] == 112 && (unsigned char)tb_s15906[3] == 101 && tb_s15906[4] == 0); })) {
-        f_x64__xdefault(v_g, v_c, ((tb_o_Node *)tb_nn(v_n, 799))->q_ty, ((tb_o_Node *)tb_nn(v_n, 799))->q_line);
-    } else if (({ const char *tb_s15907 = v_k; ((unsigned char)tb_s15907[0] == 108 && (unsigned char)tb_s15907[1] == 105 && (unsigned char)tb_s15907[2] == 115 && (unsigned char)tb_s15907[3] == 116 && tb_s15907[4] == 0); })) {
+    } else if (({ const char *tb_s15941 = v_k; ((unsigned char)tb_s15941[0] == 100 && (unsigned char)tb_s15941[1] == 105 && (unsigned char)tb_s15941[2] == 99 && (unsigned char)tb_s15941[3] == 116 && tb_s15941[4] == 0); })) {
+        f_x64__xdict_lit(v_g, v_c, v_n);
+    } else if ((({ const char *tb_s15942 = v_k; ((unsigned char)tb_s15942[0] == 105 && (unsigned char)tb_s15942[1] == 110 && (unsigned char)tb_s15942[2] == 100 && (unsigned char)tb_s15942[3] == 101 && (unsigned char)tb_s15942[4] == 120 && tb_s15942[5] == 0); }) && ({ const char *tb_s15943 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1006))->q_kids, 0LL, sizeof(tb_o_Node *), 1006)), 1006))->q_ty); ((unsigned char)tb_s15943[0] == 100 && (unsigned char)tb_s15943[1] == 105 && (unsigned char)tb_s15943[2] == 99 && (unsigned char)tb_s15943[3] == 116 && tb_s15943[4] == 0); }))) {
+        long long v_dt = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1008))->q_kids, 0LL, sizeof(tb_o_Node *), 1008)), 1008))->q_ty;
+        if (f_x64__xdict_ok(v_g, v_c, v_dt, ((tb_o_Node *)tb_nn(v_n, 1009))->q_line)) {
+            long long v_dk = f_x64__xslot(v_g, ({ const char *tb_c15944_0 = "#dd"; long long tb_c15944_0n = sizeof("#dd") - 1; char tb_c15944_1d[24]; long long tb_c15944_1n; const char *tb_c15944_1 = tb_digits((((tb_o_X64 *)tb_nn(v_g, 1010))->q_vars)->len, tb_c15944_1d, &tb_c15944_1n); char *tb_c15944r = tb_tmem(tb_c15944_0n + tb_c15944_1n + 1), *tb_c15944rw = tb_c15944r; memcpy(tb_c15944rw, tb_c15944_0, tb_c15944_0n); tb_c15944rw += tb_c15944_0n; memcpy(tb_c15944rw, tb_c15944_1, tb_c15944_1n); tb_c15944rw += tb_c15944_1n; *tb_c15944rw = 0; (const char *)tb_c15944r; }));
+            f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1011))->q_kids, 0LL, sizeof(tb_o_Node *), 1011)));
+            f_x64__xstore_var(v_g, v_dk);
+            long long v_ks = f_x64__xkey_rsi(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1013))->q_kids, 1LL, sizeof(tb_o_Node *), 1013)));
+            f_x64__xload_var(v_g, v_dk);
+            f_x64__xmov_rdi(v_g);
+            f_x64__xlea_rsi(v_g, v_ks);
+            f_x64__xb(v_g, 186LL);
+            f_x64__x32(v_g, ((tb_o_Node *)tb_nn(v_n, 1018))->q_line);
+            f_x64__xcall(v_g, "tb_x_dget");
+            f_x64__xload_dval(v_g, v_c, ((tb_o_Type *)tb_nn((*(tb_o_Type * *)tb_at(((tb_o_Comp *)tb_nn(v_c, 1020))->q_types, v_dt, sizeof(tb_o_Type *), 1020)), 1020))->q_elem);
+        }
+    } else if ((({ const char *tb_s15945 = v_k; ((unsigned char)tb_s15945[0] == 109 && (unsigned char)tb_s15945[1] == 101 && (unsigned char)tb_s15945[2] == 116 && (unsigned char)tb_s15945[3] == 104 && (unsigned char)tb_s15945[4] == 111 && (unsigned char)tb_s15945[5] == 100 && tb_s15945[6] == 0); }) && ({ const char *tb_s15946 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1021))->q_kids, 0LL, sizeof(tb_o_Node *), 1021)), 1021))->q_ty); ((unsigned char)tb_s15946[0] == 100 && (unsigned char)tb_s15946[1] == 105 && (unsigned char)tb_s15946[2] == 99 && (unsigned char)tb_s15946[3] == 116 && tb_s15946[4] == 0); }))) {
+        long long v_dt = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1022))->q_kids, 0LL, sizeof(tb_o_Node *), 1022)), 1022))->q_ty;
+        if (f_x64__xdict_ok(v_g, v_c, v_dt, ((tb_o_Node *)tb_nn(v_n, 1023))->q_line)) {
+            long long v_dk = f_x64__xslot(v_g, ({ const char *tb_c15947_0 = "#dd"; long long tb_c15947_0n = sizeof("#dd") - 1; char tb_c15947_1d[24]; long long tb_c15947_1n; const char *tb_c15947_1 = tb_digits((((tb_o_X64 *)tb_nn(v_g, 1024))->q_vars)->len, tb_c15947_1d, &tb_c15947_1n); char *tb_c15947r = tb_tmem(tb_c15947_0n + tb_c15947_1n + 1), *tb_c15947rw = tb_c15947r; memcpy(tb_c15947rw, tb_c15947_0, tb_c15947_0n); tb_c15947rw += tb_c15947_0n; memcpy(tb_c15947rw, tb_c15947_1, tb_c15947_1n); tb_c15947rw += tb_c15947_1n; *tb_c15947rw = 0; (const char *)tb_c15947r; }));
+            f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1025))->q_kids, 0LL, sizeof(tb_o_Node *), 1025)));
+            f_x64__xstore_var(v_g, v_dk);
+            if ((({ const char *tb_s15948 = ((tb_o_Node *)tb_nn(v_n, 1027))->q_name; ((unsigned char)tb_s15948[0] == 104 && (unsigned char)tb_s15948[1] == 97 && (unsigned char)tb_s15948[2] == 115 && tb_s15948[3] == 0); }) || ({ const char *tb_s15949 = ((tb_o_Node *)tb_nn(v_n, 1027))->q_name; ((unsigned char)tb_s15949[0] == 114 && (unsigned char)tb_s15949[1] == 101 && (unsigned char)tb_s15949[2] == 109 && (unsigned char)tb_s15949[3] == 111 && (unsigned char)tb_s15949[4] == 118 && (unsigned char)tb_s15949[5] == 101 && tb_s15949[6] == 0); }))) {
+                long long v_ks = f_x64__xkey_rsi(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1028))->q_kids, 1LL, sizeof(tb_o_Node *), 1028)), 1028))->q_kids, 0LL, sizeof(tb_o_Node *), 1028)));
+                f_x64__xload_var(v_g, v_dk);
+                f_x64__xmov_rdi(v_g);
+                f_x64__xlea_rsi(v_g, v_ks);
+                if (({ const char *tb_s15950 = ((tb_o_Node *)tb_nn(v_n, 1032))->q_name; ((unsigned char)tb_s15950[0] == 104 && (unsigned char)tb_s15950[1] == 97 && (unsigned char)tb_s15950[2] == 115 && tb_s15950[3] == 0); })) {
+                    f_x64__xcall(v_g, "tb_x_dhas");
+                    f_x64__xbs(v_g, tb_list_from_np(9, sizeof(long long), (long long[]){133LL, 192LL, 15LL, 149LL, 192LL, 72LL, 15LL, 182LL, 192LL}));
+                } else {
+                    f_x64__xcall(v_g, "tb_x_dremove");
+                }
+            } else if (({ const char *tb_s15951 = ((tb_o_Node *)tb_nn(v_n, 1037))->q_name; ((unsigned char)tb_s15951[0] == 99 && (unsigned char)tb_s15951[1] == 108 && (unsigned char)tb_s15951[2] == 101 && (unsigned char)tb_s15951[3] == 97 && (unsigned char)tb_s15951[4] == 114 && tb_s15951[5] == 0); })) {
+                f_x64__xload_var(v_g, v_dk);
+                f_x64__xmov_rdi(v_g);
+                f_x64__xb(v_g, 190LL);
+                f_x64__x32(v_g, ((tb_o_Node *)tb_nn(v_n, 1041))->q_line);
+                f_x64__xcall(v_g, "tb_x_dclear");
+            } else if ((({ const char *tb_s15952 = ((tb_o_Node *)tb_nn(v_n, 1043))->q_name; ((unsigned char)tb_s15952[0] == 107 && (unsigned char)tb_s15952[1] == 101 && (unsigned char)tb_s15952[2] == 121 && (unsigned char)tb_s15952[3] == 115 && tb_s15952[4] == 0); }) || ({ const char *tb_s15953 = ((tb_o_Node *)tb_nn(v_n, 1043))->q_name; ((unsigned char)tb_s15953[0] == 118 && (unsigned char)tb_s15953[1] == 97 && (unsigned char)tb_s15953[2] == 108 && (unsigned char)tb_s15953[3] == 117 && (unsigned char)tb_s15953[4] == 101 && (unsigned char)tb_s15953[5] == 115 && tb_s15953[6] == 0); }))) {
+                if ((({ const char *tb_s15954 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_n, 1044))->q_ty); ((unsigned char)tb_s15954[0] == 108 && (unsigned char)tb_s15954[1] == 105 && (unsigned char)tb_s15954[2] == 115 && (unsigned char)tb_s15954[3] == 116 && tb_s15954[4] == 0); }) && (f_emit_ll__ll_bits(v_c, ((tb_o_Node *)tb_nn(v_n, 1044))->q_ty) || f_emit_ll__ll_colist(v_c, ((tb_o_Node *)tb_nn(v_n, 1044))->q_ty)))) {
+                    f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_n, 1045))->q_line, "такие списки");
+                }
+                f_x64__xload_var(v_g, v_dk);
+                f_x64__xmov_rdi(v_g);
+                if (({ const char *tb_s15955 = ((tb_o_Node *)tb_nn(v_n, 1048))->q_name; ((unsigned char)tb_s15955[0] == 107 && (unsigned char)tb_s15955[1] == 101 && (unsigned char)tb_s15955[2] == 121 && (unsigned char)tb_s15955[3] == 115 && tb_s15955[4] == 0); })) {
+                    f_x64__xcall(v_g, "tb_x_dkeys_copy");
+                } else {
+                    f_x64__xcall(v_g, "tb_x_dvals_copy");
+                }
+            } else {
+                f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_n, 1053))->q_line, ({ const char *tb_c15956_0 = "d."; long long tb_c15956_0n = sizeof("d.") - 1; const char *tb_c15956_1 = ((tb_o_Node *)tb_nn(v_n, 1053))->q_name; long long tb_c15956_1n = (long long)strlen(tb_c15956_1); char *tb_c15956r = tb_tmem(tb_c15956_0n + tb_c15956_1n + 1), *tb_c15956rw = tb_c15956r; memcpy(tb_c15956rw, tb_c15956_0, tb_c15956_0n); tb_c15956rw += tb_c15956_0n; memcpy(tb_c15956rw, tb_c15956_1, tb_c15956_1n); tb_c15956rw += tb_c15956_1n; *tb_c15956rw = 0; (const char *)tb_c15956r; }));
+            }
+        }
+    } else if (({ const char *tb_s15957 = v_k; ((unsigned char)tb_s15957[0] == 100 && (unsigned char)tb_s15957[1] == 101 && (unsigned char)tb_s15957[2] == 99 && (unsigned char)tb_s15957[3] == 105 && (unsigned char)tb_s15957[4] == 109 && (unsigned char)tb_s15957[5] == 97 && (unsigned char)tb_s15957[6] == 108 && tb_s15957[7] == 0); })) {
+        f_x64__xdecimal(v_g, ((tb_o_Node *)tb_nn(v_n, 1055))->q_value, ((tb_o_Node *)tb_nn(v_n, 1055))->q_line);
+    } else if (({ const char *tb_s15958 = v_k; ((unsigned char)tb_s15958[0] == 116 && (unsigned char)tb_s15958[1] == 121 && (unsigned char)tb_s15958[2] == 112 && (unsigned char)tb_s15958[3] == 101 && tb_s15958[4] == 0); })) {
+        f_x64__xdefault(v_g, v_c, ((tb_o_Node *)tb_nn(v_n, 1057))->q_ty, ((tb_o_Node *)tb_nn(v_n, 1057))->q_line);
+    } else if (({ const char *tb_s15959 = v_k; ((unsigned char)tb_s15959[0] == 108 && (unsigned char)tb_s15959[1] == 105 && (unsigned char)tb_s15959[2] == 115 && (unsigned char)tb_s15959[3] == 116 && tb_s15959[4] == 0); })) {
         f_x64__xlist_lit(v_g, v_c, v_n);
-    } else if ((({ const char *tb_s15908 = v_k; ((unsigned char)tb_s15908[0] == 105 && (unsigned char)tb_s15908[1] == 110 && (unsigned char)tb_s15908[2] == 100 && (unsigned char)tb_s15908[3] == 101 && (unsigned char)tb_s15908[4] == 120 && tb_s15908[5] == 0); }) && ({ const char *tb_s15909 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 802))->q_kids, 0LL, sizeof(tb_o_Node *), 802)), 802))->q_ty); ((unsigned char)tb_s15909[0] == 116 && (unsigned char)tb_s15909[1] == 101 && (unsigned char)tb_s15909[2] == 120 && (unsigned char)tb_s15909[3] == 116 && tb_s15909[4] == 0); }))) {
-        f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 804))->q_kids, 0LL, sizeof(tb_o_Node *), 804)));
+    } else if ((({ const char *tb_s15960 = v_k; ((unsigned char)tb_s15960[0] == 105 && (unsigned char)tb_s15960[1] == 110 && (unsigned char)tb_s15960[2] == 100 && (unsigned char)tb_s15960[3] == 101 && (unsigned char)tb_s15960[4] == 120 && tb_s15960[5] == 0); }) && ({ const char *tb_s15961 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1060))->q_kids, 0LL, sizeof(tb_o_Node *), 1060)), 1060))->q_ty); ((unsigned char)tb_s15961[0] == 116 && (unsigned char)tb_s15961[1] == 101 && (unsigned char)tb_s15961[2] == 120 && (unsigned char)tb_s15961[3] == 116 && tb_s15961[4] == 0); }))) {
+        f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1062))->q_kids, 0LL, sizeof(tb_o_Node *), 1062)));
         f_x64__xpush(v_g);
-        f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 806))->q_kids, 1LL, sizeof(tb_o_Node *), 806)));
+        f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1064))->q_kids, 1LL, sizeof(tb_o_Node *), 1064)));
         f_x64__xbs(v_g, tb_list_from_np(4, sizeof(long long), (long long[]){72LL, 137LL, 198LL, 95LL}));
-        { long long tb_v15910 = 1LL; long long *tb_p15910 = &(((tb_o_X64 *)tb_nn(v_g, 808))->q_depth); *tb_p15910 = tb_subo(*tb_p15910, tb_v15910, 808); }
+        { long long tb_v15962 = 1LL; long long *tb_p15962 = &(((tb_o_X64 *)tb_nn(v_g, 1066))->q_depth); *tb_p15962 = tb_subo(*tb_p15962, tb_v15962, 1066); }
         f_x64__xbs(v_g, tb_list_from_np(8, sizeof(long long), (long long[]){72LL, 199LL, 194LL, 255LL, 255LL, 255LL, 255LL, 185LL}));
-        f_x64__x32(v_g, ((tb_o_Node *)tb_nn(v_n, 810))->q_line);
+        f_x64__x32(v_g, ((tb_o_Node *)tb_nn(v_n, 1068))->q_line);
         f_x64__xcall(v_g, "tb_x_char_at");
-    } else if ((({ const char *tb_s15911 = v_k; ((unsigned char)tb_s15911[0] == 105 && (unsigned char)tb_s15911[1] == 110 && (unsigned char)tb_s15911[2] == 100 && (unsigned char)tb_s15911[3] == 101 && (unsigned char)tb_s15911[4] == 120 && tb_s15911[5] == 0); }) && ({ const char *tb_s15912 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 812))->q_kids, 0LL, sizeof(tb_o_Node *), 812)), 812))->q_ty); ((unsigned char)tb_s15912[0] == 108 && (unsigned char)tb_s15912[1] == 105 && (unsigned char)tb_s15912[2] == 115 && (unsigned char)tb_s15912[3] == 116 && tb_s15912[4] == 0); }))) {
-        if (f_x64__xlist_ok(v_g, v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 813))->q_kids, 0LL, sizeof(tb_o_Node *), 813)), 813))->q_ty, ((tb_o_Node *)tb_nn(v_n, 813))->q_line)) {
-            f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 814))->q_kids, 0LL, sizeof(tb_o_Node *), 814)));
+    } else if ((({ const char *tb_s15963 = v_k; ((unsigned char)tb_s15963[0] == 105 && (unsigned char)tb_s15963[1] == 110 && (unsigned char)tb_s15963[2] == 100 && (unsigned char)tb_s15963[3] == 101 && (unsigned char)tb_s15963[4] == 120 && tb_s15963[5] == 0); }) && ({ const char *tb_s15964 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1070))->q_kids, 0LL, sizeof(tb_o_Node *), 1070)), 1070))->q_ty); ((unsigned char)tb_s15964[0] == 108 && (unsigned char)tb_s15964[1] == 105 && (unsigned char)tb_s15964[2] == 115 && (unsigned char)tb_s15964[3] == 116 && tb_s15964[4] == 0); }))) {
+        if (f_x64__xlist_ok(v_g, v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1071))->q_kids, 0LL, sizeof(tb_o_Node *), 1071)), 1071))->q_ty, ((tb_o_Node *)tb_nn(v_n, 1071))->q_line)) {
+            f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1072))->q_kids, 0LL, sizeof(tb_o_Node *), 1072)));
             f_x64__xpush(v_g);
-            f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 816))->q_kids, 1LL, sizeof(tb_o_Node *), 816)));
-            f_x64__xelem_addr(v_g, ((tb_o_Node *)tb_nn(v_n, 817))->q_line);
+            f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1074))->q_kids, 1LL, sizeof(tb_o_Node *), 1074)));
+            f_x64__xelem_addr(v_g, ((tb_o_Node *)tb_nn(v_n, 1075))->q_line);
             f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 139LL, 2LL}));
         }
-    } else if (((({ const char *tb_s15913 = v_k; ((unsigned char)tb_s15913[0] == 109 && (unsigned char)tb_s15913[1] == 101 && (unsigned char)tb_s15913[2] == 116 && (unsigned char)tb_s15913[3] == 104 && (unsigned char)tb_s15913[4] == 111 && (unsigned char)tb_s15913[5] == 100 && tb_s15913[6] == 0); }) && ({ const char *tb_s15914 = ((tb_o_Node *)tb_nn(v_n, 819))->q_name; ((unsigned char)tb_s15914[0] == 112 && (unsigned char)tb_s15914[1] == 111 && (unsigned char)tb_s15914[2] == 112 && tb_s15914[3] == 0); })) && ({ const char *tb_s15915 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 819))->q_kids, 0LL, sizeof(tb_o_Node *), 819)), 819))->q_ty); ((unsigned char)tb_s15915[0] == 108 && (unsigned char)tb_s15915[1] == 105 && (unsigned char)tb_s15915[2] == 115 && (unsigned char)tb_s15915[3] == 116 && tb_s15915[4] == 0); }))) {
-        if (f_x64__xlist_ok(v_g, v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 820))->q_kids, 0LL, sizeof(tb_o_Node *), 820)), 820))->q_ty, ((tb_o_Node *)tb_nn(v_n, 820))->q_line)) {
-            f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 821))->q_kids, 0LL, sizeof(tb_o_Node *), 821)));
+    } else if (((({ const char *tb_s15965 = v_k; ((unsigned char)tb_s15965[0] == 109 && (unsigned char)tb_s15965[1] == 101 && (unsigned char)tb_s15965[2] == 116 && (unsigned char)tb_s15965[3] == 104 && (unsigned char)tb_s15965[4] == 111 && (unsigned char)tb_s15965[5] == 100 && tb_s15965[6] == 0); }) && ({ const char *tb_s15966 = ((tb_o_Node *)tb_nn(v_n, 1077))->q_name; ((unsigned char)tb_s15966[0] == 112 && (unsigned char)tb_s15966[1] == 111 && (unsigned char)tb_s15966[2] == 112 && tb_s15966[3] == 0); })) && ({ const char *tb_s15967 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1077))->q_kids, 0LL, sizeof(tb_o_Node *), 1077)), 1077))->q_ty); ((unsigned char)tb_s15967[0] == 108 && (unsigned char)tb_s15967[1] == 105 && (unsigned char)tb_s15967[2] == 115 && (unsigned char)tb_s15967[3] == 116 && tb_s15967[4] == 0); }))) {
+        if (f_x64__xlist_ok(v_g, v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1078))->q_kids, 0LL, sizeof(tb_o_Node *), 1078)), 1078))->q_ty, ((tb_o_Node *)tb_nn(v_n, 1078))->q_line)) {
+            f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1079))->q_kids, 0LL, sizeof(tb_o_Node *), 1079)));
             f_x64__xmov_rdi(v_g);
             f_x64__xb(v_g, 190LL);
-            f_x64__x32(v_g, ((tb_o_Node *)tb_nn(v_n, 824))->q_line);
+            f_x64__x32(v_g, ((tb_o_Node *)tb_nn(v_n, 1082))->q_line);
             f_x64__xcall(v_g, "tb_x_pop");
             f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 139LL, 0LL}));
         }
-    } else if (({ const char *tb_s15916 = v_k; ((unsigned char)tb_s15916[0] == 101 && (unsigned char)tb_s15916[1] == 108 && (unsigned char)tb_s15916[2] == 115 && (unsigned char)tb_s15916[3] == 101 && (unsigned char)tb_s15916[4] == 95 && (unsigned char)tb_s15916[5] == 101 && (unsigned char)tb_s15916[6] == 114 && (unsigned char)tb_s15916[7] == 114 && tb_s15916[8] == 0); })) {
-        long long v_hold = f_x64__xslot(v_g, ({ const char *tb_c15917_0 = "#v"; long long tb_c15917_0n = sizeof("#v") - 1; char tb_c15917_1d[24]; long long tb_c15917_1n; const char *tb_c15917_1 = tb_digits((((tb_o_X64 *)tb_nn(v_g, 829))->q_vars)->len, tb_c15917_1d, &tb_c15917_1n); char *tb_c15917r = tb_tmem(tb_c15917_0n + tb_c15917_1n + 1), *tb_c15917rw = tb_c15917r; memcpy(tb_c15917rw, tb_c15917_0, tb_c15917_0n); tb_c15917rw += tb_c15917_0n; memcpy(tb_c15917rw, tb_c15917_1, tb_c15917_1n); tb_c15917rw += tb_c15917_1n; *tb_c15917rw = 0; (const char *)tb_c15917r; }));
-        f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 830))->q_kids, 0LL, sizeof(tb_o_Node *), 830)));
+    } else if (({ const char *tb_s15968 = v_k; ((unsigned char)tb_s15968[0] == 101 && (unsigned char)tb_s15968[1] == 108 && (unsigned char)tb_s15968[2] == 115 && (unsigned char)tb_s15968[3] == 101 && (unsigned char)tb_s15968[4] == 95 && (unsigned char)tb_s15968[5] == 101 && (unsigned char)tb_s15968[6] == 114 && (unsigned char)tb_s15968[7] == 114 && tb_s15968[8] == 0); })) {
+        long long v_hold = f_x64__xslot(v_g, ({ const char *tb_c15969_0 = "#v"; long long tb_c15969_0n = sizeof("#v") - 1; char tb_c15969_1d[24]; long long tb_c15969_1n; const char *tb_c15969_1 = tb_digits((((tb_o_X64 *)tb_nn(v_g, 1087))->q_vars)->len, tb_c15969_1d, &tb_c15969_1n); char *tb_c15969r = tb_tmem(tb_c15969_0n + tb_c15969_1n + 1), *tb_c15969rw = tb_c15969r; memcpy(tb_c15969rw, tb_c15969_0, tb_c15969_0n); tb_c15969rw += tb_c15969_0n; memcpy(tb_c15969rw, tb_c15969_1, tb_c15969_1n); tb_c15969rw += tb_c15969_1n; *tb_c15969rw = 0; (const char *)tb_c15969r; }));
+        f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1088))->q_kids, 0LL, sizeof(tb_o_Node *), 1088)));
         f_x64__xstore_var(v_g, v_hold);
         long long v_ok = f_x64__xlabel(v_g);
         f_x64__xerr_load(v_g);
         f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 133LL, 201LL}));
         f_x64__xjump(v_g, tb_list_from_np(2, sizeof(long long), (long long[]){15LL, 132LL}), v_ok);
         f_x64__xbs(v_g, tb_list_from_np(10, sizeof(long long), (long long[]){72LL, 199LL, 0LL, 0LL, 0LL, 0LL, 0LL, 72LL, 137LL, 200LL}));
-        f_x64__xstore_name(v_g, ((tb_o_Node *)tb_nn(v_n, 837))->q_name);
-        f_x64__xblock(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 838))->q_kids, 1LL, sizeof(tb_o_Node *), 838)));
+        f_x64__xstore_name(v_g, ((tb_o_Node *)tb_nn(v_n, 1095))->q_name);
+        f_x64__xblock(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1096))->q_kids, 1LL, sizeof(tb_o_Node *), 1096)));
         f_x64__xplace(v_g, v_ok);
         f_x64__xload_var(v_g, v_hold);
-    } else if ((({ const char *tb_s15918 = v_k; ((unsigned char)tb_s15918[0] == 98 && (unsigned char)tb_s15918[1] == 105 && (unsigned char)tb_s15918[2] == 110 && (unsigned char)tb_s15918[3] == 111 && (unsigned char)tb_s15918[4] == 112 && tb_s15918[5] == 0); }) && ({ const char *tb_s15919 = ((tb_o_Node *)tb_nn(v_n, 841))->q_value; ((unsigned char)tb_s15919[0] == 111 && (unsigned char)tb_s15919[1] == 114 && (unsigned char)tb_s15919[2] == 101 && (unsigned char)tb_s15919[3] == 108 && (unsigned char)tb_s15919[4] == 115 && (unsigned char)tb_s15919[5] == 101 && tb_s15919[6] == 0); }))) {
-        long long v_hold = f_x64__xslot(v_g, ({ const char *tb_c15920_0 = "#v"; long long tb_c15920_0n = sizeof("#v") - 1; char tb_c15920_1d[24]; long long tb_c15920_1n; const char *tb_c15920_1 = tb_digits((((tb_o_X64 *)tb_nn(v_g, 842))->q_vars)->len, tb_c15920_1d, &tb_c15920_1n); char *tb_c15920r = tb_tmem(tb_c15920_0n + tb_c15920_1n + 1), *tb_c15920rw = tb_c15920r; memcpy(tb_c15920rw, tb_c15920_0, tb_c15920_0n); tb_c15920rw += tb_c15920_0n; memcpy(tb_c15920rw, tb_c15920_1, tb_c15920_1n); tb_c15920rw += tb_c15920_1n; *tb_c15920rw = 0; (const char *)tb_c15920r; }));
-        f_x64__xas(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 843))->q_kids, 0LL, sizeof(tb_o_Node *), 843)), ((tb_o_Node *)tb_nn(v_n, 843))->q_ty);
+    } else if ((({ const char *tb_s15970 = v_k; ((unsigned char)tb_s15970[0] == 98 && (unsigned char)tb_s15970[1] == 105 && (unsigned char)tb_s15970[2] == 110 && (unsigned char)tb_s15970[3] == 111 && (unsigned char)tb_s15970[4] == 112 && tb_s15970[5] == 0); }) && ({ const char *tb_s15971 = ((tb_o_Node *)tb_nn(v_n, 1099))->q_value; ((unsigned char)tb_s15971[0] == 111 && (unsigned char)tb_s15971[1] == 114 && (unsigned char)tb_s15971[2] == 101 && (unsigned char)tb_s15971[3] == 108 && (unsigned char)tb_s15971[4] == 115 && (unsigned char)tb_s15971[5] == 101 && tb_s15971[6] == 0); }))) {
+        long long v_hold = f_x64__xslot(v_g, ({ const char *tb_c15972_0 = "#v"; long long tb_c15972_0n = sizeof("#v") - 1; char tb_c15972_1d[24]; long long tb_c15972_1n; const char *tb_c15972_1 = tb_digits((((tb_o_X64 *)tb_nn(v_g, 1100))->q_vars)->len, tb_c15972_1d, &tb_c15972_1n); char *tb_c15972r = tb_tmem(tb_c15972_0n + tb_c15972_1n + 1), *tb_c15972rw = tb_c15972r; memcpy(tb_c15972rw, tb_c15972_0, tb_c15972_0n); tb_c15972rw += tb_c15972_0n; memcpy(tb_c15972rw, tb_c15972_1, tb_c15972_1n); tb_c15972rw += tb_c15972_1n; *tb_c15972rw = 0; (const char *)tb_c15972r; }));
+        f_x64__xas(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1101))->q_kids, 0LL, sizeof(tb_o_Node *), 1101)), ((tb_o_Node *)tb_nn(v_n, 1101))->q_ty);
         f_x64__xstore_var(v_g, v_hold);
         long long v_ok = f_x64__xlabel(v_g);
         long long v_done = f_x64__xlabel(v_g);
@@ -43145,14 +43469,14 @@ TB_API void f_x64__xexpr(tb_o_X64 * v_g, tb_o_Comp * v_c, tb_o_Node * v_n) {
         f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 133LL, 201LL}));
         f_x64__xjump(v_g, tb_list_from_np(2, sizeof(long long), (long long[]){15LL, 132LL}), v_ok);
         f_x64__xbs(v_g, tb_list_from_np(7, sizeof(long long), (long long[]){72LL, 199LL, 0LL, 0LL, 0LL, 0LL, 0LL}));
-        f_x64__xas(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 851))->q_kids, 1LL, sizeof(tb_o_Node *), 851)), ((tb_o_Node *)tb_nn(v_n, 851))->q_ty);
+        f_x64__xas(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1109))->q_kids, 1LL, sizeof(tb_o_Node *), 1109)), ((tb_o_Node *)tb_nn(v_n, 1109))->q_ty);
         f_x64__xjump(v_g, tb_list_from_np(1, sizeof(long long), (long long[]){233LL}), v_done);
         f_x64__xplace(v_g, v_ok);
         f_x64__xload_var(v_g, v_hold);
         f_x64__xplace(v_g, v_done);
-    } else if (({ const char *tb_s15921 = v_k; ((unsigned char)tb_s15921[0] == 116 && (unsigned char)tb_s15921[1] == 114 && (unsigned char)tb_s15921[2] == 121 && tb_s15921[3] == 0); })) {
-        long long v_hold = f_x64__xslot(v_g, ({ const char *tb_c15922_0 = "#v"; long long tb_c15922_0n = sizeof("#v") - 1; char tb_c15922_1d[24]; long long tb_c15922_1n; const char *tb_c15922_1 = tb_digits((((tb_o_X64 *)tb_nn(v_g, 857))->q_vars)->len, tb_c15922_1d, &tb_c15922_1n); char *tb_c15922r = tb_tmem(tb_c15922_0n + tb_c15922_1n + 1), *tb_c15922rw = tb_c15922r; memcpy(tb_c15922rw, tb_c15922_0, tb_c15922_0n); tb_c15922rw += tb_c15922_0n; memcpy(tb_c15922rw, tb_c15922_1, tb_c15922_1n); tb_c15922rw += tb_c15922_1n; *tb_c15922rw = 0; (const char *)tb_c15922r; }));
-        f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 858))->q_kids, 0LL, sizeof(tb_o_Node *), 858)));
+    } else if (({ const char *tb_s15973 = v_k; ((unsigned char)tb_s15973[0] == 116 && (unsigned char)tb_s15973[1] == 114 && (unsigned char)tb_s15973[2] == 121 && tb_s15973[3] == 0); })) {
+        long long v_hold = f_x64__xslot(v_g, ({ const char *tb_c15974_0 = "#v"; long long tb_c15974_0n = sizeof("#v") - 1; char tb_c15974_1d[24]; long long tb_c15974_1n; const char *tb_c15974_1 = tb_digits((((tb_o_X64 *)tb_nn(v_g, 1115))->q_vars)->len, tb_c15974_1d, &tb_c15974_1n); char *tb_c15974r = tb_tmem(tb_c15974_0n + tb_c15974_1n + 1), *tb_c15974rw = tb_c15974r; memcpy(tb_c15974rw, tb_c15974_0, tb_c15974_0n); tb_c15974rw += tb_c15974_0n; memcpy(tb_c15974rw, tb_c15974_1, tb_c15974_1n); tb_c15974rw += tb_c15974_1n; *tb_c15974rw = 0; (const char *)tb_c15974r; }));
+        f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1116))->q_kids, 0LL, sizeof(tb_o_Node *), 1116)));
         f_x64__xstore_var(v_g, v_hold);
         long long v_ok = f_x64__xlabel(v_g);
         f_x64__xerr_load(v_g);
@@ -43162,52 +43486,52 @@ TB_API void f_x64__xexpr(tb_o_X64 * v_g, tb_o_Comp * v_c, tb_o_Node * v_n) {
         f_x64__xplace(v_g, v_ok);
         f_x64__xload_var(v_g, v_hold);
     } else {
-        f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_n, 868))->q_line, ({ const char *tb_c15923_0 = "«"; long long tb_c15923_0n = sizeof("«") - 1; const char *tb_c15923_1 = v_k; long long tb_c15923_1n = (long long)strlen(tb_c15923_1); const char *tb_c15923_2 = " "; long long tb_c15923_2n = sizeof(" ") - 1; const char *tb_c15923_3 = ((tb_o_Node *)tb_nn(v_n, 868))->q_name; long long tb_c15923_3n = (long long)strlen(tb_c15923_3); const char *tb_c15923_4 = "»"; long long tb_c15923_4n = sizeof("»") - 1; char *tb_c15923r = tb_tmem(tb_c15923_0n + tb_c15923_1n + tb_c15923_2n + tb_c15923_3n + tb_c15923_4n + 1), *tb_c15923rw = tb_c15923r; memcpy(tb_c15923rw, tb_c15923_0, tb_c15923_0n); tb_c15923rw += tb_c15923_0n; memcpy(tb_c15923rw, tb_c15923_1, tb_c15923_1n); tb_c15923rw += tb_c15923_1n; memcpy(tb_c15923rw, tb_c15923_2, tb_c15923_2n); tb_c15923rw += tb_c15923_2n; memcpy(tb_c15923rw, tb_c15923_3, tb_c15923_3n); tb_c15923rw += tb_c15923_3n; memcpy(tb_c15923rw, tb_c15923_4, tb_c15923_4n); tb_c15923rw += tb_c15923_4n; *tb_c15923rw = 0; (const char *)tb_c15923r; }));
+        f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_n, 1126))->q_line, ({ const char *tb_c15975_0 = "«"; long long tb_c15975_0n = sizeof("«") - 1; const char *tb_c15975_1 = v_k; long long tb_c15975_1n = (long long)strlen(tb_c15975_1); const char *tb_c15975_2 = " "; long long tb_c15975_2n = sizeof(" ") - 1; const char *tb_c15975_3 = ((tb_o_Node *)tb_nn(v_n, 1126))->q_name; long long tb_c15975_3n = (long long)strlen(tb_c15975_3); const char *tb_c15975_4 = "»"; long long tb_c15975_4n = sizeof("»") - 1; char *tb_c15975r = tb_tmem(tb_c15975_0n + tb_c15975_1n + tb_c15975_2n + tb_c15975_3n + tb_c15975_4n + 1), *tb_c15975rw = tb_c15975r; memcpy(tb_c15975rw, tb_c15975_0, tb_c15975_0n); tb_c15975rw += tb_c15975_0n; memcpy(tb_c15975rw, tb_c15975_1, tb_c15975_1n); tb_c15975rw += tb_c15975_1n; memcpy(tb_c15975rw, tb_c15975_2, tb_c15975_2n); tb_c15975rw += tb_c15975_2n; memcpy(tb_c15975rw, tb_c15975_3, tb_c15975_3n); tb_c15975rw += tb_c15975_3n; memcpy(tb_c15975rw, tb_c15975_4, tb_c15975_4n); tb_c15975rw += tb_c15975_4n; *tb_c15975rw = 0; (const char *)tb_c15975r; }));
     }
 }
 
 TB_API void f_x64__xcall_user(tb_o_X64 * v_g, tb_o_Comp * v_c, tb_o_Node * v_n) {
-    tb_o_Node * v_f = ((tb_o_Node *)tb_nn(v_n, 871))->q_ref;
-    if (((((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_f, 872))->q_kids, 2LL, sizeof(tb_o_Node *), 872)), 872))->q_kids)->len > 1LL)) {
-        f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_n, 873))->q_line, "функции с несколькими выходами");
+    tb_o_Node * v_f = ((tb_o_Node *)tb_nn(v_n, 1129))->q_ref;
+    if (((((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_f, 1130))->q_kids, 2LL, sizeof(tb_o_Node *), 1130)), 1130))->q_kids)->len > 1LL)) {
+        f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_n, 1131))->q_line, "функции с несколькими выходами");
         return;
     }
-    if (((((tb_o_Node *)tb_nn(v_n, 875))->q_kids)->len > 6LL)) {
-        f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_n, 876))->q_line, "больше 6 параметров");
+    if (((((tb_o_Node *)tb_nn(v_n, 1133))->q_kids)->len > 6LL)) {
+        f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_n, 1134))->q_line, "больше 6 параметров");
         return;
     }
     {
-        tb_list * tb_l15924 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_f, 878))->q_kids, 0LL, sizeof(tb_o_Node *), 878)), 878))->q_kids;
-        for (long long tb_i15924 = 0; tb_i15924 < tb_l15924->len; tb_i15924++) {
-            tb_o_Node * const v_p = ((tb_o_Node * *)tb_l15924->data)[tb_i15924];
-            if (((tb_o_Node *)tb_nn(v_p, 879))->q_is_link) {
-                f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_n, 880))->q_line, "параметры link");
+        tb_list * tb_l15976 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_f, 1136))->q_kids, 0LL, sizeof(tb_o_Node *), 1136)), 1136))->q_kids;
+        for (long long tb_i15976 = 0; tb_i15976 < tb_l15976->len; tb_i15976++) {
+            tb_o_Node * const v_p = ((tb_o_Node * *)tb_l15976->data)[tb_i15976];
+            if (((tb_o_Node *)tb_nn(v_p, 1137))->q_is_link) {
+                f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_n, 1138))->q_line, "параметры link");
                 return;
             }
         }
     }
     {
-        long long tb_end15925 = tb_subo((((tb_o_Node *)tb_nn(v_n, 882))->q_kids)->len, 1LL, 882);
-        for (long long v_i = 0LL; v_i <= tb_end15925; v_i++) {
-            f_x64__xas(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 883))->q_kids, v_i, sizeof(tb_o_Node *), 883)), 883))->q_kids, 0LL, sizeof(tb_o_Node *), 883)), ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_f, 883))->q_kids, 0LL, sizeof(tb_o_Node *), 883)), 883))->q_kids, v_i, sizeof(tb_o_Node *), 883)), 883))->q_ty);
+        long long tb_end15977 = tb_subo((((tb_o_Node *)tb_nn(v_n, 1140))->q_kids)->len, 1LL, 1140);
+        for (long long v_i = 0LL; v_i <= tb_end15977; v_i++) {
+            f_x64__xas(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1141))->q_kids, v_i, sizeof(tb_o_Node *), 1141)), 1141))->q_kids, 0LL, sizeof(tb_o_Node *), 1141)), ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_f, 1141))->q_kids, 0LL, sizeof(tb_o_Node *), 1141)), 1141))->q_kids, v_i, sizeof(tb_o_Node *), 1141)), 1141))->q_ty);
             f_x64__xpush(v_g);
         }
     }
     tb_list * v_regs = tb_list_from(6, sizeof(tb_list *), (tb_list *[]){tb_list_from_np(1, sizeof(long long), (long long[]){95LL}), tb_list_from_np(1, sizeof(long long), (long long[]){94LL}), tb_list_from_np(1, sizeof(long long), (long long[]){90LL}), tb_list_from_np(1, sizeof(long long), (long long[]){89LL}), tb_list_from_np(2, sizeof(long long), (long long[]){65LL, 88LL}), tb_list_from_np(2, sizeof(long long), (long long[]){65LL, 89LL})});
-    long long v_i = tb_subo((((tb_o_Node *)tb_nn(v_n, 887))->q_kids)->len, 1LL, 887);
+    long long v_i = tb_subo((((tb_o_Node *)tb_nn(v_n, 1145))->q_kids)->len, 1LL, 1145);
     while ((v_i >= 0LL)) {
-        f_x64__xbs(v_g, (*(tb_list * *)tb_at(v_regs, v_i, sizeof(tb_list *), 889)));
-        { long long tb_v15926 = 1LL; long long *tb_p15926 = &(((tb_o_X64 *)tb_nn(v_g, 890))->q_depth); *tb_p15926 = tb_subo(*tb_p15926, tb_v15926, 890); }
-        { long long tb_v15927 = 1LL; long long *tb_p15927 = &(v_i); *tb_p15927 = tb_subo(*tb_p15927, tb_v15927, 891); }
+        f_x64__xbs(v_g, (*(tb_list * *)tb_at(v_regs, v_i, sizeof(tb_list *), 1147)));
+        { long long tb_v15978 = 1LL; long long *tb_p15978 = &(((tb_o_X64 *)tb_nn(v_g, 1148))->q_depth); *tb_p15978 = tb_subo(*tb_p15978, tb_v15978, 1148); }
+        { long long tb_v15979 = 1LL; long long *tb_p15979 = &(v_i); *tb_p15979 = tb_subo(*tb_p15979, tb_v15979, 1149); }
     }
     f_x64__xcall(v_g, f_emit_ll__ll_fname(v_f));
 }
 
 TB_API void f_x64__xprint(tb_o_X64 * v_g, tb_o_Comp * v_c, tb_o_Node * v_n, _Bool v_newline) {
     {
-        long long tb_end15928 = tb_subo((((tb_o_Node *)tb_nn(v_n, 895))->q_kids)->len, 1LL, 895);
-        for (long long v_i = 0LL; v_i <= tb_end15928; v_i++) {
-            tb_o_Node * v_v = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 896))->q_kids, v_i, sizeof(tb_o_Node *), 896)), 896))->q_kids, 0LL, sizeof(tb_o_Node *), 896));
+        long long tb_end15980 = tb_subo((((tb_o_Node *)tb_nn(v_n, 1153))->q_kids)->len, 1LL, 1153);
+        for (long long v_i = 0LL; v_i <= tb_end15980; v_i++) {
+            tb_o_Node * v_v = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1154))->q_kids, v_i, sizeof(tb_o_Node *), 1154)), 1154))->q_kids, 0LL, sizeof(tb_o_Node *), 1154));
             if ((v_i > 0LL)) {
                 f_x64__xstring_raw(v_g, " ");
                 f_x64__xmov_rdi(v_g);
@@ -43215,20 +43539,20 @@ TB_API void f_x64__xprint(tb_o_X64 * v_g, tb_o_Comp * v_c, tb_o_Node * v_n, _Boo
             }
             f_x64__xexpr(v_g, v_c, v_v);
             f_x64__xmov_rdi(v_g);
-            const char * v_vk = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_v, 903))->q_ty);
-            if (({ const char *tb_s15929 = v_vk; ((unsigned char)tb_s15929[0] == 105 && (unsigned char)tb_s15929[1] == 110 && (unsigned char)tb_s15929[2] == 116 && tb_s15929[3] == 0); })) {
+            const char * v_vk = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_v, 1161))->q_ty);
+            if (({ const char *tb_s15981 = v_vk; ((unsigned char)tb_s15981[0] == 105 && (unsigned char)tb_s15981[1] == 110 && (unsigned char)tb_s15981[2] == 116 && tb_s15981[3] == 0); })) {
                 f_x64__xcall(v_g, "tb_x_show_i");
-            } else if (({ const char *tb_s15930 = v_vk; ((unsigned char)tb_s15930[0] == 98 && (unsigned char)tb_s15930[1] == 111 && (unsigned char)tb_s15930[2] == 111 && (unsigned char)tb_s15930[3] == 108 && tb_s15930[4] == 0); })) {
+            } else if (({ const char *tb_s15982 = v_vk; ((unsigned char)tb_s15982[0] == 98 && (unsigned char)tb_s15982[1] == 111 && (unsigned char)tb_s15982[2] == 111 && (unsigned char)tb_s15982[3] == 108 && tb_s15982[4] == 0); })) {
                 f_x64__xcall(v_g, "tb_x_btos");
                 f_x64__xmov_rdi(v_g);
                 f_x64__xcall(v_g, "tb_x_ps");
-            } else if (({ const char *tb_s15931 = v_vk; ((unsigned char)tb_s15931[0] == 116 && (unsigned char)tb_s15931[1] == 101 && (unsigned char)tb_s15931[2] == 120 && (unsigned char)tb_s15931[3] == 116 && tb_s15931[4] == 0); })) {
+            } else if (({ const char *tb_s15983 = v_vk; ((unsigned char)tb_s15983[0] == 116 && (unsigned char)tb_s15983[1] == 101 && (unsigned char)tb_s15983[2] == 120 && (unsigned char)tb_s15983[3] == 116 && tb_s15983[4] == 0); })) {
                 f_x64__xcall(v_g, "tb_x_ps");
-            } else if (({ const char *tb_s15932 = v_vk; ((unsigned char)tb_s15932[0] == 100 && (unsigned char)tb_s15932[1] == 101 && (unsigned char)tb_s15932[2] == 99 && tb_s15932[3] == 0); })) {
+            } else if (({ const char *tb_s15984 = v_vk; ((unsigned char)tb_s15984[0] == 100 && (unsigned char)tb_s15984[1] == 101 && (unsigned char)tb_s15984[2] == 99 && tb_s15984[3] == 0); })) {
                 f_x64__xmov_xmm0(v_g);
                 f_x64__xcall(v_g, "tb_x_show_d");
             } else {
-                f_x64__xshow_val(v_g, v_c, ((tb_o_Node *)tb_nn(v_v, 916))->q_ty, ((tb_o_Node *)tb_nn(v_v, 916))->q_line);
+                f_x64__xshow_val(v_g, v_c, ((tb_o_Node *)tb_nn(v_v, 1174))->q_ty, ((tb_o_Node *)tb_nn(v_v, 1174))->q_line);
             }
         }
     }
@@ -43241,81 +43565,125 @@ TB_API void f_x64__xprint(tb_o_X64 * v_g, tb_o_Comp * v_c, tb_o_Node * v_n, _Boo
 
 TB_API void f_x64__xblock(tb_o_X64 * v_g, tb_o_Comp * v_c, tb_o_Node * v_b) {
     {
-        tb_list * tb_l15933 = ((tb_o_Node *)tb_nn(v_b, 923))->q_kids;
-        for (long long tb_i15933 = 0; tb_i15933 < tb_l15933->len; tb_i15933++) {
-            tb_o_Node * const v_s = ((tb_o_Node * *)tb_l15933->data)[tb_i15933];
+        tb_list * tb_l15985 = ((tb_o_Node *)tb_nn(v_b, 1181))->q_kids;
+        for (long long tb_i15985 = 0; tb_i15985 < tb_l15985->len; tb_i15985++) {
+            tb_o_Node * const v_s = ((tb_o_Node * *)tb_l15985->data)[tb_i15985];
             f_x64__xstmt(v_g, v_c, v_s);
         }
     }
 }
 
 TB_API void f_x64__xloop_body(tb_o_X64 * v_g, tb_o_Comp * v_c, tb_o_Node * v_body, long long v_cont, long long v_out) {
-    { long long tb_v15934 = v_cont; *(long long *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 927))->q_cont) = tb_v15934; }
-    { long long tb_v15935 = v_out; *(long long *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 928))->q_brk) = tb_v15935; }
+    if ((!f_memplan__auto_temp_ok(v_c, v_body))) {
+        { long long tb_v15986 = v_cont; *(long long *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 1186))->q_cont) = tb_v15986; }
+        { long long tb_v15987 = v_out; *(long long *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 1187))->q_brk) = tb_v15987; }
+        f_x64__xblock(v_g, v_c, v_body);
+        long long v_gone_c = (*(long long *)tb_pop(((tb_o_X64 *)tb_nn(v_g, 1189))->q_cont, 1189));
+        long long v_gone_b = (*(long long *)tb_pop(((tb_o_X64 *)tb_nn(v_g, 1190))->q_brk, 1190));
+        return;
+    }
+    long long v_first = (((tb_o_X64 *)tb_nn(v_g, 1193))->q_vars)->len;
+    { const char * tb_v15988 = ({ const char *tb_c15989_0 = "#am"; long long tb_c15989_0n = sizeof("#am") - 1; char tb_c15989_1d[24]; long long tb_c15989_1n; const char *tb_c15989_1 = tb_digits(v_first, tb_c15989_1d, &tb_c15989_1n); char *tb_c15989r = tb_tmem(tb_c15989_0n + tb_c15989_1n + 1), *tb_c15989rw = tb_c15989r; memcpy(tb_c15989rw, tb_c15989_0, tb_c15989_0n); tb_c15989rw += tb_c15989_0n; memcpy(tb_c15989rw, tb_c15989_1, tb_c15989_1n); tb_c15989rw += tb_c15989_1n; *tb_c15989rw = 0; (const char *)tb_c15989r; }); *(const char * *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 1194))->q_vars) = tb_v15988; }
+    { const char * tb_v15990 = ({ const char *tb_c15991_0 = "#am"; long long tb_c15991_0n = sizeof("#am") - 1; char tb_c15991_1d[24]; long long tb_c15991_1n; const char *tb_c15991_1 = tb_digits(v_first, tb_c15991_1d, &tb_c15991_1n); const char *tb_c15991_2 = "b"; long long tb_c15991_2n = sizeof("b") - 1; char *tb_c15991r = tb_tmem(tb_c15991_0n + tb_c15991_1n + tb_c15991_2n + 1), *tb_c15991rw = tb_c15991r; memcpy(tb_c15991rw, tb_c15991_0, tb_c15991_0n); tb_c15991rw += tb_c15991_0n; memcpy(tb_c15991rw, tb_c15991_1, tb_c15991_1n); tb_c15991rw += tb_c15991_1n; memcpy(tb_c15991rw, tb_c15991_2, tb_c15991_2n); tb_c15991rw += tb_c15991_2n; *tb_c15991rw = 0; (const char *)tb_c15991r; }); *(const char * *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 1195))->q_vars) = tb_v15990; }
+    f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 141LL, 189LL}));
+    f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 1197), tb_addo(v_first, 2LL, 1197), 1197));
+    f_x64__xcall(v_g, "tb_x_temp_begin_p");
+    long long v_rel = f_x64__xlabel(v_g);
+    { long long tb_v15992 = v_rel; *(long long *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 1200))->q_cont) = tb_v15992; }
+    { long long tb_v15993 = v_out; *(long long *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 1201))->q_brk) = tb_v15993; }
     f_x64__xblock(v_g, v_c, v_body);
-    long long v_gone_c = (*(long long *)tb_pop(((tb_o_X64 *)tb_nn(v_g, 930))->q_cont, 930));
-    long long v_gone_b = (*(long long *)tb_pop(((tb_o_X64 *)tb_nn(v_g, 931))->q_brk, 931));
+    long long v_gone_c = (*(long long *)tb_pop(((tb_o_X64 *)tb_nn(v_g, 1203))->q_cont, 1203));
+    long long v_gone_b = (*(long long *)tb_pop(((tb_o_X64 *)tb_nn(v_g, 1204))->q_brk, 1204));
+    f_x64__xplace(v_g, v_rel);
+    f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 141LL, 189LL}));
+    f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 1207), tb_addo(v_first, 2LL, 1207), 1207));
+    f_x64__xcall(v_g, "tb_x_temp_end_p");
+    f_x64__xjump(v_g, tb_list_from_np(1, sizeof(long long), (long long[]){233LL}), v_cont);
 }
 
 TB_API void f_x64__xstmt(tb_o_X64 * v_g, tb_o_Comp * v_c, tb_o_Node * v_n) {
-    const char * v_k = ((tb_o_Node *)tb_nn(v_n, 934))->q_kind;
-    if (({ const char *tb_s15936 = v_k; ((unsigned char)tb_s15936[0] == 97 && (unsigned char)tb_s15936[1] == 115 && (unsigned char)tb_s15936[2] == 115 && (unsigned char)tb_s15936[3] == 105 && (unsigned char)tb_s15936[4] == 103 && (unsigned char)tb_s15936[5] == 110 && tb_s15936[6] == 0); })) {
-        if (((((tb_o_Node *)tb_nn(v_n, 936))->q_kids)->len == 0LL)) {
-            f_x64__xdefault(v_g, v_c, ((tb_o_Node *)tb_nn(v_n, 937))->q_ty, ((tb_o_Node *)tb_nn(v_n, 937))->q_line);
+    const char * v_k = ((tb_o_Node *)tb_nn(v_n, 1212))->q_kind;
+    if (({ const char *tb_s15994 = v_k; ((unsigned char)tb_s15994[0] == 97 && (unsigned char)tb_s15994[1] == 115 && (unsigned char)tb_s15994[2] == 115 && (unsigned char)tb_s15994[3] == 105 && (unsigned char)tb_s15994[4] == 103 && (unsigned char)tb_s15994[5] == 110 && tb_s15994[6] == 0); })) {
+        if (((((tb_o_Node *)tb_nn(v_n, 1214))->q_kids)->len == 0LL)) {
+            f_x64__xdefault(v_g, v_c, ((tb_o_Node *)tb_nn(v_n, 1215))->q_ty, ((tb_o_Node *)tb_nn(v_n, 1215))->q_line);
         } else {
-            f_x64__xas(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 939))->q_kids, 0LL, sizeof(tb_o_Node *), 939)), ((tb_o_Node *)tb_nn(v_n, 939))->q_ty);
+            f_x64__xas(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1217))->q_kids, 0LL, sizeof(tb_o_Node *), 1217)), ((tb_o_Node *)tb_nn(v_n, 1217))->q_ty);
         }
-        f_x64__xstore_name(v_g, ((tb_o_Node *)tb_nn(v_n, 940))->q_name);
-    } else if (((({ const char *tb_s15937 = v_k; ((unsigned char)tb_s15937[0] == 115 && (unsigned char)tb_s15937[1] == 101 && (unsigned char)tb_s15937[2] == 116 && tb_s15937[3] == 0); }) && ({ const char *tb_s15938 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 941))->q_kids, 0LL, sizeof(tb_o_Node *), 941)), 941))->q_kind; ((unsigned char)tb_s15938[0] == 105 && (unsigned char)tb_s15938[1] == 110 && (unsigned char)tb_s15938[2] == 100 && (unsigned char)tb_s15938[3] == 101 && (unsigned char)tb_s15938[4] == 120 && tb_s15938[5] == 0); })) && ({ const char *tb_s15939 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 941))->q_kids, 0LL, sizeof(tb_o_Node *), 941)), 941))->q_kids, 0LL, sizeof(tb_o_Node *), 941)), 941))->q_ty); ((unsigned char)tb_s15939[0] == 108 && (unsigned char)tb_s15939[1] == 105 && (unsigned char)tb_s15939[2] == 115 && (unsigned char)tb_s15939[3] == 116 && tb_s15939[4] == 0); }))) {
-        tb_o_Node * v_t = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 943))->q_kids, 0LL, sizeof(tb_o_Node *), 943));
-        if ((!f_x64__xlist_ok(v_g, v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_t, 944))->q_kids, 0LL, sizeof(tb_o_Node *), 944)), 944))->q_ty, ((tb_o_Node *)tb_nn(v_n, 944))->q_line))) {
+        f_x64__xstore_name(v_g, ((tb_o_Node *)tb_nn(v_n, 1218))->q_name);
+    } else if (((({ const char *tb_s15995 = v_k; ((unsigned char)tb_s15995[0] == 115 && (unsigned char)tb_s15995[1] == 101 && (unsigned char)tb_s15995[2] == 116 && tb_s15995[3] == 0); }) && ({ const char *tb_s15996 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1219))->q_kids, 0LL, sizeof(tb_o_Node *), 1219)), 1219))->q_kind; ((unsigned char)tb_s15996[0] == 105 && (unsigned char)tb_s15996[1] == 110 && (unsigned char)tb_s15996[2] == 100 && (unsigned char)tb_s15996[3] == 101 && (unsigned char)tb_s15996[4] == 120 && tb_s15996[5] == 0); })) && ({ const char *tb_s15997 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1219))->q_kids, 0LL, sizeof(tb_o_Node *), 1219)), 1219))->q_kids, 0LL, sizeof(tb_o_Node *), 1219)), 1219))->q_ty); ((unsigned char)tb_s15997[0] == 108 && (unsigned char)tb_s15997[1] == 105 && (unsigned char)tb_s15997[2] == 115 && (unsigned char)tb_s15997[3] == 116 && tb_s15997[4] == 0); }))) {
+        tb_o_Node * v_t = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1221))->q_kids, 0LL, sizeof(tb_o_Node *), 1221));
+        if ((!f_x64__xlist_ok(v_g, v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_t, 1222))->q_kids, 0LL, sizeof(tb_o_Node *), 1222)), 1222))->q_ty, ((tb_o_Node *)tb_nn(v_n, 1222))->q_line))) {
             return;
         }
-        long long v_et = ((tb_o_Type *)tb_nn((*(tb_o_Type * *)tb_at(((tb_o_Comp *)tb_nn(v_c, 946))->q_types, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_t, 946))->q_kids, 0LL, sizeof(tb_o_Node *), 946)), 946))->q_ty, sizeof(tb_o_Type *), 946)), 946))->q_elem;
-        long long v_hold = f_x64__xslot(v_g, ({ const char *tb_c15940_0 = "#v"; long long tb_c15940_0n = sizeof("#v") - 1; char tb_c15940_1d[24]; long long tb_c15940_1n; const char *tb_c15940_1 = tb_digits((((tb_o_X64 *)tb_nn(v_g, 947))->q_vars)->len, tb_c15940_1d, &tb_c15940_1n); char *tb_c15940r = tb_tmem(tb_c15940_0n + tb_c15940_1n + 1), *tb_c15940rw = tb_c15940r; memcpy(tb_c15940rw, tb_c15940_0, tb_c15940_0n); tb_c15940rw += tb_c15940_0n; memcpy(tb_c15940rw, tb_c15940_1, tb_c15940_1n); tb_c15940rw += tb_c15940_1n; *tb_c15940rw = 0; (const char *)tb_c15940r; }));
-        f_x64__xas(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 948))->q_kids, 1LL, sizeof(tb_o_Node *), 948)), v_et);
+        long long v_et = ((tb_o_Type *)tb_nn((*(tb_o_Type * *)tb_at(((tb_o_Comp *)tb_nn(v_c, 1224))->q_types, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_t, 1224))->q_kids, 0LL, sizeof(tb_o_Node *), 1224)), 1224))->q_ty, sizeof(tb_o_Type *), 1224)), 1224))->q_elem;
+        long long v_hold = f_x64__xslot(v_g, ({ const char *tb_c15998_0 = "#v"; long long tb_c15998_0n = sizeof("#v") - 1; char tb_c15998_1d[24]; long long tb_c15998_1n; const char *tb_c15998_1 = tb_digits((((tb_o_X64 *)tb_nn(v_g, 1225))->q_vars)->len, tb_c15998_1d, &tb_c15998_1n); char *tb_c15998r = tb_tmem(tb_c15998_0n + tb_c15998_1n + 1), *tb_c15998rw = tb_c15998r; memcpy(tb_c15998rw, tb_c15998_0, tb_c15998_0n); tb_c15998rw += tb_c15998_0n; memcpy(tb_c15998rw, tb_c15998_1, tb_c15998_1n); tb_c15998rw += tb_c15998_1n; *tb_c15998rw = 0; (const char *)tb_c15998r; }));
+        f_x64__xas(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1226))->q_kids, 1LL, sizeof(tb_o_Node *), 1226)), v_et);
         f_x64__xstore_var(v_g, v_hold);
-        f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_t, 950))->q_kids, 0LL, sizeof(tb_o_Node *), 950)));
+        f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_t, 1228))->q_kids, 0LL, sizeof(tb_o_Node *), 1228)));
         f_x64__xpush(v_g);
-        f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_t, 952))->q_kids, 1LL, sizeof(tb_o_Node *), 952)));
-        f_x64__xelem_addr(v_g, ((tb_o_Node *)tb_nn(v_n, 953))->q_line);
-        f_x64__xstore_at_rdx(v_g, v_c, ((tb_o_Node *)tb_nn(v_n, 954))->q_value, v_et, v_hold, ((tb_o_Node *)tb_nn(v_n, 954))->q_line);
-    } else if (((({ const char *tb_s15941 = v_k; ((unsigned char)tb_s15941[0] == 115 && (unsigned char)tb_s15941[1] == 101 && (unsigned char)tb_s15941[2] == 116 && tb_s15941[3] == 0); }) && ({ const char *tb_s15942 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 955))->q_kids, 0LL, sizeof(tb_o_Node *), 955)), 955))->q_kind; ((unsigned char)tb_s15942[0] == 102 && (unsigned char)tb_s15942[1] == 105 && (unsigned char)tb_s15942[2] == 101 && (unsigned char)tb_s15942[3] == 108 && (unsigned char)tb_s15942[4] == 100 && tb_s15942[5] == 0); })) && ({ const char *tb_s15943 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 955))->q_kids, 0LL, sizeof(tb_o_Node *), 955)), 955))->q_kids, 0LL, sizeof(tb_o_Node *), 955)), 955))->q_ty); ((unsigned char)tb_s15943[0] == 111 && (unsigned char)tb_s15943[1] == 98 && (unsigned char)tb_s15943[2] == 106 && tb_s15943[3] == 0); }))) {
-        tb_o_Node * v_t = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 956))->q_kids, 0LL, sizeof(tb_o_Node *), 956));
-        if ((!f_x64__xobj_ok(v_g, v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_t, 957))->q_kids, 0LL, sizeof(tb_o_Node *), 957)), 957))->q_ty, ((tb_o_Node *)tb_nn(v_n, 957))->q_line))) {
+        f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_t, 1230))->q_kids, 1LL, sizeof(tb_o_Node *), 1230)));
+        f_x64__xelem_addr(v_g, ((tb_o_Node *)tb_nn(v_n, 1231))->q_line);
+        f_x64__xstore_at_rdx(v_g, v_c, ((tb_o_Node *)tb_nn(v_n, 1232))->q_value, v_et, v_hold, ((tb_o_Node *)tb_nn(v_n, 1232))->q_line);
+    } else if (((({ const char *tb_s15999 = v_k; ((unsigned char)tb_s15999[0] == 115 && (unsigned char)tb_s15999[1] == 101 && (unsigned char)tb_s15999[2] == 116 && tb_s15999[3] == 0); }) && ({ const char *tb_s16000 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1233))->q_kids, 0LL, sizeof(tb_o_Node *), 1233)), 1233))->q_kind; ((unsigned char)tb_s16000[0] == 105 && (unsigned char)tb_s16000[1] == 110 && (unsigned char)tb_s16000[2] == 100 && (unsigned char)tb_s16000[3] == 101 && (unsigned char)tb_s16000[4] == 120 && tb_s16000[5] == 0); })) && ({ const char *tb_s16001 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1233))->q_kids, 0LL, sizeof(tb_o_Node *), 1233)), 1233))->q_kids, 0LL, sizeof(tb_o_Node *), 1233)), 1233))->q_ty); ((unsigned char)tb_s16001[0] == 100 && (unsigned char)tb_s16001[1] == 105 && (unsigned char)tb_s16001[2] == 99 && (unsigned char)tb_s16001[3] == 116 && tb_s16001[4] == 0); }))) {
+        tb_o_Node * v_t = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1235))->q_kids, 0LL, sizeof(tb_o_Node *), 1235));
+        long long v_dt = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_t, 1236))->q_kids, 0LL, sizeof(tb_o_Node *), 1236)), 1236))->q_ty;
+        if ((!f_x64__xdict_ok(v_g, v_c, v_dt, ((tb_o_Node *)tb_nn(v_n, 1237))->q_line))) {
             return;
         }
-        long long v_fi = f_x64__xfield_index(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_t, 959))->q_kids, 0LL, sizeof(tb_o_Node *), 959)), 959))->q_ty, ((tb_o_Node *)tb_nn(v_t, 959))->q_name);
-        long long v_et = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(((tb_o_Type *)tb_nn((*(tb_o_Type * *)tb_at(((tb_o_Comp *)tb_nn(v_c, 960))->q_types, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_t, 960))->q_kids, 0LL, sizeof(tb_o_Node *), 960)), 960))->q_ty, sizeof(tb_o_Type *), 960)), 960))->q_obj_node, 960))->q_kids, v_fi, sizeof(tb_o_Node *), 960)), 960))->q_ty;
-        long long v_hold = f_x64__xslot(v_g, ({ const char *tb_c15944_0 = "#v"; long long tb_c15944_0n = sizeof("#v") - 1; char tb_c15944_1d[24]; long long tb_c15944_1n; const char *tb_c15944_1 = tb_digits((((tb_o_X64 *)tb_nn(v_g, 961))->q_vars)->len, tb_c15944_1d, &tb_c15944_1n); char *tb_c15944r = tb_tmem(tb_c15944_0n + tb_c15944_1n + 1), *tb_c15944rw = tb_c15944r; memcpy(tb_c15944rw, tb_c15944_0, tb_c15944_0n); tb_c15944rw += tb_c15944_0n; memcpy(tb_c15944rw, tb_c15944_1, tb_c15944_1n); tb_c15944rw += tb_c15944_1n; *tb_c15944rw = 0; (const char *)tb_c15944r; }));
-        f_x64__xas(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 962))->q_kids, 1LL, sizeof(tb_o_Node *), 962)), v_et);
+        long long v_vt = ((tb_o_Type *)tb_nn((*(tb_o_Type * *)tb_at(((tb_o_Comp *)tb_nn(v_c, 1239))->q_types, v_dt, sizeof(tb_o_Type *), 1239)), 1239))->q_elem;
+        long long v_hold = f_x64__xslot(v_g, ({ const char *tb_c16002_0 = "#v"; long long tb_c16002_0n = sizeof("#v") - 1; char tb_c16002_1d[24]; long long tb_c16002_1n; const char *tb_c16002_1 = tb_digits((((tb_o_X64 *)tb_nn(v_g, 1240))->q_vars)->len, tb_c16002_1d, &tb_c16002_1n); char *tb_c16002r = tb_tmem(tb_c16002_0n + tb_c16002_1n + 1), *tb_c16002rw = tb_c16002r; memcpy(tb_c16002rw, tb_c16002_0, tb_c16002_0n); tb_c16002rw += tb_c16002_0n; memcpy(tb_c16002rw, tb_c16002_1, tb_c16002_1n); tb_c16002rw += tb_c16002_1n; *tb_c16002rw = 0; (const char *)tb_c16002r; }));
+        if ((({ const char *tb_s16003 = f_check__kind_of(v_c, v_vt); ((unsigned char)tb_s16003[0] == 116 && (unsigned char)tb_s16003[1] == 101 && (unsigned char)tb_s16003[2] == 120 && (unsigned char)tb_s16003[3] == 116 && tb_s16003[4] == 0); }) && ({ const char *tb_s16004 = ((tb_o_Node *)tb_nn(v_n, 1241))->q_value; ((unsigned char)tb_s16004[0] == 43 && (unsigned char)tb_s16004[1] == 61 && tb_s16004[2] == 0); }))) {
+            f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_n, 1242))->q_line, "d[k] += у текста");
+            return;
+        }
+        f_x64__xas(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1244))->q_kids, 1LL, sizeof(tb_o_Node *), 1244)), v_vt);
         f_x64__xstore_var(v_g, v_hold);
-        f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_t, 964))->q_kids, 0LL, sizeof(tb_o_Node *), 964)));
-        f_x64__xnull_check(v_g, ((tb_o_Node *)tb_nn(v_n, 965))->q_line);
+        f_x64__xdput(v_g, v_c, v_dt, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_t, 1246))->q_kids, 0LL, sizeof(tb_o_Node *), 1246)), (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_t, 1246))->q_kids, 1LL, sizeof(tb_o_Node *), 1246)));
+        f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 137LL, 194LL}));
+        { _Bool tb_v16005 = 1; _Bool *tb_p16005 = &(((tb_o_X64 *)tb_nn(v_g, 1248))->q_byte_store); *tb_p16005 = tb_v16005; }
+        if ((({ const char *tb_s16006 = f_check__kind_of(v_c, v_vt); ((unsigned char)tb_s16006[0] == 98 && (unsigned char)tb_s16006[1] == 111 && (unsigned char)tb_s16006[2] == 111 && (unsigned char)tb_s16006[3] == 108 && tb_s16006[4] == 0); }) && ({ const char *tb_s16007 = ((tb_o_Node *)tb_nn(v_n, 1249))->q_value; !((unsigned char)tb_s16007[0] == 61 && tb_s16007[1] == 0); }))) {
+            f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_n, 1250))->q_line, ({ const char *tb_c16008_0 = "знак "; long long tb_c16008_0n = sizeof("знак ") - 1; const char *tb_c16008_1 = ((tb_o_Node *)tb_nn(v_n, 1250))->q_value; long long tb_c16008_1n = (long long)strlen(tb_c16008_1); const char *tb_c16008_2 = " у bool"; long long tb_c16008_2n = sizeof(" у bool") - 1; char *tb_c16008r = tb_tmem(tb_c16008_0n + tb_c16008_1n + tb_c16008_2n + 1), *tb_c16008rw = tb_c16008r; memcpy(tb_c16008rw, tb_c16008_0, tb_c16008_0n); tb_c16008rw += tb_c16008_0n; memcpy(tb_c16008rw, tb_c16008_1, tb_c16008_1n); tb_c16008rw += tb_c16008_1n; memcpy(tb_c16008rw, tb_c16008_2, tb_c16008_2n); tb_c16008rw += tb_c16008_2n; *tb_c16008rw = 0; (const char *)tb_c16008r; }));
+        }
+        f_x64__xstore_at_rdx(v_g, v_c, ((tb_o_Node *)tb_nn(v_n, 1251))->q_value, v_vt, v_hold, ((tb_o_Node *)tb_nn(v_n, 1251))->q_line);
+        { _Bool tb_v16009 = 0; _Bool *tb_p16009 = &(((tb_o_X64 *)tb_nn(v_g, 1252))->q_byte_store); *tb_p16009 = tb_v16009; }
+    } else if ((((strcmp(v_k, "expr_stmt") == 0) && ({ const char *tb_s16010 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1253))->q_kids, 0LL, sizeof(tb_o_Node *), 1253)), 1253))->q_kind; ((unsigned char)tb_s16010[0] == 109 && (unsigned char)tb_s16010[1] == 101 && (unsigned char)tb_s16010[2] == 116 && (unsigned char)tb_s16010[3] == 104 && (unsigned char)tb_s16010[4] == 111 && (unsigned char)tb_s16010[5] == 100 && tb_s16010[6] == 0); })) && ({ const char *tb_s16011 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1253))->q_kids, 0LL, sizeof(tb_o_Node *), 1253)), 1253))->q_kids, 0LL, sizeof(tb_o_Node *), 1253)), 1253))->q_ty); ((unsigned char)tb_s16011[0] == 100 && (unsigned char)tb_s16011[1] == 105 && (unsigned char)tb_s16011[2] == 99 && (unsigned char)tb_s16011[3] == 116 && tb_s16011[4] == 0); }))) {
+        f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1254))->q_kids, 0LL, sizeof(tb_o_Node *), 1254)));
+    } else if (((({ const char *tb_s16012 = v_k; ((unsigned char)tb_s16012[0] == 115 && (unsigned char)tb_s16012[1] == 101 && (unsigned char)tb_s16012[2] == 116 && tb_s16012[3] == 0); }) && ({ const char *tb_s16013 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1255))->q_kids, 0LL, sizeof(tb_o_Node *), 1255)), 1255))->q_kind; ((unsigned char)tb_s16013[0] == 102 && (unsigned char)tb_s16013[1] == 105 && (unsigned char)tb_s16013[2] == 101 && (unsigned char)tb_s16013[3] == 108 && (unsigned char)tb_s16013[4] == 100 && tb_s16013[5] == 0); })) && ({ const char *tb_s16014 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1255))->q_kids, 0LL, sizeof(tb_o_Node *), 1255)), 1255))->q_kids, 0LL, sizeof(tb_o_Node *), 1255)), 1255))->q_ty); ((unsigned char)tb_s16014[0] == 111 && (unsigned char)tb_s16014[1] == 98 && (unsigned char)tb_s16014[2] == 106 && tb_s16014[3] == 0); }))) {
+        tb_o_Node * v_t = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1256))->q_kids, 0LL, sizeof(tb_o_Node *), 1256));
+        if ((!f_x64__xobj_ok(v_g, v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_t, 1257))->q_kids, 0LL, sizeof(tb_o_Node *), 1257)), 1257))->q_ty, ((tb_o_Node *)tb_nn(v_n, 1257))->q_line))) {
+            return;
+        }
+        long long v_fi = f_x64__xfield_index(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_t, 1259))->q_kids, 0LL, sizeof(tb_o_Node *), 1259)), 1259))->q_ty, ((tb_o_Node *)tb_nn(v_t, 1259))->q_name);
+        long long v_et = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(((tb_o_Type *)tb_nn((*(tb_o_Type * *)tb_at(((tb_o_Comp *)tb_nn(v_c, 1260))->q_types, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_t, 1260))->q_kids, 0LL, sizeof(tb_o_Node *), 1260)), 1260))->q_ty, sizeof(tb_o_Type *), 1260)), 1260))->q_obj_node, 1260))->q_kids, v_fi, sizeof(tb_o_Node *), 1260)), 1260))->q_ty;
+        long long v_hold = f_x64__xslot(v_g, ({ const char *tb_c16015_0 = "#v"; long long tb_c16015_0n = sizeof("#v") - 1; char tb_c16015_1d[24]; long long tb_c16015_1n; const char *tb_c16015_1 = tb_digits((((tb_o_X64 *)tb_nn(v_g, 1261))->q_vars)->len, tb_c16015_1d, &tb_c16015_1n); char *tb_c16015r = tb_tmem(tb_c16015_0n + tb_c16015_1n + 1), *tb_c16015rw = tb_c16015r; memcpy(tb_c16015rw, tb_c16015_0, tb_c16015_0n); tb_c16015rw += tb_c16015_0n; memcpy(tb_c16015rw, tb_c16015_1, tb_c16015_1n); tb_c16015rw += tb_c16015_1n; *tb_c16015rw = 0; (const char *)tb_c16015r; }));
+        f_x64__xas(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1262))->q_kids, 1LL, sizeof(tb_o_Node *), 1262)), v_et);
+        f_x64__xstore_var(v_g, v_hold);
+        f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_t, 1264))->q_kids, 0LL, sizeof(tb_o_Node *), 1264)));
+        f_x64__xnull_check(v_g, ((tb_o_Node *)tb_nn(v_n, 1265))->q_line);
         f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 141LL, 144LL}));
-        f_x64__x32(v_g, tb_mulo(v_fi, 8LL, 967));
-        f_x64__xstore_at_rdx(v_g, v_c, ((tb_o_Node *)tb_nn(v_n, 968))->q_value, v_et, v_hold, ((tb_o_Node *)tb_nn(v_n, 968))->q_line);
-    } else if (({ const char *tb_s15945 = v_k; ((unsigned char)tb_s15945[0] == 109 && (unsigned char)tb_s15945[1] == 97 && (unsigned char)tb_s15945[2] == 116 && (unsigned char)tb_s15945[3] == 99 && (unsigned char)tb_s15945[4] == 104 && tb_s15945[5] == 0); })) {
-        tb_o_Node * v_subj = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 970))->q_kids, 0LL, sizeof(tb_o_Node *), 970));
-        _Bool v_textual = ({ const char *tb_s15946 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_subj, 971))->q_ty); ((unsigned char)tb_s15946[0] == 116 && (unsigned char)tb_s15946[1] == 101 && (unsigned char)tb_s15946[2] == 120 && (unsigned char)tb_s15946[3] == 116 && tb_s15946[4] == 0); });
-        long long v_hold = f_x64__xslot(v_g, ({ const char *tb_c15947_0 = "#m"; long long tb_c15947_0n = sizeof("#m") - 1; char tb_c15947_1d[24]; long long tb_c15947_1n; const char *tb_c15947_1 = tb_digits((((tb_o_X64 *)tb_nn(v_g, 972))->q_vars)->len, tb_c15947_1d, &tb_c15947_1n); char *tb_c15947r = tb_tmem(tb_c15947_0n + tb_c15947_1n + 1), *tb_c15947rw = tb_c15947r; memcpy(tb_c15947rw, tb_c15947_0, tb_c15947_0n); tb_c15947rw += tb_c15947_0n; memcpy(tb_c15947rw, tb_c15947_1, tb_c15947_1n); tb_c15947rw += tb_c15947_1n; *tb_c15947rw = 0; (const char *)tb_c15947r; }));
+        f_x64__x32(v_g, tb_mulo(v_fi, 8LL, 1267));
+        f_x64__xstore_at_rdx(v_g, v_c, ((tb_o_Node *)tb_nn(v_n, 1268))->q_value, v_et, v_hold, ((tb_o_Node *)tb_nn(v_n, 1268))->q_line);
+    } else if (({ const char *tb_s16016 = v_k; ((unsigned char)tb_s16016[0] == 109 && (unsigned char)tb_s16016[1] == 97 && (unsigned char)tb_s16016[2] == 116 && (unsigned char)tb_s16016[3] == 99 && (unsigned char)tb_s16016[4] == 104 && tb_s16016[5] == 0); })) {
+        tb_o_Node * v_subj = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1270))->q_kids, 0LL, sizeof(tb_o_Node *), 1270));
+        _Bool v_textual = ({ const char *tb_s16017 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_subj, 1271))->q_ty); ((unsigned char)tb_s16017[0] == 116 && (unsigned char)tb_s16017[1] == 101 && (unsigned char)tb_s16017[2] == 120 && (unsigned char)tb_s16017[3] == 116 && tb_s16017[4] == 0); });
+        long long v_hold = f_x64__xslot(v_g, ({ const char *tb_c16018_0 = "#m"; long long tb_c16018_0n = sizeof("#m") - 1; char tb_c16018_1d[24]; long long tb_c16018_1n; const char *tb_c16018_1 = tb_digits((((tb_o_X64 *)tb_nn(v_g, 1272))->q_vars)->len, tb_c16018_1d, &tb_c16018_1n); char *tb_c16018r = tb_tmem(tb_c16018_0n + tb_c16018_1n + 1), *tb_c16018rw = tb_c16018r; memcpy(tb_c16018rw, tb_c16018_0, tb_c16018_0n); tb_c16018rw += tb_c16018_0n; memcpy(tb_c16018rw, tb_c16018_1, tb_c16018_1n); tb_c16018rw += tb_c16018_1n; *tb_c16018rw = 0; (const char *)tb_c16018r; }));
         f_x64__xexpr(v_g, v_c, v_subj);
         f_x64__xstore_var(v_g, v_hold);
         long long v_done = f_x64__xlabel(v_g);
         {
-            long long tb_end15948 = tb_subo((((tb_o_Node *)tb_nn(v_n, 976))->q_kids)->len, 1LL, 976);
-            for (long long v_i = 1LL; v_i <= tb_end15948; v_i++) {
-                tb_o_Node * v_cs = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 977))->q_kids, v_i, sizeof(tb_o_Node *), 977));
-                if (({ const char *tb_s15949 = ((tb_o_Node *)tb_nn(v_cs, 978))->q_name; ((unsigned char)tb_s15949[0] == 101 && (unsigned char)tb_s15949[1] == 108 && (unsigned char)tb_s15949[2] == 115 && (unsigned char)tb_s15949[3] == 101 && tb_s15949[4] == 0); })) {
-                    f_x64__xblock(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_cs, 979))->q_kids, 1LL, sizeof(tb_o_Node *), 979)));
+            long long tb_end16019 = tb_subo((((tb_o_Node *)tb_nn(v_n, 1276))->q_kids)->len, 1LL, 1276);
+            for (long long v_i = 1LL; v_i <= tb_end16019; v_i++) {
+                tb_o_Node * v_cs = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1277))->q_kids, v_i, sizeof(tb_o_Node *), 1277));
+                if (({ const char *tb_s16020 = ((tb_o_Node *)tb_nn(v_cs, 1278))->q_name; ((unsigned char)tb_s16020[0] == 101 && (unsigned char)tb_s16020[1] == 108 && (unsigned char)tb_s16020[2] == 115 && (unsigned char)tb_s16020[3] == 101 && tb_s16020[4] == 0); })) {
+                    f_x64__xblock(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_cs, 1279))->q_kids, 1LL, sizeof(tb_o_Node *), 1279)));
                     f_x64__xjump(v_g, tb_list_from_np(1, sizeof(long long), (long long[]){233LL}), v_done);
                 } else {
                     long long v_yes = f_x64__xlabel(v_g);
                     long long v_no = f_x64__xlabel(v_g);
                     {
-                        tb_list * tb_l15950 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_cs, 984))->q_kids, 0LL, sizeof(tb_o_Node *), 984)), 984))->q_kids;
-                        for (long long tb_i15950 = 0; tb_i15950 < tb_l15950->len; tb_i15950++) {
-                            tb_o_Node * const v_v = ((tb_o_Node * *)tb_l15950->data)[tb_i15950];
+                        tb_list * tb_l16021 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_cs, 1284))->q_kids, 0LL, sizeof(tb_o_Node *), 1284)), 1284))->q_kids;
+                        for (long long tb_i16021 = 0; tb_i16021 < tb_l16021->len; tb_i16021++) {
+                            tb_o_Node * const v_v = ((tb_o_Node * *)tb_l16021->data)[tb_i16021];
                             f_x64__xload_var(v_g, v_hold);
                             f_x64__xpush(v_g);
                             f_x64__xexpr(v_g, v_c, v_v);
@@ -43324,88 +43692,84 @@ TB_API void f_x64__xstmt(tb_o_X64 * v_g, tb_o_Comp * v_c, tb_o_Node * v_n) {
                                 f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 133LL, 192LL}));
                             } else {
                                 f_x64__xbs(v_g, tb_list_from_np(7, sizeof(long long), (long long[]){72LL, 137LL, 193LL, 88LL, 72LL, 57LL, 200LL}));
-                                { long long tb_v15951 = 1LL; long long *tb_p15951 = &(((tb_o_X64 *)tb_nn(v_g, 993))->q_depth); *tb_p15951 = tb_subo(*tb_p15951, tb_v15951, 993); }
+                                { long long tb_v16022 = 1LL; long long *tb_p16022 = &(((tb_o_X64 *)tb_nn(v_g, 1293))->q_depth); *tb_p16022 = tb_subo(*tb_p16022, tb_v16022, 1293); }
                             }
                             f_x64__xjump(v_g, tb_list_from_np(2, sizeof(long long), (long long[]){15LL, 132LL}), v_yes);
                         }
                     }
                     f_x64__xjump(v_g, tb_list_from_np(1, sizeof(long long), (long long[]){233LL}), v_no);
                     f_x64__xplace(v_g, v_yes);
-                    f_x64__xblock(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_cs, 997))->q_kids, 1LL, sizeof(tb_o_Node *), 997)));
+                    f_x64__xblock(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_cs, 1297))->q_kids, 1LL, sizeof(tb_o_Node *), 1297)));
                     f_x64__xjump(v_g, tb_list_from_np(1, sizeof(long long), (long long[]){233LL}), v_done);
                     f_x64__xplace(v_g, v_no);
                 }
             }
         }
         f_x64__xplace(v_g, v_done);
-    } else if ((({ const char *tb_s15952 = v_k; ((unsigned char)tb_s15952[0] == 115 && (unsigned char)tb_s15952[1] == 101 && (unsigned char)tb_s15952[2] == 116 && tb_s15952[3] == 0); }) && ({ const char *tb_s15953 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1001))->q_kids, 0LL, sizeof(tb_o_Node *), 1001)), 1001))->q_kind; ((unsigned char)tb_s15953[0] == 110 && (unsigned char)tb_s15953[1] == 97 && (unsigned char)tb_s15953[2] == 109 && (unsigned char)tb_s15953[3] == 101 && tb_s15953[4] == 0); }))) {
-        const char * v_name = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1002))->q_kids, 0LL, sizeof(tb_o_Node *), 1002)), 1002))->q_name;
-        const char * v_tk = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_n, 1003))->q_ty);
-        if ((({ const char *tb_s15954 = ((tb_o_Node *)tb_nn(v_n, 1004))->q_value; !((unsigned char)tb_s15954[0] == 61 && tb_s15954[1] == 0); }) && ({ const char *tb_s15955 = v_tk; ((unsigned char)tb_s15955[0] == 116 && (unsigned char)tb_s15955[1] == 101 && (unsigned char)tb_s15955[2] == 120 && (unsigned char)tb_s15955[3] == 116 && tb_s15955[4] == 0); }))) {
-            if (({ const char *tb_s15956 = ((tb_o_Node *)tb_nn(v_n, 1005))->q_value; !((unsigned char)tb_s15956[0] == 43 && (unsigned char)tb_s15956[1] == 61 && tb_s15956[2] == 0); })) {
-                f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_n, 1006))->q_line, ({ const char *tb_c15957_0 = "знак "; long long tb_c15957_0n = sizeof("знак ") - 1; const char *tb_c15957_1 = ((tb_o_Node *)tb_nn(v_n, 1006))->q_value; long long tb_c15957_1n = (long long)strlen(tb_c15957_1); const char *tb_c15957_2 = " у текста"; long long tb_c15957_2n = sizeof(" у текста") - 1; char *tb_c15957r = tb_tmem(tb_c15957_0n + tb_c15957_1n + tb_c15957_2n + 1), *tb_c15957rw = tb_c15957r; memcpy(tb_c15957rw, tb_c15957_0, tb_c15957_0n); tb_c15957rw += tb_c15957_0n; memcpy(tb_c15957rw, tb_c15957_1, tb_c15957_1n); tb_c15957rw += tb_c15957_1n; memcpy(tb_c15957rw, tb_c15957_2, tb_c15957_2n); tb_c15957rw += tb_c15957_2n; *tb_c15957rw = 0; (const char *)tb_c15957r; }));
+    } else if ((({ const char *tb_s16023 = v_k; ((unsigned char)tb_s16023[0] == 115 && (unsigned char)tb_s16023[1] == 101 && (unsigned char)tb_s16023[2] == 116 && tb_s16023[3] == 0); }) && ({ const char *tb_s16024 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1301))->q_kids, 0LL, sizeof(tb_o_Node *), 1301)), 1301))->q_kind; ((unsigned char)tb_s16024[0] == 110 && (unsigned char)tb_s16024[1] == 97 && (unsigned char)tb_s16024[2] == 109 && (unsigned char)tb_s16024[3] == 101 && tb_s16024[4] == 0); }))) {
+        const char * v_name = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1302))->q_kids, 0LL, sizeof(tb_o_Node *), 1302)), 1302))->q_name;
+        const char * v_tk = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_n, 1303))->q_ty);
+        if ((({ const char *tb_s16025 = ((tb_o_Node *)tb_nn(v_n, 1304))->q_value; !((unsigned char)tb_s16025[0] == 61 && tb_s16025[1] == 0); }) && ({ const char *tb_s16026 = v_tk; ((unsigned char)tb_s16026[0] == 116 && (unsigned char)tb_s16026[1] == 101 && (unsigned char)tb_s16026[2] == 120 && (unsigned char)tb_s16026[3] == 116 && tb_s16026[4] == 0); }))) {
+            if (({ const char *tb_s16027 = ((tb_o_Node *)tb_nn(v_n, 1305))->q_value; !((unsigned char)tb_s16027[0] == 43 && (unsigned char)tb_s16027[1] == 61 && tb_s16027[2] == 0); })) {
+                f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_n, 1306))->q_line, ({ const char *tb_c16028_0 = "знак "; long long tb_c16028_0n = sizeof("знак ") - 1; const char *tb_c16028_1 = ((tb_o_Node *)tb_nn(v_n, 1306))->q_value; long long tb_c16028_1n = (long long)strlen(tb_c16028_1); const char *tb_c16028_2 = " у текста"; long long tb_c16028_2n = sizeof(" у текста") - 1; char *tb_c16028r = tb_tmem(tb_c16028_0n + tb_c16028_1n + tb_c16028_2n + 1), *tb_c16028rw = tb_c16028r; memcpy(tb_c16028rw, tb_c16028_0, tb_c16028_0n); tb_c16028rw += tb_c16028_0n; memcpy(tb_c16028rw, tb_c16028_1, tb_c16028_1n); tb_c16028rw += tb_c16028_1n; memcpy(tb_c16028rw, tb_c16028_2, tb_c16028_2n); tb_c16028rw += tb_c16028_2n; *tb_c16028rw = 0; (const char *)tb_c16028r; }));
                 return;
             }
-            f_x64__xload_name(v_g, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1009))->q_kids, 0LL, sizeof(tb_o_Node *), 1009)));
-            f_x64__xpush(v_g);
-            f_x64__xas_text(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1011))->q_kids, 1LL, sizeof(tb_o_Node *), 1011)));
-            f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 137LL, 198LL}));
-            f_x64__xb(v_g, 95LL);
-            { long long tb_v15958 = 1LL; long long *tb_p15958 = &(((tb_o_X64 *)tb_nn(v_g, 1014))->q_depth); *tb_p15958 = tb_subo(*tb_p15958, tb_v15958, 1014); }
-            f_x64__xcall(v_g, "tb_x_cat");
+            tb_list * v_parts = tb_list_from(1, sizeof(tb_o_Node *), (tb_o_Node *[]){(*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1309))->q_kids, 0LL, sizeof(tb_o_Node *), 1309))});
+            f_x64__xconcat_parts(v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1310))->q_kids, 1LL, sizeof(tb_o_Node *), 1310)), v_parts);
+            f_x64__xconcat(v_g, v_c, v_parts);
             f_x64__xstore_name(v_g, v_name);
             return;
         }
-        f_x64__xas(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1018))->q_kids, 1LL, sizeof(tb_o_Node *), 1018)), ((tb_o_Node *)tb_nn(v_n, 1018))->q_ty);
-        if (({ const char *tb_s15959 = ((tb_o_Node *)tb_nn(v_n, 1019))->q_value; !((unsigned char)tb_s15959[0] == 61 && tb_s15959[1] == 0); })) {
-            const char * v_op = tb_cut(((tb_o_Node *)tb_nn(v_n, 1020))->q_value, 0LL, tb_subo(tb_ulen(((tb_o_Node *)tb_nn(v_n, 1020))->q_value), 2LL, 1020), 1020);
+        f_x64__xas(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1314))->q_kids, 1LL, sizeof(tb_o_Node *), 1314)), ((tb_o_Node *)tb_nn(v_n, 1314))->q_ty);
+        if (({ const char *tb_s16029 = ((tb_o_Node *)tb_nn(v_n, 1315))->q_value; !((unsigned char)tb_s16029[0] == 61 && tb_s16029[1] == 0); })) {
+            const char * v_op = tb_cut(((tb_o_Node *)tb_nn(v_n, 1316))->q_value, 0LL, tb_subo(tb_ulen(((tb_o_Node *)tb_nn(v_n, 1316))->q_value), 2LL, 1316), 1316);
             f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 137LL, 193LL}));
-            f_x64__xload_name(v_g, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1022))->q_kids, 0LL, sizeof(tb_o_Node *), 1022)));
-            if (({ const char *tb_s15960 = v_tk; ((unsigned char)tb_s15960[0] == 100 && (unsigned char)tb_s15960[1] == 101 && (unsigned char)tb_s15960[2] == 99 && tb_s15960[3] == 0); })) {
-                f_x64__xarith_dec(v_g, v_op, ((tb_o_Node *)tb_nn(v_n, 1024))->q_line);
+            f_x64__xload_name(v_g, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1318))->q_kids, 0LL, sizeof(tb_o_Node *), 1318)));
+            if (({ const char *tb_s16030 = v_tk; ((unsigned char)tb_s16030[0] == 100 && (unsigned char)tb_s16030[1] == 101 && (unsigned char)tb_s16030[2] == 99 && tb_s16030[3] == 0); })) {
+                f_x64__xarith_dec(v_g, v_op, ((tb_o_Node *)tb_nn(v_n, 1320))->q_line);
             } else {
-                f_x64__xarith(v_g, v_op, ((tb_o_Node *)tb_nn(v_n, 1026))->q_line);
+                f_x64__xarith(v_g, v_op, ((tb_o_Node *)tb_nn(v_n, 1322))->q_line);
             }
         }
         f_x64__xstore_name(v_g, v_name);
-    } else if (({ const char *tb_s15961 = v_k; ((unsigned char)tb_s15961[0] == 105 && (unsigned char)tb_s15961[1] == 102 && tb_s15961[2] == 0); })) {
+    } else if (({ const char *tb_s16031 = v_k; ((unsigned char)tb_s16031[0] == 105 && (unsigned char)tb_s16031[1] == 102 && tb_s16031[2] == 0); })) {
         long long v_done = f_x64__xlabel(v_g);
         long long v_i = 0LL;
-        while ((tb_addo(v_i, 1LL, 1031) < (((tb_o_Node *)tb_nn(v_n, 1031))->q_kids)->len)) {
+        while ((tb_addo(v_i, 1LL, 1327) < (((tb_o_Node *)tb_nn(v_n, 1327))->q_kids)->len)) {
             long long v_no = f_x64__xlabel(v_g);
-            f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1033))->q_kids, v_i, sizeof(tb_o_Node *), 1033)));
+            f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1329))->q_kids, v_i, sizeof(tb_o_Node *), 1329)));
             f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 133LL, 192LL}));
             f_x64__xjump(v_g, tb_list_from_np(2, sizeof(long long), (long long[]){15LL, 132LL}), v_no);
-            f_x64__xblock(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1036))->q_kids, tb_addo(v_i, 1LL, 1036), sizeof(tb_o_Node *), 1036)));
+            f_x64__xblock(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1332))->q_kids, tb_addo(v_i, 1LL, 1332), sizeof(tb_o_Node *), 1332)));
             f_x64__xjump(v_g, tb_list_from_np(1, sizeof(long long), (long long[]){233LL}), v_done);
             f_x64__xplace(v_g, v_no);
-            { long long tb_v15962 = 2LL; long long *tb_p15962 = &(v_i); *tb_p15962 = tb_addo(*tb_p15962, tb_v15962, 1039); }
+            { long long tb_v16032 = 2LL; long long *tb_p16032 = &(v_i); *tb_p16032 = tb_addo(*tb_p16032, tb_v16032, 1335); }
         }
-        if ((tb_mod((((tb_o_Node *)tb_nn(v_n, 1040))->q_kids)->len, 2LL, 1040) == 1LL)) {
-            f_x64__xblock(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1041))->q_kids, tb_subo((((tb_o_Node *)tb_nn(v_n, 1041))->q_kids)->len, 1LL, 1041), sizeof(tb_o_Node *), 1041)));
+        if ((tb_mod((((tb_o_Node *)tb_nn(v_n, 1336))->q_kids)->len, 2LL, 1336) == 1LL)) {
+            f_x64__xblock(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1337))->q_kids, tb_subo((((tb_o_Node *)tb_nn(v_n, 1337))->q_kids)->len, 1LL, 1337), sizeof(tb_o_Node *), 1337)));
         }
         f_x64__xplace(v_g, v_done);
     } else if ((strcmp(v_k, "repeat_while") == 0)) {
         long long v_head = f_x64__xlabel(v_g);
         long long v_out = f_x64__xlabel(v_g);
         f_x64__xplace(v_g, v_head);
-        f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1047))->q_kids, 0LL, sizeof(tb_o_Node *), 1047)));
+        f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1343))->q_kids, 0LL, sizeof(tb_o_Node *), 1343)));
         f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 133LL, 192LL}));
         f_x64__xjump(v_g, tb_list_from_np(2, sizeof(long long), (long long[]){15LL, 132LL}), v_out);
-        f_x64__xloop_body(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1050))->q_kids, 1LL, sizeof(tb_o_Node *), 1050)), v_head, v_out);
+        f_x64__xloop_body(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1346))->q_kids, 1LL, sizeof(tb_o_Node *), 1346)), v_head, v_out);
         f_x64__xjump(v_g, tb_list_from_np(1, sizeof(long long), (long long[]){233LL}), v_head);
         f_x64__xplace(v_g, v_out);
-    } else if (((strcmp(v_k, "repeat_times") == 0) || (({ const char *tb_s15963 = v_k; ((unsigned char)tb_s15963[0] == 99 && (unsigned char)tb_s15963[1] == 111 && (unsigned char)tb_s15963[2] == 117 && (unsigned char)tb_s15963[3] == 110 && (unsigned char)tb_s15963[4] == 116 && tb_s15963[5] == 0); }) && (!((tb_o_Node *)tb_nn(v_n, 1053))->q_is_par)))) {
+    } else if (((strcmp(v_k, "repeat_times") == 0) || (({ const char *tb_s16033 = v_k; ((unsigned char)tb_s16033[0] == 99 && (unsigned char)tb_s16033[1] == 111 && (unsigned char)tb_s16033[2] == 117 && (unsigned char)tb_s16033[3] == 110 && (unsigned char)tb_s16033[4] == 116 && tb_s16033[5] == 0); }) && (!((tb_o_Node *)tb_nn(v_n, 1349))->q_is_par)))) {
         const char * v_cnt = "";
-        long long v_endk = f_x64__xslot(v_g, ({ const char *tb_c15964_0 = "#end"; long long tb_c15964_0n = sizeof("#end") - 1; char tb_c15964_1d[24]; long long tb_c15964_1n; const char *tb_c15964_1 = tb_digits((((tb_o_X64 *)tb_nn(v_g, 1056))->q_vars)->len, tb_c15964_1d, &tb_c15964_1n); char *tb_c15964r = tb_tmem(tb_c15964_0n + tb_c15964_1n + 1), *tb_c15964rw = tb_c15964r; memcpy(tb_c15964rw, tb_c15964_0, tb_c15964_0n); tb_c15964rw += tb_c15964_0n; memcpy(tb_c15964rw, tb_c15964_1, tb_c15964_1n); tb_c15964rw += tb_c15964_1n; *tb_c15964rw = 0; (const char *)tb_c15964r; }));
-        if (({ const char *tb_s15965 = v_k; ((unsigned char)tb_s15965[0] == 99 && (unsigned char)tb_s15965[1] == 111 && (unsigned char)tb_s15965[2] == 117 && (unsigned char)tb_s15965[3] == 110 && (unsigned char)tb_s15965[4] == 116 && tb_s15965[5] == 0); })) {
-            v_cnt = ((tb_o_Node *)tb_nn(v_n, 1058))->q_name;
-            f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1059))->q_kids, 1LL, sizeof(tb_o_Node *), 1059)));
+        long long v_endk = f_x64__xslot(v_g, ({ const char *tb_c16034_0 = "#end"; long long tb_c16034_0n = sizeof("#end") - 1; char tb_c16034_1d[24]; long long tb_c16034_1n; const char *tb_c16034_1 = tb_digits((((tb_o_X64 *)tb_nn(v_g, 1352))->q_vars)->len, tb_c16034_1d, &tb_c16034_1n); char *tb_c16034r = tb_tmem(tb_c16034_0n + tb_c16034_1n + 1), *tb_c16034rw = tb_c16034r; memcpy(tb_c16034rw, tb_c16034_0, tb_c16034_0n); tb_c16034rw += tb_c16034_0n; memcpy(tb_c16034rw, tb_c16034_1, tb_c16034_1n); tb_c16034rw += tb_c16034_1n; *tb_c16034rw = 0; (const char *)tb_c16034r; }));
+        if (({ const char *tb_s16035 = v_k; ((unsigned char)tb_s16035[0] == 99 && (unsigned char)tb_s16035[1] == 111 && (unsigned char)tb_s16035[2] == 117 && (unsigned char)tb_s16035[3] == 110 && (unsigned char)tb_s16035[4] == 116 && tb_s16035[5] == 0); })) {
+            v_cnt = ((tb_o_Node *)tb_nn(v_n, 1354))->q_name;
+            f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1355))->q_kids, 1LL, sizeof(tb_o_Node *), 1355)));
             f_x64__xstore_var(v_g, v_endk);
-            f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1061))->q_kids, 0LL, sizeof(tb_o_Node *), 1061)));
+            f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1357))->q_kids, 0LL, sizeof(tb_o_Node *), 1357)));
         } else {
-            v_cnt = ({ const char *tb_c15966_0 = "#n"; long long tb_c15966_0n = sizeof("#n") - 1; char tb_c15966_1d[24]; long long tb_c15966_1n; const char *tb_c15966_1 = tb_digits((((tb_o_X64 *)tb_nn(v_g, 1063))->q_vars)->len, tb_c15966_1d, &tb_c15966_1n); char *tb_c15966r = tb_tmem(tb_c15966_0n + tb_c15966_1n + 1), *tb_c15966rw = tb_c15966r; memcpy(tb_c15966rw, tb_c15966_0, tb_c15966_0n); tb_c15966rw += tb_c15966_0n; memcpy(tb_c15966rw, tb_c15966_1, tb_c15966_1n); tb_c15966rw += tb_c15966_1n; *tb_c15966rw = 0; (const char *)tb_c15966r; });
-            f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1064))->q_kids, 0LL, sizeof(tb_o_Node *), 1064)));
+            v_cnt = ({ const char *tb_c16036_0 = "#n"; long long tb_c16036_0n = sizeof("#n") - 1; char tb_c16036_1d[24]; long long tb_c16036_1n; const char *tb_c16036_1 = tb_digits((((tb_o_X64 *)tb_nn(v_g, 1359))->q_vars)->len, tb_c16036_1d, &tb_c16036_1n); char *tb_c16036r = tb_tmem(tb_c16036_0n + tb_c16036_1n + 1), *tb_c16036rw = tb_c16036r; memcpy(tb_c16036rw, tb_c16036_0, tb_c16036_0n); tb_c16036rw += tb_c16036_0n; memcpy(tb_c16036rw, tb_c16036_1, tb_c16036_1n); tb_c16036rw += tb_c16036_1n; *tb_c16036rw = 0; (const char *)tb_c16036r; });
+            f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1360))->q_kids, 0LL, sizeof(tb_o_Node *), 1360)));
             f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 255LL, 200LL}));
             f_x64__xstore_var(v_g, v_endk);
             f_x64__xconst(v_g, 0LL);
@@ -43418,9 +43782,9 @@ TB_API void f_x64__xstmt(tb_o_X64 * v_g, tb_o_Comp * v_c, tb_o_Node * v_n) {
         f_x64__xplace(v_g, v_head);
         f_x64__xload_var(v_g, v_ck);
         f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 59LL, 133LL}));
-        f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 1076), tb_addo(v_endk, 1LL, 1076), 1076));
+        f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 1372), tb_addo(v_endk, 1LL, 1372), 1372));
         f_x64__xjump(v_g, tb_list_from_np(2, sizeof(long long), (long long[]){15LL, 143LL}), v_out);
-        tb_o_Node * v_body = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1078))->q_kids, tb_subo((((tb_o_Node *)tb_nn(v_n, 1078))->q_kids)->len, 1LL, 1078), sizeof(tb_o_Node *), 1078));
+        tb_o_Node * v_body = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1374))->q_kids, tb_subo((((tb_o_Node *)tb_nn(v_n, 1374))->q_kids)->len, 1LL, 1374), sizeof(tb_o_Node *), 1374));
         f_x64__xloop_body(v_g, v_c, v_body, v_step, v_out);
         f_x64__xplace(v_g, v_step);
         f_x64__xload_var(v_g, v_ck);
@@ -43428,38 +43792,38 @@ TB_API void f_x64__xstmt(tb_o_X64 * v_g, tb_o_Comp * v_c, tb_o_Node * v_n) {
         f_x64__xstore_var(v_g, v_ck);
         f_x64__xjump(v_g, tb_list_from_np(1, sizeof(long long), (long long[]){233LL}), v_head);
         f_x64__xplace(v_g, v_out);
-    } else if (({ const char *tb_s15967 = v_k; ((unsigned char)tb_s15967[0] == 115 && (unsigned char)tb_s15967[1] == 107 && (unsigned char)tb_s15967[2] == 105 && (unsigned char)tb_s15967[3] == 112 && tb_s15967[4] == 0); })) {
-        f_x64__xjump(v_g, tb_list_from_np(1, sizeof(long long), (long long[]){233LL}), (*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 1087))->q_cont, tb_subo((((tb_o_X64 *)tb_nn(v_g, 1087))->q_cont)->len, 1LL, 1087), sizeof(long long), 1087)));
-    } else if (({ const char *tb_s15968 = v_k; ((unsigned char)tb_s15968[0] == 115 && (unsigned char)tb_s15968[1] == 116 && (unsigned char)tb_s15968[2] == 111 && (unsigned char)tb_s15968[3] == 112 && tb_s15968[4] == 0); })) {
-        f_x64__xjump(v_g, tb_list_from_np(1, sizeof(long long), (long long[]){233LL}), (*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 1089))->q_brk, tb_subo((((tb_o_X64 *)tb_nn(v_g, 1089))->q_brk)->len, 1LL, 1089), sizeof(long long), 1089)));
-    } else if (({ const char *tb_s15969 = v_k; ((unsigned char)tb_s15969[0] == 114 && (unsigned char)tb_s15969[1] == 101 && (unsigned char)tb_s15969[2] == 116 && (unsigned char)tb_s15969[3] == 117 && (unsigned char)tb_s15969[4] == 114 && (unsigned char)tb_s15969[5] == 110 && tb_s15969[6] == 0); })) {
-        if (((((tb_o_Node *)tb_nn(v_n, 1091))->q_kids)->len == 1LL)) {
-            f_x64__xas(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1092))->q_kids, 0LL, sizeof(tb_o_Node *), 1092)), ((tb_o_Node *)tb_nn(((tb_o_X64 *)tb_nn(v_g, 1092))->q_fn, 1092))->q_ty);
-        } else if (({ const char *tb_s15970 = ((tb_o_X64 *)tb_nn(v_g, 1093))->q_out_name; !(tb_s15970[0] == 0); })) {
-            f_x64__xload_var(v_g, f_x64__xslot(v_g, ((tb_o_X64 *)tb_nn(v_g, 1094))->q_out_name));
+    } else if (({ const char *tb_s16037 = v_k; ((unsigned char)tb_s16037[0] == 115 && (unsigned char)tb_s16037[1] == 107 && (unsigned char)tb_s16037[2] == 105 && (unsigned char)tb_s16037[3] == 112 && tb_s16037[4] == 0); })) {
+        f_x64__xjump(v_g, tb_list_from_np(1, sizeof(long long), (long long[]){233LL}), (*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 1383))->q_cont, tb_subo((((tb_o_X64 *)tb_nn(v_g, 1383))->q_cont)->len, 1LL, 1383), sizeof(long long), 1383)));
+    } else if (({ const char *tb_s16038 = v_k; ((unsigned char)tb_s16038[0] == 115 && (unsigned char)tb_s16038[1] == 116 && (unsigned char)tb_s16038[2] == 111 && (unsigned char)tb_s16038[3] == 112 && tb_s16038[4] == 0); })) {
+        f_x64__xjump(v_g, tb_list_from_np(1, sizeof(long long), (long long[]){233LL}), (*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 1385))->q_brk, tb_subo((((tb_o_X64 *)tb_nn(v_g, 1385))->q_brk)->len, 1LL, 1385), sizeof(long long), 1385)));
+    } else if (({ const char *tb_s16039 = v_k; ((unsigned char)tb_s16039[0] == 114 && (unsigned char)tb_s16039[1] == 101 && (unsigned char)tb_s16039[2] == 116 && (unsigned char)tb_s16039[3] == 117 && (unsigned char)tb_s16039[4] == 114 && (unsigned char)tb_s16039[5] == 110 && tb_s16039[6] == 0); })) {
+        if (((((tb_o_Node *)tb_nn(v_n, 1387))->q_kids)->len == 1LL)) {
+            f_x64__xas(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1388))->q_kids, 0LL, sizeof(tb_o_Node *), 1388)), ((tb_o_Node *)tb_nn(((tb_o_X64 *)tb_nn(v_g, 1388))->q_fn, 1388))->q_ty);
+        } else if (({ const char *tb_s16040 = ((tb_o_X64 *)tb_nn(v_g, 1389))->q_out_name; !(tb_s16040[0] == 0); })) {
+            f_x64__xload_var(v_g, f_x64__xslot(v_g, ((tb_o_X64 *)tb_nn(v_g, 1390))->q_out_name));
         }
-        f_x64__xjump(v_g, tb_list_from_np(1, sizeof(long long), (long long[]){233LL}), ((tb_o_X64 *)tb_nn(v_g, 1095))->q_ret_l);
-    } else if (((((strcmp(v_k, "expr_stmt") == 0) && ({ const char *tb_s15971 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1096))->q_kids, 0LL, sizeof(tb_o_Node *), 1096)), 1096))->q_kind; ((unsigned char)tb_s15971[0] == 109 && (unsigned char)tb_s15971[1] == 101 && (unsigned char)tb_s15971[2] == 116 && (unsigned char)tb_s15971[3] == 104 && (unsigned char)tb_s15971[4] == 111 && (unsigned char)tb_s15971[5] == 100 && tb_s15971[6] == 0); })) && ({ const char *tb_s15972 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1096))->q_kids, 0LL, sizeof(tb_o_Node *), 1096)), 1096))->q_name; ((unsigned char)tb_s15972[0] == 97 && (unsigned char)tb_s15972[1] == 100 && (unsigned char)tb_s15972[2] == 100 && tb_s15972[3] == 0); })) && ({ const char *tb_s15973 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1096))->q_kids, 0LL, sizeof(tb_o_Node *), 1096)), 1096))->q_kids, 0LL, sizeof(tb_o_Node *), 1096)), 1096))->q_ty); ((unsigned char)tb_s15973[0] == 108 && (unsigned char)tb_s15973[1] == 105 && (unsigned char)tb_s15973[2] == 115 && (unsigned char)tb_s15973[3] == 116 && tb_s15973[4] == 0); }))) {
-        tb_o_Node * v_e = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1098))->q_kids, 0LL, sizeof(tb_o_Node *), 1098));
-        if ((!f_x64__xlist_ok(v_g, v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_e, 1099))->q_kids, 0LL, sizeof(tb_o_Node *), 1099)), 1099))->q_ty, ((tb_o_Node *)tb_nn(v_n, 1099))->q_line))) {
+        f_x64__xjump(v_g, tb_list_from_np(1, sizeof(long long), (long long[]){233LL}), ((tb_o_X64 *)tb_nn(v_g, 1391))->q_ret_l);
+    } else if (((((strcmp(v_k, "expr_stmt") == 0) && ({ const char *tb_s16041 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1392))->q_kids, 0LL, sizeof(tb_o_Node *), 1392)), 1392))->q_kind; ((unsigned char)tb_s16041[0] == 109 && (unsigned char)tb_s16041[1] == 101 && (unsigned char)tb_s16041[2] == 116 && (unsigned char)tb_s16041[3] == 104 && (unsigned char)tb_s16041[4] == 111 && (unsigned char)tb_s16041[5] == 100 && tb_s16041[6] == 0); })) && ({ const char *tb_s16042 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1392))->q_kids, 0LL, sizeof(tb_o_Node *), 1392)), 1392))->q_name; ((unsigned char)tb_s16042[0] == 97 && (unsigned char)tb_s16042[1] == 100 && (unsigned char)tb_s16042[2] == 100 && tb_s16042[3] == 0); })) && ({ const char *tb_s16043 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1392))->q_kids, 0LL, sizeof(tb_o_Node *), 1392)), 1392))->q_kids, 0LL, sizeof(tb_o_Node *), 1392)), 1392))->q_ty); ((unsigned char)tb_s16043[0] == 108 && (unsigned char)tb_s16043[1] == 105 && (unsigned char)tb_s16043[2] == 115 && (unsigned char)tb_s16043[3] == 116 && tb_s16043[4] == 0); }))) {
+        tb_o_Node * v_e = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1394))->q_kids, 0LL, sizeof(tb_o_Node *), 1394));
+        if ((!f_x64__xlist_ok(v_g, v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_e, 1395))->q_kids, 0LL, sizeof(tb_o_Node *), 1395)), 1395))->q_ty, ((tb_o_Node *)tb_nn(v_n, 1395))->q_line))) {
             return;
         }
-        long long v_hold = f_x64__xslot(v_g, ({ const char *tb_c15974_0 = "#v"; long long tb_c15974_0n = sizeof("#v") - 1; char tb_c15974_1d[24]; long long tb_c15974_1n; const char *tb_c15974_1 = tb_digits((((tb_o_X64 *)tb_nn(v_g, 1101))->q_vars)->len, tb_c15974_1d, &tb_c15974_1n); char *tb_c15974r = tb_tmem(tb_c15974_0n + tb_c15974_1n + 1), *tb_c15974rw = tb_c15974r; memcpy(tb_c15974rw, tb_c15974_0, tb_c15974_0n); tb_c15974rw += tb_c15974_0n; memcpy(tb_c15974rw, tb_c15974_1, tb_c15974_1n); tb_c15974rw += tb_c15974_1n; *tb_c15974rw = 0; (const char *)tb_c15974r; }));
-        f_x64__xas(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_e, 1102))->q_kids, 1LL, sizeof(tb_o_Node *), 1102)), 1102))->q_kids, 0LL, sizeof(tb_o_Node *), 1102)), ((tb_o_Type *)tb_nn((*(tb_o_Type * *)tb_at(((tb_o_Comp *)tb_nn(v_c, 1102))->q_types, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_e, 1102))->q_kids, 0LL, sizeof(tb_o_Node *), 1102)), 1102))->q_ty, sizeof(tb_o_Type *), 1102)), 1102))->q_elem);
+        long long v_hold = f_x64__xslot(v_g, ({ const char *tb_c16044_0 = "#v"; long long tb_c16044_0n = sizeof("#v") - 1; char tb_c16044_1d[24]; long long tb_c16044_1n; const char *tb_c16044_1 = tb_digits((((tb_o_X64 *)tb_nn(v_g, 1397))->q_vars)->len, tb_c16044_1d, &tb_c16044_1n); char *tb_c16044r = tb_tmem(tb_c16044_0n + tb_c16044_1n + 1), *tb_c16044rw = tb_c16044r; memcpy(tb_c16044rw, tb_c16044_0, tb_c16044_0n); tb_c16044rw += tb_c16044_0n; memcpy(tb_c16044rw, tb_c16044_1, tb_c16044_1n); tb_c16044rw += tb_c16044_1n; *tb_c16044rw = 0; (const char *)tb_c16044r; }));
+        f_x64__xas(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_e, 1398))->q_kids, 1LL, sizeof(tb_o_Node *), 1398)), 1398))->q_kids, 0LL, sizeof(tb_o_Node *), 1398)), ((tb_o_Type *)tb_nn((*(tb_o_Type * *)tb_at(((tb_o_Comp *)tb_nn(v_c, 1398))->q_types, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_e, 1398))->q_kids, 0LL, sizeof(tb_o_Node *), 1398)), 1398))->q_ty, sizeof(tb_o_Type *), 1398)), 1398))->q_elem);
         f_x64__xstore_var(v_g, v_hold);
-        f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_e, 1104))->q_kids, 0LL, sizeof(tb_o_Node *), 1104)));
+        f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_e, 1400))->q_kids, 0LL, sizeof(tb_o_Node *), 1400)));
         f_x64__xmov_rdi(v_g);
         f_x64__xcall(v_g, "tb_x_grow");
         f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 139LL, 141LL}));
-        f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 1108), tb_addo(v_hold, 1LL, 1108), 1108));
+        f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 1404), tb_addo(v_hold, 1LL, 1404), 1404));
         f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 137LL, 8LL}));
-    } else if (((((({ const char *tb_s15975 = v_k; ((unsigned char)tb_s15975[0] == 101 && (unsigned char)tb_s15975[1] == 97 && (unsigned char)tb_s15975[2] == 99 && (unsigned char)tb_s15975[3] == 104 && tb_s15975[4] == 0); }) && (!((tb_o_Node *)tb_nn(v_n, 1110))->q_is_par)) && (!((tb_o_Node *)tb_nn(v_n, 1110))->q_by_vec)) && (!((tb_o_Node *)tb_nn(v_n, 1110))->q_by_piece)) && ({ const char *tb_s15976 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1110))->q_kids, 0LL, sizeof(tb_o_Node *), 1110)), 1110))->q_ty); ((unsigned char)tb_s15976[0] == 108 && (unsigned char)tb_s15976[1] == 105 && (unsigned char)tb_s15976[2] == 115 && (unsigned char)tb_s15976[3] == 116 && tb_s15976[4] == 0); }))) {
-        if ((!f_x64__xlist_ok(v_g, v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1111))->q_kids, 0LL, sizeof(tb_o_Node *), 1111)), 1111))->q_ty, ((tb_o_Node *)tb_nn(v_n, 1111))->q_line))) {
+    } else if (((((({ const char *tb_s16045 = v_k; ((unsigned char)tb_s16045[0] == 101 && (unsigned char)tb_s16045[1] == 97 && (unsigned char)tb_s16045[2] == 99 && (unsigned char)tb_s16045[3] == 104 && tb_s16045[4] == 0); }) && (!((tb_o_Node *)tb_nn(v_n, 1406))->q_is_par)) && (!((tb_o_Node *)tb_nn(v_n, 1406))->q_by_vec)) && (!((tb_o_Node *)tb_nn(v_n, 1406))->q_by_piece)) && ({ const char *tb_s16046 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1406))->q_kids, 0LL, sizeof(tb_o_Node *), 1406)), 1406))->q_ty); ((unsigned char)tb_s16046[0] == 108 && (unsigned char)tb_s16046[1] == 105 && (unsigned char)tb_s16046[2] == 115 && (unsigned char)tb_s16046[3] == 116 && tb_s16046[4] == 0); }))) {
+        if ((!f_x64__xlist_ok(v_g, v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1407))->q_kids, 0LL, sizeof(tb_o_Node *), 1407)), 1407))->q_ty, ((tb_o_Node *)tb_nn(v_n, 1407))->q_line))) {
             return;
         }
-        long long v_lk = f_x64__xslot(v_g, ({ const char *tb_c15977_0 = "#l"; long long tb_c15977_0n = sizeof("#l") - 1; char tb_c15977_1d[24]; long long tb_c15977_1n; const char *tb_c15977_1 = tb_digits((((tb_o_X64 *)tb_nn(v_g, 1113))->q_vars)->len, tb_c15977_1d, &tb_c15977_1n); char *tb_c15977r = tb_tmem(tb_c15977_0n + tb_c15977_1n + 1), *tb_c15977rw = tb_c15977r; memcpy(tb_c15977rw, tb_c15977_0, tb_c15977_0n); tb_c15977rw += tb_c15977_0n; memcpy(tb_c15977rw, tb_c15977_1, tb_c15977_1n); tb_c15977rw += tb_c15977_1n; *tb_c15977rw = 0; (const char *)tb_c15977r; }));
-        long long v_ik = f_x64__xslot(v_g, ({ const char *tb_c15978_0 = "#i"; long long tb_c15978_0n = sizeof("#i") - 1; char tb_c15978_1d[24]; long long tb_c15978_1n; const char *tb_c15978_1 = tb_digits((((tb_o_X64 *)tb_nn(v_g, 1114))->q_vars)->len, tb_c15978_1d, &tb_c15978_1n); char *tb_c15978r = tb_tmem(tb_c15978_0n + tb_c15978_1n + 1), *tb_c15978rw = tb_c15978r; memcpy(tb_c15978rw, tb_c15978_0, tb_c15978_0n); tb_c15978rw += tb_c15978_0n; memcpy(tb_c15978rw, tb_c15978_1, tb_c15978_1n); tb_c15978rw += tb_c15978_1n; *tb_c15978rw = 0; (const char *)tb_c15978r; }));
-        f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1115))->q_kids, 0LL, sizeof(tb_o_Node *), 1115)));
+        long long v_lk = f_x64__xslot(v_g, ({ const char *tb_c16047_0 = "#l"; long long tb_c16047_0n = sizeof("#l") - 1; char tb_c16047_1d[24]; long long tb_c16047_1n; const char *tb_c16047_1 = tb_digits((((tb_o_X64 *)tb_nn(v_g, 1409))->q_vars)->len, tb_c16047_1d, &tb_c16047_1n); char *tb_c16047r = tb_tmem(tb_c16047_0n + tb_c16047_1n + 1), *tb_c16047rw = tb_c16047r; memcpy(tb_c16047rw, tb_c16047_0, tb_c16047_0n); tb_c16047rw += tb_c16047_0n; memcpy(tb_c16047rw, tb_c16047_1, tb_c16047_1n); tb_c16047rw += tb_c16047_1n; *tb_c16047rw = 0; (const char *)tb_c16047r; }));
+        long long v_ik = f_x64__xslot(v_g, ({ const char *tb_c16048_0 = "#i"; long long tb_c16048_0n = sizeof("#i") - 1; char tb_c16048_1d[24]; long long tb_c16048_1n; const char *tb_c16048_1 = tb_digits((((tb_o_X64 *)tb_nn(v_g, 1410))->q_vars)->len, tb_c16048_1d, &tb_c16048_1n); char *tb_c16048r = tb_tmem(tb_c16048_0n + tb_c16048_1n + 1), *tb_c16048rw = tb_c16048r; memcpy(tb_c16048rw, tb_c16048_0, tb_c16048_0n); tb_c16048rw += tb_c16048_0n; memcpy(tb_c16048rw, tb_c16048_1, tb_c16048_1n); tb_c16048rw += tb_c16048_1n; *tb_c16048rw = 0; (const char *)tb_c16048r; }));
+        f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1411))->q_kids, 0LL, sizeof(tb_o_Node *), 1411)));
         f_x64__xstore_var(v_g, v_lk);
         f_x64__xconst(v_g, 0LL);
         f_x64__xstore_var(v_g, v_ik);
@@ -43469,38 +43833,38 @@ TB_API void f_x64__xstmt(tb_o_X64 * v_g, tb_o_Comp * v_c, tb_o_Node * v_n) {
         f_x64__xplace(v_g, v_head);
         f_x64__xload_var(v_g, v_lk);
         f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 139LL, 141LL}));
-        f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 1126), tb_addo(v_ik, 1LL, 1126), 1126));
+        f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 1422), tb_addo(v_ik, 1LL, 1422), 1422));
         f_x64__xbs(v_g, tb_list_from_np(4, sizeof(long long), (long long[]){72LL, 59LL, 72LL, 8LL}));
         f_x64__xjump(v_g, tb_list_from_np(2, sizeof(long long), (long long[]){15LL, 141LL}), v_out);
         f_x64__xbs(v_g, tb_list_from_np(7, sizeof(long long), (long long[]){72LL, 139LL, 0LL, 72LL, 139LL, 4LL, 200LL}));
-        f_x64__xstore_var(v_g, f_x64__xslot(v_g, ((tb_o_Node *)tb_nn(v_n, 1130))->q_name));
-        f_x64__xloop_body(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1131))->q_kids, 1LL, sizeof(tb_o_Node *), 1131)), v_step, v_out);
+        f_x64__xstore_var(v_g, f_x64__xslot(v_g, ((tb_o_Node *)tb_nn(v_n, 1426))->q_name));
+        f_x64__xloop_body(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1427))->q_kids, 1LL, sizeof(tb_o_Node *), 1427)), v_step, v_out);
         f_x64__xplace(v_g, v_step);
         f_x64__xload_var(v_g, v_ik);
         f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 255LL, 192LL}));
         f_x64__xstore_var(v_g, v_ik);
         f_x64__xjump(v_g, tb_list_from_np(1, sizeof(long long), (long long[]){233LL}), v_head);
         f_x64__xplace(v_g, v_out);
-    } else if (({ const char *tb_s15979 = v_k; ((unsigned char)tb_s15979[0] == 116 && (unsigned char)tb_s15979[1] == 101 && (unsigned char)tb_s15979[2] == 109 && (unsigned char)tb_s15979[3] == 112 && tb_s15979[4] == 0); })) {
-        long long v_first = (((tb_o_X64 *)tb_nn(v_g, 1140))->q_vars)->len;
-        { const char * tb_v15980 = ({ const char *tb_c15981_0 = "#t"; long long tb_c15981_0n = sizeof("#t") - 1; char tb_c15981_1d[24]; long long tb_c15981_1n; const char *tb_c15981_1 = tb_digits(v_first, tb_c15981_1d, &tb_c15981_1n); char *tb_c15981r = tb_tmem(tb_c15981_0n + tb_c15981_1n + 1), *tb_c15981rw = tb_c15981r; memcpy(tb_c15981rw, tb_c15981_0, tb_c15981_0n); tb_c15981rw += tb_c15981_0n; memcpy(tb_c15981rw, tb_c15981_1, tb_c15981_1n); tb_c15981rw += tb_c15981_1n; *tb_c15981rw = 0; (const char *)tb_c15981r; }); *(const char * *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 1141))->q_vars) = tb_v15980; }
-        { const char * tb_v15982 = ({ const char *tb_c15983_0 = "#t"; long long tb_c15983_0n = sizeof("#t") - 1; char tb_c15983_1d[24]; long long tb_c15983_1n; const char *tb_c15983_1 = tb_digits(v_first, tb_c15983_1d, &tb_c15983_1n); const char *tb_c15983_2 = "b"; long long tb_c15983_2n = sizeof("b") - 1; char *tb_c15983r = tb_tmem(tb_c15983_0n + tb_c15983_1n + tb_c15983_2n + 1), *tb_c15983rw = tb_c15983r; memcpy(tb_c15983rw, tb_c15983_0, tb_c15983_0n); tb_c15983rw += tb_c15983_0n; memcpy(tb_c15983rw, tb_c15983_1, tb_c15983_1n); tb_c15983rw += tb_c15983_1n; memcpy(tb_c15983rw, tb_c15983_2, tb_c15983_2n); tb_c15983rw += tb_c15983_2n; *tb_c15983rw = 0; (const char *)tb_c15983r; }); *(const char * *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 1142))->q_vars) = tb_v15982; }
+    } else if (({ const char *tb_s16049 = v_k; ((unsigned char)tb_s16049[0] == 116 && (unsigned char)tb_s16049[1] == 101 && (unsigned char)tb_s16049[2] == 109 && (unsigned char)tb_s16049[3] == 112 && tb_s16049[4] == 0); })) {
+        long long v_first = (((tb_o_X64 *)tb_nn(v_g, 1436))->q_vars)->len;
+        { const char * tb_v16050 = ({ const char *tb_c16051_0 = "#t"; long long tb_c16051_0n = sizeof("#t") - 1; char tb_c16051_1d[24]; long long tb_c16051_1n; const char *tb_c16051_1 = tb_digits(v_first, tb_c16051_1d, &tb_c16051_1n); char *tb_c16051r = tb_tmem(tb_c16051_0n + tb_c16051_1n + 1), *tb_c16051rw = tb_c16051r; memcpy(tb_c16051rw, tb_c16051_0, tb_c16051_0n); tb_c16051rw += tb_c16051_0n; memcpy(tb_c16051rw, tb_c16051_1, tb_c16051_1n); tb_c16051rw += tb_c16051_1n; *tb_c16051rw = 0; (const char *)tb_c16051r; }); *(const char * *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 1437))->q_vars) = tb_v16050; }
+        { const char * tb_v16052 = ({ const char *tb_c16053_0 = "#t"; long long tb_c16053_0n = sizeof("#t") - 1; char tb_c16053_1d[24]; long long tb_c16053_1n; const char *tb_c16053_1 = tb_digits(v_first, tb_c16053_1d, &tb_c16053_1n); const char *tb_c16053_2 = "b"; long long tb_c16053_2n = sizeof("b") - 1; char *tb_c16053r = tb_tmem(tb_c16053_0n + tb_c16053_1n + tb_c16053_2n + 1), *tb_c16053rw = tb_c16053r; memcpy(tb_c16053rw, tb_c16053_0, tb_c16053_0n); tb_c16053rw += tb_c16053_0n; memcpy(tb_c16053rw, tb_c16053_1, tb_c16053_1n); tb_c16053rw += tb_c16053_1n; memcpy(tb_c16053rw, tb_c16053_2, tb_c16053_2n); tb_c16053rw += tb_c16053_2n; *tb_c16053rw = 0; (const char *)tb_c16053r; }); *(const char * *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 1438))->q_vars) = tb_v16052; }
         f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 141LL, 189LL}));
-        f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 1144), tb_addo(v_first, 2LL, 1144), 1144));
+        f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 1440), tb_addo(v_first, 2LL, 1440), 1440));
         f_x64__xcall(v_g, "tb_x_temp_begin_p");
-        f_x64__xblock(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1146))->q_kids, 0LL, sizeof(tb_o_Node *), 1146)));
+        f_x64__xblock(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1442))->q_kids, 0LL, sizeof(tb_o_Node *), 1442)));
         f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 141LL, 189LL}));
-        f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 1148), tb_addo(v_first, 2LL, 1148), 1148));
+        f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 1444), tb_addo(v_first, 2LL, 1444), 1444));
         f_x64__xcall(v_g, "tb_x_temp_end_p");
-    } else if (((((strcmp(v_k, "expr_stmt") == 0) && ({ const char *tb_s15984 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1150))->q_kids, 0LL, sizeof(tb_o_Node *), 1150)), 1150))->q_kind; ((unsigned char)tb_s15984[0] == 109 && (unsigned char)tb_s15984[1] == 101 && (unsigned char)tb_s15984[2] == 116 && (unsigned char)tb_s15984[3] == 104 && (unsigned char)tb_s15984[4] == 111 && (unsigned char)tb_s15984[5] == 100 && tb_s15984[6] == 0); })) && ({ const char *tb_s15985 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1150))->q_kids, 0LL, sizeof(tb_o_Node *), 1150)), 1150))->q_name; ((unsigned char)tb_s15985[0] == 99 && (unsigned char)tb_s15985[1] == 108 && (unsigned char)tb_s15985[2] == 101 && (unsigned char)tb_s15985[3] == 97 && (unsigned char)tb_s15985[4] == 114 && tb_s15985[5] == 0); })) && ({ const char *tb_s15986 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1150))->q_kids, 0LL, sizeof(tb_o_Node *), 1150)), 1150))->q_kids, 0LL, sizeof(tb_o_Node *), 1150)), 1150))->q_ty); ((unsigned char)tb_s15986[0] == 108 && (unsigned char)tb_s15986[1] == 105 && (unsigned char)tb_s15986[2] == 115 && (unsigned char)tb_s15986[3] == 116 && tb_s15986[4] == 0); }))) {
-        if (f_x64__xlist_ok(v_g, v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1151))->q_kids, 0LL, sizeof(tb_o_Node *), 1151)), 1151))->q_kids, 0LL, sizeof(tb_o_Node *), 1151)), 1151))->q_ty, ((tb_o_Node *)tb_nn(v_n, 1151))->q_line)) {
-            f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1152))->q_kids, 0LL, sizeof(tb_o_Node *), 1152)), 1152))->q_kids, 0LL, sizeof(tb_o_Node *), 1152)));
+    } else if (((((strcmp(v_k, "expr_stmt") == 0) && ({ const char *tb_s16054 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1446))->q_kids, 0LL, sizeof(tb_o_Node *), 1446)), 1446))->q_kind; ((unsigned char)tb_s16054[0] == 109 && (unsigned char)tb_s16054[1] == 101 && (unsigned char)tb_s16054[2] == 116 && (unsigned char)tb_s16054[3] == 104 && (unsigned char)tb_s16054[4] == 111 && (unsigned char)tb_s16054[5] == 100 && tb_s16054[6] == 0); })) && ({ const char *tb_s16055 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1446))->q_kids, 0LL, sizeof(tb_o_Node *), 1446)), 1446))->q_name; ((unsigned char)tb_s16055[0] == 99 && (unsigned char)tb_s16055[1] == 108 && (unsigned char)tb_s16055[2] == 101 && (unsigned char)tb_s16055[3] == 97 && (unsigned char)tb_s16055[4] == 114 && tb_s16055[5] == 0); })) && ({ const char *tb_s16056 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1446))->q_kids, 0LL, sizeof(tb_o_Node *), 1446)), 1446))->q_kids, 0LL, sizeof(tb_o_Node *), 1446)), 1446))->q_ty); ((unsigned char)tb_s16056[0] == 108 && (unsigned char)tb_s16056[1] == 105 && (unsigned char)tb_s16056[2] == 115 && (unsigned char)tb_s16056[3] == 116 && tb_s16056[4] == 0); }))) {
+        if (f_x64__xlist_ok(v_g, v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1447))->q_kids, 0LL, sizeof(tb_o_Node *), 1447)), 1447))->q_kids, 0LL, sizeof(tb_o_Node *), 1447)), 1447))->q_ty, ((tb_o_Node *)tb_nn(v_n, 1447))->q_line)) {
+            f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1448))->q_kids, 0LL, sizeof(tb_o_Node *), 1448)), 1448))->q_kids, 0LL, sizeof(tb_o_Node *), 1448)));
             f_x64__xbs(v_g, tb_list_from_np(8, sizeof(long long), (long long[]){72LL, 199LL, 64LL, 8LL, 0LL, 0LL, 0LL, 0LL}));
         }
-    } else if (((({ const char *tb_s15987 = v_k; ((unsigned char)tb_s15987[0] == 101 && (unsigned char)tb_s15987[1] == 97 && (unsigned char)tb_s15987[2] == 99 && (unsigned char)tb_s15987[3] == 104 && tb_s15987[4] == 0); }) && (!((tb_o_Node *)tb_nn(v_n, 1154))->q_is_par)) && ({ const char *tb_s15988 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1154))->q_kids, 0LL, sizeof(tb_o_Node *), 1154)), 1154))->q_ty); ((unsigned char)tb_s15988[0] == 116 && (unsigned char)tb_s15988[1] == 101 && (unsigned char)tb_s15988[2] == 120 && (unsigned char)tb_s15988[3] == 116 && tb_s15988[4] == 0); }))) {
-        long long v_tk = f_x64__xslot(v_g, ({ const char *tb_c15989_0 = "#s"; long long tb_c15989_0n = sizeof("#s") - 1; char tb_c15989_1d[24]; long long tb_c15989_1n; const char *tb_c15989_1 = tb_digits((((tb_o_X64 *)tb_nn(v_g, 1156))->q_vars)->len, tb_c15989_1d, &tb_c15989_1n); char *tb_c15989r = tb_tmem(tb_c15989_0n + tb_c15989_1n + 1), *tb_c15989rw = tb_c15989r; memcpy(tb_c15989rw, tb_c15989_0, tb_c15989_0n); tb_c15989rw += tb_c15989_0n; memcpy(tb_c15989rw, tb_c15989_1, tb_c15989_1n); tb_c15989rw += tb_c15989_1n; *tb_c15989rw = 0; (const char *)tb_c15989r; }));
-        long long v_ik = f_x64__xslot(v_g, ({ const char *tb_c15990_0 = "#i"; long long tb_c15990_0n = sizeof("#i") - 1; char tb_c15990_1d[24]; long long tb_c15990_1n; const char *tb_c15990_1 = tb_digits((((tb_o_X64 *)tb_nn(v_g, 1157))->q_vars)->len, tb_c15990_1d, &tb_c15990_1n); char *tb_c15990r = tb_tmem(tb_c15990_0n + tb_c15990_1n + 1), *tb_c15990rw = tb_c15990r; memcpy(tb_c15990rw, tb_c15990_0, tb_c15990_0n); tb_c15990rw += tb_c15990_0n; memcpy(tb_c15990rw, tb_c15990_1, tb_c15990_1n); tb_c15990rw += tb_c15990_1n; *tb_c15990rw = 0; (const char *)tb_c15990r; }));
-        f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1158))->q_kids, 0LL, sizeof(tb_o_Node *), 1158)));
+    } else if (((({ const char *tb_s16057 = v_k; ((unsigned char)tb_s16057[0] == 101 && (unsigned char)tb_s16057[1] == 97 && (unsigned char)tb_s16057[2] == 99 && (unsigned char)tb_s16057[3] == 104 && tb_s16057[4] == 0); }) && (!((tb_o_Node *)tb_nn(v_n, 1450))->q_is_par)) && ({ const char *tb_s16058 = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1450))->q_kids, 0LL, sizeof(tb_o_Node *), 1450)), 1450))->q_ty); ((unsigned char)tb_s16058[0] == 116 && (unsigned char)tb_s16058[1] == 101 && (unsigned char)tb_s16058[2] == 120 && (unsigned char)tb_s16058[3] == 116 && tb_s16058[4] == 0); }))) {
+        long long v_tk = f_x64__xslot(v_g, ({ const char *tb_c16059_0 = "#s"; long long tb_c16059_0n = sizeof("#s") - 1; char tb_c16059_1d[24]; long long tb_c16059_1n; const char *tb_c16059_1 = tb_digits((((tb_o_X64 *)tb_nn(v_g, 1452))->q_vars)->len, tb_c16059_1d, &tb_c16059_1n); char *tb_c16059r = tb_tmem(tb_c16059_0n + tb_c16059_1n + 1), *tb_c16059rw = tb_c16059r; memcpy(tb_c16059rw, tb_c16059_0, tb_c16059_0n); tb_c16059rw += tb_c16059_0n; memcpy(tb_c16059rw, tb_c16059_1, tb_c16059_1n); tb_c16059rw += tb_c16059_1n; *tb_c16059rw = 0; (const char *)tb_c16059r; }));
+        long long v_ik = f_x64__xslot(v_g, ({ const char *tb_c16060_0 = "#i"; long long tb_c16060_0n = sizeof("#i") - 1; char tb_c16060_1d[24]; long long tb_c16060_1n; const char *tb_c16060_1 = tb_digits((((tb_o_X64 *)tb_nn(v_g, 1453))->q_vars)->len, tb_c16060_1d, &tb_c16060_1n); char *tb_c16060r = tb_tmem(tb_c16060_0n + tb_c16060_1n + 1), *tb_c16060rw = tb_c16060r; memcpy(tb_c16060rw, tb_c16060_0, tb_c16060_0n); tb_c16060rw += tb_c16060_0n; memcpy(tb_c16060rw, tb_c16060_1, tb_c16060_1n); tb_c16060rw += tb_c16060_1n; *tb_c16060rw = 0; (const char *)tb_c16060r; }));
+        f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1454))->q_kids, 0LL, sizeof(tb_o_Node *), 1454)));
         f_x64__xstore_var(v_g, v_tk);
         f_x64__xconst(v_g, 0LL);
         f_x64__xstore_var(v_g, v_ik);
@@ -43510,37 +43874,37 @@ TB_API void f_x64__xstmt(tb_o_X64 * v_g, tb_o_Comp * v_c, tb_o_Node * v_n) {
         f_x64__xplace(v_g, v_head);
         f_x64__xload_var(v_g, v_tk);
         f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 139LL, 141LL}));
-        f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 1168), tb_addo(v_ik, 1LL, 1168), 1168));
+        f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 1464), tb_addo(v_ik, 1LL, 1464), 1464));
         f_x64__xbs(v_g, tb_list_from_np(4, sizeof(long long), (long long[]){128LL, 60LL, 8LL, 0LL}));
         f_x64__xjump(v_g, tb_list_from_np(2, sizeof(long long), (long long[]){15LL, 132LL}), v_out);
         f_x64__xload_var(v_g, v_tk);
         f_x64__xmov_rdi(v_g);
         f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 141LL, 181LL}));
-        f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 1174), tb_addo(v_ik, 1LL, 1174), 1174));
+        f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 1470), tb_addo(v_ik, 1LL, 1470), 1470));
         f_x64__xcall(v_g, "tb_x_u8take");
-        f_x64__xstore_var(v_g, f_x64__xslot(v_g, ((tb_o_Node *)tb_nn(v_n, 1176))->q_name));
-        f_x64__xloop_body(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1177))->q_kids, 1LL, sizeof(tb_o_Node *), 1177)), v_step, v_out);
+        f_x64__xstore_var(v_g, f_x64__xslot(v_g, ((tb_o_Node *)tb_nn(v_n, 1472))->q_name));
+        f_x64__xloop_body(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1473))->q_kids, 1LL, sizeof(tb_o_Node *), 1473)), v_step, v_out);
         f_x64__xplace(v_g, v_step);
         f_x64__xload_var(v_g, v_ik);
         f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 255LL, 192LL}));
         f_x64__xstore_var(v_g, v_ik);
         f_x64__xjump(v_g, tb_list_from_np(1, sizeof(long long), (long long[]){233LL}), v_head);
         f_x64__xplace(v_g, v_out);
-    } else if (({ const char *tb_s15991 = v_k; ((unsigned char)tb_s15991[0] == 108 && (unsigned char)tb_s15991[1] == 111 && (unsigned char)tb_s15991[2] == 99 && (unsigned char)tb_s15991[3] == 107 && tb_s15991[4] == 0); })) {
-        long long v_li = f_x64__xlock_index(v_g, ((tb_o_Node *)tb_nn(v_n, 1185))->q_name);
-        long long v_fk = f_x64__xslot(v_g, ({ const char *tb_c15992_0 = "#lf"; long long tb_c15992_0n = sizeof("#lf") - 1; char tb_c15992_1d[24]; long long tb_c15992_1n; const char *tb_c15992_1 = tb_digits((((tb_o_X64 *)tb_nn(v_g, 1186))->q_vars)->len, tb_c15992_1d, &tb_c15992_1n); char *tb_c15992r = tb_tmem(tb_c15992_0n + tb_c15992_1n + 1), *tb_c15992rw = tb_c15992r; memcpy(tb_c15992rw, tb_c15992_0, tb_c15992_0n); tb_c15992rw += tb_c15992_0n; memcpy(tb_c15992rw, tb_c15992_1, tb_c15992_1n); tb_c15992rw += tb_c15992_1n; *tb_c15992rw = 0; (const char *)tb_c15992r; }));
+    } else if (({ const char *tb_s16061 = v_k; ((unsigned char)tb_s16061[0] == 108 && (unsigned char)tb_s16061[1] == 111 && (unsigned char)tb_s16061[2] == 99 && (unsigned char)tb_s16061[3] == 107 && tb_s16061[4] == 0); })) {
+        long long v_li = f_x64__xlock_index(v_g, ((tb_o_Node *)tb_nn(v_n, 1481))->q_name);
+        long long v_fk = f_x64__xslot(v_g, ({ const char *tb_c16062_0 = "#lf"; long long tb_c16062_0n = sizeof("#lf") - 1; char tb_c16062_1d[24]; long long tb_c16062_1n; const char *tb_c16062_1 = tb_digits((((tb_o_X64 *)tb_nn(v_g, 1482))->q_vars)->len, tb_c16062_1d, &tb_c16062_1n); char *tb_c16062r = tb_tmem(tb_c16062_0n + tb_c16062_1n + 1), *tb_c16062rw = tb_c16062r; memcpy(tb_c16062rw, tb_c16062_0, tb_c16062_0n); tb_c16062rw += tb_c16062_0n; memcpy(tb_c16062rw, tb_c16062_1, tb_c16062_1n); tb_c16062rw += tb_c16062_1n; *tb_c16062rw = 0; (const char *)tb_c16062r; }));
         f_x64__xlock_addr(v_g, v_li);
         f_x64__xcall(v_g, "tb_x_lock_take");
         f_x64__xstore_var(v_g, v_fk);
-        { long long tb_v15993 = v_fk; *(long long *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 1190))->q_lheld) = tb_v15993; }
-        f_x64__xblock(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1191))->q_kids, 0LL, sizeof(tb_o_Node *), 1191)));
-        long long v_gone = (*(long long *)tb_pop(((tb_o_X64 *)tb_nn(v_g, 1192))->q_lheld, 1192));
+        { long long tb_v16063 = v_fk; *(long long *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 1486))->q_lheld) = tb_v16063; }
+        f_x64__xblock(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1487))->q_kids, 0LL, sizeof(tb_o_Node *), 1487)));
+        long long v_gone = (*(long long *)tb_pop(((tb_o_X64 *)tb_nn(v_g, 1488))->q_lheld, 1488));
         _Bool v_freed = 0;
         {
-            tb_list * tb_l15994 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1194))->q_kids, 0LL, sizeof(tb_o_Node *), 1194)), 1194))->q_kids;
-            for (long long tb_i15994 = 0; tb_i15994 < tb_l15994->len; tb_i15994++) {
-                tb_o_Node * const v_st = ((tb_o_Node * *)tb_l15994->data)[tb_i15994];
-                if (({ const char *tb_s15995 = ((tb_o_Node *)tb_nn(v_st, 1195))->q_kind; ((unsigned char)tb_s15995[0] == 117 && (unsigned char)tb_s15995[1] == 110 && (unsigned char)tb_s15995[2] == 108 && (unsigned char)tb_s15995[3] == 111 && (unsigned char)tb_s15995[4] == 99 && (unsigned char)tb_s15995[5] == 107 && tb_s15995[6] == 0); })) {
+            tb_list * tb_l16064 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1490))->q_kids, 0LL, sizeof(tb_o_Node *), 1490)), 1490))->q_kids;
+            for (long long tb_i16064 = 0; tb_i16064 < tb_l16064->len; tb_i16064++) {
+                tb_o_Node * const v_st = ((tb_o_Node * *)tb_l16064->data)[tb_i16064];
+                if (({ const char *tb_s16065 = ((tb_o_Node *)tb_nn(v_st, 1491))->q_kind; ((unsigned char)tb_s16065[0] == 117 && (unsigned char)tb_s16065[1] == 110 && (unsigned char)tb_s16065[2] == 108 && (unsigned char)tb_s16065[3] == 111 && (unsigned char)tb_s16065[4] == 99 && (unsigned char)tb_s16065[5] == 107 && tb_s16065[6] == 0); })) {
                     v_freed = 1;
                 }
             }
@@ -43548,105 +43912,128 @@ TB_API void f_x64__xstmt(tb_o_X64 * v_g, tb_o_Comp * v_c, tb_o_Node * v_n) {
         if ((!v_freed)) {
             f_x64__xlock_give(v_g, v_li, v_fk);
         }
-    } else if (({ const char *tb_s15996 = v_k; ((unsigned char)tb_s15996[0] == 117 && (unsigned char)tb_s15996[1] == 110 && (unsigned char)tb_s15996[2] == 108 && (unsigned char)tb_s15996[3] == 111 && (unsigned char)tb_s15996[4] == 99 && (unsigned char)tb_s15996[5] == 107 && tb_s15996[6] == 0); })) {
-        f_x64__xlock_give(v_g, f_x64__xlock_index(v_g, ((tb_o_Node *)tb_nn(v_n, 1200))->q_name), (*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 1200))->q_lheld, tb_subo((((tb_o_X64 *)tb_nn(v_g, 1200))->q_lheld)->len, 1LL, 1200), sizeof(long long), 1200)));
-    } else if (({ const char *tb_s15997 = v_k; ((unsigned char)tb_s15997[0] == 102 && (unsigned char)tb_s15997[1] == 97 && (unsigned char)tb_s15997[2] == 105 && (unsigned char)tb_s15997[3] == 108 && tb_s15997[4] == 0); })) {
-        f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1202))->q_kids, 0LL, sizeof(tb_o_Node *), 1202)));
+    } else if (({ const char *tb_s16066 = v_k; ((unsigned char)tb_s16066[0] == 117 && (unsigned char)tb_s16066[1] == 110 && (unsigned char)tb_s16066[2] == 108 && (unsigned char)tb_s16066[3] == 111 && (unsigned char)tb_s16066[4] == 99 && (unsigned char)tb_s16066[5] == 107 && tb_s16066[6] == 0); })) {
+        f_x64__xlock_give(v_g, f_x64__xlock_index(v_g, ((tb_o_Node *)tb_nn(v_n, 1496))->q_name), (*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 1496))->q_lheld, tb_subo((((tb_o_X64 *)tb_nn(v_g, 1496))->q_lheld)->len, 1LL, 1496), sizeof(long long), 1496)));
+    } else if (({ const char *tb_s16067 = v_k; ((unsigned char)tb_s16067[0] == 102 && (unsigned char)tb_s16067[1] == 97 && (unsigned char)tb_s16067[2] == 105 && (unsigned char)tb_s16067[3] == 108 && tb_s16067[4] == 0); })) {
+        f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1498))->q_kids, 0LL, sizeof(tb_o_Node *), 1498)));
         f_x64__xpush(v_g);
         f_x64__xcall(v_g, "tb_x_errp");
         f_x64__xpop_rcx(v_g);
         f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 137LL, 8LL}));
         f_x64__xbail(v_g);
     } else if ((strcmp(v_k, "expr_stmt") == 0)) {
-        f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1209))->q_kids, 0LL, sizeof(tb_o_Node *), 1209)));
-    } else if (({ const char *tb_s15998 = v_k; ((unsigned char)tb_s15998[0] == 100 && (unsigned char)tb_s15998[1] == 97 && (unsigned char)tb_s15998[2] == 110 && (unsigned char)tb_s15998[3] == 103 && (unsigned char)tb_s15998[4] == 101 && (unsigned char)tb_s15998[5] == 114 && tb_s15998[6] == 0); })) {
-        { long long tb_v15999 = 1LL; long long *tb_p15999 = &(((tb_o_X64 *)tb_nn(v_g, 1211))->q_in_danger); *tb_p15999 = tb_addo(*tb_p15999, tb_v15999, 1211); }
-        f_x64__xblock(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1212))->q_kids, 0LL, sizeof(tb_o_Node *), 1212)));
-        { long long tb_v16000 = 1LL; long long *tb_p16000 = &(((tb_o_X64 *)tb_nn(v_g, 1213))->q_in_danger); *tb_p16000 = tb_subo(*tb_p16000, tb_v16000, 1213); }
+        f_x64__xexpr(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1505))->q_kids, 0LL, sizeof(tb_o_Node *), 1505)));
+    } else if (({ const char *tb_s16068 = v_k; ((unsigned char)tb_s16068[0] == 100 && (unsigned char)tb_s16068[1] == 97 && (unsigned char)tb_s16068[2] == 110 && (unsigned char)tb_s16068[3] == 103 && (unsigned char)tb_s16068[4] == 101 && (unsigned char)tb_s16068[5] == 114 && tb_s16068[6] == 0); })) {
+        { long long tb_v16069 = 1LL; long long *tb_p16069 = &(((tb_o_X64 *)tb_nn(v_g, 1507))->q_in_danger); *tb_p16069 = tb_addo(*tb_p16069, tb_v16069, 1507); }
+        f_x64__xblock(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_n, 1508))->q_kids, 0LL, sizeof(tb_o_Node *), 1508)));
+        { long long tb_v16070 = 1LL; long long *tb_p16070 = &(((tb_o_X64 *)tb_nn(v_g, 1509))->q_in_danger); *tb_p16070 = tb_subo(*tb_p16070, tb_v16070, 1509); }
     } else {
-        f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_n, 1215))->q_line, ({ const char *tb_c16001_0 = "«"; long long tb_c16001_0n = sizeof("«") - 1; const char *tb_c16001_1 = v_k; long long tb_c16001_1n = (long long)strlen(tb_c16001_1); const char *tb_c16001_2 = "»"; long long tb_c16001_2n = sizeof("»") - 1; char *tb_c16001r = tb_tmem(tb_c16001_0n + tb_c16001_1n + tb_c16001_2n + 1), *tb_c16001rw = tb_c16001r; memcpy(tb_c16001rw, tb_c16001_0, tb_c16001_0n); tb_c16001rw += tb_c16001_0n; memcpy(tb_c16001rw, tb_c16001_1, tb_c16001_1n); tb_c16001rw += tb_c16001_1n; memcpy(tb_c16001rw, tb_c16001_2, tb_c16001_2n); tb_c16001rw += tb_c16001_2n; *tb_c16001rw = 0; (const char *)tb_c16001r; }));
+        f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_n, 1511))->q_line, ({ const char *tb_c16071_0 = "«"; long long tb_c16071_0n = sizeof("«") - 1; const char *tb_c16071_1 = v_k; long long tb_c16071_1n = (long long)strlen(tb_c16071_1); const char *tb_c16071_2 = "»"; long long tb_c16071_2n = sizeof("»") - 1; char *tb_c16071r = tb_tmem(tb_c16071_0n + tb_c16071_1n + tb_c16071_2n + 1), *tb_c16071rw = tb_c16071r; memcpy(tb_c16071rw, tb_c16071_0, tb_c16071_0n); tb_c16071rw += tb_c16071_0n; memcpy(tb_c16071rw, tb_c16071_1, tb_c16071_1n); tb_c16071rw += tb_c16071_1n; memcpy(tb_c16071rw, tb_c16071_2, tb_c16071_2n); tb_c16071rw += tb_c16071_2n; *tb_c16071rw = 0; (const char *)tb_c16071r; }));
     }
 }
 
 TB_API void f_x64__xfunc(tb_o_X64 * v_g, tb_o_Comp * v_c, tb_o_Node * v_f, const char * v_name) {
-    tb_lclear(((tb_o_X64 *)tb_nn(v_g, 1219))->q_vars, 1219);
-    tb_lclear(((tb_o_X64 *)tb_nn(v_g, 1220))->q_lpos, 1220);
-    tb_lclear(((tb_o_X64 *)tb_nn(v_g, 1221))->q_fix_at, 1221);
-    tb_lclear(((tb_o_X64 *)tb_nn(v_g, 1222))->q_fix_l, 1222);
-    { long long tb_v16002 = 0LL; long long *tb_p16002 = &(((tb_o_X64 *)tb_nn(v_g, 1223))->q_depth); *tb_p16002 = tb_v16002; }
-    { tb_o_Node * tb_v16003 = v_f; tb_o_Node * *tb_p16003 = &(((tb_o_X64 *)tb_nn(v_g, 1224))->q_fn); *tb_p16003 = tb_v16003; }
-    { const char * tb_v16004 = ""; const char * *tb_p16004 = &(((tb_o_X64 *)tb_nn(v_g, 1225))->q_out_name); *tb_p16004 = tb_v16004; }
+    tb_lclear(((tb_o_X64 *)tb_nn(v_g, 1515))->q_vars, 1515);
+    tb_lclear(((tb_o_X64 *)tb_nn(v_g, 1516))->q_lpos, 1516);
+    tb_lclear(((tb_o_X64 *)tb_nn(v_g, 1517))->q_fix_at, 1517);
+    tb_lclear(((tb_o_X64 *)tb_nn(v_g, 1518))->q_fix_l, 1518);
+    { long long tb_v16072 = 0LL; long long *tb_p16072 = &(((tb_o_X64 *)tb_nn(v_g, 1519))->q_depth); *tb_p16072 = tb_v16072; }
+    { tb_o_Node * tb_v16073 = v_f; tb_o_Node * *tb_p16073 = &(((tb_o_X64 *)tb_nn(v_g, 1520))->q_fn); *tb_p16073 = tb_v16073; }
+    { const char * tb_v16074 = ""; const char * *tb_p16074 = &(((tb_o_X64 *)tb_nn(v_g, 1521))->q_out_name); *tb_p16074 = tb_v16074; }
+    { long long tb_v16075 = tb_nego(1LL, 1522); long long *tb_p16075 = &(((tb_o_X64 *)tb_nn(v_g, 1522))->q_fa_slot); *tb_p16075 = tb_v16075; }
     long long v_s = f_x64__xsym(v_g, v_name);
-    { long long tb_v16005 = (((tb_o_X64 *)tb_nn(v_g, 1227))->q_code)->len; long long *tb_p16005 = &((*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 1227))->q_sdef, v_s, sizeof(long long), 1227))); *tb_p16005 = tb_v16005; }
+    { long long tb_v16076 = (((tb_o_X64 *)tb_nn(v_g, 1524))->q_code)->len; long long *tb_p16076 = &((*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 1524))->q_sdef, v_s, sizeof(long long), 1524))); *tb_p16076 = tb_v16076; }
     f_x64__xbs(v_g, tb_list_from_np(7, sizeof(long long), (long long[]){85LL, 72LL, 137LL, 229LL, 72LL, 129LL, 236LL}));
-    long long v_frame_at = (((tb_o_X64 *)tb_nn(v_g, 1230))->q_code)->len;
+    long long v_frame_at = (((tb_o_X64 *)tb_nn(v_g, 1527))->q_code)->len;
     f_x64__x32(v_g, 0LL);
-    { long long tb_v16006 = f_x64__xlabel(v_g); long long *tb_p16006 = &(((tb_o_X64 *)tb_nn(v_g, 1232))->q_ret_l); *tb_p16006 = tb_v16006; }
-    if (({ const char *tb_s16007 = ((tb_o_Node *)tb_nn(v_f, 1233))->q_kind; ((unsigned char)tb_s16007[0] == 102 && (unsigned char)tb_s16007[1] == 117 && (unsigned char)tb_s16007[2] == 110 && (unsigned char)tb_s16007[3] == 99 && tb_s16007[4] == 0); })) {
-        tb_list * v_params = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_f, 1234))->q_kids, 0LL, sizeof(tb_o_Node *), 1234)), 1234))->q_kids;
+    { long long tb_v16077 = f_x64__xlabel(v_g); long long *tb_p16077 = &(((tb_o_X64 *)tb_nn(v_g, 1529))->q_ret_l); *tb_p16077 = tb_v16077; }
+    if (({ const char *tb_s16078 = ((tb_o_Node *)tb_nn(v_f, 1530))->q_kind; ((unsigned char)tb_s16078[0] == 102 && (unsigned char)tb_s16078[1] == 117 && (unsigned char)tb_s16078[2] == 110 && (unsigned char)tb_s16078[3] == 99 && tb_s16078[4] == 0); })) {
+        tb_list * v_params = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_f, 1531))->q_kids, 0LL, sizeof(tb_o_Node *), 1531)), 1531))->q_kids;
         if (((v_params)->len > 6LL)) {
-            f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_f, 1236))->q_line, "больше 6 параметров");
+            f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_f, 1533))->q_line, "больше 6 параметров");
         }
         tb_list * v_stores = tb_list_from(6, sizeof(tb_list *), (tb_list *[]){tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 137LL, 189LL}), tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 137LL, 181LL}), tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 137LL, 149LL}), tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 137LL, 141LL}), tb_list_from_np(3, sizeof(long long), (long long[]){76LL, 137LL, 133LL}), tb_list_from_np(3, sizeof(long long), (long long[]){76LL, 137LL, 141LL})});
         {
-            long long tb_end16008 = tb_subo(tb_mini((v_params)->len, 6LL), 1LL, 1238);
-            for (long long v_i = 0LL; v_i <= tb_end16008; v_i++) {
-                f_x64__xbs(v_g, (*(tb_list * *)tb_at(v_stores, v_i, sizeof(tb_list *), 1239)));
-                f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 1240), tb_addo(f_x64__xslot(v_g, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(v_params, v_i, sizeof(tb_o_Node *), 1240)), 1240))->q_name), 1LL, 1240), 1240));
+            long long tb_end16079 = tb_subo(tb_mini((v_params)->len, 6LL), 1LL, 1535);
+            for (long long v_i = 0LL; v_i <= tb_end16079; v_i++) {
+                f_x64__xbs(v_g, (*(tb_list * *)tb_at(v_stores, v_i, sizeof(tb_list *), 1536)));
+                f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 1537), tb_addo(f_x64__xslot(v_g, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(v_params, v_i, sizeof(tb_o_Node *), 1537)), 1537))->q_name), 1LL, 1537), 1537));
             }
         }
-        tb_list * v_outs = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_f, 1241))->q_kids, 2LL, sizeof(tb_o_Node *), 1241)), 1241))->q_kids;
+        if (f_memplan__func_arena_ok(v_c, v_f)) {
+            long long v_fm = (((tb_o_X64 *)tb_nn(v_g, 1540))->q_vars)->len;
+            { const char * tb_v16080 = "#fm"; *(const char * *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 1541))->q_vars) = tb_v16080; }
+            { const char * tb_v16081 = "#fm2"; *(const char * *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 1542))->q_vars) = tb_v16081; }
+            { long long tb_v16082 = f_x64__xslot(v_g, "#fa"); long long *tb_p16082 = &(((tb_o_X64 *)tb_nn(v_g, 1543))->q_fa_slot); *tb_p16082 = tb_v16082; }
+            { long long tb_v16083 = v_fm; long long *tb_p16083 = &(((tb_o_X64 *)tb_nn(v_g, 1544))->q_fm_slot); *tb_p16083 = tb_v16083; }
+            f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 141LL, 189LL}));
+            f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 1546), tb_addo(v_fm, 2LL, 1546), 1546));
+            f_x64__xcall(v_g, "tb_x_fa_begin");
+            f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 99LL, 192LL}));
+            f_x64__xstore_var(v_g, ((tb_o_X64 *)tb_nn(v_g, 1549))->q_fa_slot);
+        }
+        tb_list * v_outs = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_f, 1550))->q_kids, 2LL, sizeof(tb_o_Node *), 1550)), 1550))->q_kids;
         if (((v_outs)->len > 1LL)) {
-            f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_f, 1243))->q_line, "функции с несколькими выходами");
+            f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_f, 1552))->q_line, "функции с несколькими выходами");
         }
         if (((v_outs)->len == 1LL)) {
-            { const char * tb_v16009 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(v_outs, 0LL, sizeof(tb_o_Node *), 1245)), 1245))->q_name; const char * *tb_p16009 = &(((tb_o_X64 *)tb_nn(v_g, 1245))->q_out_name); *tb_p16009 = tb_v16009; }
-            if ((!f_x64__has_var(v_g, ((tb_o_X64 *)tb_nn(v_g, 1246))->q_out_name))) {
-                f_x64__xdefault(v_g, v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(v_outs, 0LL, sizeof(tb_o_Node *), 1247)), 1247))->q_ty, ((tb_o_Node *)tb_nn(v_f, 1247))->q_line);
-                f_x64__xstore_var(v_g, f_x64__xslot(v_g, ((tb_o_X64 *)tb_nn(v_g, 1248))->q_out_name));
+            { const char * tb_v16084 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(v_outs, 0LL, sizeof(tb_o_Node *), 1554)), 1554))->q_name; const char * *tb_p16084 = &(((tb_o_X64 *)tb_nn(v_g, 1554))->q_out_name); *tb_p16084 = tb_v16084; }
+            if ((!f_x64__has_var(v_g, ((tb_o_X64 *)tb_nn(v_g, 1555))->q_out_name))) {
+                f_x64__xdefault(v_g, v_c, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(v_outs, 0LL, sizeof(tb_o_Node *), 1556)), 1556))->q_ty, ((tb_o_Node *)tb_nn(v_f, 1556))->q_line);
+                f_x64__xstore_var(v_g, f_x64__xslot(v_g, ((tb_o_X64 *)tb_nn(v_g, 1557))->q_out_name));
             }
         }
-        f_x64__xblock(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_f, 1249))->q_kids, 1LL, sizeof(tb_o_Node *), 1249)));
-        if (({ const char *tb_s16010 = ((tb_o_X64 *)tb_nn(v_g, 1250))->q_out_name; !(tb_s16010[0] == 0); })) {
-            f_x64__xload_var(v_g, f_x64__xslot(v_g, ((tb_o_X64 *)tb_nn(v_g, 1251))->q_out_name));
+        f_x64__xblock(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_f, 1558))->q_kids, 1LL, sizeof(tb_o_Node *), 1558)));
+        if (({ const char *tb_s16085 = ((tb_o_X64 *)tb_nn(v_g, 1559))->q_out_name; !(tb_s16085[0] == 0); })) {
+            f_x64__xload_var(v_g, f_x64__xslot(v_g, ((tb_o_X64 *)tb_nn(v_g, 1560))->q_out_name));
         }
     } else {
         {
-            tb_list * tb_l16011 = ((tb_o_Comp *)tb_nn(v_c, 1254))->q_globals;
-            for (long long tb_i16011 = 0; tb_i16011 < tb_l16011->len; tb_i16011++) {
-                tb_o_Node * const v_gl = ((tb_o_Node * *)tb_l16011->data)[tb_i16011];
-                if (((((tb_o_Node *)tb_nn(v_gl, 1255))->q_kids)->len > 0LL)) {
-                    f_x64__xas(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_gl, 1256))->q_kids, 0LL, sizeof(tb_o_Node *), 1256)), ((tb_o_Node *)tb_nn(v_gl, 1256))->q_ty);
-                    f_x64__xstore_global(v_g, f_x64__xglobal(v_g, ((tb_o_Node *)tb_nn(v_gl, 1257))->q_name));
+            tb_list * tb_l16086 = ((tb_o_Comp *)tb_nn(v_c, 1563))->q_globals;
+            for (long long tb_i16086 = 0; tb_i16086 < tb_l16086->len; tb_i16086++) {
+                tb_o_Node * const v_gl = ((tb_o_Node * *)tb_l16086->data)[tb_i16086];
+                if (((((tb_o_Node *)tb_nn(v_gl, 1564))->q_kids)->len > 0LL)) {
+                    f_x64__xas(v_g, v_c, (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_gl, 1565))->q_kids, 0LL, sizeof(tb_o_Node *), 1565)), ((tb_o_Node *)tb_nn(v_gl, 1565))->q_ty);
+                    f_x64__xstore_global(v_g, f_x64__xglobal(v_g, ((tb_o_Node *)tb_nn(v_gl, 1566))->q_name));
                 }
             }
         }
-        f_x64__xcall(v_g, f_emit_ll__ll_fname(((tb_o_Node *)tb_nn(v_f, 1258))->q_ref));
+        f_x64__xcall(v_g, f_emit_ll__ll_fname(((tb_o_Node *)tb_nn(v_f, 1567))->q_ref));
     }
-    f_x64__xplace(v_g, ((tb_o_X64 *)tb_nn(v_g, 1259))->q_ret_l);
+    f_x64__xplace(v_g, ((tb_o_X64 *)tb_nn(v_g, 1568))->q_ret_l);
+    if ((((tb_o_X64 *)tb_nn(v_g, 1569))->q_fa_slot >= 0LL)) {
+        long long v_keep = f_x64__xslot(v_g, "#ret");
+        f_x64__xstore_var(v_g, v_keep);
+        f_x64__xbs(v_g, tb_list_from_np(2, sizeof(long long), (long long[]){139LL, 189LL}));
+        f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 1573), tb_addo(((tb_o_X64 *)tb_nn(v_g, 1573))->q_fa_slot, 1LL, 1573), 1573));
+        f_x64__xbs(v_g, tb_list_from_np(3, sizeof(long long), (long long[]){72LL, 141LL, 181LL}));
+        f_x64__x32(v_g, tb_mulo(tb_nego(8LL, 1575), tb_addo(((tb_o_X64 *)tb_nn(v_g, 1575))->q_fm_slot, 2LL, 1575), 1575));
+        f_x64__xcall(v_g, "tb_x_fa_end");
+        f_x64__xload_var(v_g, v_keep);
+    }
     f_x64__xbs(v_g, tb_list_from_np(5, sizeof(long long), (long long[]){72LL, 137LL, 236LL, 93LL, 195LL}));
-    f_x64__put32(v_g, v_frame_at, tb_mulo(tb_div(tb_addo(tb_mulo((((tb_o_X64 *)tb_nn(v_g, 1262))->q_vars)->len, 8LL, 1262), 15LL, 1262), 16LL, 1262), 16LL, 1262));
+    f_x64__put32(v_g, v_frame_at, tb_mulo(tb_div(tb_addo(tb_mulo((((tb_o_X64 *)tb_nn(v_g, 1580))->q_vars)->len, 8LL, 1580), 15LL, 1580), 16LL, 1580), 16LL, 1580));
     {
-        long long tb_end16012 = tb_subo((((tb_o_X64 *)tb_nn(v_g, 1263))->q_fix_at)->len, 1LL, 1263);
-        for (long long v_i = 0LL; v_i <= tb_end16012; v_i++) {
-            long long v_at = (*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 1264))->q_fix_at, v_i, sizeof(long long), 1264));
-            f_x64__put32(v_g, v_at, tb_subo((*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 1265))->q_lpos, (*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 1265))->q_fix_l, v_i, sizeof(long long), 1265)), sizeof(long long), 1265)), tb_addo(v_at, 4LL, 1265), 1265));
+        long long tb_end16087 = tb_subo((((tb_o_X64 *)tb_nn(v_g, 1581))->q_fix_at)->len, 1LL, 1581);
+        for (long long v_i = 0LL; v_i <= tb_end16087; v_i++) {
+            long long v_at = (*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 1582))->q_fix_at, v_i, sizeof(long long), 1582));
+            f_x64__put32(v_g, v_at, tb_subo((*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 1583))->q_lpos, (*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 1583))->q_fix_l, v_i, sizeof(long long), 1583)), sizeof(long long), 1583)), tb_addo(v_at, 4LL, 1583), 1583));
         }
     }
 }
 
 TB_API void f_x64__eb(tb_list * v_out, long long v_v, long long v_n) {
     {
-        long long tb_end16013 = tb_subo(v_n, 1LL, 1270);
-        for (long long v_i = 0LL; v_i <= tb_end16013; v_i++) {
-            { long long tb_v16014 = tb_band(tb_shr(v_v, tb_mulo(v_i, 8LL, 1271)), 255LL); *(long long *)tb_grow(v_out) = tb_v16014; }
+        long long tb_end16088 = tb_subo(v_n, 1LL, 1588);
+        for (long long v_i = 0LL; v_i <= tb_end16088; v_i++) {
+            { long long tb_v16089 = tb_band(tb_shr(v_v, tb_mulo(v_i, 8LL, 1589)), 255LL); *(long long *)tb_grow(v_out) = tb_v16089; }
         }
     }
 }
 
 TB_API void f_x64__eal(tb_list * v_out, long long v_a) {
-    while ((tb_mod((v_out)->len, v_a, 1274) != 0LL)) {
-        { long long tb_v16015 = 0LL; *(long long *)tb_grow(v_out) = tb_v16015; }
+    while ((tb_mod((v_out)->len, v_a, 1592) != 0LL)) {
+        { long long tb_v16090 = 0LL; *(long long *)tb_grow(v_out) = tb_v16090; }
     }
 }
 
@@ -43654,12 +44041,12 @@ TB_API long long f_x64__estr(tb_list * v_tab, const char * v_s) {
     long long v_at = 0LL;
     v_at = (v_tab)->len;
     {
-        long long tb_end16016 = tb_subo(tb_byte_len(v_s), 1LL, 1279);
-        for (long long v_i = 0LL; v_i <= tb_end16016; v_i++) {
-            { long long tb_v16017 = tb_byte_at(v_s, v_i, 1280); *(long long *)tb_grow(v_tab) = tb_v16017; }
+        long long tb_end16091 = tb_subo(tb_byte_len(v_s), 1LL, 1597);
+        for (long long v_i = 0LL; v_i <= tb_end16091; v_i++) {
+            { long long tb_v16092 = tb_byte_at(v_s, v_i, 1598); *(long long *)tb_grow(v_tab) = tb_v16092; }
         }
     }
-    { long long tb_v16018 = 0LL; *(long long *)tb_grow(v_tab) = tb_v16018; }
+    { long long tb_v16093 = 0LL; *(long long *)tb_grow(v_tab) = tb_v16093; }
     return v_at;
 }
 
@@ -43682,8 +44069,8 @@ TB_API tb_list * f_x64__xelf(tb_o_X64 * v_g) {
     tb_list * v_symtab = tb_list_new_np(sizeof(long long));
     f_x64__eb(v_symtab, 0LL, 24LL);
     {
-        long long tb_end16019 = 3LL;
-        for (long long v_s = 1LL; v_s <= tb_end16019; v_s++) {
+        long long tb_end16094 = 3LL;
+        for (long long v_s = 1LL; v_s <= tb_end16094; v_s++) {
             f_x64__eb(v_symtab, 0LL, 4LL);
             f_x64__eb(v_symtab, 3LL, 1LL);
             f_x64__eb(v_symtab, 0LL, 1LL);
@@ -43692,14 +44079,14 @@ TB_API tb_list * f_x64__xelf(tb_o_X64 * v_g) {
         }
     }
     {
-        long long tb_end16020 = tb_subo((((tb_o_X64 *)tb_nn(v_g, 1306))->q_snames)->len, 1LL, 1306);
-        for (long long v_k = 4LL; v_k <= tb_end16020; v_k++) {
-            f_x64__eb(v_symtab, f_x64__estr(v_strtab, (*(const char * *)tb_at(((tb_o_X64 *)tb_nn(v_g, 1307))->q_snames, v_k, sizeof(const char *), 1307))), 4LL);
-            if (((*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 1308))->q_sdef, v_k, sizeof(long long), 1308)) >= 0LL)) {
+        long long tb_end16095 = tb_subo((((tb_o_X64 *)tb_nn(v_g, 1624))->q_snames)->len, 1LL, 1624);
+        for (long long v_k = 4LL; v_k <= tb_end16095; v_k++) {
+            f_x64__eb(v_symtab, f_x64__estr(v_strtab, (*(const char * *)tb_at(((tb_o_X64 *)tb_nn(v_g, 1625))->q_snames, v_k, sizeof(const char *), 1625))), 4LL);
+            if (((*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 1626))->q_sdef, v_k, sizeof(long long), 1626)) >= 0LL)) {
                 f_x64__eb(v_symtab, 18LL, 1LL);
                 f_x64__eb(v_symtab, 0LL, 1LL);
                 f_x64__eb(v_symtab, 1LL, 2LL);
-                f_x64__eb(v_symtab, (*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 1312))->q_sdef, v_k, sizeof(long long), 1312)), 8LL);
+                f_x64__eb(v_symtab, (*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 1630))->q_sdef, v_k, sizeof(long long), 1630)), 8LL);
             } else {
                 f_x64__eb(v_symtab, 16LL, 1LL);
                 f_x64__eb(v_symtab, 0LL, 1LL);
@@ -43711,11 +44098,11 @@ TB_API tb_list * f_x64__xelf(tb_o_X64 * v_g) {
     }
     tb_list * v_rela = tb_list_new_np(sizeof(long long));
     {
-        long long tb_end16021 = tb_subo((((tb_o_X64 *)tb_nn(v_g, 1320))->q_r_at)->len, 1LL, 1320);
-        for (long long v_i = 0LL; v_i <= tb_end16021; v_i++) {
-            f_x64__eb(v_rela, (*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 1321))->q_r_at, v_i, sizeof(long long), 1321)), 8LL);
-            f_x64__eb(v_rela, tb_addo(tb_mulo((*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 1322))->q_r_sym, v_i, sizeof(long long), 1322)), 4294967296LL, 1322), (*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 1322))->q_r_type, v_i, sizeof(long long), 1322)), 1322), 8LL);
-            f_x64__eb(v_rela, (*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 1323))->q_r_add, v_i, sizeof(long long), 1323)), 8LL);
+        long long tb_end16096 = tb_subo((((tb_o_X64 *)tb_nn(v_g, 1638))->q_r_at)->len, 1LL, 1638);
+        for (long long v_i = 0LL; v_i <= tb_end16096; v_i++) {
+            f_x64__eb(v_rela, (*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 1639))->q_r_at, v_i, sizeof(long long), 1639)), 8LL);
+            f_x64__eb(v_rela, tb_addo(tb_mulo((*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 1640))->q_r_sym, v_i, sizeof(long long), 1640)), 4294967296LL, 1640), (*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 1640))->q_r_type, v_i, sizeof(long long), 1640)), 1640), 8LL);
+            f_x64__eb(v_rela, (*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 1641))->q_r_add, v_i, sizeof(long long), 1641)), 8LL);
         }
     }
     tb_list * v_sh = tb_list_from_np(1, sizeof(long long), (long long[]){0LL});
@@ -43746,66 +44133,66 @@ TB_API tb_list * f_x64__xelf(tb_o_X64 * v_g) {
     f_x64__eal(v_out, 16LL);
     long long v_o_text = (v_out)->len;
     {
-        tb_list * tb_l16022 = ((tb_o_X64 *)tb_nn(v_g, 1351))->q_code;
-        for (long long tb_i16022 = 0; tb_i16022 < tb_l16022->len; tb_i16022++) {
-            long long const v_b = ((long long *)tb_l16022->data)[tb_i16022];
-            { long long tb_v16023 = v_b; *(long long *)tb_grow(v_out) = tb_v16023; }
+        tb_list * tb_l16097 = ((tb_o_X64 *)tb_nn(v_g, 1669))->q_code;
+        for (long long tb_i16097 = 0; tb_i16097 < tb_l16097->len; tb_i16097++) {
+            long long const v_b = ((long long *)tb_l16097->data)[tb_i16097];
+            { long long tb_v16098 = v_b; *(long long *)tb_grow(v_out) = tb_v16098; }
         }
     }
     long long v_o_ro = (v_out)->len;
     {
-        tb_list * tb_l16024 = ((tb_o_X64 *)tb_nn(v_g, 1354))->q_ro;
-        for (long long tb_i16024 = 0; tb_i16024 < tb_l16024->len; tb_i16024++) {
-            long long const v_b = ((long long *)tb_l16024->data)[tb_i16024];
-            { long long tb_v16025 = v_b; *(long long *)tb_grow(v_out) = tb_v16025; }
+        tb_list * tb_l16099 = ((tb_o_X64 *)tb_nn(v_g, 1672))->q_ro;
+        for (long long tb_i16099 = 0; tb_i16099 < tb_l16099->len; tb_i16099++) {
+            long long const v_b = ((long long *)tb_l16099->data)[tb_i16099];
+            { long long tb_v16100 = v_b; *(long long *)tb_grow(v_out) = tb_v16100; }
         }
     }
     f_x64__eal(v_out, 8LL);
     long long v_o_sym = (v_out)->len;
     {
-        tb_list * tb_l16026 = v_symtab;
-        for (long long tb_i16026 = 0; tb_i16026 < tb_l16026->len; tb_i16026++) {
-            long long const v_b = ((long long *)tb_l16026->data)[tb_i16026];
-            { long long tb_v16027 = v_b; *(long long *)tb_grow(v_out) = tb_v16027; }
+        tb_list * tb_l16101 = v_symtab;
+        for (long long tb_i16101 = 0; tb_i16101 < tb_l16101->len; tb_i16101++) {
+            long long const v_b = ((long long *)tb_l16101->data)[tb_i16101];
+            { long long tb_v16102 = v_b; *(long long *)tb_grow(v_out) = tb_v16102; }
         }
     }
     long long v_o_str = (v_out)->len;
     {
-        tb_list * tb_l16028 = v_strtab;
-        for (long long tb_i16028 = 0; tb_i16028 < tb_l16028->len; tb_i16028++) {
-            long long const v_b = ((long long *)tb_l16028->data)[tb_i16028];
-            { long long tb_v16029 = v_b; *(long long *)tb_grow(v_out) = tb_v16029; }
+        tb_list * tb_l16103 = v_strtab;
+        for (long long tb_i16103 = 0; tb_i16103 < tb_l16103->len; tb_i16103++) {
+            long long const v_b = ((long long *)tb_l16103->data)[tb_i16103];
+            { long long tb_v16104 = v_b; *(long long *)tb_grow(v_out) = tb_v16104; }
         }
     }
     f_x64__eal(v_out, 8LL);
     long long v_o_rela = (v_out)->len;
     {
-        tb_list * tb_l16030 = v_rela;
-        for (long long tb_i16030 = 0; tb_i16030 < tb_l16030->len; tb_i16030++) {
-            long long const v_b = ((long long *)tb_l16030->data)[tb_i16030];
-            { long long tb_v16031 = v_b; *(long long *)tb_grow(v_out) = tb_v16031; }
+        tb_list * tb_l16105 = v_rela;
+        for (long long tb_i16105 = 0; tb_i16105 < tb_l16105->len; tb_i16105++) {
+            long long const v_b = ((long long *)tb_l16105->data)[tb_i16105];
+            { long long tb_v16106 = v_b; *(long long *)tb_grow(v_out) = tb_v16106; }
         }
     }
     long long v_o_sh = (v_out)->len;
     {
-        tb_list * tb_l16032 = v_sh;
-        for (long long tb_i16032 = 0; tb_i16032 < tb_l16032->len; tb_i16032++) {
-            long long const v_b = ((long long *)tb_l16032->data)[tb_i16032];
-            { long long tb_v16033 = v_b; *(long long *)tb_grow(v_out) = tb_v16033; }
+        tb_list * tb_l16107 = v_sh;
+        for (long long tb_i16107 = 0; tb_i16107 < tb_l16107->len; tb_i16107++) {
+            long long const v_b = ((long long *)tb_l16107->data)[tb_i16107];
+            { long long tb_v16108 = v_b; *(long long *)tb_grow(v_out) = tb_v16108; }
         }
     }
     f_x64__eal(v_out, 8LL);
     long long v_shoff = (v_out)->len;
     {
-        long long tb_end16034 = 7LL;
-        for (long long v_i = 0LL; v_i <= tb_end16034; v_i++) {
-            { long long tb_v16035 = tb_band(tb_shr(v_shoff, tb_mulo(v_i, 8LL, 1373)), 255LL); long long *tb_p16035 = &((*(long long *)tb_at(v_out, tb_addo(v_shoff_at, v_i, 1373), sizeof(long long), 1373))); *tb_p16035 = tb_v16035; }
+        long long tb_end16109 = 7LL;
+        for (long long v_i = 0LL; v_i <= tb_end16109; v_i++) {
+            { long long tb_v16110 = tb_band(tb_shr(v_shoff, tb_mulo(v_i, 8LL, 1691)), 255LL); long long *tb_p16110 = &((*(long long *)tb_at(v_out, tb_addo(v_shoff_at, v_i, 1691), sizeof(long long), 1691))); *tb_p16110 = tb_v16110; }
         }
     }
     f_x64__eb(v_out, 0LL, 64LL);
-    f_x64__eshdr(v_out, v_n_text, 1LL, 6LL, v_o_text, (((tb_o_X64 *)tb_nn(v_g, 1375))->q_code)->len, 0LL, 0LL, 16LL, 0LL);
-    f_x64__eshdr(v_out, v_n_ro, 1LL, 2LL, v_o_ro, (((tb_o_X64 *)tb_nn(v_g, 1376))->q_ro)->len, 0LL, 0LL, 1LL, 0LL);
-    f_x64__eshdr(v_out, v_n_bss, 8LL, 3LL, v_o_rela, ((tb_o_X64 *)tb_nn(v_g, 1377))->q_bss, 0LL, 0LL, 8LL, 0LL);
+    f_x64__eshdr(v_out, v_n_text, 1LL, 6LL, v_o_text, (((tb_o_X64 *)tb_nn(v_g, 1693))->q_code)->len, 0LL, 0LL, 16LL, 0LL);
+    f_x64__eshdr(v_out, v_n_ro, 1LL, 2LL, v_o_ro, (((tb_o_X64 *)tb_nn(v_g, 1694))->q_ro)->len, 0LL, 0LL, 1LL, 0LL);
+    f_x64__eshdr(v_out, v_n_bss, 8LL, 3LL, v_o_rela, ((tb_o_X64 *)tb_nn(v_g, 1695))->q_bss, 0LL, 0LL, 8LL, 0LL);
     f_x64__eshdr(v_out, v_n_sym, 2LL, 0LL, v_o_sym, (v_symtab)->len, 5LL, 4LL, 8LL, 24LL);
     f_x64__eshdr(v_out, v_n_str, 3LL, 0LL, v_o_str, (v_strtab)->len, 0LL, 0LL, 1LL, 0LL);
     f_x64__eshdr(v_out, v_n_rela, 4LL, 64LL, v_o_rela, (v_rela)->len, 4LL, 1LL, 8LL, 24LL);
@@ -43816,68 +44203,68 @@ TB_API tb_list * f_x64__xelf(tb_o_X64 * v_g) {
 TB_API tb_r_f_x64__x64_app f_x64__x64_app(tb_o_Comp * v_c, tb_o_Node * v_program) {
     tb_list * v_bytes = tb_list_new_np(sizeof(long long));
     const char * v_err = "";
-    tb_o_X64 * v_g = tb_new_X64(tb_list_new_np(sizeof(long long)), tb_list_new_np(sizeof(long long)), 0LL, "", tb_list_new(sizeof(const char *)), tb_list_new_np(sizeof(long long)), tb_list_new_np(sizeof(long long)), tb_list_new_np(sizeof(long long)), tb_list_new_np(sizeof(long long)), tb_list_new_np(sizeof(long long)), tb_list_new(sizeof(const char *)), tb_list_new(sizeof(const char *)), tb_list_new_np(sizeof(long long)), tb_list_new_np(sizeof(long long)), tb_list_new_np(sizeof(long long)), tb_list_new_np(sizeof(long long)), tb_list_new_np(sizeof(long long)), tb_list_new_np(sizeof(long long)), 0LL, 0LL, 0LL, "", 0, tb_list_new_np(sizeof(long long)), tb_list_new(sizeof(const char *)), tb_list_new_np(sizeof(long long)), tb_list_new_np(sizeof(long long)));
-    { tb_list * tb_v16036 = tb_list_from(4, sizeof(const char *), (const char *[]){"", ".text", ".rodata", ".bss"}); tb_list * *tb_p16036 = &(((tb_o_X64 *)tb_nn(v_g, 1386))->q_snames); *tb_p16036 = tb_v16036; }
-    { tb_list * tb_v16037 = tb_list_from_np(4, sizeof(long long), (long long[]){tb_nego(1LL, 1387), tb_nego(1LL, 1387), tb_nego(1LL, 1387), tb_nego(1LL, 1387)}); tb_list * *tb_p16037 = &(((tb_o_X64 *)tb_nn(v_g, 1387))->q_sdef); *tb_p16037 = tb_v16037; }
+    tb_o_X64 * v_g = tb_new_X64(tb_list_new_np(sizeof(long long)), tb_list_new_np(sizeof(long long)), 0LL, "", tb_list_new(sizeof(const char *)), tb_list_new_np(sizeof(long long)), tb_list_new_np(sizeof(long long)), tb_list_new_np(sizeof(long long)), tb_list_new_np(sizeof(long long)), tb_list_new_np(sizeof(long long)), tb_list_new(sizeof(const char *)), tb_list_new(sizeof(const char *)), tb_list_new_np(sizeof(long long)), tb_list_new_np(sizeof(long long)), tb_list_new_np(sizeof(long long)), tb_list_new_np(sizeof(long long)), tb_list_new_np(sizeof(long long)), tb_list_new_np(sizeof(long long)), 0LL, 0LL, 0LL, 0LL, 0, 0LL, "", 0, tb_list_new_np(sizeof(long long)), tb_list_new(sizeof(const char *)), tb_list_new_np(sizeof(long long)), tb_list_new_np(sizeof(long long)));
+    { tb_list * tb_v16111 = tb_list_from(4, sizeof(const char *), (const char *[]){"", ".text", ".rodata", ".bss"}); tb_list * *tb_p16111 = &(((tb_o_X64 *)tb_nn(v_g, 1704))->q_snames); *tb_p16111 = tb_v16111; }
+    { tb_list * tb_v16112 = tb_list_from_np(4, sizeof(long long), (long long[]){tb_nego(1LL, 1705), tb_nego(1LL, 1705), tb_nego(1LL, 1705), tb_nego(1LL, 1705)}); tb_list * *tb_p16112 = &(((tb_o_X64 *)tb_nn(v_g, 1705))->q_sdef); *tb_p16112 = tb_v16112; }
     {
-        tb_list * tb_l16038 = ((tb_o_Comp *)tb_nn(v_c, 1388))->q_globals;
-        for (long long tb_i16038 = 0; tb_i16038 < tb_l16038->len; tb_i16038++) {
-            tb_o_Node * const v_gl = ((tb_o_Node * *)tb_l16038->data)[tb_i16038];
-            const char * v_gk = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_gl, 1389))->q_ty);
-            if ((((({ const char *tb_s16039 = v_gk; !((unsigned char)tb_s16039[0] == 105 && (unsigned char)tb_s16039[1] == 110 && (unsigned char)tb_s16039[2] == 116 && tb_s16039[3] == 0); }) && ({ const char *tb_s16040 = v_gk; !((unsigned char)tb_s16040[0] == 98 && (unsigned char)tb_s16040[1] == 111 && (unsigned char)tb_s16040[2] == 111 && (unsigned char)tb_s16040[3] == 108 && tb_s16040[4] == 0); })) && ({ const char *tb_s16041 = v_gk; !((unsigned char)tb_s16041[0] == 100 && (unsigned char)tb_s16041[1] == 101 && (unsigned char)tb_s16041[2] == 99 && tb_s16041[3] == 0); })) && ({ const char *tb_s16042 = v_gk; !((unsigned char)tb_s16042[0] == 101 && (unsigned char)tb_s16042[1] == 110 && (unsigned char)tb_s16042[2] == 117 && (unsigned char)tb_s16042[3] == 109 && tb_s16042[4] == 0); }))) {
-                f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_gl, 1391))->q_line, ({ const char *tb_c16043_0 = "shared типа "; long long tb_c16043_0n = sizeof("shared типа ") - 1; const char *tb_c16043_1 = v_gk; long long tb_c16043_1n = (long long)strlen(tb_c16043_1); char *tb_c16043r = tb_tmem(tb_c16043_0n + tb_c16043_1n + 1), *tb_c16043rw = tb_c16043r; memcpy(tb_c16043rw, tb_c16043_0, tb_c16043_0n); tb_c16043rw += tb_c16043_0n; memcpy(tb_c16043rw, tb_c16043_1, tb_c16043_1n); tb_c16043rw += tb_c16043_1n; *tb_c16043rw = 0; (const char *)tb_c16043r; }));
+        tb_list * tb_l16113 = ((tb_o_Comp *)tb_nn(v_c, 1706))->q_globals;
+        for (long long tb_i16113 = 0; tb_i16113 < tb_l16113->len; tb_i16113++) {
+            tb_o_Node * const v_gl = ((tb_o_Node * *)tb_l16113->data)[tb_i16113];
+            const char * v_gk = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_gl, 1707))->q_ty);
+            if ((((({ const char *tb_s16114 = v_gk; !((unsigned char)tb_s16114[0] == 105 && (unsigned char)tb_s16114[1] == 110 && (unsigned char)tb_s16114[2] == 116 && tb_s16114[3] == 0); }) && ({ const char *tb_s16115 = v_gk; !((unsigned char)tb_s16115[0] == 98 && (unsigned char)tb_s16115[1] == 111 && (unsigned char)tb_s16115[2] == 111 && (unsigned char)tb_s16115[3] == 108 && tb_s16115[4] == 0); })) && ({ const char *tb_s16116 = v_gk; !((unsigned char)tb_s16116[0] == 100 && (unsigned char)tb_s16116[1] == 101 && (unsigned char)tb_s16116[2] == 99 && tb_s16116[3] == 0); })) && ({ const char *tb_s16117 = v_gk; !((unsigned char)tb_s16117[0] == 101 && (unsigned char)tb_s16117[1] == 110 && (unsigned char)tb_s16117[2] == 117 && (unsigned char)tb_s16117[3] == 109 && tb_s16117[4] == 0); }))) {
+                f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_gl, 1709))->q_line, ({ const char *tb_c16118_0 = "shared типа "; long long tb_c16118_0n = sizeof("shared типа ") - 1; const char *tb_c16118_1 = v_gk; long long tb_c16118_1n = (long long)strlen(tb_c16118_1); char *tb_c16118r = tb_tmem(tb_c16118_0n + tb_c16118_1n + 1), *tb_c16118rw = tb_c16118r; memcpy(tb_c16118rw, tb_c16118_0, tb_c16118_0n); tb_c16118rw += tb_c16118_0n; memcpy(tb_c16118rw, tb_c16118_1, tb_c16118_1n); tb_c16118rw += tb_c16118_1n; *tb_c16118rw = 0; (const char *)tb_c16118r; }));
             }
-            { const char * tb_v16044 = ((tb_o_Node *)tb_nn(v_gl, 1392))->q_name; *(const char * *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 1392))->q_gnames) = tb_v16044; }
-            { long long tb_v16045 = ((tb_o_X64 *)tb_nn(v_g, 1393))->q_bss; *(long long *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 1393))->q_goffs) = tb_v16045; }
-            { long long tb_v16046 = 8LL; long long *tb_p16046 = &(((tb_o_X64 *)tb_nn(v_g, 1394))->q_bss); *tb_p16046 = tb_addo(*tb_p16046, tb_v16046, 1394); }
+            { const char * tb_v16119 = ((tb_o_Node *)tb_nn(v_gl, 1710))->q_name; *(const char * *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 1710))->q_gnames) = tb_v16119; }
+            { long long tb_v16120 = ((tb_o_X64 *)tb_nn(v_g, 1711))->q_bss; *(long long *)tb_grow(((tb_o_X64 *)tb_nn(v_g, 1711))->q_goffs) = tb_v16120; }
+            { long long tb_v16121 = 8LL; long long *tb_p16121 = &(((tb_o_X64 *)tb_nn(v_g, 1712))->q_bss); *tb_p16121 = tb_addo(*tb_p16121, tb_v16121, 1712); }
         }
     }
-    tb_o_Node * v_main_func = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_program, 1395))->q_kids, 0LL, sizeof(tb_o_Node *), 1395));
+    tb_o_Node * v_main_func = (*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_program, 1713))->q_kids, 0LL, sizeof(tb_o_Node *), 1713));
     {
-        tb_list * tb_l16047 = ((tb_o_Node *)tb_nn(v_program, 1396))->q_kids;
-        for (long long tb_i16047 = 0; tb_i16047 < tb_l16047->len; tb_i16047++) {
-            tb_o_Node * const v_top = ((tb_o_Node * *)tb_l16047->data)[tb_i16047];
-            if (((({ const char *tb_s16048 = ((tb_o_Node *)tb_nn(v_top, 1397))->q_kind; ((unsigned char)tb_s16048[0] == 102 && (unsigned char)tb_s16048[1] == 117 && (unsigned char)tb_s16048[2] == 110 && (unsigned char)tb_s16048[3] == 99 && tb_s16048[4] == 0); }) && ({ const char *tb_s16049 = ((tb_o_Node *)tb_nn(v_top, 1397))->q_name; ((unsigned char)tb_s16049[0] == 109 && (unsigned char)tb_s16049[1] == 97 && (unsigned char)tb_s16049[2] == 105 && (unsigned char)tb_s16049[3] == 110 && tb_s16049[4] == 0); })) && (strcmp(((tb_o_Node *)tb_nn(v_top, 1397))->q_mod, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_program, 1397))->q_kids, 0LL, sizeof(tb_o_Node *), 1397)), 1397))->q_mod) == 0))) {
+        tb_list * tb_l16122 = ((tb_o_Node *)tb_nn(v_program, 1714))->q_kids;
+        for (long long tb_i16122 = 0; tb_i16122 < tb_l16122->len; tb_i16122++) {
+            tb_o_Node * const v_top = ((tb_o_Node * *)tb_l16122->data)[tb_i16122];
+            if (((({ const char *tb_s16123 = ((tb_o_Node *)tb_nn(v_top, 1715))->q_kind; ((unsigned char)tb_s16123[0] == 102 && (unsigned char)tb_s16123[1] == 117 && (unsigned char)tb_s16123[2] == 110 && (unsigned char)tb_s16123[3] == 99 && tb_s16123[4] == 0); }) && ({ const char *tb_s16124 = ((tb_o_Node *)tb_nn(v_top, 1715))->q_name; ((unsigned char)tb_s16124[0] == 109 && (unsigned char)tb_s16124[1] == 97 && (unsigned char)tb_s16124[2] == 105 && (unsigned char)tb_s16124[3] == 110 && tb_s16124[4] == 0); })) && (strcmp(((tb_o_Node *)tb_nn(v_top, 1715))->q_mod, ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_program, 1715))->q_kids, 0LL, sizeof(tb_o_Node *), 1715)), 1715))->q_mod) == 0))) {
                 v_main_func = v_top;
             }
         }
     }
     {
-        tb_list * tb_l16050 = ((tb_o_Node *)tb_nn(v_program, 1399))->q_kids;
-        for (long long tb_i16050 = 0; tb_i16050 < tb_l16050->len; tb_i16050++) {
-            tb_o_Node * const v_top = ((tb_o_Node * *)tb_l16050->data)[tb_i16050];
-            if (({ const char *tb_s16051 = ((tb_o_Node *)tb_nn(v_top, 1400))->q_kind; ((unsigned char)tb_s16051[0] == 102 && (unsigned char)tb_s16051[1] == 117 && (unsigned char)tb_s16051[2] == 110 && (unsigned char)tb_s16051[3] == 99 && tb_s16051[4] == 0); })) {
+        tb_list * tb_l16125 = ((tb_o_Node *)tb_nn(v_program, 1717))->q_kids;
+        for (long long tb_i16125 = 0; tb_i16125 < tb_l16125->len; tb_i16125++) {
+            tb_o_Node * const v_top = ((tb_o_Node * *)tb_l16125->data)[tb_i16125];
+            if (({ const char *tb_s16126 = ((tb_o_Node *)tb_nn(v_top, 1718))->q_kind; ((unsigned char)tb_s16126[0] == 102 && (unsigned char)tb_s16126[1] == 117 && (unsigned char)tb_s16126[2] == 110 && (unsigned char)tb_s16126[3] == 99 && tb_s16126[4] == 0); })) {
                 {
-                    tb_list * tb_l16052 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_top, 1401))->q_kids, 0LL, sizeof(tb_o_Node *), 1401)), 1401))->q_kids;
-                    for (long long tb_i16052 = 0; tb_i16052 < tb_l16052->len; tb_i16052++) {
-                        tb_o_Node * const v_p = ((tb_o_Node * *)tb_l16052->data)[tb_i16052];
-                        const char * v_pk = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_p, 1402))->q_ty);
-                        if (((((((({ const char *tb_s16053 = v_pk; !((unsigned char)tb_s16053[0] == 105 && (unsigned char)tb_s16053[1] == 110 && (unsigned char)tb_s16053[2] == 116 && tb_s16053[3] == 0); }) && ({ const char *tb_s16054 = v_pk; !((unsigned char)tb_s16054[0] == 98 && (unsigned char)tb_s16054[1] == 111 && (unsigned char)tb_s16054[2] == 111 && (unsigned char)tb_s16054[3] == 108 && tb_s16054[4] == 0); })) && ({ const char *tb_s16055 = v_pk; !((unsigned char)tb_s16055[0] == 116 && (unsigned char)tb_s16055[1] == 101 && (unsigned char)tb_s16055[2] == 120 && (unsigned char)tb_s16055[3] == 116 && tb_s16055[4] == 0); })) && ({ const char *tb_s16056 = v_pk; !((unsigned char)tb_s16056[0] == 100 && (unsigned char)tb_s16056[1] == 101 && (unsigned char)tb_s16056[2] == 99 && tb_s16056[3] == 0); })) && ({ const char *tb_s16057 = v_pk; !((unsigned char)tb_s16057[0] == 108 && (unsigned char)tb_s16057[1] == 105 && (unsigned char)tb_s16057[2] == 115 && (unsigned char)tb_s16057[3] == 116 && tb_s16057[4] == 0); })) && ({ const char *tb_s16058 = v_pk; !((unsigned char)tb_s16058[0] == 111 && (unsigned char)tb_s16058[1] == 98 && (unsigned char)tb_s16058[2] == 106 && tb_s16058[3] == 0); })) && ({ const char *tb_s16059 = v_pk; !((unsigned char)tb_s16059[0] == 101 && (unsigned char)tb_s16059[1] == 110 && (unsigned char)tb_s16059[2] == 117 && (unsigned char)tb_s16059[3] == 109 && tb_s16059[4] == 0); }))) {
-                            f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_top, 1404))->q_line, ({ const char *tb_c16060_0 = "параметры типа "; long long tb_c16060_0n = sizeof("параметры типа ") - 1; const char *tb_c16060_1 = v_pk; long long tb_c16060_1n = (long long)strlen(tb_c16060_1); char *tb_c16060r = tb_tmem(tb_c16060_0n + tb_c16060_1n + 1), *tb_c16060rw = tb_c16060r; memcpy(tb_c16060rw, tb_c16060_0, tb_c16060_0n); tb_c16060rw += tb_c16060_0n; memcpy(tb_c16060rw, tb_c16060_1, tb_c16060_1n); tb_c16060rw += tb_c16060_1n; *tb_c16060rw = 0; (const char *)tb_c16060r; }));
+                    tb_list * tb_l16127 = ((tb_o_Node *)tb_nn((*(tb_o_Node * *)tb_at(((tb_o_Node *)tb_nn(v_top, 1719))->q_kids, 0LL, sizeof(tb_o_Node *), 1719)), 1719))->q_kids;
+                    for (long long tb_i16127 = 0; tb_i16127 < tb_l16127->len; tb_i16127++) {
+                        tb_o_Node * const v_p = ((tb_o_Node * *)tb_l16127->data)[tb_i16127];
+                        const char * v_pk = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_p, 1720))->q_ty);
+                        if ((((((((({ const char *tb_s16128 = v_pk; !((unsigned char)tb_s16128[0] == 105 && (unsigned char)tb_s16128[1] == 110 && (unsigned char)tb_s16128[2] == 116 && tb_s16128[3] == 0); }) && ({ const char *tb_s16129 = v_pk; !((unsigned char)tb_s16129[0] == 98 && (unsigned char)tb_s16129[1] == 111 && (unsigned char)tb_s16129[2] == 111 && (unsigned char)tb_s16129[3] == 108 && tb_s16129[4] == 0); })) && ({ const char *tb_s16130 = v_pk; !((unsigned char)tb_s16130[0] == 116 && (unsigned char)tb_s16130[1] == 101 && (unsigned char)tb_s16130[2] == 120 && (unsigned char)tb_s16130[3] == 116 && tb_s16130[4] == 0); })) && ({ const char *tb_s16131 = v_pk; !((unsigned char)tb_s16131[0] == 100 && (unsigned char)tb_s16131[1] == 101 && (unsigned char)tb_s16131[2] == 99 && tb_s16131[3] == 0); })) && ({ const char *tb_s16132 = v_pk; !((unsigned char)tb_s16132[0] == 108 && (unsigned char)tb_s16132[1] == 105 && (unsigned char)tb_s16132[2] == 115 && (unsigned char)tb_s16132[3] == 116 && tb_s16132[4] == 0); })) && ({ const char *tb_s16133 = v_pk; !((unsigned char)tb_s16133[0] == 111 && (unsigned char)tb_s16133[1] == 98 && (unsigned char)tb_s16133[2] == 106 && tb_s16133[3] == 0); })) && ({ const char *tb_s16134 = v_pk; !((unsigned char)tb_s16134[0] == 101 && (unsigned char)tb_s16134[1] == 110 && (unsigned char)tb_s16134[2] == 117 && (unsigned char)tb_s16134[3] == 109 && tb_s16134[4] == 0); })) && ({ const char *tb_s16135 = v_pk; !((unsigned char)tb_s16135[0] == 100 && (unsigned char)tb_s16135[1] == 105 && (unsigned char)tb_s16135[2] == 99 && (unsigned char)tb_s16135[3] == 116 && tb_s16135[4] == 0); }))) {
+                            f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_top, 1722))->q_line, ({ const char *tb_c16136_0 = "параметры типа "; long long tb_c16136_0n = sizeof("параметры типа ") - 1; const char *tb_c16136_1 = v_pk; long long tb_c16136_1n = (long long)strlen(tb_c16136_1); char *tb_c16136r = tb_tmem(tb_c16136_0n + tb_c16136_1n + 1), *tb_c16136rw = tb_c16136r; memcpy(tb_c16136rw, tb_c16136_0, tb_c16136_0n); tb_c16136rw += tb_c16136_0n; memcpy(tb_c16136rw, tb_c16136_1, tb_c16136_1n); tb_c16136rw += tb_c16136_1n; *tb_c16136rw = 0; (const char *)tb_c16136r; }));
                         }
                     }
                 }
-                const char * v_rk = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_top, 1405))->q_ty);
-                if ((((((((({ const char *tb_s16061 = v_rk; !((unsigned char)tb_s16061[0] == 105 && (unsigned char)tb_s16061[1] == 110 && (unsigned char)tb_s16061[2] == 116 && tb_s16061[3] == 0); }) && ({ const char *tb_s16062 = v_rk; !((unsigned char)tb_s16062[0] == 98 && (unsigned char)tb_s16062[1] == 111 && (unsigned char)tb_s16062[2] == 111 && (unsigned char)tb_s16062[3] == 108 && tb_s16062[4] == 0); })) && ({ const char *tb_s16063 = v_rk; !((unsigned char)tb_s16063[0] == 116 && (unsigned char)tb_s16063[1] == 101 && (unsigned char)tb_s16063[2] == 120 && (unsigned char)tb_s16063[3] == 116 && tb_s16063[4] == 0); })) && ({ const char *tb_s16064 = v_rk; !((unsigned char)tb_s16064[0] == 110 && (unsigned char)tb_s16064[1] == 111 && (unsigned char)tb_s16064[2] == 110 && (unsigned char)tb_s16064[3] == 101 && tb_s16064[4] == 0); })) && ({ const char *tb_s16065 = v_rk; !((unsigned char)tb_s16065[0] == 100 && (unsigned char)tb_s16065[1] == 101 && (unsigned char)tb_s16065[2] == 99 && tb_s16065[3] == 0); })) && ({ const char *tb_s16066 = v_rk; !((unsigned char)tb_s16066[0] == 108 && (unsigned char)tb_s16066[1] == 105 && (unsigned char)tb_s16066[2] == 115 && (unsigned char)tb_s16066[3] == 116 && tb_s16066[4] == 0); })) && ({ const char *tb_s16067 = v_rk; !((unsigned char)tb_s16067[0] == 111 && (unsigned char)tb_s16067[1] == 98 && (unsigned char)tb_s16067[2] == 106 && tb_s16067[3] == 0); })) && ({ const char *tb_s16068 = v_rk; !((unsigned char)tb_s16068[0] == 101 && (unsigned char)tb_s16068[1] == 110 && (unsigned char)tb_s16068[2] == 117 && (unsigned char)tb_s16068[3] == 109 && tb_s16068[4] == 0); }))) {
-                    f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_top, 1407))->q_line, ({ const char *tb_c16069_0 = "ответ типа "; long long tb_c16069_0n = sizeof("ответ типа ") - 1; const char *tb_c16069_1 = v_rk; long long tb_c16069_1n = (long long)strlen(tb_c16069_1); char *tb_c16069r = tb_tmem(tb_c16069_0n + tb_c16069_1n + 1), *tb_c16069rw = tb_c16069r; memcpy(tb_c16069rw, tb_c16069_0, tb_c16069_0n); tb_c16069rw += tb_c16069_0n; memcpy(tb_c16069rw, tb_c16069_1, tb_c16069_1n); tb_c16069rw += tb_c16069_1n; *tb_c16069rw = 0; (const char *)tb_c16069r; }));
+                const char * v_rk = f_check__kind_of(v_c, ((tb_o_Node *)tb_nn(v_top, 1723))->q_ty);
+                if (((((((((({ const char *tb_s16137 = v_rk; !((unsigned char)tb_s16137[0] == 105 && (unsigned char)tb_s16137[1] == 110 && (unsigned char)tb_s16137[2] == 116 && tb_s16137[3] == 0); }) && ({ const char *tb_s16138 = v_rk; !((unsigned char)tb_s16138[0] == 98 && (unsigned char)tb_s16138[1] == 111 && (unsigned char)tb_s16138[2] == 111 && (unsigned char)tb_s16138[3] == 108 && tb_s16138[4] == 0); })) && ({ const char *tb_s16139 = v_rk; !((unsigned char)tb_s16139[0] == 116 && (unsigned char)tb_s16139[1] == 101 && (unsigned char)tb_s16139[2] == 120 && (unsigned char)tb_s16139[3] == 116 && tb_s16139[4] == 0); })) && ({ const char *tb_s16140 = v_rk; !((unsigned char)tb_s16140[0] == 110 && (unsigned char)tb_s16140[1] == 111 && (unsigned char)tb_s16140[2] == 110 && (unsigned char)tb_s16140[3] == 101 && tb_s16140[4] == 0); })) && ({ const char *tb_s16141 = v_rk; !((unsigned char)tb_s16141[0] == 100 && (unsigned char)tb_s16141[1] == 101 && (unsigned char)tb_s16141[2] == 99 && tb_s16141[3] == 0); })) && ({ const char *tb_s16142 = v_rk; !((unsigned char)tb_s16142[0] == 108 && (unsigned char)tb_s16142[1] == 105 && (unsigned char)tb_s16142[2] == 115 && (unsigned char)tb_s16142[3] == 116 && tb_s16142[4] == 0); })) && ({ const char *tb_s16143 = v_rk; !((unsigned char)tb_s16143[0] == 111 && (unsigned char)tb_s16143[1] == 98 && (unsigned char)tb_s16143[2] == 106 && tb_s16143[3] == 0); })) && ({ const char *tb_s16144 = v_rk; !((unsigned char)tb_s16144[0] == 101 && (unsigned char)tb_s16144[1] == 110 && (unsigned char)tb_s16144[2] == 117 && (unsigned char)tb_s16144[3] == 109 && tb_s16144[4] == 0); })) && ({ const char *tb_s16145 = v_rk; !((unsigned char)tb_s16145[0] == 100 && (unsigned char)tb_s16145[1] == 105 && (unsigned char)tb_s16145[2] == 99 && (unsigned char)tb_s16145[3] == 116 && tb_s16145[4] == 0); }))) {
+                    f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_top, 1725))->q_line, ({ const char *tb_c16146_0 = "ответ типа "; long long tb_c16146_0n = sizeof("ответ типа ") - 1; const char *tb_c16146_1 = v_rk; long long tb_c16146_1n = (long long)strlen(tb_c16146_1); char *tb_c16146r = tb_tmem(tb_c16146_0n + tb_c16146_1n + 1), *tb_c16146rw = tb_c16146r; memcpy(tb_c16146rw, tb_c16146_0, tb_c16146_0n); tb_c16146rw += tb_c16146_0n; memcpy(tb_c16146rw, tb_c16146_1, tb_c16146_1n); tb_c16146rw += tb_c16146_1n; *tb_c16146rw = 0; (const char *)tb_c16146r; }));
                 }
                 f_x64__xfunc(v_g, v_c, v_top, f_emit_ll__ll_fname(v_top));
-            } else if ((({ const char *tb_s16070 = ((tb_o_Node *)tb_nn(v_top, 1409))->q_kind; ((unsigned char)tb_s16070[0] == 111 && (unsigned char)tb_s16070[1] == 98 && (unsigned char)tb_s16070[2] == 106 && tb_s16070[3] == 0); }) && ((tb_o_Node *)tb_nn(v_top, 1409))->q_by_cols)) {
-                f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_top, 1410))->q_line, "obj by columns");
-            } else if ((((({ const char *tb_s16071 = ((tb_o_Node *)tb_nn(v_top, 1411))->q_kind; !((unsigned char)tb_s16071[0] == 117 && (unsigned char)tb_s16071[1] == 115 && (unsigned char)tb_s16071[2] == 101 && tb_s16071[3] == 0); }) && ({ const char *tb_s16072 = ((tb_o_Node *)tb_nn(v_top, 1411))->q_kind; !((unsigned char)tb_s16072[0] == 103 && (unsigned char)tb_s16072[1] == 108 && (unsigned char)tb_s16072[2] == 111 && (unsigned char)tb_s16072[3] == 98 && (unsigned char)tb_s16072[4] == 97 && (unsigned char)tb_s16072[5] == 108 && tb_s16072[6] == 0); })) && ({ const char *tb_s16073 = ((tb_o_Node *)tb_nn(v_top, 1411))->q_kind; !((unsigned char)tb_s16073[0] == 111 && (unsigned char)tb_s16073[1] == 98 && (unsigned char)tb_s16073[2] == 106 && tb_s16073[3] == 0); })) && ({ const char *tb_s16074 = ((tb_o_Node *)tb_nn(v_top, 1411))->q_kind; !((unsigned char)tb_s16074[0] == 101 && (unsigned char)tb_s16074[1] == 110 && (unsigned char)tb_s16074[2] == 117 && (unsigned char)tb_s16074[3] == 109 && tb_s16074[4] == 0); }))) {
-                f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_top, 1412))->q_line, ({ const char *tb_c16075_0 = "«"; long long tb_c16075_0n = sizeof("«") - 1; const char *tb_c16075_1 = ((tb_o_Node *)tb_nn(v_top, 1412))->q_kind; long long tb_c16075_1n = (long long)strlen(tb_c16075_1); const char *tb_c16075_2 = "» в начале файла"; long long tb_c16075_2n = sizeof("» в начале файла") - 1; char *tb_c16075r = tb_tmem(tb_c16075_0n + tb_c16075_1n + tb_c16075_2n + 1), *tb_c16075rw = tb_c16075r; memcpy(tb_c16075rw, tb_c16075_0, tb_c16075_0n); tb_c16075rw += tb_c16075_0n; memcpy(tb_c16075rw, tb_c16075_1, tb_c16075_1n); tb_c16075rw += tb_c16075_1n; memcpy(tb_c16075rw, tb_c16075_2, tb_c16075_2n); tb_c16075rw += tb_c16075_2n; *tb_c16075rw = 0; (const char *)tb_c16075r; }));
+            } else if ((({ const char *tb_s16147 = ((tb_o_Node *)tb_nn(v_top, 1727))->q_kind; ((unsigned char)tb_s16147[0] == 111 && (unsigned char)tb_s16147[1] == 98 && (unsigned char)tb_s16147[2] == 106 && tb_s16147[3] == 0); }) && ((tb_o_Node *)tb_nn(v_top, 1727))->q_by_cols)) {
+                f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_top, 1728))->q_line, "obj by columns");
+            } else if ((((({ const char *tb_s16148 = ((tb_o_Node *)tb_nn(v_top, 1729))->q_kind; !((unsigned char)tb_s16148[0] == 117 && (unsigned char)tb_s16148[1] == 115 && (unsigned char)tb_s16148[2] == 101 && tb_s16148[3] == 0); }) && ({ const char *tb_s16149 = ((tb_o_Node *)tb_nn(v_top, 1729))->q_kind; !((unsigned char)tb_s16149[0] == 103 && (unsigned char)tb_s16149[1] == 108 && (unsigned char)tb_s16149[2] == 111 && (unsigned char)tb_s16149[3] == 98 && (unsigned char)tb_s16149[4] == 97 && (unsigned char)tb_s16149[5] == 108 && tb_s16149[6] == 0); })) && ({ const char *tb_s16150 = ((tb_o_Node *)tb_nn(v_top, 1729))->q_kind; !((unsigned char)tb_s16150[0] == 111 && (unsigned char)tb_s16150[1] == 98 && (unsigned char)tb_s16150[2] == 106 && tb_s16150[3] == 0); })) && ({ const char *tb_s16151 = ((tb_o_Node *)tb_nn(v_top, 1729))->q_kind; !((unsigned char)tb_s16151[0] == 101 && (unsigned char)tb_s16151[1] == 110 && (unsigned char)tb_s16151[2] == 117 && (unsigned char)tb_s16151[3] == 109 && tb_s16151[4] == 0); }))) {
+                f_x64__xfail(v_g, ((tb_o_Node *)tb_nn(v_top, 1730))->q_line, ({ const char *tb_c16152_0 = "«"; long long tb_c16152_0n = sizeof("«") - 1; const char *tb_c16152_1 = ((tb_o_Node *)tb_nn(v_top, 1730))->q_kind; long long tb_c16152_1n = (long long)strlen(tb_c16152_1); const char *tb_c16152_2 = "» в начале файла"; long long tb_c16152_2n = sizeof("» в начале файла") - 1; char *tb_c16152r = tb_tmem(tb_c16152_0n + tb_c16152_1n + tb_c16152_2n + 1), *tb_c16152rw = tb_c16152r; memcpy(tb_c16152rw, tb_c16152_0, tb_c16152_0n); tb_c16152rw += tb_c16152_0n; memcpy(tb_c16152rw, tb_c16152_1, tb_c16152_1n); tb_c16152rw += tb_c16152_1n; memcpy(tb_c16152rw, tb_c16152_2, tb_c16152_2n); tb_c16152rw += tb_c16152_2n; *tb_c16152rw = 0; (const char *)tb_c16152r; }));
             }
         }
     }
     tb_o_Node * v_start = tb_new_Node("appmain", 0LL, "", "", 0, 0, 0LL, 0, 0, 0, v_main_func, 1, "", "", 0, 0, 0LL, tb_list_new(sizeof(tb_o_Node *)), 0, 0, 0, 0, 0, 0, tb_list_new(sizeof(tb_o_Node *)), tb_list_new(sizeof(tb_o_Node *)), 0, 0, tb_list_new(sizeof(tb_o_Var *)), 0LL, 0, "", 0);
     f_x64__xfunc(v_g, v_c, v_start, "tb_appmain");
     long long v_k = 0LL;
-    while ((v_k < (((tb_o_X64 *)tb_nn(v_g, 1417))->q_show_need)->len)) {
-        f_x64__xshow_func(v_g, v_c, (*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 1418))->q_show_need, v_k, sizeof(long long), 1418)));
-        { long long tb_v16076 = 1LL; long long *tb_p16076 = &(v_k); *tb_p16076 = tb_addo(*tb_p16076, tb_v16076, 1419); }
+    while ((v_k < (((tb_o_X64 *)tb_nn(v_g, 1735))->q_show_need)->len)) {
+        f_x64__xshow_func(v_g, v_c, (*(long long *)tb_at(((tb_o_X64 *)tb_nn(v_g, 1736))->q_show_need, v_k, sizeof(long long), 1736)));
+        { long long tb_v16153 = 1LL; long long *tb_p16153 = &(v_k); *tb_p16153 = tb_addo(*tb_p16153, tb_v16153, 1737); }
     }
-    v_err = ((tb_o_X64 *)tb_nn(v_g, 1420))->q_err;
-    if (({ const char *tb_s16077 = v_err; (tb_s16077[0] == 0); })) {
+    v_err = ((tb_o_X64 *)tb_nn(v_g, 1738))->q_err;
+    if (({ const char *tb_s16154 = v_err; (tb_s16154[0] == 0); })) {
         v_bytes = f_x64__xelf(v_g);
     }
     return (tb_r_f_x64__x64_app){v_bytes, v_err};
