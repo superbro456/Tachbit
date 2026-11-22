@@ -47,3 +47,4 @@ omnium/*.elf
 omnium/*.bc
 omnium/*.ll
 omnium/*.log
+!examples/**/models/*
