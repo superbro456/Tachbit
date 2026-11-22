@@ -1,0 +1,143 @@
+// 3D 1.3: плавный свет и блики (mesh_smooth, mesh_shine), лампа и фонарь, свечение, туман, тени от солнца,
+// прозрачное стекло и вода, кости (рука гнётся одной сеткой), mesh_clear.
+// TB_GPU_CHECK=1 сверяет кадр видеокарты с процессором точка в точку
+func main()
+    try window_open(320, 200, "GPU свет 1.3")
+    ball = mesh_new()
+    sphere(ball, 1, 16, rgb(220, 80, 70))
+    mesh_smooth(ball, true)
+    mesh_shine(ball, 0.7)
+    cube = mesh_new()
+    box(cube, -0.5, -0.5, -0.5, 0.5, 0.5, 0.5, rgb(90, 150, 230))
+    lamp = mesh_new()
+    box(lamp, -0.1, -0.1, -0.1, 0.1, 0.1, 0.1, rgb(255, 230, 150))
+    mesh_glow(lamp, 1)
+    floor = mesh_new()
+    count i from -6 to 5
+        count j from -6 to 5
+            c = rgb(120, 160, 110)
+            if (i + j) % 2 == 0
+                c = rgb(150, 190, 140)
+            mesh_add(floor, i, -1, j, i, -1, j + 1, i + 1, -1, j + 1, c)
+            mesh_add(floor, i, -1, j, i + 1, -1, j + 1, i + 1, -1, j, c)
+    glass = mesh_new()
+    box(glass, -0.6, -0.6, -0.6, 0.6, 0.6, 0.6, rgb(170, 220, 255))
+    mesh_alpha(glass, 0.45)
+    mesh_shine(glass, 1)
+    water = mesh_new()
+    mesh_add(water, -3, -0.7, -3, -3, -0.7, 0, 0, -0.7, 0, rgb(40, 110, 200))
+    mesh_add(water, -3, -0.7, -3, 0, -0.7, 0, 0, -0.7, -3, rgb(40, 110, 200))
+    mesh_alpha(water, 0.6)
+    // рука: два звена, локоть гнётся
+    arm = mesh_new()
+    count k from 0 to 7
+        box(arm, -0.15, k * 0.25, -0.15, 0.15, k * 0.25 + 0.25, 0.15, rgb(230, 190, 140))
+    mesh_smooth(arm, true)
+    root = bone_add(arm, -1, 0, 0, 0)
+    elbow = bone_add(arm, root, 0, 1, 0)
+    bone_box(arm, root, -1, -0.01, -1, 1, 0.9, 1)
+    bone_box(arm, elbow, -1, 1.1, -1, 1, 3, 1)
+    bone_weight(arm, root, -0.15, 1, -0.15, 0.5)
+    bone_weight(arm, elbow, -0.15, 1, -0.15, 0.5)
+    bone_weight(arm, root, 0.15, 1, -0.15, 0.5)
+    bone_weight(arm, elbow, 0.15, 1, -0.15, 0.5)
+    bone_weight(arm, root, -0.15, 1, 0.15, 0.5)
+    bone_weight(arm, elbow, -0.15, 1, 0.15, 0.5)
+    bone_weight(arm, root, 0.15, 1, 0.15, 0.5)
+    bone_weight(arm, elbow, 0.15, 1, 0.15, 0.5)
+    // картинка на сетке тоже со светом, тенями и туманом
+    tile = try load_image("tests/gpu/holes.png")
+    sign = mesh_new()
+    mesh_image(sign, tile)
+    mesh_add_uv(sign, -1, 0, 0, 0, 1, 1, 0, 0, 1, 1, 1, 2, 0, 1, 0)
+    mesh_add_uv(sign, -1, 0, 0, 0, 1, 1, 2, 0, 1, 0, -1, 2, 0, 0, 0)
+    mesh_smooth(sign, true)
+    // меняющаяся сетка: mesh_clear и заново
+    blocks = mesh_new()
+    frame = 0
+    repeat while window_alive()
+        frame += 1
+        if frame > 48
+            stop
+        clear_window(rgb(150, 170, 190))
+        sunlight(0.5, 1.0, -0.3, 0.3)
+        if frame > 8
+            shadows(14)
+        if frame > 16
+            fog(rgb(150, 170, 190), 4, 14)
+        if frame > 24 and frame < 40
+            point_light(0, 1.5 * cos_t(frame * 0.3), 0.5, 1.5 * sin_t(frame * 0.3), rgb(255, 200, 120), 5)
+            spot_light(1, -2, 2, 2, 1, -1, -1, 40, rgb(120, 200, 255), 8)
+        if frame == 40
+            light_off(0)
+            light_off(1)
+        if frame == 44
+            sunlight(0, 0, 0, 0.2)
+            point_light(2, 0, 1, 0, rgb(255, 255, 255), 6)
+            shadows(0)
+            fog(0, 0, 0)
+        a = frame * 0.12
+        camera(6 * cos_t(a), 2.5, 6 * sin_t(a), 0, 0, 0)
+        mesh_clear(blocks)
+        count b from 0 to frame % 5
+            box(blocks, 2 + b * 0.4, -1, -2, 2.3 + b * 0.4, -1 + (b + 1) * 0.3, -1.7, rgb(200, 120, 220))
+        bone_turn(arm, root, frame * 7, 0, 0)
+        bone_turn(arm, elbow, 0, 0, sin_t(frame * 0.4) * 70)
+        draw_mesh(floor, 0, 0, 0, 0)
+        draw_mesh(ball, 0, 0.1, 0, frame * 3)
+        draw_mesh_rot(cube, 2, -0.3, 1.5, frame * 4, frame * 3, 0)
+        draw_mesh(lamp, 1.5 * cos_t(frame * 0.3), 0.5, 1.5 * sin_t(frame * 0.3), 0)
+        draw_mesh(arm, -1.8, -1, 1.2, 0)
+        draw_mesh(blocks, 0, 0, 0, 0)
+        draw_mesh(sign, -2.5, -1, -2.5, 30)
+        draw_mesh(water, 0, 0, 0, 0)
+        draw_mesh_rot(glass, 0.8, 0, -1.6, frame * 2, 0, 0)
+        // вплотную к камере: обрезка у камеры
+        draw_mesh(cube, 6 * cos_t(a) * 0.9, 2.3, 6 * sin_t(a) * 0.9, frame)
+        draw_text(4, 4, "кадр " + frame + ", треугольников " + mesh_count(blocks), 1, rgb(20, 20, 30))
+    print("кадров:", frame)
+
+func box(m: int, x0: dec, y0: dec, z0: dec, x1: dec, y1: dec, z1: dec, c: int)
+    face(m, x0, y0, z0, x0, y1, z0, x1, y1, z0, x1, y0, z0, c)
+    face(m, x0, y0, z1, x1, y0, z1, x1, y1, z1, x0, y1, z1, c)
+    face(m, x0, y0, z0, x0, y0, z1, x0, y1, z1, x0, y1, z0, c)
+    face(m, x1, y0, z0, x1, y1, z0, x1, y1, z1, x1, y0, z1, c)
+    face(m, x0, y1, z0, x0, y1, z1, x1, y1, z1, x1, y1, z0, c)
+    face(m, x0, y0, z0, x1, y0, z0, x1, y0, z1, x0, y0, z1, c)
+
+func face(m: int, x1: dec, y1: dec, z1: dec, x2: dec, y2: dec, z2: dec, x3: dec, y3: dec, z3: dec, x4: dec, y4: dec, z4: dec, c: int)
+    mesh_add(m, x1, y1, z1, x2, y2, z2, x3, y3, z3, c)
+    mesh_add(m, x1, y1, z1, x3, y3, z3, x4, y4, z4, c)
+
+func sphere(m: int, r: dec, n: int, c: int)
+    count i from 0 to n - 1
+        count j from 0 to 2 * n - 1
+            a0 = 3.14159265 * i / n
+            a1 = 3.14159265 * (i + 1) / n
+            b0 = 3.14159265 * j / n
+            b1 = 3.14159265 * (j + 1) / n
+            x00 = r * sin_t(a0) * cos_t(b0)
+            z00 = r * sin_t(a0) * sin_t(b0)
+            x01 = r * sin_t(a0) * cos_t(b1)
+            z01 = r * sin_t(a0) * sin_t(b1)
+            x10 = r * sin_t(a1) * cos_t(b0)
+            z10 = r * sin_t(a1) * sin_t(b0)
+            x11 = r * sin_t(a1) * cos_t(b1)
+            z11 = r * sin_t(a1) * sin_t(b1)
+            y0 = r * cos_t(a0)
+            y1 = r * cos_t(a1)
+            if i > 0
+                mesh_add(m, x00, y0, z00, x01, y0, z01, x11, y1, z11, c)
+            if i < n - 1
+                mesh_add(m, x00, y0, z00, x11, y1, z11, x10, y1, z10, c)
+
+func sin_t(x: dec)
+    repeat while x > 3.14159265
+        x -= 6.2831853
+    repeat while x < -3.14159265
+        x += 6.2831853
+    x2 = x * x
+    return x * (1 - x2 / 6 * (1 - x2 / 20 * (1 - x2 / 42 * (1 - x2 / 72 * (1 - x2 / 110)))))
+
+func cos_t(x: dec)
+    return sin_t(x + 1.57079633)

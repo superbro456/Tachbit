@@ -132,7 +132,7 @@ func fits(want: int, got: int)
 // ---------- функции и obj ----------
 
 func is_builtin(name: text)
-    each b in ["print", "show", "len", "round", "code", "char", "byte_len", "byte_at", "byte_char", "cut", "to_int", "to_dec", "read_file", "write_file", "input", "args", "split", "join", "find", "replace", "upper", "lower", "trim", "starts_with", "ends_with", "sort", "abs", "min", "max", "sqrt", "run", "exit", "file_exists", "list_dir", "is_folder", "make_folder", "move", "remove", "env", "file_size", "window_open", "window_alive", "clear_window", "draw_pixel", "draw_rect", "draw_circle", "draw_round", "blur_rect", "draw_shadow", "draw_triangle", "mesh_new", "mesh_add", "draw_mesh", "draw_mesh_rot", "camera", "sunlight", "mesh_image", "mesh_add_uv", "draw_line", "draw_text", "key_down", "mouse_x", "mouse_y", "mouse_down", "mouse_wheel", "typed_text", "mouse_back", "mouse_forward", "pad_count", "pad_down", "pad_axis", "clipboard_get", "clipboard_set", "set_cursor", "window_sharp", "window_scale", "frame_ms", "fps", "set_fps", "window_w", "window_h", "load_image", "image_from_mem", "image_scaled", "draw_image", "draw_image_alpha", "image_w", "image_h", "screen_image", "load_font", "draw_font", "text_width", "rgb", "rgba", "random", "time_ms", "http_get", "json_get", "json_text", "net_listen", "net_port", "net_accept", "net_connect", "net_send", "net_receive", "net_close", "date_now", "unix_time", "load_sound", "play_sound", "loop_sound", "play_sound_at", "loop_sound_at", "play_tone", "stop_sound", "sound_playing", "sound_volume", "sound_pitch", "move_sound", "master_volume", "listener"]
+    each b in ["print", "show", "len", "round", "code", "char", "byte_len", "byte_at", "byte_char", "cut", "to_int", "to_dec", "read_file", "write_file", "input", "args", "split", "join", "find", "replace", "upper", "lower", "trim", "starts_with", "ends_with", "sort", "abs", "min", "max", "sqrt", "run", "exit", "file_exists", "list_dir", "is_folder", "make_folder", "move", "remove", "env", "file_size", "window_open", "window_alive", "clear_window", "draw_pixel", "draw_rect", "draw_circle", "draw_round", "blur_rect", "draw_shadow", "draw_triangle", "mesh_new", "mesh_add", "draw_mesh", "draw_mesh_rot", "camera", "sunlight", "mesh_image", "mesh_add_uv", "point_light", "spot_light", "light_off", "fog", "shadows", "mesh_smooth", "mesh_shine", "mesh_glow", "mesh_alpha", "mesh_clear", "mesh_count", "bone_add", "bone_weight", "bone_box", "bone_turn", "bone_move", "draw_line", "draw_text", "key_down", "mouse_x", "mouse_y", "mouse_down", "mouse_wheel", "typed_text", "mouse_back", "mouse_forward", "pad_count", "pad_down", "pad_axis", "clipboard_get", "clipboard_set", "set_cursor", "window_sharp", "window_scale", "frame_ms", "fps", "set_fps", "window_w", "window_h", "load_image", "image_from_mem", "image_scaled", "draw_image", "draw_image_alpha", "image_w", "image_h", "screen_image", "load_font", "draw_font", "text_width", "rgb", "rgba", "random", "time_ms", "http_get", "json_get", "json_text", "net_listen", "net_port", "net_accept", "net_connect", "net_send", "net_receive", "net_close", "date_now", "unix_time", "load_sound", "play_sound", "loop_sound", "play_sound_at", "loop_sound_at", "play_tone", "stop_sound", "sound_playing", "sound_volume", "sound_pitch", "move_sound", "master_volume", "listener"]
         if b == name
             return true
     each b in kernel_builtins()
@@ -178,7 +178,7 @@ func snd_builtin(name: text)
 
 // окно и рисование
 func gfx_builtin(name: text)
-    each w in ["window_open", "window_alive", "clear_window", "draw_pixel", "draw_rect", "draw_circle", "draw_round", "blur_rect", "draw_shadow", "draw_triangle", "mesh_new", "mesh_add", "draw_mesh", "draw_mesh_rot", "camera", "sunlight", "mesh_image", "mesh_add_uv", "draw_line", "draw_text", "key_down", "mouse_x", "mouse_y", "mouse_down", "mouse_wheel", "typed_text", "mouse_back", "mouse_forward", "pad_count", "pad_down", "pad_axis", "clipboard_get", "clipboard_set", "set_cursor", "window_sharp", "window_scale", "frame_ms", "fps", "set_fps", "window_w", "window_h", "load_image", "image_from_mem", "image_scaled", "draw_image", "draw_image_alpha", "image_w", "image_h", "screen_image", "load_font", "draw_font", "text_width"]
+    each w in ["window_open", "window_alive", "clear_window", "draw_pixel", "draw_rect", "draw_circle", "draw_round", "blur_rect", "draw_shadow", "draw_triangle", "mesh_new", "mesh_add", "draw_mesh", "draw_mesh_rot", "camera", "sunlight", "mesh_image", "mesh_add_uv", "point_light", "spot_light", "light_off", "fog", "shadows", "mesh_smooth", "mesh_shine", "mesh_glow", "mesh_alpha", "mesh_clear", "mesh_count", "bone_add", "bone_weight", "bone_box", "bone_turn", "bone_move", "draw_line", "draw_text", "key_down", "mouse_x", "mouse_y", "mouse_down", "mouse_wheel", "typed_text", "mouse_back", "mouse_forward", "pad_count", "pad_down", "pad_axis", "clipboard_get", "clipboard_set", "set_cursor", "window_sharp", "window_scale", "frame_ms", "fps", "set_fps", "window_w", "window_h", "load_image", "image_from_mem", "image_scaled", "draw_image", "draw_image_alpha", "image_w", "image_h", "screen_image", "load_font", "draw_font", "text_width"]
         if name == w
             return true
     return false
@@ -756,6 +756,8 @@ func builtin_args(c: Comp, n: Node, pattern: text, usage: text)
             ok = t == 1
         else if p == "n"
             ok = is_number(t)
+        else if p == "b"
+            ok = t == 3
         else if p == "L"
             ok = is_list(c, t) and c.types[t].elem == 4
         else if p == "s"
@@ -1132,6 +1134,54 @@ func check_builtin(c: Comp, n: Node) gives r: int
         return 0
     if name == "mesh_add_uv"
         builtin_args(c, n, "innnnnnnnnnnnnnn", "mesh_add_uv(сетка, x1, y1, z1, u1, v1, x2, y2, z2, u2, v2, x3, y3, z3, u3, v3)")
+        return 0
+    if name == "point_light"
+        builtin_args(c, n, "innnin", "point_light(номер 0…7, x, y, z, цвет, дальность) — лампа светит во все стороны")
+        return 0
+    if name == "spot_light"
+        builtin_args(c, n, "innnnnnnin", "spot_light(номер 0…7, x, y, z, куда x, куда y, куда z, ширина в градусах, цвет, дальность) — фонарь")
+        return 0
+    if name == "light_off"
+        builtin_args(c, n, "i", "light_off(номер) — погасить лампу")
+        return 0
+    if name == "fog"
+        builtin_args(c, n, "inn", "fog(цвет, с какого расстояния, где уже весь цвет) — fog(0, 0, 0) убирает туман")
+        return 0
+    if name == "shadows"
+        builtin_args(c, n, "n", "shadows(размер) — тени от солнца в квадрате размер × размер вокруг камеры; 0 — без теней")
+        return 0
+    if name == "mesh_smooth"
+        builtin_args(c, n, "ib", "mesh_smooth(сетка, true) — плавный свет (нормали в углах)")
+        return 0
+    if name == "mesh_shine"
+        builtin_args(c, n, "in", "mesh_shine(сетка, блеск 0…1) — блики")
+        return 0
+    if name == "mesh_glow"
+        builtin_args(c, n, "in", "mesh_glow(сетка, свечение 0…1) — светится сама")
+        return 0
+    if name == "mesh_alpha"
+        builtin_args(c, n, "in", "mesh_alpha(сетка, 0…1) — прозрачность: 1 — непрозрачная")
+        return 0
+    if name == "mesh_clear"
+        builtin_args(c, n, "i", "mesh_clear(сетка) — стереть все треугольники")
+        return 0
+    if name == "mesh_count"
+        builtin_args(c, n, "i", "mesh_count(сетка)  →  сколько треугольников")
+        return 1
+    if name == "bone_add"
+        builtin_args(c, n, "iinnn", "bone_add(сетка, родитель или -1, сустав x, y, z)  →  номер кости")
+        return 1
+    if name == "bone_weight"
+        builtin_args(c, n, "iinnnn", "bone_weight(сетка, кость, x, y, z угла, вес)")
+        return 0
+    if name == "bone_box"
+        builtin_args(c, n, "iinnnnnn", "bone_box(сетка, кость, x1, y1, z1, x2, y2, z2) — углы в коробке слушаются кости")
+        return 0
+    if name == "bone_turn"
+        builtin_args(c, n, "iinnn", "bone_turn(сетка, кость, поворот, наклон, крен) — углы в градусах")
+        return 0
+    if name == "bone_move"
+        builtin_args(c, n, "iinnn", "bone_move(сетка, кость, x, y, z) — сдвиг кости")
         return 0
     if name == "sunlight"
         builtin_args(c, n, "nnnn", "sunlight(к солнцу x, y, z, фон 0…1) — sunlight(0, 0, 0, 0) выключает")

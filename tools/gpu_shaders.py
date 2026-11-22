@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Шейдеры видеокарты: compiler/gpu/tb.vert, tb.frag, tb3.vert, tbt.frag (Vulkan, GLSL) и tb.metal, tb3.metal (Mac).
+# Шейдеры видеокарты: compiler/gpu/tb.vert, tb.frag, tb3.vert, tbt.frag, tbl.frag (Vulkan, GLSL) и tb.metal, tb3.metal (Mac).
 # Поменял шейдер — запусти: python3 tools/gpu_shaders.py  (нужен glslangValidator)
 # Он переводит GLSL в SPIR-V и кладёт всё в compiler/runtime.h между метками @@...@@,
 # потом запусти python3 tools/embed_runtime.py.
@@ -33,7 +33,7 @@ def put(text, tag, body):
     return text[:i + len(a)] + "\n" + "\n".join(body) + "\n" + text[j:]
 
 text = open(rt).read()
-text = put(text, "SPIRV", spirv("tb.vert", "tb_spv_vert") + spirv("tb.frag", "tb_spv_frag") + spirv("tb3.vert", "tb_spv_vert3") + spirv("tbt.frag", "tb_spv_fragt"))
+text = put(text, "SPIRV", spirv("tb.vert", "tb_spv_vert") + spirv("tb.frag", "tb_spv_frag") + spirv("tb3.vert", "tb_spv_vert3") + spirv("tbt.frag", "tb_spv_fragt") + spirv("tbl.frag", "tb_spv_fragl"))
 text = put(text, "MSL", msl() + msl("tb3.metal", "tb_msl3"))
 open(rt, "w").write(text)
 print("шейдеры обновлены в compiler/runtime.h")

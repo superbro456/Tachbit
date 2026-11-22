@@ -87,3 +87,75 @@ fragment TbOut tb_fragt(TbV v [[stage_in]], const device uint *img [[buffer(1)]]
     o.d = float(d) / 16777216.0;
     return o;
 }
+// «новый» треугольник 3D (свет по углам, тени, туман, прозрачность): то же, что tbl.frag и tb_lit_px в runtime.h
+static long tb_ledge(int2 a, int2 b, int2 p) {
+    return long(b.x - a.x) * long(2 * p.y + 1 - 2 * a.y) - long(b.y - a.y) * long(2 * p.x + 1 - 2 * a.x);
+}
+fragment TbOut tb_fragl(TbV v [[stage_in]], const device uint *img [[buffer(1)]], const device uint4 *pl [[buffer(2)]],
+                        const device int4 *tex [[buffer(5)]], const device int *lit [[buffer(6)]], const device uint *sm [[buffer(7)]]) {
+    int2 p = int2(v.pos.xy);
+    int2 A = v.q.xy, B = v.q.zw, C = v.o;
+    if (!tb_edge(A, B, p) || !tb_edge(B, C, p) || !tb_edge(C, A, p)) discard_fragment();
+    uint4 P = pl[(v.cm.y & 0x07FFFFFFu) >> 2];
+    uint kk = P.z + P.x * uint(2 * p.x + 1) + P.y * uint(2 * p.y + 1);
+    int d = clamp(as_type<int>(kk) >> 6, 0, 16777215);
+    int R = int(P.w) * 48;
+    int flags = lit[R + 3];
+    uint base = v.cm.x;
+    int ti = lit[R + 43];
+    if (ti >= 0) {
+        int r = ti * 4;
+        int4 t0 = tex[r], t1 = tex[r + 1], t2 = tex[r + 2], t3 = tex[r + 3];
+        long au = tb_i64(t0.x, t0.y), bu = tb_i64(t0.z, t0.w), cu = tb_i64(t1.x, t1.y), av = tb_i64(t1.z, t1.w), bv = tb_i64(t2.x, t2.y), cv = tb_i64(t2.z, t2.w);
+        long W = long((16777216 - d) >> 4);
+        if (W < 1) W = 1;
+        long X = long(2 * p.x + 1), Y = long(2 * p.y + 1);
+        long su = (cu + au * X + bu * Y) >> 6, sv = (cv + av * X + bv * Y) >> 6;
+        long w = long(uint(t3.y)), h = long(uint(t3.z));
+        long u = tb_fdiv(tb_fdiv(su, W), 16), vv = tb_fdiv(tb_fdiv(sv, W), 16);
+        u -= tb_fdiv(u, w) * w;
+        vv -= tb_fdiv(vv, h) * h;
+        uint tp = img[uint(t3.x) + uint(vv) * uint(w) + uint(u)];
+        if ((tp >> 24) < 128u) discard_fragment();
+        base = ((((tp >> 16) & 255u) * ((base >> 16) & 255u) + 127u) / 255u) << 16 | ((((tp >> 8) & 255u) * ((base >> 8) & 255u) + 127u) / 255u) << 8
+             | (((tp & 255u) * (base & 255u) + 127u) / 255u);
+    }
+    long e0 = tb_ledge(B, C, p), e1 = tb_ledge(C, A, p), e2 = tb_ledge(A, B, p);
+    long dn = e0 * long(lit[R]) + e1 * long(lit[R + 1]) + e2 * long(lit[R + 2]);
+    if (dn < 1) dn = 1;
+    long val[11];
+    int nv = (flags & 1) != 0 ? 11 : 8;
+    for (int k = 0; k < nv; k++)
+        val[k] = tb_fdiv(e0 * long(lit[R + 4 + k]) + e1 * long(lit[R + 16 + k]) + e2 * long(lit[R + 28 + k]), dn);
+    long sh = 256;
+    if ((flags & 1) != 0) {
+        long N = long(lit[R + 44]), lx = val[8] - 8, ly = val[9] - 8, ld = val[10];
+        long ix = lx >> 4, fx = lx & 15, iy = ly >> 4, fy = ly & 15;
+        sh = 0;
+        for (int k = 0; k < 4; k++) {
+            long i = ix + long(k & 1), j = iy + long(k >> 1);
+            long w = ((k & 1) != 0 ? fx : 16 - fx) * ((k >> 1) != 0 ? fy : 16 - fy);
+            if (i < 0 || j < 0 || i >= N || j >= N || ld <= long(sm[uint(long(lit[R + 45]) + j * N + i)])) sh += w;
+        }
+    }
+    long ft = 0;
+    if ((flags & 2) != 0) {
+        long zq = tb_fdiv(long(205) << 24, 16777216 - long(d)), fn = long(lit[R + 41]), ff = long(lit[R + 42]);
+        ft = zq <= fn ? 0 : zq >= ff ? 256 : (zq - fn) * 256 / (ff - fn);
+    }
+    uint a = uint(flags >> 8) & 255u, fc = uint(lit[R + 40]);
+    uint3 o;
+    for (int k = 0; k < 3; k++) {
+        int s = 16 - 8 * k;
+        long cb = long((base >> uint(s)) & 255u), M = val[k] + ((val[6] * sh) >> 8), Ad = val[3 + k] + ((val[7] * sh) >> 8);
+        long r = ((cb * M + 128) >> 8) + ((Ad + 8) >> 4);
+        if (r > 255) r = 255;
+        if ((flags & 2) != 0) r = (r * (256 - ft) + long((fc >> uint(s)) & 255u) * ft + 128) >> 8;
+        o[k] = uint(r);
+    }
+    uint3 k3 = (o * a + 127u) / 255u;
+    TbOut out;
+    out.c = float4(float3(k3), float(a)) / 255.0;
+    out.d = float(d) / 16777216.0;
+    return out;
+}
