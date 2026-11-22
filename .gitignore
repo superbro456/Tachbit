@@ -37,3 +37,13 @@ bench/*
 !bench/*.md
 # диски Омниума (создаёт omnium/run.sh)
 omnium/*.img
+# ядра, которые tests/run_bare.sh собирает на время проверки
+tests/bare/*.elf
+tests/bare/*.bc
+tests/bare/*.ll
+tests/bare/*.log
+tests/bare/*.c
+omnium/*.elf
+omnium/*.bc
+omnium/*.ll
+omnium/*.log
