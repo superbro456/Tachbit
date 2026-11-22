@@ -7,6 +7,7 @@
 
 use ofs
 use exfat
+use picture
 
 obj Win
     app: text
@@ -17,6 +18,7 @@ obj Win
     h: int
     hidden: bool
     born: int          // когда открыли (капля падает снизу)
+    pic: int           // «Просмотр»: номер картинки + 1 (0 — нет)
 
 obj Shell
     w: int
@@ -436,6 +438,14 @@ func folder(cx: int, cy: int, size: int, c_back: int, c_front: int)
     rbox(x, y + h * 3 / 10, w, h * 7 / 10, 7, c_front)
 
 // документ: белый лист с загнутым углом и строками
+// значок картинки: рамка, солнце и горы
+func photo_icon(cx: int, cy: int)
+    draw_round(cx - 24, cy - 20, 48, 40, 8, "all", rgb(120, 170, 250))
+    draw_round(cx - 20, cy - 16, 40, 32, 5, "all", rgb(214, 232, 255))
+    draw_circle(cx + 9, cy - 7, 5, rgb(255, 196, 70))
+    draw_triangle(cx - 18, cy + 14, cx - 5, cy - 4, cx + 8, cy + 14, rgb(70, 160, 110))
+    draw_triangle(cx - 2, cy + 14, cx + 8, cy + 1, cx + 18, cy + 14, rgb(50, 130, 90))
+
 func doc_icon(cx: int, cy: int, c: int)
     rbox(cx - 18, cy - 23, 36, 46, 6, rgba(255, 255, 255, 240))
     draw_round(cx + 6, cy - 23, 12, 12, 4, "bl", rgba(210, 216, 228, 255))
@@ -635,6 +645,8 @@ func content(s: Shell, win: Win)
                 if ends_with(f, "/")
                     folder(cx, cy, 30, rgb(80, 150, 250), rgb(120, 180, 255))
                     nm = cut(f, 0, len(f) - 2)
+                else if picture.is_picture(f)
+                    photo_icon(cx, cy)
                 else
                     doc_icon(cx, cy, rgb(190, 198, 214))
                 nm = fit(nm, 15)
@@ -642,6 +654,10 @@ func content(s: Shell, win: Win)
                 i += 1
             if len(items) == 0
                 label(s, gx + 10, gy + 10, "пусто", 14, dim())
+        "Просмотр"
+            if win.pic > 0
+                p = win.pic - 1
+                draw_image(p, win.x + (win.w - image_w(p)) / 2, win.y + 48 + (win.h - 60 - image_h(p)) / 2)
         "О системе"
             y = win.y + 60
             bold(s, x, y, "Омниум", 34, ink())
@@ -704,6 +720,11 @@ modpub func open_app(s: Shell, app: text)
         y = 470
         w = 300
         h = 180
+    // места рассчитаны на экран 1280×720: на большом экране окна шире и дальше друг от друга
+    x = x * s.w / 1280
+    y = y * s.h / 720
+    w = w * s.w / 1280
+    h = h * s.h / 720
     win = Win(app: app, title: app, x: x, y: y, w: w, h: h, born: uptime_ms())
     s.wins.add(win)
     s.note_on = app == "Заметки"
@@ -802,8 +823,48 @@ func press(s: Shell, mx: int, my: int)
                 if inside(mx, my, win.x + 14, win.y + 239, 168, 34)
                     s.place = "usb"
                 files_refresh(s)
+                file_click(s, win, mx, my)
             return
     s.note_on = false
+
+// щелчок по сетке «Файлов»: картинка открывается в «Просмотре»
+func file_click(s: Shell, win: Win, mx: int, my: int)
+    gx = win.x + 210
+    gy = win.y + 64
+    cols = (win.w - 220) / 130
+    if cols < 1
+        cols = 1
+    if mx < gx or my < gy
+        return
+    col = (mx - gx) / 130
+    if col >= cols
+        return
+    i = ((my - gy) / 120) * cols + col
+    items = s.fs_files
+    if s.place == "usb"
+        items = s.usb_files
+    if i >= len(items) or not picture.is_picture(items[i])
+        return
+    name = items[i]
+    p = -1
+    if s.place == "usb"
+        p = picture.from_usb(s.usb, "/" + name) else err
+            s.log.add("[просмотр] " + name + ": " + err)
+            return
+    else
+        p = picture.from_ofs(s.fs, name) else err
+            s.log.add("[просмотр] " + name + ": " + err)
+            return
+    show_picture(s, name, p)
+
+// окно «Просмотр»: картинка вписана в 60% экрана
+modpub func show_picture(s: Shell, name: text, p: int)
+    q = picture.fit_into(p, s.w * 6 / 10, s.h * 6 / 10)
+    w = max(image_w(q) + 48, 320)
+    h = image_h(q) + 72
+    win = Win(app: "Просмотр", title: name, x: (s.w - w) / 2, y: (s.h - h) / 2 - 20, w: w, h: h, born: uptime_ms(), pic: q + 1)
+    s.wins.add(win)
+    s.dirty = true
 
 // убрать последнюю букву (целиком, со всеми её байтами)
 func drop_last(s: text) gives r: text

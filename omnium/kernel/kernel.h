@@ -858,9 +858,10 @@ TB_API void tb_paging_init(void) {
     for (uint64_t g = 0; g < gbs; g++) tb_pdpt[g] = (uint64_t)(uintptr_t)tb_pdir[g] | 3;
     for (uint64_t t = 0; t < low >> 21; t++) tb_pdir[0][t] = (uint64_t)(uintptr_t)tb_pt[t] | 3;
     for (uint64_t a = low; a < tb_ram_end; a += 0x200000ull) tb_pdir[a >> 30][(a >> 21) & 511] = a | 0x83;
-    // APIC: окно устройства, без кэша
+    // окна устройств PCI (AHCI, NVMe, APIC ...) — от 3 до 4 ГБ, без кэша; память там не трогаем
     tb_pdpt[3] = (uint64_t)(uintptr_t)tb_pdir[3] | 3;
-    tb_pdir[3][(0xFEE00000ull >> 21) & 511] = 0xFEE00000ull | 0x83 | 0x18;
+    for (uint64_t a = 0xC0000000ull; a < 0x100000000ull; a += 0x200000ull)
+        if (a >= tb_ram_end) tb_pdir[3][(a >> 21) & 511] = a | 0x83 | 0x18;
     // CR0.WP: и ядро не может писать в страницы «только читать»
     __asm__ volatile("movq %0, %%cr3\nmovq %%cr0, %%rax\norq $0x10000, %%rax\nmovq %%rax, %%cr0\n" : : "r"(tb_pml4) : "rax", "memory");
     tb_pg_next = (uint64_t)(uintptr_t)tb_kernel_end;

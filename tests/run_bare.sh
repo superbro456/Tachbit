@@ -38,6 +38,9 @@ if [ "$got" = "$(cat omnium/main.out)" ]; then pass=$((pass + 1)); else fail=$((
 # файловая служба OFS3 (omnium/ofs.tb): версии, снимки, ключи, отзыв ключа
 got=$(run_kernel omnium/ofs_test.tb)
 if [ "$got" = "$(cat omnium/ofs_test.out)" ]; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "не прошёл: omnium/ofs_test.tb"; fi
+# картинки в ядре: PNG, JPEG, GIF, BMP из файлов и из памяти (omnium/image_test.tb)
+got=$(run_kernel omnium/image_test.tb)
+if [ "$got" = "$(cat omnium/image_test.out)" ]; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "не прошёл: omnium/image_test.tb"; fi
 # OFS3 на диске: несколько запусков на одном образе, сбой суперблока, испорченный сектор
 if ./tests/omnium_disk.sh > "$work/disk.txt"; then pass=$((pass + 1)); else fail=$((fail + 1)); cat "$work/disk.txt"; fi
 # оболочка «Капля» (omnium/desktop.tb): здесь только сборка — ей нужен живой экран и мышь

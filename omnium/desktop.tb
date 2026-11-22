@@ -52,7 +52,7 @@ func main()
     unote, ufree, utotal = exfat.info(uk) else err
         unote = err
     log.send("[ядро] флешка: " + unote)
-    shell.shell(1280, 720, log, ask, answer, 0, ["Файлы", "Терминал", "Заметки"], fk, true, uk, true)
+    shell.shell(1920, 1080, log, ask, answer, 0, ["Файлы", "Терминал", "Заметки"], fk, true, uk, true)
     fbell.close()
     files.wait
     ubell.close()

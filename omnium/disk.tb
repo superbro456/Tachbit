@@ -1,9 +1,118 @@
-// Драйвер диска: IDE/ATA, обмен через порты (PIO), сектора по 512 байт, адрес LBA28.
-// Доверенный модуль (danger: порты). Диск 0 — главный на первом канале, диск 1 — второй.
-// Кто зовёт эти функции, тот должен быть драйвером (OFS, exFAT); программы ходят к ним по каналам.
-// Все обращения к каналу IDE идут под замком ata: две службы не перемешают команды.
-// В QEMU:  -drive file=disk.img,format=raw,if=ide,index=0   (и index=1 — второй диск)
+// Диски Омниума: IDE (старые машины и QEMU по умолчанию), SATA через AHCI, NVMe (SSD M.2).
+// Сектора по 512 байт. Номер диска — по порядку, как их нашли: сначала IDE (0 и 1), потом AHCI, потом NVMe.
+// Доверенный модуль (danger: порты и окна устройств). Кто зовёт эти функции, тот должен быть драйвером
+// файловой системы (OFS, exFAT); программы ходят к ним по каналам.
+// На каждом контроллере свой замок (ata, ahci, nvme): две службы не перемешают команды.
+// В QEMU:  -drive file=disk.img,format=raw,if=ide,index=0                      IDE
+//          -device ahci,id=a -drive id=s,file=x.img,format=raw,if=none -device ide-hd,drive=s,bus=a.0   SATA
+//          -drive id=n,file=y.img,format=raw,if=none -device nvme,serial=om1,drive=n                  NVMe
+use ahci
+use nvme
 
+// список дисков: страница, по 32 байта на диск — вид (1 IDE, 2 AHCI, 3 NVMe), чей, секторов
+shared dk_tab = int 0
+shared dk_n = int 0
+
+func disks_scan()
+    lock disks
+        if dk_tab == 0
+            t = 0
+            danger
+                t = page_new()
+                fill_mem(t, 0, 4096)
+            n = 0
+            count d from 0 to 1
+                z = ide_size(d)
+                if z > 0
+                    dk_put(t, n, 1, d, z)
+                    n += 1
+            each st in ahci_disks()
+                if n < 128
+                    dk_put(t, n, 2, st, ahci_sectors(st))
+                    n += 1
+            each st in nvme_disks()
+                if n < 128
+                    dk_put(t, n, 3, st, nvme_sectors(st))
+                    n += 1
+            dk_n = n
+            dk_tab = t
+
+func dk_put(t: int, i: int, kind: int, unit: int, size: int)
+    danger
+        write64(t + i * 32, kind)
+        write64(t + i * 32 + 8, unit)
+        write64(t + i * 32 + 16, size)
+
+func dk_get(drive: int) gives kind: int, unit: int
+    if dk_tab == 0
+        disks_scan()
+    if drive < 0 or drive >= dk_n
+        return
+    danger
+        kind = read64(dk_tab + drive * 32)
+        unit = read64(dk_tab + drive * 32 + 8)
+
+// сколько дисков нашлось и какой это: "IDE", "SATA", "NVMe"
+modpub func disk_count() gives n: int
+    if dk_tab == 0
+        disks_scan()
+    n = dk_n
+
+modpub func disk_kind(drive: int) gives s: text
+    kind, unit = dk_get(drive)
+    if kind == 1
+        return "IDE"
+    if kind == 2
+        return "SATA"
+    if kind == 3
+        return "NVMe"
+    return ""
+
+// сколько секторов на диске (0 — диска нет)
+modpub func disk_size(drive: int) gives n: int
+    kind, unit = dk_get(drive)
+    if kind == 0
+        return 0
+    danger
+        n = read64(dk_tab + drive * 32 + 16)
+
+// прочитать сектор lba в память buf (512 байт)
+modpub func disk_read(drive: int, lba: int, buf: int) gives ok: bool
+    kind, unit = dk_get(drive)
+    if kind == 1
+        ok = ide_read(unit, lba, buf)
+    else if kind == 2
+        lock ahci
+            ok = ahci_read(unit, lba, buf)
+    else if kind == 3
+        lock nvme
+            ok = nvme_read(unit, lba, buf)
+
+// записать сектор из buf
+modpub func disk_write(drive: int, lba: int, buf: int) gives ok: bool
+    kind, unit = dk_get(drive)
+    if kind == 1
+        ok = ide_write(unit, lba, buf)
+    else if kind == 2
+        lock ahci
+            ok = ahci_write(unit, lba, buf)
+    else if kind == 3
+        lock nvme
+            ok = nvme_write(unit, lba, buf)
+
+// всё записанное — на диск (кэш диска сбрасывается)
+modpub func disk_flush(drive: int) gives ok: bool
+    kind, unit = dk_get(drive)
+    if kind == 1
+        ok = ide_flush(unit)
+    else if kind == 2
+        lock ahci
+            ok = ahci_flush(unit)
+    else if kind == 3
+        lock nvme
+            ok = nvme_flush(unit)
+
+// ---------- IDE/ATA через порты (PIO), LBA28 ----------
 func ata_status() gives s: int
     danger
         s = port_in8(0x1F7)
@@ -30,8 +139,7 @@ func ata_select(drive: int, lba: int, cmd: int)
         port_out8(0x1F5, bit_and(shift_right(lba, 16), 0xFF))
         port_out8(0x1F7, cmd)
 
-// сколько секторов на диске (0 — диска нет)
-modpub func disk_size(drive: int) gives n: int
+func ide_size(drive: int) gives n: int
     lock ata
         danger
             port_out8(0x1F6, bit_or(0xA0, shift_left(drive, 4)))
@@ -49,8 +157,7 @@ modpub func disk_size(drive: int) gives n: int
                     if i == 61
                         n = n + shift_left(w, 16)
 
-// прочитать сектор lba в память buf (512 байт)
-modpub func disk_read(drive: int, lba: int, buf: int) gives ok: bool
+func ide_read(drive: int, lba: int, buf: int) gives ok: bool
     lock ata
         ata_select(drive, lba, 0x20)
         ok = ata_ready(true)
@@ -59,8 +166,7 @@ modpub func disk_read(drive: int, lba: int, buf: int) gives ok: bool
                 count i from 0 to 255
                     write16(buf + i * 2, port_in16(0x1F0))
 
-// записать сектор из buf
-modpub func disk_write(drive: int, lba: int, buf: int) gives ok: bool
+func ide_write(drive: int, lba: int, buf: int) gives ok: bool
     lock ata
         ata_select(drive, lba, 0x30)
         ok = ata_ready(true)
@@ -70,8 +176,7 @@ modpub func disk_write(drive: int, lba: int, buf: int) gives ok: bool
                     port_out16(0x1F0, read16(buf + i * 2))
             ok = ata_ready(false)
 
-// всё записанное — на диск (кэш диска сбрасывается)
-modpub func disk_flush(drive: int) gives ok: bool
+func ide_flush(drive: int) gives ok: bool
     lock ata
         danger
             port_out8(0x1F6, bit_or(0xE0, shift_left(drive, 4)))

@@ -1,4 +1,4 @@
-// exFAT на втором диске (флешка): читать файлы и папки, писать новые, удалять
+// exFAT на флешке (единственный диск, номер 0): читать файлы и папки, писать новые, удалять
 use ofs
 use exfat
 use disk
@@ -14,7 +14,7 @@ func main()
     answers = list channel text
     writes = list bool
     k = ofs.key(bell, asks, answers, writes, true)
-    usb = service exfat.exfat(1, bell, move asks, move answers, move writes)
+    usb = service exfat.exfat(0, bell, move asks, move answers, move writes)
     note, free_kb, total_kb = exfat.info(k) else err
         print(err)
         return

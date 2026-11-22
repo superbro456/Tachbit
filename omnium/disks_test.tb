@@ -1,0 +1,20 @@
+// диски: какие нашлись (IDE, SATA через AHCI, NVMe), и запись-чтение сектора на каждом
+use disk
+
+func main()
+    n = disk_count()
+    print("дисков: " + n)
+    buf = mem_new(512)
+    back = mem_new(512)
+    count d from 0 to n - 1
+        z = disk_size(d)
+        count i from 0 to 511
+            set8(buf + i, (i * 7 + d) % 256)
+        ok = disk_write(d, z - 1, buf) and disk_flush(d)
+        zero(back, 512)
+        ok2 = disk_read(d, z - 1, back)
+        same = true
+        count i from 0 to 511
+            if get8(back + i) != get8(buf + i)
+                same = false
+        print(disk_kind(d) + ": " + z / 2048 + " МБ, запись " + ok + ", чтение " + ok2 + ", совпало " + same)

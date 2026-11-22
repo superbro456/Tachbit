@@ -1,0 +1,46 @@
+// Картинки с дисков Омниума: файл (PNG, JPEG, GIF, BMP) из OFS3 или с флешки → номер картинки для draw_image.
+// Доверенный модуль (danger: байты файла лежат в памяти). Оболочке и программам danger не нужен.
+use disk
+use ofs
+use exfat
+
+// это картинка? (по имени файла)
+modpub func is_picture(name: text) gives yes: bool
+    n = lower(name)
+    each e in [".png", ".jpg", ".jpeg", ".gif", ".bmp"]
+        if ends_with(n, e)
+            return true
+    return false
+
+func from_mem(a: int, n: int) gives i: int
+    i = -1
+    danger
+        i = image_from_mem(a, n) else err
+            i = -1
+    mem_free(a)
+    if i < 0
+        fail "картинка не читается"
+
+// из OFS3
+modpub func from_ofs(k: Key, name: text) gives i: int
+    a, n = try ofs.get_mem(k, name)
+    i = try from_mem(a, n)
+
+// с флешки (exFAT)
+modpub func from_usb(k: Key, path: text) gives i: int
+    a, n = try exfat.get_mem(k, path)
+    i = try from_mem(a, n)
+
+// вписать в w×h, сохранив пропорции (больше не делает)
+modpub func fit_into(i: int, w: int, h: int) gives r: int
+    iw = image_w(i)
+    ih = image_h(i)
+    r = i
+    if iw <= w and ih <= h
+        return
+    nw = w
+    nh = ih * w / iw
+    if nh > h
+        nh = h
+        nw = iw * h / ih
+    r = image_scaled(i, max(nw, 1), max(nh, 1)) or i

@@ -1,0 +1,155 @@
+// Драйвер NVMe: SSD на шине PCIe (M.2). В QEMU: -device nvme,serial=om1,drive=...
+// Доверенный модуль (danger: окна устройства, DMA). Без прерываний: команда в очередь → ждём ответ.
+// Очереди: админская (0) и одна рабочая (1), по qn записей. Всё хозяйство — страница «st»:
+//   +0 окно регистров, +8 шаг звонков, +16/+24 очереди команд/ответов 0, +32/+40 — очереди 1,
+//   +48 страница данных, +56 qn, +64.. хвост/голова/фаза очереди 0, +88.. — очереди 1,
+//   +112 номер команды, +120 секторов на диске
+// Кто зовёт nvme_*, тот держит замок (disk.tb: lock nvme).
+use pci
+
+func w32(a: int, v: int)
+    danger
+        write32(a, bit_and(v, 0xFFFFFFFF))
+
+func r32(a: int) gives v: int
+    danger
+        v = read32(a)
+
+func w64(a: int, v: int)
+    danger
+        write64(a, v)
+
+func r64(a: int) gives v: int
+    danger
+        v = read64(a)
+
+// команда в очередь q и ждать ответ; ok — диск сказал «успешно»
+func nv_cmd(st: int, q: int, op: int, nsid: int, prp: int, c10: int, c11: int, c12: int) gives ok: bool
+    bar = r64(st)
+    stride = r64(st + 8)
+    qn = r64(st + 56)
+    sq = r64(st + 16 + q * 16)
+    cq = r64(st + 24 + q * 16)
+    s = st + 64 + q * 24
+    tail = r64(s)
+    head = r64(s + 8)
+    ph = r64(s + 16)
+    cid = bit_and(r64(st + 112) + 1, 0xFFFF)
+    w64(st + 112, cid)
+    e = sq + tail * 64
+    danger
+        fill_mem(e, 0, 64)
+    w32(e, bit_or(op, shift_left(cid, 16)))
+    w32(e + 4, nsid)
+    w64(e + 24, prp)
+    w32(e + 40, c10)
+    w32(e + 44, c11)
+    w32(e + 48, c12)
+    tail = (tail + 1) % qn
+    w32(bar + 0x1000 + 2 * q * stride, tail)
+    got = false
+    c = cq + head * 16
+    repeat 5000000 times
+        if bit_and(shift_right(r32(c + 12), 16), 1) == ph
+            got = true
+            stop
+    if not got
+        return false
+    ok = bit_and(shift_right(r32(c + 12), 17), 0x7FFF) == 0
+    head += 1
+    if head == qn
+        head = 0
+        ph = 1 - ph
+    w32(bar + 0x1000 + (2 * q + 1) * stride, head)
+    w64(s, tail)
+    w64(s + 8, head)
+    w64(s + 16, ph)
+
+func wait_ready(bar: int, want: int) gives ok: bool
+    repeat 2000000 times
+        cs = r32(bar + 0x1C)
+        if bit_and(cs, 2) != 0
+            return false
+        if bit_and(cs, 1) == want
+            return true
+    return false
+
+func new_page() gives a: int
+    danger
+        a = page_new()
+        fill_mem(a, 0, 4096)
+
+// запустить контроллер; ответ — страница st (0 — не вышло или сектор не 512 байт)
+func start(at: int) gives st: int
+    pci_enable(at)
+    bar = pci_bar(at, 0)
+    if bar < 0xC0000000 or bar >= 0x100000000
+        return 0
+    cap = r64(bar)
+    stride = shift_left(4, bit_and(shift_right(cap, 32), 0xF))
+    qn = min(16, bit_and(cap, 0xFFFF) + 1)
+    if qn < 2
+        return 0
+    // выключить, задать админские очереди, включить
+    w32(bar + 0x14, 0)
+    if not wait_ready(bar, 0)
+        return 0
+    st = new_page()
+    count i from 0 to 4
+        w64(st + 16 + i * 8, new_page())
+    w64(st, bar)
+    w64(st + 8, stride)
+    w64(st + 56, qn)
+    w64(st + 80, 1)
+    w64(st + 104, 1)
+    w32(bar + 0x24, bit_or(qn - 1, shift_left(qn - 1, 16)))
+    asq = r64(st + 16)
+    acq = r64(st + 24)
+    w32(bar + 0x28, asq)
+    w32(bar + 0x2C, shift_right(asq, 32))
+    w32(bar + 0x30, acq)
+    w32(bar + 0x34, shift_right(acq, 32))
+    w32(bar + 0x14, bit_or(1, bit_or(shift_left(6, 16), shift_left(4, 20))))
+    if not wait_ready(bar, 1)
+        return 0
+    dp = r64(st + 48)
+    // какой диск: пространство имён 1 — размер и длина сектора
+    if not nv_cmd(st, 0, 0x06, 1, dp, 0, 0, 0)
+        return 0
+    n = r64(dp)
+    fmt = bit_and(shift_right(r32(dp + 24), 16), 0xF)
+    lbads = bit_and(shift_right(r32(dp + 128 + fmt * 4), 16), 0xFF)
+    if lbads != 9 or n == 0
+        return 0
+    w64(st + 120, n)
+    // рабочие очереди: сначала очередь ответов, потом очередь команд
+    if not nv_cmd(st, 0, 0x05, 0, r64(st + 40), bit_or(1, shift_left(qn - 1, 16)), 1, 0)
+        return 0
+    if not nv_cmd(st, 0, 0x01, 0, r64(st + 32), bit_or(1, shift_left(qn - 1, 16)), bit_or(1, shift_left(1, 16)), 0)
+        return 0
+
+// все диски NVMe: список страниц st
+modpub func nvme_disks() gives sts: list int
+    each at in pci_find(0x010802)
+        st = start(at)
+        if st != 0
+            sts.add(st)
+
+modpub func nvme_sectors(st: int) gives n: int
+    n = r64(st + 120)
+
+modpub func nvme_read(st: int, lba: int, buf: int) gives ok: bool
+    dp = r64(st + 48)
+    ok = nv_cmd(st, 1, 0x02, 1, dp, bit_and(lba, 0xFFFFFFFF), shift_right(lba, 32), 0)
+    if ok
+        danger
+            copy_mem(buf, dp, 512)
+
+modpub func nvme_write(st: int, lba: int, buf: int) gives ok: bool
+    dp = r64(st + 48)
+    danger
+        copy_mem(dp, buf, 512)
+    ok = nv_cmd(st, 1, 0x01, 1, dp, bit_and(lba, 0xFFFFFFFF), shift_right(lba, 32), 0)
+
+modpub func nvme_flush(st: int) gives ok: bool
+    ok = nv_cmd(st, 1, 0x00, 1, 0, 0, 0, 0)

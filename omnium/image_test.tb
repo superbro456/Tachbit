@@ -1,0 +1,46 @@
+// картинки в ядре: PNG, JPEG (обычный и прогрессивный), GIF, BMP — из файлов, взятых с собой,
+// и BMP, собранный прямо в памяти (как файл, прочитанный с диска)
+use disk
+
+func main()
+    each name in ["pic.png", "photo.jpg", "photo_prog.jpg", "anim.gif", "pic.bmp"]
+        i = -1
+        if name == "pic.png"
+            i = load_image("../tests/omnium/img/pic.png") else err
+                print(name + ": " + err)
+        if name == "photo.jpg"
+            i = load_image("../tests/omnium/img/photo.jpg") else err
+                print(name + ": " + err)
+        if name == "photo_prog.jpg"
+            i = load_image("../tests/omnium/img/photo_prog.jpg") else err
+                print(name + ": " + err)
+        if name == "anim.gif"
+            i = load_image("../tests/omnium/img/anim.gif") else err
+                print(name + ": " + err)
+        if name == "pic.bmp"
+            i = load_image("../tests/omnium/img/pic.bmp") else err
+                print(name + ": " + err)
+        if i >= 0
+            sm = image_scaled(i, 16, 9) or -1
+            print(name + ": " + image_w(i) + "×" + image_h(i) + ", уменьшенная " + image_w(sm) + "×" + image_h(sm))
+    // BMP 3×2, 24 бита, в памяти
+    a = mem_new(80)
+    zero(a, 80)
+    set8(a, 66)
+    set8(a + 1, 77)
+    set32(a + 2, 78)
+    set32(a + 10, 54)
+    set32(a + 14, 40)
+    set32(a + 18, 3)
+    set32(a + 22, 2)
+    set16(a + 26, 1)
+    set16(a + 28, 24)
+    m = -1
+    danger
+        m = image_from_mem(a, 78) else err
+            print("из памяти: " + err)
+    if m >= 0
+        print("из памяти: " + image_w(m) + "×" + image_h(m))
+    danger
+        bad = image_from_mem(a + 1, 70) else err
+            print("не картинка: " + err)

@@ -2858,7 +2858,7 @@ enum { TB_K_ENTER = 10, TB_K_ESC = 27, TB_K_SPACE = 32, TB_K_BACK = 8, TB_K_TAB 
        TB_K_UP = 17, TB_K_DOWN = 18, TB_K_RIGHT = 19, TB_K_LEFT = 20, TB_K_SHIFT = 21,
        TB_K_CMD = 1, TB_K_CTRL = 2, TB_K_ALT = 3, TB_K_DEL = 4, TB_K_HOME = 5, TB_K_END = 6, TB_K_PGUP = 7,
        TB_K_PGDN = 11, TB_K_F1 = 128 };   // F1..F12 — 128..139
-// ---------- картинки PNG (load_image) ----------
+// ---------- картинки PNG (load_image; JPEG, BMP, GIF — ниже) ----------
 // Свой маленький разбор PNG: распаковка deflate (как zlib) и фильтры строк.
 // Картинка хранится точками 0xAARRGGBB; точка видна, если её прозрачность (A) не меньше 128.
 typedef struct { const unsigned char *p, *end; unsigned bits; int nb, err; unsigned char *out; size_t n, cap; } tb_zs;
@@ -3051,22 +3051,465 @@ TB_API uint32_t *tb_png(const unsigned char *d, size_t n, int *pw, int *ph, cons
     *pw = (int)w; *ph = (int)h;
     return px;
 }
+// ---------- картинки JPEG, BMP, GIF (load_image, image_from_mem) ----------
+// Свои маленькие разборы, без чужих библиотек. Ответ у всех — точки 0xAARRGGBB (malloc) или 0 и *why.
+// JPEG: обычный (baseline) и прогрессивный, 8 бит, оттенки серого и цветной (YCbCr), любое прореживание.
+// BMP: 1/4/8 бит с палитрой, 16/24/32 бита. GIF: первый кадр, прозрачный цвет.
+TB_INL int tb_jround(float x) { return x >= 0 ? (int)(x + 0.5f) : -(int)(-x + 0.5f); }
+typedef struct { unsigned char len[17]; unsigned char val[256]; int maxcode[18], valptr[17], mincode[17]; } tb_jhuff;
+typedef struct {
+    const unsigned char *p, *end;
+    unsigned bits; int nb, marker;
+    tb_jhuff dc[4], ac[4];
+    unsigned short q[4][64];
+    int w, h, nc, prog, mcux, mcuy, hmax, vmax, restart;
+    struct { int id, h, v, tq, td, ta, bw, bh, dcpred; short *coef; } c[4];
+    int ss, se, ah, al, eobrun;
+} tb_jpg;
+static const unsigned char tb_jzz[64] = { 0,1,8,16,9,2,3,10,17,24,32,25,18,11,4,5,12,19,26,33,40,48,41,34,27,20,13,6,7,14,21,
+    28,35,42,49,56,57,50,43,36,29,22,15,23,30,37,44,51,58,59,52,45,38,31,39,46,53,60,61,54,47,55,62,63 };
+TB_API void tb_jhuff_build(tb_jhuff *t) {
+    int code = 0, k = 0;
+    for (int l = 1; l <= 16; l++) {
+        t->valptr[l] = k; t->mincode[l] = code;
+        code += t->len[l]; k += t->len[l];
+        t->maxcode[l] = t->len[l] ? code - 1 : -1;
+        code <<= 1;
+    }
+    t->maxcode[17] = 0x7FFFFFFF;
+}
+TB_API int tb_jbit(tb_jpg *j) {
+    if (j->nb == 0) {
+        int b = 0;
+        if (j->marker || j->p >= j->end) b = 0;
+        else {
+            b = *j->p++;
+            if (b == 0xFF) {
+                int b2 = j->p < j->end ? *j->p : 0;
+                if (b2 == 0) j->p++;
+                else { j->marker = b2; b = 0; }
+            }
+        }
+        j->bits = (unsigned)b; j->nb = 8;
+    }
+    j->nb--;
+    return (j->bits >> j->nb) & 1;
+}
+TB_API int tb_jbits(tb_jpg *j, int n) { int v = 0; while (n-- > 0) v = (v << 1) | tb_jbit(j); return v; }
+TB_API int tb_jext(int v, int n) { return n == 0 ? 0 : (v < (1 << (n - 1)) ? v - (1 << n) + 1 : v); }
+TB_API int tb_jdec(tb_jpg *j, tb_jhuff *t) {
+    int code = 0;
+    for (int l = 1; l <= 16; l++) {
+        code = (code << 1) | tb_jbit(j);
+        if (t->maxcode[l] >= 0 && code <= t->maxcode[l]) return t->val[(t->valptr[l] + code - t->mincode[l]) & 255];
+    }
+    return -1;
+}
+// один блок 8×8 (коэффициенты в зигзаге → в c->coef по порядку строк)
+TB_API int tb_jblock(tb_jpg *j, int ci, short *b) {
+    if (!j->prog) {
+        int s = tb_jdec(j, &j->dc[j->c[ci].td]);
+        if (s < 0) return 0;
+        j->c[ci].dcpred += tb_jext(tb_jbits(j, s), s);
+        b[0] = (short)j->c[ci].dcpred;
+        for (int k = 1; k < 64; ) {
+            int rs = tb_jdec(j, &j->ac[j->c[ci].ta]);
+            if (rs < 0) return 0;
+            int r = rs >> 4; s = rs & 15;
+            if (s == 0) { if (r != 15) break; k += 16; continue; }
+            k += r;
+            if (k > 63) return 0;
+            b[tb_jzz[k++]] = (short)tb_jext(tb_jbits(j, s), s);
+        }
+        return 1;
+    }
+    if (j->ss == 0) {                                   // прогрессивный: DC
+        if (j->ah == 0) {
+            int s = tb_jdec(j, &j->dc[j->c[ci].td]);
+            if (s < 0) return 0;
+            j->c[ci].dcpred += tb_jext(tb_jbits(j, s), s);
+            b[0] = (short)(j->c[ci].dcpred * (1 << j->al));
+        } else if (tb_jbit(j)) b[0] = (short)(b[0] | (1 << j->al));
+        return 1;
+    }
+    if (j->ah == 0) {                                   // AC, первый проход
+        if (j->eobrun > 0) { j->eobrun--; return 1; }
+        for (int k = j->ss; k <= j->se; ) {
+            int rs = tb_jdec(j, &j->ac[j->c[ci].ta]);
+            if (rs < 0) return 0;
+            int r = rs >> 4, s = rs & 15;
+            if (s == 0) {
+                if (r < 15) { j->eobrun = (1 << r) - 1; if (r) j->eobrun += tb_jbits(j, r); break; }
+                k += 16; continue;
+            }
+            k += r;
+            if (k > 63) return 0;
+            b[tb_jzz[k++]] = (short)(tb_jext(tb_jbits(j, s), s) * (1 << j->al));
+        }
+        return 1;
+    }
+    // AC, уточнение
+    int p1 = 1 << j->al, m1 = -1 * (1 << j->al), k = j->ss;
+    if (j->eobrun <= 0) {
+        for (; k <= j->se; ) {
+            int rs = tb_jdec(j, &j->ac[j->c[ci].ta]);
+            if (rs < 0) return 0;
+            int r = rs >> 4, s = rs & 15, v = 0;
+            if (s == 0) {
+                if (r < 15) { j->eobrun = 1 << r; if (r) j->eobrun += tb_jbits(j, r); break; }
+            } else v = tb_jbit(j) ? p1 : m1;
+            while (k <= j->se) {
+                short *z = &b[tb_jzz[k]];
+                if (*z != 0) {
+                    if (tb_jbit(j) && (*z & p1) == 0) *z = (short)(*z >= 0 ? *z + p1 : *z + m1);
+                } else {
+                    if (r == 0) { if (v) *z = (short)v; k++; break; }
+                    r--;
+                }
+                k++;
+            }
+        }
+    }
+    if (j->eobrun > 0) {
+        for (; k <= j->se; k++) {
+            short *z = &b[tb_jzz[k]];
+            if (*z != 0 && tb_jbit(j) && (*z & p1) == 0) *z = (short)(*z >= 0 ? *z + p1 : *z + m1);
+        }
+        j->eobrun--;
+    }
+    return 1;
+}
+// один скан: компоненты ids[0..n-1]
+TB_API int tb_jscan(tb_jpg *j, int n, const int *ids) {
+    j->bits = 0; j->nb = 0; j->marker = 0; j->eobrun = 0;
+    for (int i = 0; i < 4; i++) j->c[i].dcpred = 0;
+    int left = j->restart;
+    if (n == 1) {
+        int ci = ids[0];
+        int bw = (j->w * j->c[ci].h + j->hmax * 8 - 1) / (j->hmax * 8), bh = (j->h * j->c[ci].v + j->vmax * 8 - 1) / (j->vmax * 8);
+        for (int y = 0; y < bh; y++)
+            for (int x = 0; x < bw; x++) {
+                if (j->restart && left == 0) {
+                    j->nb = 0; if (j->marker) { j->p++; j->marker = 0; }
+                    for (int i = 0; i < 4; i++) j->c[i].dcpred = 0;
+                    j->eobrun = 0; left = j->restart;
+                }
+                if (!tb_jblock(j, ci, j->c[ci].coef + ((size_t)y * j->c[ci].bw + x) * 64)) return 0;
+                left--;
+            }
+        return 1;
+    }
+    for (int my = 0; my < j->mcuy; my++)
+        for (int mx = 0; mx < j->mcux; mx++) {
+            if (j->restart && left == 0) {
+                j->nb = 0; if (j->marker) { j->p++; j->marker = 0; }
+                for (int i = 0; i < 4; i++) j->c[i].dcpred = 0;
+                j->eobrun = 0; left = j->restart;
+            }
+            for (int q = 0; q < n; q++) {
+                int ci = ids[q];
+                for (int v = 0; v < j->c[ci].v; v++)
+                    for (int h = 0; h < j->c[ci].h; h++) {
+                        int bx = mx * j->c[ci].h + h, by = my * j->c[ci].v + v;
+                        if (!tb_jblock(j, ci, j->c[ci].coef + ((size_t)by * j->c[ci].bw + bx) * 64)) return 0;
+                    }
+            }
+            left--;
+        }
+    return 1;
+}
+// обратное косинусное преобразование 8×8 (простое, с таблицей косинусов)
+TB_API void tb_jidct(const short *in, const unsigned short *q, unsigned char *out, int stride) {
+    static float cs[8][8]; static int ready = 0;
+    if (!ready) {
+        for (int x = 0; x < 8; x++)
+            for (int u = 0; u < 8; u++) cs[x][u] = (float)((u == 0 ? 0.70710678 : 1.0) * cos((2 * x + 1) * u * 3.14159265358979 / 16));
+        ready = 1;
+    }
+    float t[64], r[64];
+    for (int i = 0; i < 64; i++) t[i] = (float)in[i] * q[i];
+    for (int y = 0; y < 8; y++)
+        for (int x = 0; x < 8; x++) {
+            float s = 0;
+            for (int u = 0; u < 8; u++) s += cs[x][u] * t[y * 8 + u];
+            r[y * 8 + x] = s;
+        }
+    for (int x = 0; x < 8; x++)
+        for (int y = 0; y < 8; y++) {
+            float s = 0;
+            for (int v = 0; v < 8; v++) s += cs[y][v] * r[v * 8 + x];
+            int p = (int)tb_jround(s / 4 + 128);
+            out[y * stride + x] = (unsigned char)(p < 0 ? 0 : p > 255 ? 255 : p);
+        }
+}
+TB_API uint32_t *tb_jpeg(const unsigned char *d, size_t n, int *pw, int *ph, const char **why) {
+    *why = "это не JPEG";
+    if (n < 4 || d[0] != 0xFF || d[1] != 0xD8) return 0;
+    tb_jpg *j = calloc(1, sizeof(tb_jpg));
+    if (!j) { *why = "не хватило памяти"; return 0; }
+    uint32_t *px = 0;
+    const unsigned char *p = d + 2, *end = d + n;
+    int frame = 0, ok = 0;
+    *why = "файл JPEG испорчен";
+    while (p + 4 <= end) {
+        if (p[0] != 0xFF) { p++; continue; }
+        int m = p[1];
+        if (m == 0xFF) { p++; continue; }
+        if (m == 0xD9) { ok = frame; break; }
+        if (m == 0xD8 || (m >= 0xD0 && m <= 0xD7) || m == 0x01) { p += 2; continue; }
+        int len = (p[2] << 8) | p[3];
+        const unsigned char *s = p + 4, *se = p + 2 + len;
+        if (len < 2 || se > end) break;
+        if (m == 0xC0 || m == 0xC1 || m == 0xC2) {
+            j->prog = m == 0xC2;
+            if (s[0] != 8) { *why = "JPEG не 8 бит: пока не умею"; break; }
+            j->h = (s[1] << 8) | s[2]; j->w = (s[3] << 8) | s[4]; j->nc = s[5];
+            if (j->nc != 1 && j->nc != 3) { *why = "JPEG CMYK: пока не умею"; break; }
+            if (j->w <= 0 || j->h <= 0 || (long long)j->w * j->h > (1ll << 26)) break;
+            j->hmax = j->vmax = 1;
+            for (int i = 0; i < j->nc; i++) {
+                j->c[i].id = s[6 + i * 3]; j->c[i].h = s[7 + i * 3] >> 4; j->c[i].v = s[7 + i * 3] & 15; j->c[i].tq = s[8 + i * 3] & 3;
+                if (j->c[i].h < 1 || j->c[i].h > 4 || j->c[i].v < 1 || j->c[i].v > 4) goto bad;
+                if (j->c[i].h > j->hmax) j->hmax = j->c[i].h;
+                if (j->c[i].v > j->vmax) j->vmax = j->c[i].v;
+            }
+            j->mcux = (j->w + j->hmax * 8 - 1) / (j->hmax * 8); j->mcuy = (j->h + j->vmax * 8 - 1) / (j->vmax * 8);
+            for (int i = 0; i < j->nc; i++) {
+                j->c[i].bw = j->mcux * j->c[i].h; j->c[i].bh = j->mcuy * j->c[i].v;
+                j->c[i].coef = calloc((size_t)j->c[i].bw * j->c[i].bh * 64, sizeof(short));
+                if (!j->c[i].coef) { *why = "не хватило памяти"; goto bad; }
+            }
+            frame = 1;
+        } else if (m >= 0xC3 && m <= 0xCF && m != 0xC4 && m != 0xC8 && m != 0xCC) {
+            *why = "такой JPEG (без потерь / арифметический) пока не умею"; break;
+        } else if (m == 0xC4) {
+            while (s + 17 <= se) {
+                int tc = s[0] >> 4, th = s[0] & 3, total = 0;
+                tb_jhuff *t = tc ? &j->ac[th] : &j->dc[th];
+                memset(t, 0, sizeof *t);
+                for (int l = 1; l <= 16; l++) { t->len[l] = s[l]; total += s[l]; }
+                if (total > 256 || s + 17 + total > se) goto bad;
+                memcpy(t->val, s + 17, (size_t)total);
+                tb_jhuff_build(t);
+                s += 17 + total;
+            }
+        } else if (m == 0xDB) {
+            while (s + 65 <= se) {
+                int pq = s[0] >> 4, tq = s[0] & 3;
+                for (int k = 0; k < 64; k++) j->q[tq][tb_jzz[k]] = pq ? (unsigned short)((s[1 + k * 2] << 8) | s[2 + k * 2]) : s[1 + k];
+                s += pq ? 129 : 65;
+            }
+        } else if (m == 0xDD) {
+            j->restart = (s[0] << 8) | s[1];
+        } else if (m == 0xDA) {
+            if (!frame) goto bad;
+            int ns = s[0], ids[4];
+            if (ns < 1 || ns > 4) goto bad;
+            for (int i = 0; i < ns; i++) {
+                int id = s[1 + i * 2], ci = -1;
+                for (int k = 0; k < j->nc; k++) if (j->c[k].id == id) ci = k;
+                if (ci < 0) goto bad;
+                ids[i] = ci; j->c[ci].td = s[2 + i * 2] >> 4 & 3; j->c[ci].ta = s[2 + i * 2] & 3;
+            }
+            const unsigned char *t = s + 1 + ns * 2;
+            j->ss = t[0]; j->se = t[1]; j->ah = t[2] >> 4; j->al = t[2] & 15;
+            j->p = se; j->end = end;
+            if (!tb_jscan(j, ns, ids)) goto bad;
+            // данные скана кончились: ищем следующий маркер
+            p = j->p;
+            while (p + 1 < end && !(p[0] == 0xFF && p[1] != 0 && !(p[1] >= 0xD0 && p[1] <= 0xD7))) p++;
+            continue;
+        }
+        p = se;
+    }
+    if (frame && !ok) ok = 1;                        // нет EOI — берём что есть
+    if (!ok) goto bad;
+    {
+        int w = j->w, h = j->h;
+        unsigned char *pl[3] = { 0, 0, 0 };
+        for (int i = 0; i < j->nc; i++) {
+            int stride = j->c[i].bw * 8;
+            pl[i] = malloc((size_t)stride * j->c[i].bh * 8);
+            if (!pl[i]) { *why = "не хватило памяти"; for (int k = 0; k < i; k++) free(pl[k]); goto bad; }
+            for (int by = 0; by < j->c[i].bh; by++)
+                for (int bx = 0; bx < j->c[i].bw; bx++)
+                    tb_jidct(j->c[i].coef + ((size_t)by * j->c[i].bw + bx) * 64, j->q[j->c[i].tq], pl[i] + (size_t)by * 8 * stride + bx * 8, stride);
+        }
+        px = malloc((size_t)w * h * 4);
+        if (px) {
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < w; x++) {
+                    int v[3];
+                    for (int i = 0; i < j->nc; i++) {
+                        int sx = x * j->c[i].h / j->hmax, sy = y * j->c[i].v / j->vmax;
+                        v[i] = pl[i][(size_t)sy * j->c[i].bw * 8 + sx];
+                    }
+                    int r, g, b;
+                    if (j->nc == 1) r = g = b = v[0];
+                    else {
+                        float Y = (float)v[0], cb = v[1] - 128.0f, cr = v[2] - 128.0f;
+                        r = (int)tb_jround(Y + 1.402f * cr); g = (int)tb_jround(Y - 0.344136f * cb - 0.714136f * cr); b = (int)tb_jround(Y + 1.772f * cb);
+                        r = r < 0 ? 0 : r > 255 ? 255 : r; g = g < 0 ? 0 : g > 255 ? 255 : g; b = b < 0 ? 0 : b > 255 ? 255 : b;
+                    }
+                    px[(size_t)y * w + x] = 0xFF000000u | (uint32_t)r << 16 | (uint32_t)g << 8 | (uint32_t)b;
+                }
+            *pw = w; *ph = h;
+        } else *why = "не хватило памяти";
+        for (int i = 0; i < j->nc; i++) free(pl[i]);
+    }
+bad:
+    for (int i = 0; i < 4; i++) free(j->c[i].coef);
+    free(j);
+    return px;
+}
+// BMP: заголовок BITMAPINFOHEADER и новее; строки снизу вверх (или сверху, если высота < 0)
+TB_API uint32_t *tb_bmp(const unsigned char *d, size_t n, int *pw, int *ph, const char **why) {
+    *why = "это не BMP";
+    if (n < 54 || d[0] != 'B' || d[1] != 'M') return 0;
+    unsigned off = d[10] | d[11] << 8 | d[12] << 16 | (unsigned)d[13] << 24;
+    unsigned hs = d[14] | d[15] << 8 | d[16] << 16 | (unsigned)d[17] << 24;
+    int w = (int)(d[18] | d[19] << 8 | d[20] << 16 | (unsigned)d[21] << 24);
+    int h = (int)(d[22] | d[23] << 8 | d[24] << 16 | (unsigned)d[25] << 24);
+    int bpp = d[28] | d[29] << 8, comp = d[30] | d[31] << 8;
+    int top = h < 0; if (top) h = -h;
+    *why = "такой BMP пока не умею";
+    if (w <= 0 || h <= 0 || (long long)w * h > (1ll << 26) || hs < 40) return 0;
+    if (!(comp == 0 || (comp == 3 && (bpp == 16 || bpp == 32)))) return 0;
+    if (bpp != 1 && bpp != 4 && bpp != 8 && bpp != 16 && bpp != 24 && bpp != 32) return 0;
+    uint32_t mr = 0x7C00, mg = 0x03E0, mb = 0x001F, ma = 0;
+    if (bpp == 32) { mr = 0xFF0000; mg = 0xFF00; mb = 0xFF; ma = 0; }
+    if (comp == 3 && 14 + hs + 12 <= n) {
+        const unsigned char *m = d + 54;
+        if (hs >= 52) m = d + 14 + 40;
+        mr = m[0] | m[1] << 8 | m[2] << 16 | (uint32_t)m[3] << 24; mg = m[4] | m[5] << 8 | m[6] << 16 | (uint32_t)m[7] << 24;
+        mb = m[8] | m[9] << 8 | m[10] << 16 | (uint32_t)m[11] << 24;
+        if (hs >= 56) ma = m[12] | m[13] << 8 | m[14] << 16 | (uint32_t)m[15] << 24;
+    }
+    const unsigned char *pal = d + 14 + hs;
+    size_t row = ((size_t)w * bpp + 31) / 32 * 4;
+    *why = "файл BMP обрезан";
+    if (off > n || row * h > n - off) return 0;
+    uint32_t *px = malloc((size_t)w * h * 4);
+    if (!px) { *why = "не хватило памяти"; return 0; }
+    for (int y = 0; y < h; y++) {
+        const unsigned char *r = d + off + row * (size_t)(top ? y : h - 1 - y);
+        for (int x = 0; x < w; x++) {
+            uint32_t c;
+            if (bpp <= 8) {
+                int i = bpp == 8 ? r[x] : bpp == 4 ? (r[x / 2] >> (x & 1 ? 0 : 4)) & 15 : (r[x / 8] >> (7 - (x & 7))) & 1;
+                const unsigned char *e = pal + i * 4;
+                c = (e + 3 <= d + n) ? 0xFF000000u | (uint32_t)e[2] << 16 | (uint32_t)e[1] << 8 | e[0] : 0xFF000000u;
+            } else if (bpp == 24) c = 0xFF000000u | (uint32_t)r[x * 3 + 2] << 16 | (uint32_t)r[x * 3 + 1] << 8 | r[x * 3];
+            else {
+                uint32_t v = bpp == 16 ? (uint32_t)(r[x * 2] | r[x * 2 + 1] << 8) : (uint32_t)(r[x * 4] | r[x * 4 + 1] << 8 | r[x * 4 + 2] << 16 | (uint32_t)r[x * 4 + 3] << 24);
+                uint32_t ch[4] = { mr, mg, mb, ma }, o[4] = { 0, 0, 0, 255 };
+                for (int k = 0; k < 4; k++) {
+                    if (!ch[k]) continue;
+                    int sh = 0; while (!((ch[k] >> sh) & 1)) sh++;
+                    uint32_t mx = ch[k] >> sh, val = (v & ch[k]) >> sh;
+                    o[k] = mx ? val * 255 / mx : 0;
+                }
+                c = o[3] << 24 | o[0] << 16 | o[1] << 8 | o[2];
+            }
+            px[(size_t)y * w + x] = c;
+        }
+    }
+    *pw = w; *ph = h;
+    return px;
+}
+// GIF: первый кадр (LZW), палитра общая или своя, прозрачный цвет, через строку (interlace)
+TB_API uint32_t *tb_gif(const unsigned char *d, size_t n, int *pw, int *ph, const char **why) {
+    *why = "это не GIF";
+    if (n < 13 || memcmp(d, "GIF8", 4) != 0) return 0;
+    int w = d[6] | d[7] << 8, h = d[8] | d[9] << 8, fl = d[10];
+    size_t at = 13;
+    const unsigned char *gpal = 0; int gn = 0, trans = -1;
+    if (fl & 0x80) { gn = 2 << (fl & 7); gpal = d + at; at += (size_t)gn * 3; }
+    *why = "файл GIF испорчен";
+    if (w <= 0 || h <= 0 || (long long)w * h > (1ll << 26)) return 0;
+    while (at < n) {
+        int b = d[at++];
+        if (b == 0x21 && at + 1 < n) {
+            int lab = d[at++];
+            if (lab == 0xF9 && at + 5 < n && d[at] >= 4 && (d[at + 1] & 1)) trans = d[at + 4];
+            while (at < n && d[at]) at += d[at] + 1;
+            at++;
+            continue;
+        }
+        if (b != 0x2C || at + 9 > n) break;
+        int fx = d[at] | d[at + 1] << 8, fy = d[at + 2] | d[at + 3] << 8, fw = d[at + 4] | d[at + 5] << 8, fh = d[at + 6] | d[at + 7] << 8, ff = d[at + 8];
+        at += 9;
+        const unsigned char *pal = gpal; int pn = gn;
+        if (ff & 0x80) { pn = 2 << (ff & 7); pal = d + at; at += (size_t)pn * 3; }
+        if (!pal || at >= n) break;
+        int mcs = d[at++];
+        if (mcs < 2 || mcs > 8) break;
+        // данные кусками → одна полоса
+        size_t tot = 0, a2 = at;
+        while (a2 < n && d[a2]) { tot += d[a2]; a2 += d[a2] + 1; }
+        unsigned char *buf = malloc(tot + 4), *idx = calloc((size_t)fw * fh + 1, 1);
+        uint16_t *pre = malloc(4096 * 2); unsigned char *suf = malloc(4096), *stk = malloc(4097);
+        uint32_t *px = malloc((size_t)w * h * 4);
+        if (!buf || !idx || !pre || !suf || !stk || !px) { free(buf); free(idx); free(pre); free(suf); free(stk); free(px); *why = "не хватило памяти"; return 0; }
+        size_t k = 0; a2 = at;
+        while (a2 < n && d[a2]) { size_t c = d[a2]; if (a2 + 1 + c > n) c = n - a2 - 1; memcpy(buf + k, d + a2 + 1, c); k += c; a2 += d[a2] + 1; }
+        int clear = 1 << mcs, eoi = clear + 1, size = mcs + 1, next = clear + 2, old = -1, first = 0;
+        size_t bitp = 0, out = 0, total = (size_t)fw * fh;
+        for (int i = 0; i < clear; i++) { pre[i] = 0xFFFF; suf[i] = (unsigned char)i; }
+        while (out < total && (bitp + size) <= k * 8) {
+            int code = 0;
+            for (int i = 0; i < size; i++, bitp++) code |= ((buf[bitp >> 3] >> (bitp & 7)) & 1) << i;
+            if (code == clear) { size = mcs + 1; next = clear + 2; old = -1; continue; }
+            if (code == eoi) break;
+            int c = code, sp = 0;
+            if (old < 0) { if (c >= clear) break; idx[out++] = (unsigned char)c; old = c; first = c; continue; }
+            if (c >= next) { stk[sp++] = (unsigned char)first; c = old; }
+            while (c >= clear && sp < 4096) { stk[sp++] = suf[c]; c = pre[c]; }
+            stk[sp++] = (unsigned char)c; first = c;
+            while (sp > 0 && out < total) idx[out++] = stk[--sp];
+            if (next < 4096) { pre[next] = (uint16_t)old; suf[next] = (unsigned char)first; next++; if (next == (1 << size) && size < 12) size++; }
+            old = code;
+        }
+        // фон — прозрачный; кадр на своё место
+        for (size_t i = 0; i < (size_t)w * h; i++) px[i] = 0;
+        for (int y = 0; y < fh; y++) {
+            int sy = y;
+            if (ff & 0x40) {                          // через строку: 0,8,16.. 4,12.. 2,6.. 1,3..
+                int g1 = (fh + 7) / 8, g2 = (fh + 3) / 8, g3 = (fh + 1) / 4;
+                if (y < g1) sy = y * 8; else if (y < g1 + g2) sy = (y - g1) * 8 + 4;
+                else if (y < g1 + g2 + g3) sy = (y - g1 - g2) * 4 + 2; else sy = (y - g1 - g2 - g3) * 2 + 1;
+            }
+            for (int x = 0; x < fw; x++) {
+                int c = idx[(size_t)y * fw + x], X = fx + x, Y = fy + sy;
+                if (X >= w || Y >= h || c == trans || c >= pn) continue;
+                px[(size_t)Y * w + X] = 0xFF000000u | (uint32_t)pal[c * 3] << 16 | (uint32_t)pal[c * 3 + 1] << 8 | pal[c * 3 + 2];
+            }
+        }
+        free(buf); free(idx); free(pre); free(suf); free(stk);
+        *pw = w; *ph = h;
+        return px;
+    }
+    return 0;
+}
+// любой формат: по первым байтам
+TB_API uint32_t *tb_image_decode(const unsigned char *d, size_t n, int *pw, int *ph, const char **why) {
+    if (n >= 8 && d[0] == 137 && d[1] == 'P') return tb_png(d, n, pw, ph, why);
+    if (n >= 3 && d[0] == 0xFF && d[1] == 0xD8) return tb_jpeg(d, n, pw, ph, why);
+    if (n >= 2 && d[0] == 'B' && d[1] == 'M') return tb_bmp(d, n, pw, ph, why);
+    if (n >= 4 && !memcmp(d, "GIF8", 4)) return tb_gif(d, n, pw, ph, why);
+    *why = "формат картинки не знаю (умею PNG, JPEG, BMP, GIF)";
+    return 0;
+}
 // все картинки программы: точки подряд в одном большом массиве (его же видит видеокарта)
 typedef struct { int w, h; uint32_t off; } tb_image;
 TB_API tb_image *tb_imgs = 0;
 TB_API int tb_nimg = 0, tb_img_dirty = 0;
 TB_API uint32_t *tb_imgpx = 0;
 TB_API size_t tb_imgpx_n = 0;
-TB_API long long tb_load_image(const char *path) {
-    FILE *f = fopen(path, "rb");
-    if (!f) { tb_err = "нет такого файла картинки"; return -1; }
-    fseek(f, 0, SEEK_END); long sz = ftell(f); fseek(f, 0, SEEK_SET);
-    unsigned char *d = sz > 0 ? malloc((size_t)sz) : 0;
-    if (!d || fread(d, 1, (size_t)sz, f) != (size_t)sz) { fclose(f); free(d); tb_err = "не могу прочитать файл картинки"; return -1; }
-    fclose(f);
+// картинка из байтов в памяти (PNG, JPEG, BMP, GIF) → номер картинки; -1 и tb_err — не вышло
+TB_API long long tb_image_add(const unsigned char *d, size_t sz) {
     int w = 0, h = 0; const char *why = 0;
-    uint32_t *px = tb_png(d, (size_t)sz, &w, &h, &why);
-    free(d);
+    uint32_t *px = tb_image_decode(d, sz, &w, &h, &why);
     if (!px) { tb_err = why; return -1; }
     size_t need = tb_imgpx_n + (size_t)w * h;
     if (need > 0xFFFFFFFFu) { free(px); tb_err = "слишком много картинок"; return -1; }
@@ -3078,6 +3521,58 @@ TB_API long long tb_load_image(const char *path) {
     memcpy(tb_imgpx + tb_imgpx_n, px, (size_t)w * h * 4);
     free(px);
     tb_imgs[tb_nimg].w = w; tb_imgs[tb_nimg].h = h; tb_imgs[tb_nimg].off = (uint32_t)tb_imgpx_n;
+    tb_imgpx_n = need;
+    tb_img_dirty = 1;
+    return tb_nimg++;
+}
+TB_API long long tb_load_image(const char *path) {
+    FILE *f = fopen(path, "rb");
+    if (!f) { tb_err = "нет такого файла картинки"; return -1; }
+    fseek(f, 0, SEEK_END); long sz = ftell(f); fseek(f, 0, SEEK_SET);
+    unsigned char *d = sz > 0 ? malloc((size_t)sz) : 0;
+    if (!d || fread(d, 1, (size_t)sz, f) != (size_t)sz) { fclose(f); free(d); tb_err = "не могу прочитать файл картинки"; return -1; }
+    fclose(f);
+    long long r = tb_image_add(d, (size_t)sz);
+    free(d);
+    return r;
+}
+// image_from_mem(адрес, байт): картинка из памяти (файл прочитан со своего диска, пришёл по сети ...)
+TB_API long long tb_image_from_mem(long long a, long long n, int line) {
+    (void)line;
+    if (!a || n <= 0) { tb_err = "пустая память"; return -1; }
+    return tb_image_add((const unsigned char *)(uintptr_t)a, (size_t)n);
+}
+// image_scaled(картинка, w, h): новая картинка другого размера (уменьшение — среднее по площади,
+// увеличение — ближайшая точка). Так фото с диска влезает в окно, значок — в свой квадрат.
+TB_API long long tb_image_scaled(long long i, long long w, long long h) {
+    if (i < 0 || i >= tb_nimg) { tb_err = "нет такой картинки"; return -1; }
+    if (w < 1 || h < 1 || w * h > (1ll << 26)) { tb_err = "такой размер не годится"; return -1; }
+    int sw = tb_imgs[i].w, sh = tb_imgs[i].h;
+    size_t need = tb_imgpx_n + (size_t)w * h;
+    if (need > 0xFFFFFFFFu) { tb_err = "слишком много картинок"; return -1; }
+    uint32_t *all = realloc(tb_imgpx, need * 4);
+    if (all) tb_imgpx = all;
+    tb_image *list = realloc(tb_imgs, (size_t)(tb_nimg + 1) * sizeof(tb_image));
+    if (list) tb_imgs = list;
+    if (!all || !list) { tb_err = "не хватило памяти"; return -1; }
+    const uint32_t *src = tb_imgpx + tb_imgs[i].off;
+    uint32_t *dst = tb_imgpx + tb_imgpx_n;
+    for (long long y = 0; y < h; y++) {
+        int y0 = (int)(y * sh / h), y1 = (int)((y + 1) * sh / h);
+        if (y1 <= y0) y1 = y0 + 1;
+        for (long long x = 0; x < w; x++) {
+            int x0 = (int)(x * sw / w), x1 = (int)((x + 1) * sw / w);
+            if (x1 <= x0) x1 = x0 + 1;
+            unsigned long long a = 0, r = 0, g = 0, b = 0, n = 0;
+            for (int yy = y0; yy < y1; yy++)
+                for (int xx = x0; xx < x1; xx++) {
+                    uint32_t c = src[(size_t)yy * sw + xx];
+                    a += c >> 24; r += c >> 16 & 255; g += c >> 8 & 255; b += c & 255; n++;
+                }
+            dst[(size_t)y * w + x] = (uint32_t)(a / n) << 24 | (uint32_t)(r / n) << 16 | (uint32_t)(g / n) << 8 | (uint32_t)(b / n);
+        }
+    }
+    tb_imgs[tb_nimg].w = (int)w; tb_imgs[tb_nimg].h = (int)h; tb_imgs[tb_nimg].off = (uint32_t)tb_imgpx_n;
     tb_imgpx_n = need;
     tb_img_dirty = 1;
     return tb_nimg++;
@@ -7807,6 +8302,8 @@ TB_BV(set_fps, (long long n, int line), tb_set_fps(n))
 TB_B(long long, window_w, (int line), tb_window_w())
 TB_B(long long, window_h, (int line), tb_window_h())
 TB_B(long long, load_image, (const char *s, int line), tb_load_image(s))
+TB_B(long long, image_from_mem, (long long a, long long n, int line), tb_image_from_mem(a, n, line))
+TB_B(long long, image_scaled, (long long i, long long w, long long h, int line), tb_image_scaled(i, w, h))
 TB_BV(draw_image, (long long i, long long x, long long y, int line), tb_draw_image(i, x, y))
 TB_B(long long, mesh_new, (int line), tb_mesh_new())
 TB_BV(mesh_add, (long long m, double x1, double y1, double z1, double x2, double y2, double z2, double x3, double y3, double z3, long long c, int line), tb_mesh_add(m, x1, y1, z1, x2, y2, z2, x3, y3, z3, c))

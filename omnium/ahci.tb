@@ -1,0 +1,130 @@
+// Драйвер SATA через AHCI: SSD и жёсткие диски на современных платах (и в QEMU: -device ahci).
+// Доверенный модуль (danger: окна устройства, DMA). Без прерываний: команда → ждём, пока диск ответит.
+// Каждый порт с диском получает страницу «st» (page_new, адрес = физический):
+//   st+0     список команд (32 заголовка по 32 байта, нужен только первый)
+//   st+1024  куда диск кладёт ответы (FIS, 256 байт)
+//   st+2048  таблица команды: сама команда (FIS) и на +0x80 — где данные (PRDT)
+//   st+3072  адрес регистров порта, st+3080 — страница данных (8 секторов), st+3088 — секторов на диске
+// Кто зовёт ahci_cmd, тот держит замок (disk.tb: lock ahci).
+use pci
+
+func wait_clear(a: int, mask: int) gives ok: bool
+    danger
+        repeat 1000000 times
+            if bit_and(read32(a), mask) == 0
+                return true
+    return false
+
+// команда ATA: cmd, адрес lba, nsec секторов (до 8) через страницу данных; write — данные к диску
+modpub func ahci_cmd(st: int, cmd: int, lba: int, nsec: int, write: bool) gives ok: bool
+    danger
+        pr = read64(st + 3072)
+        dp = read64(st + 3080)
+        // диск занят (BSY, DRQ) — ждём
+        if not wait_clear(pr + 0x20, 0x88)
+            return false
+        write32(pr + 0x10, 0xFFFFFFFF)
+        write32(pr + 0x30, 0xFFFFFFFF)
+        fl = 5
+        if write
+            fl = bit_or(fl, 0x40)
+        if nsec > 0
+            fl = bit_or(fl, shift_left(1, 16))
+        write32(st, fl)
+        write32(st + 4, 0)
+        write64(st + 8, st + 2048)
+        t = st + 2048
+        fill_mem(t, 0, 0x90)
+        write8(t, 0x27)
+        write8(t + 1, 0x80)
+        write8(t + 2, cmd)
+        write8(t + 4, bit_and(lba, 0xFF))
+        write8(t + 5, bit_and(shift_right(lba, 8), 0xFF))
+        write8(t + 6, bit_and(shift_right(lba, 16), 0xFF))
+        write8(t + 7, 0x40)
+        write8(t + 8, bit_and(shift_right(lba, 24), 0xFF))
+        write8(t + 9, bit_and(shift_right(lba, 32), 0xFF))
+        write8(t + 10, bit_and(shift_right(lba, 40), 0xFF))
+        write8(t + 12, nsec)
+        if nsec > 0
+            write64(t + 0x80, dp)
+            write32(t + 0x8C, nsec * 512 - 1)
+        write32(pr + 0x38, 1)
+        ok = false
+        repeat 5000000 times
+            if bit_and(read32(pr + 0x10), 0x40000000) != 0
+                return false
+            if bit_and(read32(pr + 0x38), 1) == 0
+                ok = true
+                stop
+        if ok and bit_and(read32(pr + 0x20), 1) != 0
+            ok = false
+
+func port_start(pr: int) gives st: int
+    danger
+        // остановить порт, пока меняем адреса
+        write32(pr + 0x18, bit_and(read32(pr + 0x18), bit_not(0x11)))
+        if not wait_clear(pr + 0x18, 0xC000)
+            return 0
+        st = page_new()
+        dp = page_new()
+        fill_mem(st, 0, 4096)
+        write32(pr, bit_and(st, 0xFFFFFFFF))
+        write32(pr + 4, shift_right(st, 32))
+        write32(pr + 8, bit_and(st + 1024, 0xFFFFFFFF))
+        write32(pr + 12, shift_right(st + 1024, 32))
+        write32(pr + 0x14, 0)
+        write32(pr + 0x30, 0xFFFFFFFF)
+        write32(pr + 0x10, 0xFFFFFFFF)
+        c = read32(pr + 0x18)
+        write32(pr + 0x18, bit_or(c, 0x10))
+        write32(pr + 0x18, bit_or(c, 0x11))
+        write64(st + 3072, pr)
+        write64(st + 3080, dp)
+
+// все диски SATA на всех контроллерах AHCI: список страниц st (секторов — ahci_sectors)
+modpub func ahci_disks() gives sts: list int
+    each at in pci_find(0x010601)
+        pci_enable(at)
+        abar = pci_bar(at, 5)
+        if abar < 0xC0000000 or abar >= 0x100000000
+            skip
+        danger
+            write32(abar + 4, bit_or(read32(abar + 4), 0x80000000))
+            pi = read32(abar + 0x0C)
+            count p from 0 to 31
+                if bit_and(pi, shift_left(1, p)) == 0
+                    skip
+                pr = abar + 0x100 + p * 0x80
+                // устройство есть и это диск (не CD): DET = 3, подпись 0x101
+                if bit_and(read32(pr + 0x28), 0xF) != 3 or read32(pr + 0x24) != 0x101
+                    skip
+                st = port_start(pr)
+                if st == 0
+                    skip
+                if not ahci_cmd(st, 0xEC, 0, 1, false)
+                    skip
+                dp = read64(st + 3080)
+                n = read64(dp + 200)
+                if n == 0
+                    n = read32(dp + 120)
+                write64(st + 3088, n)
+                sts.add(st)
+
+modpub func ahci_sectors(st: int) gives n: int
+    danger
+        n = read64(st + 3088)
+
+modpub func ahci_read(st: int, lba: int, buf: int) gives ok: bool
+    ok = ahci_cmd(st, 0x25, lba, 1, false)
+    if ok
+        danger
+            copy_mem(buf, read64(st + 3080), 512)
+
+modpub func ahci_write(st: int, lba: int, buf: int) gives ok: bool
+    danger
+        copy_mem(read64(st + 3080), buf, 512)
+    ok = ahci_cmd(st, 0x35, lba, 1, true)
+
+modpub func ahci_flush(st: int) gives ok: bool
+    ok = ahci_cmd(st, 0xEA, 0, 0, false)

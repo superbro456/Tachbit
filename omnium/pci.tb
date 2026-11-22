@@ -1,0 +1,42 @@
+// Шина PCI: найти устройство по классу и прочитать/записать его настройки (порты 0xCF8/0xCFC).
+// Доверенный модуль (danger: порты). Адрес устройства: bus<<16 | dev<<11 | fn<<8.
+
+modpub func pci_r(at: int, off: int) gives v: int
+    danger
+        port_out32(0xCF8, bit_or(0x80000000, bit_or(at, bit_and(off, 0xFC))))
+        v = bit_and(port_in32(0xCFC), 0xFFFFFFFF)
+
+modpub func pci_w(at: int, off: int, v: int)
+    danger
+        port_out32(0xCF8, bit_or(0x80000000, bit_or(at, bit_and(off, 0xFC))))
+        port_out32(0xCFC, bit_and(v, 0xFFFFFFFF))
+
+// все устройства класса cls (класс<<16 | подкласс<<8 | интерфейс), например 0x010601 — AHCI
+modpub func pci_find(cls: int) gives found: list int
+    count bus from 0 to 255
+        count dev from 0 to 31
+            at0 = bit_or(shift_left(bus, 16), shift_left(dev, 11))
+            if bit_and(pci_r(at0, 0), 0xFFFF) == 0xFFFF
+                skip
+            fns = 1
+            if bit_and(shift_right(pci_r(at0, 0x0C), 16), 0x80) != 0
+                fns = 8
+            count fn from 0 to fns - 1
+                at = bit_or(at0, shift_left(fn, 8))
+                if bit_and(pci_r(at, 0), 0xFFFF) == 0xFFFF
+                    skip
+                if shift_right(pci_r(at, 0x08), 8) == cls
+                    found.add(at)
+
+// включить устройству доступ к памяти и DMA (bus master)
+modpub func pci_enable(at: int)
+    pci_w(at, 0x04, bit_or(pci_r(at, 0x04), 0x6))
+
+// адрес окна BAR номер i (64-битный BAR — вместе со следующим)
+modpub func pci_bar(at: int, i: int) gives a: int
+    lo = pci_r(at, 0x10 + i * 4)
+    if bit_and(lo, 1) != 0
+        return 0
+    a = bit_and(lo, 0xFFFFFFF0)
+    if bit_and(lo, 6) == 4
+        a += shift_left(pci_r(at, 0x14 + i * 4), 32)
