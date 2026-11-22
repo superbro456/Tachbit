@@ -88,6 +88,21 @@ def main(argv):
                 if r_info & 0xFFFFFFFF in (9, 41, 42) and r_info >> 32 not in got_syms:
                     got_syms.append(r_info >> 32)
     extra = {"tb_code_start": BASE, "tb_kernel_end": 0}
+    # таблица имён ядра (для загрузчика программ Омниума): все свои глобальные имена → адрес.
+    # Размер известен сразу (имена есть), адреса пишутся в конце; лежит в части «только чтение»
+    symtab0 = next((s for s in secs if s["type"] == SHT_SYMTAB), None)
+    exports = []
+    if symtab0 is not None:
+        sstr0 = secs[symtab0["link"]]
+        for k in range(symtab0["size"] // 24):
+            st_name, st_info, _, st_shndx, _, _ = struct.unpack_from("<IBBHQQ", data, symtab0["off"] + k * 24)
+            if st_info >> 4 == 0 or st_info & 15 not in (1, 2, 6) or st_shndx == SHN_UNDEF:
+                continue
+            end = data.index(b"\0", sstr0["off"] + st_name)
+            exports.append((data[sstr0["off"] + st_name:end], k))
+    exports.sort()
+    ext_names = sorted(n.encode() for n in ["tb_tls_start", "tb_tls_end", "tb_code_start", "tb_code_end", "tb_heap_area"])
+    ksym_size = 16 * (len(exports) + len(ext_names)) + sum(len(n) + 1 for n, _ in exports) + sum(len(n) + 1 for n in ext_names)
     addr = BASE
     common_start = 0
     for g in range(7):
@@ -117,6 +132,9 @@ def main(argv):
             addr = align(addr, 8)
             got_at = addr
             addr += 8 * len(got_syms)
+            addr = align(addr, 8)
+            ksym_at = addr
+            addr += ksym_size
     # символы
     symtab = next((s for s in secs if s["type"] == SHT_SYMTAB), None)
     if symtab is None:
@@ -152,7 +170,7 @@ def main(argv):
     end_all = max([secs[k]["addr"] + secs[k]["size"] for k in order] + [extra["tb_heap_area"]])
     kernel_end = align(end_all, 4096)
     values = [(n, kernel_end if n == "tb_kernel_end" else v) for n, v in values]
-    file_end = max([secs[k]["addr"] + secs[k]["size"] for k in order if secs[k]["type"] == SHT_PROGBITS] + [BASE, got_at + 8 * len(got_syms)])
+    file_end = max([secs[k]["addr"] + secs[k]["size"] for k in order if secs[k]["type"] == SHT_PROGBITS] + [BASE, ksym_at + ksym_size])
     image = bytearray(file_end - BASE)
     for j, si in enumerate(got_syms):
         struct.pack_into("<Q", image, got_at - BASE + 8 * j, values[si][1])
@@ -160,6 +178,18 @@ def main(argv):
         s = secs[k]
         if s["type"] == SHT_PROGBITS:
             image[s["addr"] - BASE:s["addr"] - BASE + s["size"]] = data[s["off"]:s["off"] + s["size"]]
+    # таблица имён: (адрес, где имя, длина) по алфавиту, потом сами имена
+    allx = sorted([(n, values[k][1]) for n, k in exports] + [(n, extra[n.decode()]) for n in ext_names])
+    strs_at = ksym_at + 16 * len(allx)
+    so = 0
+    for j, (n, v) in enumerate(allx):
+        struct.pack_into("<QII", image, ksym_at - BASE + 16 * j, v, strs_at - ksym_at + so, len(n))
+        image[strs_at - BASE + so:strs_at - BASE + so + len(n)] = n
+        so += len(n) + 1
+    vd = dict(values)
+    for nm, val in (("tb_ksym_tab", ksym_at), ("tb_ksym_n", len(allx))):
+        if nm in vd:
+            struct.pack_into("<Q", image, vd[nm] - BASE, val)
     # поправки адресов (x86-64: RELA, прибавка лежит в самой поправке)
     for s in secs:
         if s["type"] == SHT_REL:

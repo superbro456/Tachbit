@@ -1,0 +1,7 @@
+// программа Омниума (tb app): её грузит omnium/app_test.tb
+shared hits = 5
+func main()
+    print("привет из программы", hits)
+    words = ["a", "b"]
+    words.add("c")
+    print(join(words, "-"), len(words))

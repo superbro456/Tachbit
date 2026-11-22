@@ -142,22 +142,22 @@ func is_builtin(name: text)
 
 // для железа и ядер: биты (везде), адреса и порты (только в danger), время и клавиши (в ядре)
 func kernel_builtins() gives names: list text
-    names = ["bit_and", "bit_or", "bit_xor", "bit_not", "shift_left", "shift_right", "read8", "read16", "read32", "read64", "write8", "write16", "write32", "write64", "asm", "address_of", "new_mem", "free_mem", "grow_mem", "copy_mem", "fill_mem", "zone_new", "zone_take", "zone_clear", "zone_free", "zone_used", "syscall", "shape_get", "shape_set", "shape_at", "port_in8", "port_in16", "port_in32", "port_out8", "port_out16", "port_out32", "page_new", "page_free", "interrupts_on", "interrupts_off", "uptime_ms", "wait_ms", "read_key", "yield"]
+    names = ["bit_and", "bit_or", "bit_xor", "bit_not", "shift_left", "shift_right", "read8", "read16", "read32", "read64", "write8", "write16", "write32", "write64", "asm", "address_of", "new_mem", "free_mem", "grow_mem", "copy_mem", "fill_mem", "zone_new", "zone_take", "zone_clear", "zone_free", "zone_used", "syscall", "shape_get", "shape_set", "shape_at", "port_in8", "port_in16", "port_in32", "port_out8", "port_out16", "port_out32", "page_new", "page_free", "interrupts_on", "interrupts_off", "uptime_ms", "wait_ms", "read_key", "yield", "module_count", "module_addr", "module_size", "kernel_symbol", "call_address"]
     return names
 
 // только внутри danger
 func danger_only(name: text)
-    each w in ["read8", "read16", "read32", "read64", "write8", "write16", "write32", "write64", "asm", "address_of", "image_from_mem", "new_mem", "free_mem", "grow_mem", "copy_mem", "fill_mem", "zone_new", "zone_take", "zone_clear", "zone_free", "zone_used", "syscall", "shape_get", "shape_set", "shape_at"]
+    each w in ["read8", "read16", "read32", "read64", "write8", "write16", "write32", "write64", "asm", "address_of", "image_from_mem", "new_mem", "free_mem", "grow_mem", "copy_mem", "fill_mem", "zone_new", "zone_take", "zone_clear", "zone_free", "zone_used", "syscall", "shape_get", "shape_set", "shape_at", "kernel_symbol", "call_address"]
         if name == w
             return true
-    each w in ["port_", "page_", "interrupts_"]
+    each w in ["port_", "page_", "interrupts_", "module_"]
         if starts_with(name, w)
             return true
     return false
 
 // только в ядре (tachbit bare): там есть порты, таймер и клавиатура
 func bare_only(name: text)
-    each w in ["port_", "page_", "interrupts_", "uptime_ms", "read_key", "yield"]
+    each w in ["port_", "page_", "interrupts_", "uptime_ms", "read_key", "yield", "module_", "kernel_symbol", "call_address"]
         if starts_with(name, w)
             return true
     return false
@@ -849,6 +849,19 @@ func check_builtin(c: Comp, n: Node) gives r: int
         return 0
     if name == "fill_mem"
         builtin_args(c, n, "iii", "fill_mem(адрес, значение байта, сколько байт)")
+        return 0
+    // программы Омниума: модули от загрузчика (qemu -initrd), имена ядра, вызов по адресу
+    if name == "module_count"
+        builtin_args(c, n, "", "module_count()")
+        return 1
+    if name == "module_addr" or name == "module_size"
+        builtin_args(c, n, "i", name + "(номер модуля)")
+        return 1
+    if name == "kernel_symbol"
+        builtin_args(c, n, "t", "kernel_symbol(\"имя\")  →  адрес или 0")
+        return 1
+    if name == "call_address"
+        builtin_args(c, n, "i", "call_address(адрес)")
         return 0
     if name == "page_new" or name == "uptime_ms"
         builtin_args(c, n, "", name + "()")

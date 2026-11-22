@@ -831,6 +831,52 @@ TB_API uint64_t tb_boot_pml4[512] __attribute__((aligned(4096), used));
 TB_API uint64_t tb_boot_pdpt[512] __attribute__((aligned(4096), used));
 TB_API uint64_t tb_boot_pd[4][512] __attribute__((aligned(4096), used));
 TB_API uint32_t tb_boot_magic __attribute__((used)), tb_boot_mbi __attribute__((used));
+// ---- модули (файлы, которые загрузчик положил рядом с ядром: qemu -initrd "a.oapp,b.oapp") ----
+// у Multiboot: флаг 3 — есть модули; mbi[5] — сколько, mbi[6] — где список (по 16 байт: начало, конец, имя, 0)
+TB_API uint32_t *tb_mods(long long *n) {
+    uint32_t *mbi = (uint32_t *)(uintptr_t)tb_boot_mbi;
+    *n = 0;
+    if (tb_boot_magic != 0x2BADB002u || mbi == 0 || !(mbi[0] & 8)) return 0;
+    *n = mbi[5];
+    return (uint32_t *)(uintptr_t)mbi[6];
+}
+TB_API uint64_t tb_mods_top(void) {
+    long long n; uint32_t *m = tb_mods(&n);
+    uint64_t top = 0;
+    for (long long i = 0; i < n; i++) {
+        if (m[4 * i + 1] > top) top = m[4 * i + 1];
+        const char *nm = (const char *)(uintptr_t)m[4 * i + 2];
+        if (nm) { uint64_t e = (uint64_t)(uintptr_t)nm + strlen(nm) + 1; if (e > top) top = e; }
+    }
+    if (n > 0 && (uint64_t)(uintptr_t)(m + 4 * n) > top) top = (uint64_t)(uintptr_t)(m + 4 * n);
+    return top;
+}
+TB_API long long tb_module_count(void) { long long n; tb_mods(&n); return n; }
+TB_API long long tb_module_addr(long long i) { long long n; uint32_t *m = tb_mods(&n); return i >= 0 && i < n ? m[4 * i] : 0; }
+TB_API long long tb_module_size(long long i) { long long n; uint32_t *m = tb_mods(&n); return i >= 0 && i < n ? (long long)m[4 * i + 1] - m[4 * i] : 0; }
+// таблица имён ядра (её заполняет компоновщик elf_link.py): по алфавиту, 16 байт на имя —
+// адрес, где имя (от начала таблицы), длина имени. Программы Омниума находят по ней функции ядра
+TB_API volatile uint64_t tb_ksym_tab __attribute__((used)) = 1, tb_ksym_n __attribute__((used)) = 1;
+TB_API long long tb_kernel_symbol(const char *nm) {
+    uint64_t t = tb_ksym_tab;
+    long long lo = 0, hi = (long long)tb_ksym_n - 1, len = (long long)strlen(nm);
+    if (t <= 1) return 0;
+    while (lo <= hi) {
+        long long mid = (lo + hi) / 2;
+        const uint64_t *e = (const uint64_t *)(uintptr_t)(t + 16 * mid);
+        uint32_t off = (uint32_t)e[1], n = (uint32_t)(e[1] >> 32);
+        int r = memcmp((const char *)(uintptr_t)(t + off), nm, (size_t)(n < len ? n : len));
+        if (r == 0) r = n < len ? -1 : n > len ? 1 : 0;
+        if (r == 0) return (long long)e[0];
+        if (r < 0) lo = mid + 1; else hi = mid - 1;
+    }
+    return 0;
+}
+// позвать функцию по адресу (начало загруженной программы): без параметров, без ответа
+TB_API void tb_call_address(long long a) {
+    if (a == 0) tb_panic("call_address: адрес 0", 0, 0);
+    ((void (*)(void))(uintptr_t)a)();
+}
 TB_API void tb_unmap(uint64_t a) { tb_pt[a >> 21][(a >> 12) & 511] = 0; }
 TB_API int tb_is_guard(uint64_t a) {
     if (a >= (uint64_t)(uintptr_t)tb_stack && a < (uint64_t)(uintptr_t)tb_stack + 4096) return 1;
@@ -865,6 +911,9 @@ TB_API void tb_paging_init(void) {
     // CR0.WP: и ядро не может писать в страницы «только читать»
     __asm__ volatile("movq %0, %%cr3\nmovq %%cr0, %%rax\norq $0x10000, %%rax\nmovq %%rax, %%cr0\n" : : "r"(tb_pml4) : "rax", "memory");
     tb_pg_next = (uint64_t)(uintptr_t)tb_kernel_end;
+    // модули от загрузчика (qemu -initrd): лежат сразу за ядром — свободные страницы только после них
+    uint64_t top = tb_mods_top();
+    if (top > tb_pg_next) tb_pg_next = (top + 4095) & ~4095ull;
 }
 TB_API long long tb_page_new(void) {
     uint64_t f = tb_irq_save(), p = 0;
