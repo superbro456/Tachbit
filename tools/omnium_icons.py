@@ -187,6 +187,96 @@ def logo(n):
     ImageDraw.Draw(im).ellipse((c - R * 0.24, c - R * 0.24, c + R * 0.24, c + R * 0.24), fill=(255, 255, 255, 255))
     return im
 
+
+# ---------- значки-линии (боковая панель, капсула справа, редактор) ----------
+INK = (52, 60, 82, 255)
+
+def stroke_icon(n, draw):
+    im = canvas(n)
+    d = ImageDraw.Draw(im)
+    s = n * K / 24          # рисуем в сетке 24×24
+    w = max(int(1.9 * s), 2)
+    def L(*pts):
+        line(d, [(x * s, y * s) for x, y in pts], w, INK)
+    def A(cx, cy, r, a0, a1):
+        d.arc(((cx - r) * s, (cy - r) * s, (cx + r) * s, (cy + r) * s), a0, a1, fill=INK, width=w)
+    def R(x0, y0, x1, y1, r, fill=None):
+        d.rounded_rectangle((x0 * s, y0 * s, x1 * s, y1 * s), r * s, outline=None if fill else INK, width=w, fill=fill)
+    def C(cx, cy, r, fill=None):
+        d.ellipse(((cx - r) * s, (cy - r) * s, (cx + r) * s, (cy + r) * s), outline=None if fill else INK, width=w, fill=fill)
+    draw(L, A, R, C, d, s)
+    return im
+
+def i_home(L, A, R, C, d, s):
+    L((3.5, 11), (12, 3.8), (20.5, 11))
+    R(6, 9.5, 18, 20.5, 2.5)
+    R(10.2, 14, 13.8, 20.5, 1.2)
+
+def i_snap(L, A, R, C, d, s):
+    A(12, 12, 8.5, 300, 600)
+    L((3.4, 6.5), (3.6, 10.2), (7.2, 9.6))
+    L((12, 7.5), (12, 12), (15, 14))
+
+def i_disk(L, A, R, C, d, s):
+    R(3, 6, 21, 18, 3)
+    L((6.5, 14.2), (12, 14.2))
+    C(16.8, 14.2, 1.3, fill=INK)
+
+def i_usb(L, A, R, C, d, s):
+    R(7, 9, 17, 21.5, 2.6)
+    R(9, 3, 15, 9, 1.2)
+    L((11, 5.6), (11, 6.2))
+    L((13, 5.6), (13, 6.2))
+
+def i_wifi(L, A, R, C, d, s):
+    A(12, 19, 15, 228, 312)
+    A(12, 19, 10, 226, 314)
+    A(12, 19, 5, 222, 318)
+    C(12, 19, 1.7, fill=INK)
+
+def i_battery(L, A, R, C, d, s):
+    R(7, 4, 17, 22, 3)
+    R(10, 1.6, 14, 3.4, 0.8, fill=INK)
+    R(9.6, 9.5, 14.4, 19.4, 1.4, fill=(70, 190, 120, 255))
+
+def i_bell(L, A, R, C, d, s):
+    d.line([(0, 0), (0, 0)])
+    A(12, 10, 6, 180, 360)
+    L((6, 10), (6, 15), (4.2, 17.8), (19.8, 17.8), (18, 15), (18, 10))
+    A(12, 18.6, 2.6, 0, 180)
+    L((12, 2.6), (12, 4))
+
+def i_sun(L, A, R, C, d, s):
+    C(12, 12, 4.2)
+    for i in range(8):
+        a = i * math.pi / 4
+        L((12 + 7.4 * math.cos(a), 12 + 7.4 * math.sin(a)), (12 + 9.8 * math.cos(a), 12 + 9.8 * math.sin(a)))
+
+def i_moon(L, A, R, C, d, s):
+    # месяц: круг минус сдвинутый круг (заливка)
+    m = Image.new("L", d.im.size if hasattr(d, "im") else (1, 1), 0)
+    md = ImageDraw.Draw(m)
+    md.ellipse((3.5 * s, 3.5 * s, 20.5 * s, 20.5 * s), fill=255)
+    md.ellipse((9 * s, 0.5 * s, 24 * s, 15.5 * s), fill=0)
+    d.bitmap((0, 0), m, fill=INK)
+
+def i_page(L, A, R, C, d, s):
+    L((14, 3), (7, 3), (5.5, 4.5), (5.5, 19.5), (7, 21), (17, 21), (18.5, 19.5), (18.5, 7.5), (14, 3))
+    L((14, 3), (14, 7.5), (18.5, 7.5))
+    L((8.8, 12.5), (15, 12.5))
+    L((8.8, 16.5), (13, 16.5))
+
+def i_search(L, A, R, C, d, s):
+    C(10.5, 10.5, 6.5)
+    L((15.3, 15.3), (20.5, 20.5))
+
+def i_play(L, A, R, C, d, s):
+    L((7, 4.5), (19, 12), (7, 19.5), (7, 4.5))
+
+def i_grid(L, A, R, C, d, s):
+    for x, y in ((4, 4), (13.5, 4), (4, 13.5), (13.5, 13.5)):
+        R(x, y, x + 6.5, y + 6.5, 1.8)
+
 os.makedirs(OUT, exist_ok=True)
 save(terminal(), 48, "terminal")
 save(notes(), 48, "notes")
@@ -198,4 +288,8 @@ save(doc(), 64, "doc")
 save(photo(), 64, "photo")
 save(logo(44), 44, "logo")
 save(logo(24), 24, "logo_small")
+for nm, fn, n in (("home", i_home, 22), ("snap", i_snap, 22), ("disk", i_disk, 22), ("usb", i_usb, 22),
+                  ("wifi", i_wifi, 28), ("battery", i_battery, 28), ("bell", i_bell, 28), ("sun", i_sun, 28), ("moon", i_moon, 28),
+                  ("page", i_page, 22), ("search", i_search, 22), ("play", i_play, 22), ("grid", i_grid, 22)):
+    save(stroke_icon(n, fn), n, nm)
 print("значки готовы:", sorted(os.listdir(OUT)))

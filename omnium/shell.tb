@@ -260,6 +260,9 @@ func capsule(s: Shell)
     draw_rect(x + 20, y + 158, w - 40, 1, rgba(40, 50, 80, 30))
     // сеть: точка и три дуги
     wy = y + 204
+    if pic(s, "wifi", cx, wy - 6) and pic(s, "battery", cx, y + 251) and pic(s, "bell", cx, y + 324) and pic(s, "sun", cx, y + 378) and pic(s, "moon", cx, y + 428)
+        bell_badge(s, cx, y + 324)
+        return
     draw_circle(cx, wy, 2, ink())
     arc(cx, wy, 7, 225, 315, ink())
     arc(cx, wy, 12, 225, 315, ink())
@@ -278,14 +281,7 @@ func capsule(s: Shell)
     ln2(cx + 8, ny - 2, cx + 9, ny + 7, ink())
     ln2(cx - 11, ny + 8, cx + 11, ny + 8, ink())
     draw_circle(cx, ny + 12, 2, ink())
-    falls = 0
-    each l in s.log
-        if find(l, "упала") >= 0
-            falls += 1
-    if falls > 0
-        draw_circle(cx + 12, ny - 12, 8, rgb(255, 120, 60))
-        t = "" + falls
-        bold(s, cx + 12 - bold_w(s, t, 10) / 2, ny - 19, t, 10, rgb(255, 255, 255))
+    bell_badge(s, cx, ny)
     // светлая тема (солнце) и тёмная (месяц)
     sy = y + 378
     draw_circle(cx, sy, 6, ink())
@@ -296,6 +292,17 @@ func capsule(s: Shell)
     my = y + 428
     draw_circle(cx, my, 11, ink())
     draw_circle(cx + 6, my - 5, 10, rgb(252, 253, 255))
+
+// кружок с числом над колокольчиком — сколько клеток упало
+func bell_badge(s: Shell, cx: int, ny: int)
+    falls = 0
+    each l in s.log
+        if find(l, "упала") >= 0
+            falls += 1
+    if falls > 0
+        draw_circle(cx + 12, ny - 12, 8, rgb(255, 120, 60))
+        t = "" + falls
+        bold(s, cx + 12 - bold_w(s, t, 10) / 2, ny - 19, t, 10, rgb(255, 255, 255))
 
 // ---------- панель внизу: значок, поиск, приложения ----------
 func dock_box(s: Shell) gives x: int, y: int, w: int, h: int
@@ -324,8 +331,9 @@ func dock(s: Shell)
     base = s.h - 14
     // полоса внизу во всю ширину и панель, вырастающая из неё плечами
     blur_rect(0, y - 10, s.w, s.h - y + 10, 14)
+    // тень только над полосой: снизу её не должно быть видно, иначе у панели «обрыв»
+    draw_shadow(x, y - 4, w, h - 14, 32, 14, rgba(40, 50, 90, 36))
     draw_rect(0, base, s.w, 14, c)
-    shadow(x, y, w, h, 32, "top")
     draw_round(x, y, w, h, 32, "top", c)
     shoulder(x - 28, base - 28, 28, false, c)
     shoulder(x + w, base - 28, 28, true, c)
@@ -414,7 +422,7 @@ func pic(s: Shell, name: text, cx: int, cy: int) gives ok: bool
     return false
 
 func load_icons(s: Shell)
-    each name in ["terminal", "notes", "files", "about", "clock", "folder", "doc", "photo", "logo", "logo_small"]
+    each name in ["terminal", "notes", "files", "about", "clock", "folder", "doc", "photo", "logo", "logo_small", "home", "snap", "disk", "usb", "wifi", "battery", "bell", "sun", "moon", "page", "search", "play", "grid"]
         p = -1
         match name
             "terminal"
@@ -435,6 +443,32 @@ func load_icons(s: Shell)
                 p = load_image("icons/photo.png") or -1
             "logo"
                 p = load_image("icons/logo.png") or -1
+            "home"
+                p = load_image("icons/home.png") or -1
+            "snap"
+                p = load_image("icons/snap.png") or -1
+            "disk"
+                p = load_image("icons/disk.png") or -1
+            "usb"
+                p = load_image("icons/usb.png") or -1
+            "wifi"
+                p = load_image("icons/wifi.png") or -1
+            "battery"
+                p = load_image("icons/battery.png") or -1
+            "bell"
+                p = load_image("icons/bell.png") or -1
+            "sun"
+                p = load_image("icons/sun.png") or -1
+            "moon"
+                p = load_image("icons/moon.png") or -1
+            "page"
+                p = load_image("icons/page.png") or -1
+            "search"
+                p = load_image("icons/search.png") or -1
+            "play"
+                p = load_image("icons/play.png") or -1
+            "grid"
+                p = load_image("icons/grid.png") or -1
             else
                 p = load_image("icons/logo_small.png") or -1
         if p >= 0
@@ -562,12 +596,30 @@ func window(s: Shell, win: Win, top: bool)
     content(s, win)
 
 // строка папки сбоку в «Файлах»: значок, имя, выбрана ли
+func tools_old(ix: int, ry: int, c: int)
+    rbox(ix - 8, ry + 2, 16, 20, 3, c)
+    rbox(ix - 6, ry + 4, 12, 16, 2, rgb(246, 248, 252))
+    // лупа
+    draw_circle(ix - 1, ry + 51, 7, c)
+    draw_circle(ix - 1, ry + 51, 5, rgb(246, 248, 252))
+    ln2(ix + 4, ry + 56, ix + 8, ry + 60, c)
+    // запуск
+    ln2(ix - 5, ry + 90, ix - 5, ry + 106, c)
+    ln2(ix - 5, ry + 90, ix + 8, ry + 98, c)
+    ln2(ix - 5, ry + 106, ix + 8, ry + 98, c)
+    // квадраты
+    count q from 0 to 3
+        rbox(ix - 8 + (q % 2) * 10, ry + 132 + (q / 2) * 10, 7, 7, 2, c)
+
 func side_item(s: Shell, x: int, y: int, w: int, name: text, kind: text, on: bool)
     if on
         rbox(x, y - 7, w, 34, 12, rgba(190, 214, 255, 200))
     c = line_c()
     ix = x + 22
     iy = y + 10
+    if pic(s, kind, ix, iy)
+        label(s, x + 42, y, name, 14, ink())
+        return
     match kind
         "home"
             ln2(ix - 8, iy - 1, ix, iy - 8, c)
@@ -615,19 +667,9 @@ func content(s: Shell, win: Win)
             c = line_c()
             // лист
             ix = rx + 26
-            rbox(ix - 8, ry + 2, 16, 20, 3, c)
-            rbox(ix - 6, ry + 4, 12, 16, 2, rgb(246, 248, 252))
-            // лупа
-            draw_circle(ix - 1, ry + 51, 7, c)
-            draw_circle(ix - 1, ry + 51, 5, rgb(246, 248, 252))
-            ln2(ix + 4, ry + 56, ix + 8, ry + 60, c)
-            // запуск
-            ln2(ix - 5, ry + 90, ix - 5, ry + 106, c)
-            ln2(ix - 5, ry + 90, ix + 8, ry + 98, c)
-            ln2(ix - 5, ry + 106, ix + 8, ry + 98, c)
-            // квадраты
-            count q from 0 to 3
-                rbox(ix - 8 + (q % 2) * 10, ry + 132 + (q / 2) * 10, 7, 7, 2, c)
+            ok = pic(s, "page", ix, ry + 12) and pic(s, "search", ix, ry + 53) and pic(s, "play", ix, ry + 98) and pic(s, "grid", ix, ry + 141)
+            if not ok
+                tools_old(ix, ry, c)
             lines = split(s.note, "\n")
             tx = rx + 104
             yy = ry
@@ -665,7 +707,7 @@ func content(s: Shell, win: Win)
             label(s, sx + 42, sy + 146, (s.fs_total - s.fs_used) / 2048 + " МБ свободно", 11, dim())
             rbox(sx + 42, sy + 166, 110, 5, 2, rgba(40, 50, 80, 30))
             rbox(sx + 42, sy + 166, 8 + used * 102 / 100, 5, 2, rgb(80, 200, 140))
-            side_item(s, sx, sy + 190, 168, "Флешка", "disk", s.place == "usb")
+            side_item(s, sx, sy + 190, 168, "Флешка", "usb", s.place == "usb")
             label(s, sx + 42, sy + 212, fit(s.usb_note, 18), 11, dim())
             // строка пути: назад, вперёд, домой, где мы
             nx = win.x + 210
