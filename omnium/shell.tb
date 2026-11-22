@@ -122,17 +122,9 @@ func arc(cx: int, cy: int, r: int, a0: int, a1: int, c: int)
         px = x
         py = y
 
-// буквы, а не байты: в UTF-8 у русской буквы два байта, второй — «продолжение» (128..191)
+// сколько букв (len считает буквы)
 func letters(s: text) gives n: int
-    each ch in s
-        if not more(ch)
-            n += 1
-
-func more(ch: text) gives yes: bool
-    b = code(ch)
-    if b < 0
-        b += 256
-    return b >= 128 and b < 192
+    n = len(s)
 
 // ширина надписи: size — размер шрифта в точках
 func text_w(s: Shell, t: text, size: int) gives w: int
@@ -147,16 +139,9 @@ func bold_w(s: Shell, t: text, size: int) gives w: int
 
 // не длиннее n букв
 func fit(s: text, n: int) gives r: text
-    if letters(s) <= n
+    if len(s) <= n
         return s
-    k = 0
-    each ch in s
-        if not more(ch)
-            k += 1
-            if k > n - 2
-                stop
-        r += ch
-    r += ".."
+    r = cut(s, 0, max(0, n - 2) - 1) + ".."
 
 func label(s: Shell, x: int, y: int, t: text, size: int, c: int)
     if s.f < 0
@@ -966,15 +951,10 @@ modpub func show_picture(s: Shell, name: text, p: int)
     s.wins.add(win)
     s.dirty = true
 
-// убрать последнюю букву (целиком, со всеми её байтами)
+// убрать последнюю букву
 func drop_last(s: text) gives r: text
-    n = letters(s)
-    k = 0
-    each ch in s
-        if not more(ch)
-            k += 1
-        if k < n
-            r += ch
+    if len(s) > 1
+        r = cut(s, 0, len(s) - 2)
 
 func keys(s: Shell)
     t = typed_text()

@@ -1,0 +1,9 @@
+// в danger числа заворачиваются, как в железе; снаружи — ошибка (см. tests/err/int_overflow.tb)
+func main()
+    big = 9223372036854775807
+    danger
+        w = big + 1
+        print(w < 0)
+    print(big - 1 + 1 == big)
+    s = "дом 😀"
+    print(len(s), byte_len(s), s[4], code(s[0]), char(1076))

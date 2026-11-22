@@ -177,8 +177,8 @@ func emit_builtin(c: Comp, n: Node)
     if name == "asm"
         put(c, "__asm__ volatile(" + n.kids[0].kids[0].value + " ::: \"memory\")")
         return
-    k_names = ["module_count", "page_new", "uptime_ms", "interrupts_on", "interrupts_off", "yield", "read_key", "window_alive", "mouse_x", "mouse_y", "mouse_down", "mouse_wheel", "typed_text", "clipboard_get", "window_sharp", "window_scale", "mouse_back", "mouse_forward", "time_ms", "date_now", "unix_time", "frame_ms", "fps", "window_w", "window_h", "mesh_new"]
-    k_c = ["tb_module_count", "tb_page_new", "tb_uptime_ms", "tb_irq_on", "tb_irq_off", "tb_yield", "tb_read_key", "tb_window_alive", "tb_mouse_x", "tb_mouse_y", "tb_mouse_down", "tb_mouse_wheel", "tb_typed_text", "tb_clipboard_get", "tb_window_sharp", "tb_window_scale", "tb_mouse_back", "tb_mouse_forward", "tb_time_ms", "tb_date_now", "tb_unix_time", "tb_frame_ms", "tb_fps", "tb_window_w", "tb_window_h", "tb_mesh_new"]
+    k_names = ["module_count", "page_new", "uptime_ms", "interrupts_on", "interrupts_off", "yield", "read_key", "window_alive", "mouse_x", "mouse_y", "mouse_down", "mouse_wheel", "typed_text", "clipboard_get", "window_sharp", "window_scale", "mouse_back", "mouse_forward", "pad_count", "time_ms", "date_now", "unix_time", "frame_ms", "fps", "window_w", "window_h", "mesh_new"]
+    k_c = ["tb_module_count", "tb_page_new", "tb_uptime_ms", "tb_irq_on", "tb_irq_off", "tb_yield", "tb_read_key", "tb_window_alive", "tb_mouse_x", "tb_mouse_y", "tb_mouse_down", "tb_mouse_wheel", "tb_typed_text", "tb_clipboard_get", "tb_window_sharp", "tb_window_scale", "tb_mouse_back", "tb_mouse_forward", "tb_pad_count", "tb_time_ms", "tb_date_now", "tb_unix_time", "tb_frame_ms", "tb_fps", "tb_window_w", "tb_window_h", "tb_mesh_new"]
     count j from 0 to len(k_names) - 1
         if k_names[j] == name
             put(c, k_c[j] + "()")
@@ -187,9 +187,9 @@ func emit_builtin(c: Comp, n: Node)
     if name == "len"
         k = kind_of(c, a.ty)
         if k == "text" and is_bld(c, a)
-            put(c, "(tb_rl_" + a.name + " >= 0 ? tb_rl_" + a.name + " : tb_tlen(v_" + a.name + "))")
+            put(c, "tb_ulen_n(v_" + a.name + ", tb_rl_" + a.name + ")")
         else if k == "text"
-            put(c, "tb_tlen(")
+            put(c, "tb_ulen(")
             emit_expr(c, a)
             put(c, ")")
         else if k == "dict"
@@ -240,7 +240,7 @@ func emit_builtin(c: Comp, n: Node)
         put(c, ")")
         return
     // остальные: просто имя функции из runtime.h; с номером строки — те, что могут упасть
-    c_names = ["round", "tb_round", "0", "char", "tb_chr", "0", "cut", "tb_cut", "1", "code", "tb_code", "1", "to_int", "tb_to_int", "0", "to_dec", "tb_to_dec", "0", "read_file", "tb_read_file", "0", "write_file", "tb_write_file", "0", "split", "tb_split", "1", "join", "tb_join", "0", "find", "tb_find", "0", "replace", "tb_replace", "1", "upper", "tb_upper", "0", "lower", "tb_lower", "0", "trim", "tb_trim", "0", "starts_with", "tb_starts", "0", "ends_with", "tb_ends", "0", "run", "tb_run", "0", "exit", "tb_exit", "0", "file_exists", "tb_file_exists", "0", "list_dir", "tb_list_dir", "0", "is_folder", "tb_is_folder", "0", "make_folder", "tb_make_folder", "0", "move", "tb_move", "0", "remove", "tb_remove", "0", "env", "tb_env", "0", "file_size", "tb_file_size", "0", "window_open", "tb_window_open", "0", "clear_window", "tb_clear_window", "0", "draw_pixel", "tb_draw_pixel", "0", "draw_rect", "tb_draw_rect", "0", "draw_circle", "tb_draw_circle", "0", "draw_round", "tb_draw_round", "0", "blur_rect", "tb_blur_rect", "0", "draw_shadow", "tb_draw_shadow", "0", "draw_triangle", "tb_draw_triangle", "0", "mesh_add", "tb_mesh_add", "0", "draw_mesh", "tb_draw_mesh", "0", "draw_mesh_rot", "tb_draw_mesh_rot", "0", "sunlight", "tb_light", "0", "mesh_image", "tb_mesh_image", "0", "mesh_add_uv", "tb_mesh_add_uv", "0", "camera", "tb_camera", "0", "draw_line", "tb_draw_line", "0", "draw_text", "tb_draw_text", "0", "key_down", "tb_key_down", "0", "set_fps", "tb_set_fps", "0", "clipboard_set", "tb_clipboard_set", "0", "set_cursor", "tb_set_cursor", "1", "load_image", "tb_load_image", "0", "image_from_mem", "tb_image_from_mem", "1", "image_scaled", "tb_image_scaled", "0", "load_font", "tb_load_font", "0", "draw_font", "tb_draw_font", "0", "text_width", "tb_text_width", "0", "draw_image", "tb_draw_image", "0", "draw_image_alpha", "tb_draw_image_a", "0", "image_w", "tb_image_w", "0", "screen_image", "tb_screen_image", "0", "image_h", "tb_image_h", "0", "rgb", "tb_rgb", "0", "rgba", "tb_rgba", "0", "random", "tb_random", "0", "bit_and", "tb_band", "0", "bit_or", "tb_bor", "0", "bit_xor", "tb_bxor", "0", "bit_not", "tb_bnot", "0", "shift_left", "tb_shl", "0", "shift_right", "tb_shr", "0", "read8", "tb_rd8", "1", "read16", "tb_rd16", "1", "read32", "tb_rd32", "1", "read64", "tb_rd64", "1", "write8", "tb_wr8", "1", "write16", "tb_wr16", "1", "write32", "tb_wr32", "1", "write64", "tb_wr64", "1", "address_of", "tb_addr_of", "0", "new_mem", "tb_new_mem", "1", "free_mem", "tb_free_mem", "1", "grow_mem", "tb_grow_mem", "1", "copy_mem", "tb_copy_mem", "1", "fill_mem", "tb_fill_mem", "1", "zone_new", "tb_zone_new", "1", "zone_take", "tb_zone_take", "1", "zone_clear", "tb_zone_clear", "1", "zone_free", "tb_zone_free", "1", "zone_used", "tb_zone_used", "1", "syscall", "tb_syscall", "1", "shape_get", "tb_shape_get", "1", "shape_set", "tb_shape_set", "1", "shape_at", "tb_shape_at", "0", "port_in8", "tb_pin8", "0", "port_in16", "tb_pin16", "0", "port_in32", "tb_pin32", "0", "port_out8", "tb_pout8", "0", "port_out16", "tb_pout16", "0", "port_out32", "tb_pout32", "0", "page_free", "tb_page_free", "0", "module_addr", "tb_module_addr", "0", "module_size", "tb_module_size", "0", "kernel_symbol", "tb_kernel_symbol", "0", "call_address", "tb_call_address", "0", "wait_ms", "tb_wait_ms", "0", "http_get", "tb_http_get", "0", "json_get", "tb_json_get", "0", "json_text", "tb_json_text", "0", "net_listen", "tb_net_listen", "0", "net_port", "tb_net_port", "0", "net_accept", "tb_net_accept", "0", "net_connect", "tb_net_connect", "0", "net_send", "tb_net_send", "0", "net_receive", "tb_net_receive", "0", "net_close", "tb_net_close", "0", "date_now", "tb_date_now", "0", "unix_time", "tb_unix_time", "0", "load_sound", "tb_load_sound", "0", "play_sound", "tb_play_sound", "0", "loop_sound", "tb_loop_sound", "0", "play_sound_at", "tb_play_sound_at", "0", "loop_sound_at", "tb_loop_sound_at", "0", "play_tone", "tb_play_tone", "0", "stop_sound", "tb_stop_sound", "0", "sound_playing", "tb_sound_playing", "0", "sound_volume", "tb_sound_volume", "0", "sound_pitch", "tb_sound_pitch", "0", "move_sound", "tb_move_sound", "0", "master_volume", "tb_master_volume", "0", "listener", "tb_listener", "0"]
+    c_names = ["round", "tb_round", "0", "char", "tb_uchr", "1", "cut", "tb_cut", "1", "code", "tb_code", "1", "byte_len", "tb_byte_len", "0", "byte_at", "tb_byte_at", "1", "byte_char", "tb_byte_char", "1", "to_int", "tb_to_int", "0", "to_dec", "tb_to_dec", "0", "read_file", "tb_read_file", "0", "write_file", "tb_write_file", "0", "split", "tb_split", "1", "join", "tb_join", "0", "find", "tb_find", "0", "replace", "tb_replace", "1", "upper", "tb_upper", "0", "lower", "tb_lower", "0", "trim", "tb_trim", "0", "starts_with", "tb_starts", "0", "ends_with", "tb_ends", "0", "run", "tb_run", "0", "exit", "tb_exit", "0", "file_exists", "tb_file_exists", "0", "list_dir", "tb_list_dir", "0", "is_folder", "tb_is_folder", "0", "make_folder", "tb_make_folder", "0", "move", "tb_move", "0", "remove", "tb_remove", "0", "env", "tb_env", "0", "file_size", "tb_file_size", "0", "window_open", "tb_window_open", "0", "clear_window", "tb_clear_window", "0", "draw_pixel", "tb_draw_pixel", "0", "draw_rect", "tb_draw_rect", "0", "draw_circle", "tb_draw_circle", "0", "draw_round", "tb_draw_round", "0", "blur_rect", "tb_blur_rect", "0", "draw_shadow", "tb_draw_shadow", "0", "draw_triangle", "tb_draw_triangle", "0", "mesh_add", "tb_mesh_add", "0", "draw_mesh", "tb_draw_mesh", "0", "draw_mesh_rot", "tb_draw_mesh_rot", "0", "sunlight", "tb_light", "0", "mesh_image", "tb_mesh_image", "0", "mesh_add_uv", "tb_mesh_add_uv", "0", "camera", "tb_camera", "0", "draw_line", "tb_draw_line", "0", "draw_text", "tb_draw_text", "0", "key_down", "tb_key_down", "0", "pad_down", "tb_pad_down", "0", "pad_axis", "tb_pad_axis", "0", "set_fps", "tb_set_fps", "0", "clipboard_set", "tb_clipboard_set", "0", "set_cursor", "tb_set_cursor", "1", "load_image", "tb_load_image", "0", "image_from_mem", "tb_image_from_mem", "1", "image_scaled", "tb_image_scaled", "0", "load_font", "tb_load_font", "0", "draw_font", "tb_draw_font", "0", "text_width", "tb_text_width", "0", "draw_image", "tb_draw_image", "0", "draw_image_alpha", "tb_draw_image_a", "0", "image_w", "tb_image_w", "0", "screen_image", "tb_screen_image", "0", "image_h", "tb_image_h", "0", "rgb", "tb_rgb", "0", "rgba", "tb_rgba", "0", "random", "tb_random", "0", "bit_and", "tb_band", "0", "bit_or", "tb_bor", "0", "bit_xor", "tb_bxor", "0", "bit_not", "tb_bnot", "0", "shift_left", "tb_shl", "0", "shift_right", "tb_shr", "0", "read8", "tb_rd8", "1", "read16", "tb_rd16", "1", "read32", "tb_rd32", "1", "read64", "tb_rd64", "1", "write8", "tb_wr8", "1", "write16", "tb_wr16", "1", "write32", "tb_wr32", "1", "write64", "tb_wr64", "1", "address_of", "tb_addr_of", "0", "new_mem", "tb_new_mem", "1", "free_mem", "tb_free_mem", "1", "grow_mem", "tb_grow_mem", "1", "copy_mem", "tb_copy_mem", "1", "fill_mem", "tb_fill_mem", "1", "zone_new", "tb_zone_new", "1", "zone_take", "tb_zone_take", "1", "zone_clear", "tb_zone_clear", "1", "zone_free", "tb_zone_free", "1", "zone_used", "tb_zone_used", "1", "syscall", "tb_syscall", "1", "shape_get", "tb_shape_get", "1", "shape_set", "tb_shape_set", "1", "shape_at", "tb_shape_at", "0", "port_in8", "tb_pin8", "0", "port_in16", "tb_pin16", "0", "port_in32", "tb_pin32", "0", "port_out8", "tb_pout8", "0", "port_out16", "tb_pout16", "0", "port_out32", "tb_pout32", "0", "page_free", "tb_page_free", "0", "module_addr", "tb_module_addr", "0", "module_size", "tb_module_size", "0", "kernel_symbol", "tb_kernel_symbol", "0", "call_address", "tb_call_address", "0", "wait_ms", "tb_wait_ms", "0", "http_get", "tb_http_get", "0", "json_get", "tb_json_get", "0", "json_text", "tb_json_text", "0", "net_listen", "tb_net_listen", "0", "net_port", "tb_net_port", "0", "net_accept", "tb_net_accept", "0", "net_connect", "tb_net_connect", "0", "net_send", "tb_net_send", "0", "net_receive", "tb_net_receive", "0", "net_close", "tb_net_close", "0", "date_now", "tb_date_now", "0", "unix_time", "tb_unix_time", "0", "load_sound", "tb_load_sound", "0", "play_sound", "tb_play_sound", "0", "loop_sound", "tb_loop_sound", "0", "play_sound_at", "tb_play_sound_at", "0", "loop_sound_at", "tb_loop_sound_at", "0", "play_tone", "tb_play_tone", "0", "stop_sound", "tb_stop_sound", "0", "sound_playing", "tb_sound_playing", "0", "sound_volume", "tb_sound_volume", "0", "sound_pitch", "tb_sound_pitch", "0", "move_sound", "tb_move_sound", "0", "master_volume", "tb_master_volume", "0", "listener", "tb_listener", "0"]
     i = 0
     repeat while i < len(c_names)
         if c_names[i] == name
@@ -538,8 +538,8 @@ func emit_binop(c: Comp, n: Node)
             put(c, "!")
         put(c, "(")
         i = 0
-        each ch in body
-            put(c, "(unsigned char)" + sv + "[" + i + "] == " + code(ch) + " && ")
+        count bi from 0 to byte_len(body) - 1
+            put(c, "(unsigned char)" + sv + "[" + i + "] == " + byte_at(body, bi) + " && ")
             i += 1
         put(c, sv + "[" + i + "] == 0); })")
         return
@@ -555,6 +555,19 @@ func emit_binop(c: Comp, n: Node)
             put(c, "tb_div(")
         else
             put(c, "tb_mod(")
+        emit_expr(c, a)
+        put(c, ", ")
+        emit_expr(c, b)
+        put(c, ", " + n.line + ")")
+        return
+    if kind_of(c, n.ty) == "int" and (op == "+" or op == "-" or op == "*") and c.emit_danger == 0
+        // переполнение int — ошибка (в danger — нет)
+        if op == "+"
+            put(c, "tb_addo(")
+        else if op == "-"
+            put(c, "tb_subo(")
+        else
+            put(c, "tb_mulo(")
         emit_expr(c, a)
         put(c, ", ")
         emit_expr(c, b)
@@ -660,6 +673,11 @@ func emit_expr(c: Comp, n: Node)
     else if k == "unary"
         if n.value == "not"
             put(c, "(!")
+        else if kind_of(c, n.ty) == "int" and c.emit_danger == 0
+            put(c, "tb_nego(")
+            emit_expr(c, n.kids[0])
+            put(c, ", " + n.line + ")")
+            return
         else
             put(c, "(-")
         emit_expr(c, n.kids[0])
@@ -943,6 +961,13 @@ func emit_set(c: Comp, n: Node, depth: int)
         put(c, "*tb_p" + id + " = tb_cat(*tb_p" + id + ", tb_v" + id + ");")
     else if kind_of(c, n.ty) == "int" and op == "/="
         put(c, "*tb_p" + id + " = tb_div(*tb_p" + id + ", tb_v" + id + ", " + n.line + ");")
+    else if kind_of(c, n.ty) == "int" and kind_of(c, value.ty) == "int" and (op == "+=" or op == "-=" or op == "*=") and c.emit_danger == 0
+        f = "tb_addo"
+        if op == "-="
+            f = "tb_subo"
+        else if op == "*="
+            f = "tb_mulo"
+        put(c, "*tb_p" + id + " = " + f + "(*tb_p" + id + ", tb_v" + id + ", " + n.line + ");")
     else
         put(c, "*tb_p" + id + " " + op + " tb_v" + id + ";")
     put(c, " }\n")
@@ -1252,7 +1277,7 @@ func emit_each(c: Comp, n: Node, depth: int)
     if k == "text"
         put(c, "for (long long tb_i" + id + " = 0; tb_l" + id + "[tb_i" + id + "] != 0; tb_i" + id + "++) {\n")
         indent(c, depth + 2)
-        put(c, "const char * const v_" + n.name + " = tb_chr((unsigned char)tb_l" + id + "[tb_i" + id + "]);\n")
+        put(c, "const char * const v_" + n.name + " = tb_u8take(tb_l" + id + ", &tb_i" + id + ");\n")
     else
         elem = c_type(c, elem_ty)
         put(c, "for (long long tb_i" + id + " = 0; tb_i" + id + " < tb_l" + id + "->len; tb_i" + id + "++) {\n")
@@ -1460,7 +1485,7 @@ func emit_prefetch(c: Comp, n: Node, depth: int, list_c: text, i_c: text, elem: 
 
 // короткий текст в кавычках (до 8 байт, без \): его можно сравнить побайтно
 func short_literal(n: Node)
-    if n.kind != "string" or len(n.value) < 2 or len(n.value) > 10
+    if n.kind != "string" or byte_len(n.value) < 2 or byte_len(n.value) > 10
         return false
     each ch in n.value
         if ch == "\\"
@@ -2173,7 +2198,9 @@ func emit_statement(c: Comp, n: Node, depth: int)
     else if k == "danger"
         indent(c, depth)
         put(c, "{\n")
+        c.emit_danger += 1
         emit_block(c, n.kids[0], depth + 1)
+        c.emit_danger -= 1
         indent(c, depth)
         put(c, "}\n")
     else if k == "lock"

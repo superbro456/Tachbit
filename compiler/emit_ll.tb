@@ -1024,9 +1024,9 @@ func ll_decimal(g: LLGen, v: text)
 func ll_str_bytes(v: text) gives bytes: list int, ok: bool
     ok = true
     i = 1
-    last = len(v) - 2
+    last = byte_len(v) - 2
     repeat while i <= last
-        b = code(v[i])
+        b = byte_at(v, i)
         if b != 92
             bytes.add(b)
             i += 1
@@ -1034,40 +1034,40 @@ func ll_str_bytes(v: text) gives bytes: list int, ok: bool
         if i + 1 > last
             ok = false
             return
-        e = v[i + 1]
+        e = byte_at(v, i + 1)
         i += 2
-        if e == "n"
+        if e == 110
             bytes.add(10)
-        else if e == "t"
+        else if e == 116
             bytes.add(9)
-        else if e == "r"
+        else if e == 114
             bytes.add(13)
-        else if e == "\\" or e == "\"" or e == "'" or e == "?"
-            bytes.add(code(e))
-        else if e == "a"
+        else if e == 92 or e == 34 or e == 39 or e == 63
+            bytes.add(e)
+        else if e == 97
             bytes.add(7)
-        else if e == "b"
+        else if e == 98
             bytes.add(8)
-        else if e == "f"
+        else if e == 102
             bytes.add(12)
-        else if e == "v"
+        else if e == 118
             bytes.add(11)
-        else if e == "e"
+        else if e == 101
             bytes.add(27)
-        else if code(e) >= 48 and code(e) <= 55
+        else if e >= 48 and e <= 55
             // \0, \012: до трёх восьмеричных цифр
-            x = code(e) - 48
+            x = e - 48
             got = 1
-            repeat while got < 3 and i <= last and code(v[i]) >= 48 and code(v[i]) <= 55
-                x = x * 8 + code(v[i]) - 48
+            repeat while got < 3 and i <= last and byte_at(v, i) >= 48 and byte_at(v, i) <= 55
+                x = x * 8 + byte_at(v, i) - 48
                 i += 1
                 got += 1
             bytes.add(x % 256)
-        else if e == "x"
+        else if e == 120
             x = 0
             got = 0
-            repeat while i <= last and ll_hexval(v[i]) >= 0
-                x = (x * 16 + ll_hexval(v[i])) % 256
+            repeat while i <= last and ll_hexval(byte_char(byte_at(v, i))) >= 0
+                x = (x * 16 + ll_hexval(byte_char(byte_at(v, i)))) % 256
                 i += 1
                 got += 1
             if got == 0
@@ -1849,12 +1849,37 @@ func ll_arith(g: LLGen, c: Comp, op: text, a0: text, ta: int, b0: text, tb: int,
             io = "srem"
         ll_put(g, r + " = " + io + " i64 " + a + ", " + b)
         return r
-    io = "add nsw"
+    if c.emit_danger == 0
+        // переполнение int — ошибка: llvm.sadd/ssub/smul.with.overflow и ветка на остановку
+        f = "sadd"
+        if op == "-"
+            f = "ssub"
+        else if op == "*"
+            f = "smul"
+        return ll_ovf(g, f, a, b, line)
+    io = "add"
     if op == "-"
-        io = "sub nsw"
+        io = "sub"
     else if op == "*"
-        io = "mul nsw"
+        io = "mul"
     ll_put(g, r + " = " + io + " i64 " + a + ", " + b)
+    return r
+
+// a op b с проверкой переполнения (f: sadd, ssub, smul)
+func ll_ovf(g: LLGen, f: text, a: text, b: text, line: int)
+    ll_need(g, "declare {i64, i1} @llvm." + f + ".with.overflow.i64(i64, i64)")
+    pr = ll_new(g, "%t")
+    ll_put(g, pr + " = call {i64, i1} @llvm." + f + ".with.overflow.i64(i64 " + a + ", i64 " + b + ")")
+    r = ll_new(g, "%t")
+    ll_put(g, r + " = extractvalue {i64, i1} " + pr + ", 0")
+    o = ll_new(g, "%t")
+    ll_put(g, o + " = extractvalue {i64, i1} " + pr + ", 1")
+    bad = ll_new(g, "L")
+    ok = ll_new(g, "L")
+    ll_term(g, "br i1 " + o + ", label %" + bad + ", label %" + ok + ", !prof !0")
+    ll_label(g, bad)
+    ll_crash(g, line, 8)
+    ll_label(g, ok)
     return r
 
 // объявление функции C (d) лишнее: это имя уже объявлено или написано в файле
@@ -1980,8 +2005,10 @@ func ll_expr(g: LLGen, c: Comp, n: Node)
             ll_put(g, r + " = xor i1 " + v + ", true")
         else if kind_of(c, n.ty) == "dec"
             ll_put(g, r + " = fneg double " + v)
+        else if c.emit_danger == 0
+            return ll_ovf(g, "ssub", "0", v, n.line)
         else
-            ll_put(g, r + " = sub nsw i64 0, " + v)
+            ll_put(g, r + " = sub i64 0, " + v)
         return r
     if k == "try"
         // try f(): сломалась — сразу выходим, ошибка остаётся в tb_err для того, кто нас звал
@@ -2186,16 +2213,12 @@ func ll_expr(g: LLGen, c: Comp, n: Node)
                 rl = ll_new(g, "%t")
                 ll_put(g, rl + " = load i64, ptr " + ll_rl(g, a.name))
                 sv = ll_q(g, c, a)
-                tl = ll_new(g, "%t")
-                ll_put(g, tl + " = call i64 @tb_x_tlen(ptr " + sv + ")")
-                neg = ll_new(g, "%t")
-                ll_put(g, neg + " = icmp slt i64 " + rl + ", 0")
                 r = ll_new(g, "%t")
-                ll_put(g, r + " = select i1 " + neg + ", i64 " + tl + ", i64 " + rl)
+                ll_put(g, r + " = call i64 @tb_x_ulen_n(ptr " + sv + ", i64 " + rl + ")")
                 return r
             sv = ll_q(g, c, a)
             r = ll_new(g, "%t")
-            ll_put(g, r + " = call i64 @tb_x_tlen(ptr " + sv + ")")
+            ll_put(g, r + " = call i64 @tb_x_ulen(ptr " + sv + ")")
             return r
         if ll_dict(c, a.ty)
             db = ll_expr(g, c, a)
@@ -2316,7 +2339,7 @@ func ll_concat(g: LLGen, c: Comp, n: Node)
 
 // короткий готовый текст без \: сравнить байты прямо, без strcmp (ch == "," в циклах по тексту)
 func ll_short_lit(n: Node)
-    if n.kind != "string" or len(n.value) < 2 or len(n.value) > 10
+    if n.kind != "string" or byte_len(n.value) < 2 or byte_len(n.value) > 10
         return false
     each ch in n.value
         if ch == "\\"
@@ -2338,13 +2361,13 @@ func ll_tcmp(g: LLGen, c: Comp, n: Node)
         done = ll_new(g, "L")
         froms = list text
         i = 0
-        each ch in body
+        count bi from 0 to byte_len(body) - 1
             bp = ll_new(g, "%t")
             ll_put(g, bp + " = getelementptr inbounds i8, ptr " + sv + ", i64 " + i)
             bv = ll_new(g, "%t")
             ll_put(g, bv + " = load i8, ptr " + bp)
             eq = ll_new(g, "%t")
-            ll_put(g, eq + " = icmp eq i8 " + bv + ", " + ll_i8(code(ch)))
+            ll_put(g, eq + " = icmp eq i8 " + bv + ", " + ll_i8(byte_at(body, bi)))
             here = ll_new(g, "L")
             ll_label(g, here)
             froms.add(here)
@@ -3011,7 +3034,7 @@ func ll_xb(c: Comp, n: Node) gives name: text, ps: text
         name = nm + "_d"
         ps = "dd"
         return
-    table = ["round:d", "char:i", "cut:pii", "code:p", "to_int:p", "to_dec:p", "read_file:p", "write_file:pp", "split:pp", "join:pp", "find:pp", "replace:ppp", "upper:p", "lower:p", "trim:p", "starts_with:pp", "ends_with:pp", "run:p", "exit:i", "file_exists:p", "list_dir:p", "is_folder:p", "make_folder:p", "move:pp", "remove:p", "env:p", "file_size:p", "rgb:iii", "rgba:iiii", "random:ii", "bit_and:ii", "bit_or:ii", "bit_xor:ii", "bit_not:i", "shift_left:ii", "shift_right:ii", "wait_ms:i", "http_get:p", "json_get:pp", "json_text:p", "net_listen:i", "net_port:i", "net_accept:i", "net_connect:pi", "net_send:ip", "net_receive:i", "net_close:i", "date_now:", "unix_time:", "time_ms:", "input:", "args:", "sqrt:d", "window_open:iip", "window_alive:", "clear_window:i", "draw_pixel:iii", "draw_rect:iiiii", "draw_circle:iiii", "draw_round:iiiiipi", "blur_rect:iiiii", "draw_shadow:iiiiiii", "draw_triangle:iiiiiii", "mesh_new:", "mesh_add:idddddddddi", "draw_mesh:idddd", "draw_mesh_rot:idddddd", "sunlight:dddd", "mesh_image:ii", "mesh_add_uv:iddddddddddddddd", "camera:dddddd", "draw_line:iiiii", "draw_text:iipii", "key_down:p", "mouse_x:", "mouse_y:", "mouse_down:", "mouse_wheel:", "typed_text:", "clipboard_get:", "window_sharp:", "window_scale:", "clipboard_set:p", "set_cursor:p", "mouse_back:", "mouse_forward:", "frame_ms:", "fps:", "window_w:", "window_h:", "set_fps:i", "load_image:p", "image_from_mem:ii", "image_scaled:iii", "load_font:p", "draw_font:iiipii", "text_width:ipi", "draw_image:iii", "draw_image_alpha:iii", "image_w:i", "screen_image:", "image_h:i", "read8:i", "read16:i", "read32:i", "read64:i", "write8:ii", "write16:ii", "write32:ii", "write64:ii", "address_of:p", "new_mem:i", "free_mem:i", "grow_mem:ii", "copy_mem:iii", "fill_mem:iii", "zone_new:i", "zone_take:ii", "zone_clear:i", "zone_free:i", "zone_used:i", "syscall:iiiiiii", "shape_get:ii", "shape_set:iii", "shape_at:i", "load_sound:p", "play_sound:i", "loop_sound:i", "play_sound_at:iddd", "loop_sound_at:iddd", "play_tone:di", "stop_sound:i", "sound_playing:i", "sound_volume:id", "sound_pitch:id", "move_sound:iddd", "master_volume:d", "listener:dddddd", "port_in8:i", "port_in16:i", "port_in32:i", "port_out8:ii", "port_out16:ii", "port_out32:ii", "page_new:", "page_free:i", "module_count:", "module_addr:i", "module_size:i", "kernel_symbol:p", "call_address:i", "interrupts_on:", "interrupts_off:", "uptime_ms:", "read_key:", "yield:"]
+    table = ["round:d", "char:i", "cut:pii", "code:p", "byte_len:p", "byte_at:pi", "byte_char:i", "to_int:p", "to_dec:p", "read_file:p", "write_file:pp", "split:pp", "join:pp", "find:pp", "replace:ppp", "upper:p", "lower:p", "trim:p", "starts_with:pp", "ends_with:pp", "run:p", "exit:i", "file_exists:p", "list_dir:p", "is_folder:p", "make_folder:p", "move:pp", "remove:p", "env:p", "file_size:p", "rgb:iii", "rgba:iiii", "random:ii", "bit_and:ii", "bit_or:ii", "bit_xor:ii", "bit_not:i", "shift_left:ii", "shift_right:ii", "wait_ms:i", "http_get:p", "json_get:pp", "json_text:p", "net_listen:i", "net_port:i", "net_accept:i", "net_connect:pi", "net_send:ip", "net_receive:i", "net_close:i", "date_now:", "unix_time:", "time_ms:", "input:", "args:", "sqrt:d", "window_open:iip", "window_alive:", "clear_window:i", "draw_pixel:iii", "draw_rect:iiiii", "draw_circle:iiii", "draw_round:iiiiipi", "blur_rect:iiiii", "draw_shadow:iiiiiii", "draw_triangle:iiiiiii", "mesh_new:", "mesh_add:idddddddddi", "draw_mesh:idddd", "draw_mesh_rot:idddddd", "sunlight:dddd", "mesh_image:ii", "mesh_add_uv:iddddddddddddddd", "camera:dddddd", "draw_line:iiiii", "draw_text:iipii", "key_down:p", "mouse_x:", "mouse_y:", "mouse_down:", "mouse_wheel:", "typed_text:", "clipboard_get:", "window_sharp:", "window_scale:", "clipboard_set:p", "set_cursor:p", "mouse_back:", "mouse_forward:", "pad_count:", "pad_down:ip", "pad_axis:ip", "frame_ms:", "fps:", "window_w:", "window_h:", "set_fps:i", "load_image:p", "image_from_mem:ii", "image_scaled:iii", "load_font:p", "draw_font:iiipii", "text_width:ipi", "draw_image:iii", "draw_image_alpha:iii", "image_w:i", "screen_image:", "image_h:i", "read8:i", "read16:i", "read32:i", "read64:i", "write8:ii", "write16:ii", "write32:ii", "write64:ii", "address_of:p", "new_mem:i", "free_mem:i", "grow_mem:ii", "copy_mem:iii", "fill_mem:iii", "zone_new:i", "zone_take:ii", "zone_clear:i", "zone_free:i", "zone_used:i", "syscall:iiiiiii", "shape_get:ii", "shape_set:iii", "shape_at:i", "load_sound:p", "play_sound:i", "loop_sound:i", "play_sound_at:iddd", "loop_sound_at:iddd", "play_tone:di", "stop_sound:i", "sound_playing:i", "sound_volume:id", "sound_pitch:id", "move_sound:iddd", "master_volume:d", "listener:dddddd", "port_in8:i", "port_in16:i", "port_in32:i", "port_out8:ii", "port_out16:ii", "port_out32:ii", "page_new:", "page_free:i", "module_count:", "module_addr:i", "module_size:i", "kernel_symbol:p", "call_address:i", "interrupts_on:", "interrupts_off:", "uptime_ms:", "read_key:", "yield:"]
     each e in table
         at = find(e, ":")
         if cut(e, 0, at - 1) == nm
@@ -3166,7 +3189,7 @@ func ll_each_chan(g: LLGen, c: Comp, n: Node)
     ll_term(g, "br label %" + head)
     ll_label(g, out)
 
-// each ch in s: по байтам до нуля, ch — текст из одного знака (tb_chr, как в C)
+// each ch in s: по буквам до нуля (tb_u8take сдвигает номер байта на конец буквы)
 func ll_each_text(g: LLGen, c: Comp, n: Node)
     base = ll_expr(g, c, n.kids[0])
     ll_need(g, "declare ptr @tb_x_chr(i64)")
@@ -3187,10 +3210,8 @@ func ll_each_text(g: LLGen, c: Comp, n: Node)
     ll_put(g, cv + " = icmp ne i8 " + b + ", 0")
     ll_term(g, "br i1 " + cv + ", label %" + body + ", label %" + out)
     ll_label(g, body)
-    z = ll_new(g, "%t")
-    ll_put(g, z + " = zext i8 " + b + " to i64")
     ch = ll_new(g, "%t")
-    ll_put(g, ch + " = call ptr @tb_x_chr(i64 " + z + ")")
+    ll_put(g, ch + " = call ptr @tb_x_u8take(ptr " + base + ", ptr " + islot + ")")
     ll_put(g, "store ptr " + ch + ", ptr " + ll_slot(g, c, n.name, 4))
     ll_loop_body(g, c, n.kids[1], step, out)
     ll_label(g, step)
@@ -3520,7 +3541,9 @@ func ll_stmt(g: LLGen, c: Comp, n: Node)
             g.allocas.add("  %\"l." + n.name + "\" = alloca ptr\n")
         ll_put(g, "store ptr " + a + ", ptr %\"l." + n.name + "\"")
     else if k == "danger"
+        c.emit_danger += 1
         ll_block(g, c, n.kids[0])
+        c.emit_danger -= 1
     else if k == "together"
         ll_together(g, c, n)
     else if k == "lock"
@@ -3745,7 +3768,7 @@ func ll_func(c: Comp, f: Node, all: list text, decls: list text)
         else
             // как в C: «функция имя дошла до конца без return»
             nm = "@\"tb.nm." + ll_fname(f) + "\""
-            all.add(nm + " = private unnamed_addr constant [" + (len(f.name) + 1) + " x i8] c\"" + f.name + "\\00\"\n")
+            all.add(nm + " = private unnamed_addr constant [" + (byte_len(f.name) + 1) + " x i8] c\"" + f.name + "\\00\"\n")
             ll_put(g, "call void @tb_ll_noreturn(i32 " + f.line + ", ptr " + nm + ")")
             ll_term(g, "unreachable")
     all.add(head)
@@ -3797,7 +3820,7 @@ modpub func emit_ll(c: Comp, program: Node, target: text, cpu: text)
                 all.add("declare " + ll_ext(c, top.ty) + ll_ty(c, top.ty) + " @\"" + ll_fname(top) + "\"(" + ps + ")\n")
     // библиотека Tachbit (runtime.h): с TB_LL её функции видны отсюда
     all.add("declare void @tb_x_ps(ptr)\ndeclare ptr @tb_x_itos(i64)\ndeclare ptr @tb_x_dtos(double)\ndeclare ptr @tb_x_btos(i32)\n")
-    all.add("declare ptr @tb_x_digits(i64, ptr, ptr)\ndeclare ptr @tb_x_mem_np(i64)\ndeclare i64 @tb_x_tlen(ptr)\ndeclare ptr @tb_x_char_at(ptr, i64, i64, i32)\n")
+    all.add("declare ptr @tb_x_digits(i64, ptr, ptr)\ndeclare ptr @tb_x_mem_np(i64)\ndeclare i64 @tb_x_tlen(ptr)\ndeclare i64 @tb_x_ulen(ptr)\ndeclare i64 @tb_x_ulen_n(ptr, i64)\ndeclare ptr @tb_x_u8take(ptr, ptr)\ndeclare ptr @tb_x_char_at(ptr, i64, i64, i32)\n")
     all.add("declare ptr @tb_x_cat(ptr, ptr)\ndeclare void @tb_x_app(ptr, ptr, ptr, ptr)\ndeclare void @tb_x_app_i(ptr, ptr, ptr, i64)\ndeclare void @tb_x_app_n(ptr, ptr, ptr, ptr, i64)\n")
     all.add("declare ptr @tb_x_errp()\ndeclare void @tb_x_die(ptr) noreturn cold\n")
     all.add("declare ptr @tb_x_grow(ptr)\ndeclare zeroext i1 @tb_x_bget(ptr, i64, i32)\ndeclare void @tb_x_bset(ptr, i64, i1 zeroext, i32)\ndeclare void @tb_x_badd(ptr, i1 zeroext)\ndeclare zeroext i1 @tb_x_bpop(ptr, i32)\ndeclare ptr @tb_x_bits_new()\ndeclare ptr @tb_x_bits_from(i64, ptr)\ndeclare ptr @tb_x_pop(ptr, i32)\ndeclare void @tb_x_lclear(ptr, i32)\ndeclare ptr @tb_x_list_new_np(i64)\ndeclare ptr @tb_x_list_from_np(i64, i64, ptr)\ndeclare ptr @tb_x_dict_new(i32, i64)\ndeclare ptr @tb_x_dict_from(i32, i64, i64, ptr, ptr)\ndeclare ptr @tb_x_dget(ptr, ptr, i32)\ndeclare ptr @tb_x_dput(ptr, ptr, ptr)\ndeclare i32 @tb_x_dhas(ptr, ptr)\ndeclare void @tb_x_dremove(ptr, ptr)\ndeclare void @tb_x_dclear(ptr, i32)\ndeclare i64 @tb_x_dlen(ptr)\ndeclare ptr @tb_x_dkeys_copy(ptr)\ndeclare ptr @tb_x_dvals_copy(ptr)\ndeclare ptr @tb_x_list_new(i64)\ndeclare ptr @tb_x_list_from(i64, i64, ptr)\n")
@@ -4222,7 +4245,7 @@ func ll_glue_main(c: Comp, program: Node, decls: list text, all: list text)
             main_func = top
     if c.bare
         // ядро: tb_kmain зовёт начало ядра (runtime.h); сборки мусора нет
-        // программа Омниума (tb app): ядро уже работает, начало — tb_appmain (его зовёт app_call)
+        // программа Омниума (tb app): ядро уже работает, начало — tb_appmain (его зовёт app.start)
         start = "kmain"
         if c.app
             start = "appmain"
