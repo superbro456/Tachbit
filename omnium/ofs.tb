@@ -71,11 +71,8 @@ modpub func key(bell: channel int, asks: list channel text, answers: list channe
 // контрольная сумма текста
 modpub func sum_of(s: text) gives h: int
     h = 7
-    each ch in s
-        b = code(ch)
-        if b < 0
-            b += 256
-        h = (h * 31 + b) % 1000000007
+    count i from 0 to byte_len(s) - 1
+        h = (h * 31 + byte_at(s, i)) % 1000000007
 
 func find_file(files: list Ofile, name: text) gives at: int
     count i from 0 to len(files) - 1
@@ -146,7 +143,7 @@ func head_sum(kind: int, seq: int, nlen: int, dlen: int, dsum: int, nsum: int) g
 // дописать запись в конец журнала; ответ — номер сектора заголовка (0 — не вышло)
 // kind: 1 — версия файла, 2 — удаление, 3 — снимок
 func append_rec(st: Store, kind: int, name: text, data: text) gives at: int
-    nlen = len(name)
+    nlen = byte_len(name)
     // data — текст с заменой (disk.bin_text): на диск идут настоящие байты
     dlen = bin_size(data)
     if nlen > 440
@@ -479,7 +476,7 @@ modpub func put_mem(k: Key, name: text, a: int, n: int) gives v: int
 // файл → новая память (её потом mem_free); n — сколько байт
 modpub func get_mem(k: Key, name: text) gives a: int, n: int
     s = try ask(k, "get\n" + name)
-    a = mem_new(len(s) + 1)
+    a = mem_new(byte_len(s) + 1)
     if a == 0
         fail "памяти нет"
     n = text_bin(a, s)

@@ -28,7 +28,7 @@ func main()
     plan = exfat.get(k, "/Документы/план.txt") or "?"
     print("план: " + replace(plan, "\n", " | "))
     big = exfat.get(k, "/Документы/длинное имя файла для проверки.txt") or ""
-    print("длинный файл: " + len(big) + " байт, конец цел: " + ends_with(big, "строка 2000\n"))
+    print("длинный файл: " + byte_len(big) + " байт, конец цел: " + ends_with(big, "строка 2000\n"))
     exfat.mkdir(k, "/Омниум") else err
         print(err)
     exfat.put(k, "/Омниум/привет.txt", "записано из Омниума\n") else err

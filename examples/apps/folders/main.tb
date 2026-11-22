@@ -9,13 +9,9 @@ func esc(s: text)
 func paint(s: text, color: text)
     return esc(color) + s + esc("0")
 
-// сколько букв видно на экране (русская буква — 2 байта, а видна одна)
+// сколько букв видно на экране
 func width(s: text)
-    n = int 0
-    each ch in s
-        if bit_and(code(ch), 192) != 128
-            n += 1
-    return n
+    return len(s)
 
 func pad(s: text, w: int)
     r = s

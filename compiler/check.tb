@@ -132,7 +132,7 @@ func fits(want: int, got: int)
 // ---------- функции и obj ----------
 
 func is_builtin(name: text)
-    each b in ["print", "show", "len", "round", "code", "char", "cut", "to_int", "to_dec", "read_file", "write_file", "input", "args", "split", "join", "find", "replace", "upper", "lower", "trim", "starts_with", "ends_with", "sort", "abs", "min", "max", "sqrt", "run", "exit", "file_exists", "list_dir", "is_folder", "make_folder", "move", "remove", "env", "file_size", "window_open", "window_alive", "clear_window", "draw_pixel", "draw_rect", "draw_circle", "draw_round", "blur_rect", "draw_shadow", "draw_triangle", "mesh_new", "mesh_add", "draw_mesh", "camera", "draw_line", "draw_text", "key_down", "mouse_x", "mouse_y", "mouse_down", "mouse_wheel", "typed_text", "mouse_back", "mouse_forward", "clipboard_get", "clipboard_set", "set_cursor", "window_sharp", "window_scale", "frame_ms", "fps", "set_fps", "window_w", "window_h", "load_image", "image_from_mem", "image_scaled", "draw_image", "draw_image_alpha", "image_w", "image_h", "screen_image", "load_font", "draw_font", "text_width", "rgb", "rgba", "random", "time_ms", "http_get", "json_get", "json_text", "net_listen", "net_port", "net_accept", "net_connect", "net_send", "net_receive", "net_close", "date_now", "unix_time", "load_sound", "play_sound", "loop_sound", "play_sound_at", "loop_sound_at", "play_tone", "stop_sound", "sound_playing", "sound_volume", "sound_pitch", "move_sound", "master_volume", "listener"]
+    each b in ["print", "show", "len", "round", "code", "char", "byte_len", "byte_at", "byte_char", "cut", "to_int", "to_dec", "read_file", "write_file", "input", "args", "split", "join", "find", "replace", "upper", "lower", "trim", "starts_with", "ends_with", "sort", "abs", "min", "max", "sqrt", "run", "exit", "file_exists", "list_dir", "is_folder", "make_folder", "move", "remove", "env", "file_size", "window_open", "window_alive", "clear_window", "draw_pixel", "draw_rect", "draw_circle", "draw_round", "blur_rect", "draw_shadow", "draw_triangle", "mesh_new", "mesh_add", "draw_mesh", "camera", "draw_line", "draw_text", "key_down", "mouse_x", "mouse_y", "mouse_down", "mouse_wheel", "typed_text", "mouse_back", "mouse_forward", "clipboard_get", "clipboard_set", "set_cursor", "window_sharp", "window_scale", "frame_ms", "fps", "set_fps", "window_w", "window_h", "load_image", "image_from_mem", "image_scaled", "draw_image", "draw_image_alpha", "image_w", "image_h", "screen_image", "load_font", "draw_font", "text_width", "rgb", "rgba", "random", "time_ms", "http_get", "json_get", "json_text", "net_listen", "net_port", "net_accept", "net_connect", "net_send", "net_receive", "net_close", "date_now", "unix_time", "load_sound", "play_sound", "loop_sound", "play_sound_at", "loop_sound_at", "play_tone", "stop_sound", "sound_playing", "sound_volume", "sound_pitch", "move_sound", "master_volume", "listener"]
         if b == name
             return true
     each b in kernel_builtins()
@@ -877,6 +877,15 @@ func check_builtin(c: Comp, n: Node) gives r: int
         return 1
     if name == "char"
         builtin_args(c, n, "i", "char(66)  →  \"B\"")
+        return 4
+    if name == "byte_len"
+        builtin_args(c, n, "t", "byte_len(\"привет\")  →  12 (байт, а len — 6 букв)")
+        return 1
+    if name == "byte_at"
+        builtin_args(c, n, "ti", "byte_at(текст, номер байта)  →  0..255")
+        return 1
+    if name == "byte_char"
+        builtin_args(c, n, "i", "byte_char(200)  →  текст из одного байта")
         return 4
     if name == "cut"
         builtin_args(c, n, "tii", "cut(текст, с какого номера, по какой номер)")

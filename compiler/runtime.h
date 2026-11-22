@@ -453,7 +453,8 @@ TB_API int tb_in_cur_temp(const void *p) {
 TB_API _Thread_local const char *tb_lc_p[2];
 TB_API _Thread_local long long tb_lc_n[2];
 TB_API _Thread_local int tb_lc_next;
-TB_INL void tb_lc_clear(void) { tb_lc_p[0] = 0; tb_lc_p[1] = 0; }
+TB_INL void tb_u8c_clear(void);
+TB_INL void tb_lc_clear(void) { tb_lc_p[0] = 0; tb_lc_p[1] = 0; tb_u8c_clear(); }
 TB_INL void tb_temp_end(tb_mark m) {
     // первый кусок оставляем пустым: следующий temp возьмёт его без malloc
     while (tb_nchunks > m.n && tb_nchunks > 1) {
@@ -1135,11 +1136,109 @@ TB_INL long long tb_tlen(const char *s) {
     tb_lc_p[tb_lc_next] = s; tb_lc_n[tb_lc_next] = n; tb_lc_next ^= 1;
     return n;
 }
-// n — длина, если компилятор её знает (текст, в который дописывают), иначе -1
-TB_INL const char *tb_char_at(const char *s, long long i, long long n, int line) {
-    if (n < 0) n = tb_tlen(s);
-    if (i < 0 || i >= n) tb_crash(line, "номер за пределами текста");
-    return tb_chr((unsigned char)s[i]);
+// ---------- буквы: len, s[i], cut, find, code, char и each считают буквы, а не байты ----------
+// Текст хранится в UTF-8: латинская буква — 1 байт, русская — 2, иероглиф — 3, смайлик — 4.
+// Байт, который не складывается в букву (испорченный UTF-8, байты с диска), — сам себе буква.
+TB_INL long long tb_u8n(const unsigned char *p) {
+    unsigned char b = p[0];
+    if (b < 0xC2 || b > 0xF4) return 1;
+    long long need = b < 0xE0 ? 2 : b < 0xF0 ? 3 : 4;
+    for (long long k = 1; k < need; k++) if ((p[k] & 0xC0) != 0x80) return 1;
+    return need;
+}
+// сколько букв в первых nb байтах
+TB_API long long tb_u8count(const char *s, long long nb) {
+    const unsigned char *p = (const unsigned char *)s, *e = p + nb;
+    long long n = 0;
+    while (p < e) {
+        if (*p < 0x80) { p++; n++; continue; }
+        long long k = tb_u8n(p);
+        if (p + k > e) k = 1;
+        p += k; n++;
+    }
+    return n;
+}
+// память о последних текстах: адрес, байты, буквы и где мы стояли (буква li начинается с байта bi).
+// s[i] подряд в цикле — шаг вперёд от прошлого места, а не счёт с начала.
+typedef struct { const char *p; long long nb, nl, li, bi; } tb_u8slot;
+TB_API _Thread_local tb_u8slot tb_u8c[4];
+TB_API _Thread_local int tb_u8c_next;
+TB_INL void tb_u8c_clear(void) { for (int k = 0; k < 4; k++) tb_u8c[k].p = 0; }
+// nb < 0: длину в байтах посчитать (текст не меняется); nb >= 0: текст, в который дописывают
+TB_API tb_u8slot *tb_u8info(const char *s, long long nb) {
+    for (int k = 0; k < 4; k++) {
+        tb_u8slot *c = &tb_u8c[k];
+        if (c->p != s) continue;
+        if (nb < 0 || nb == c->nb) return c;
+        if (nb > c->nb) {   // дописали в конец: досчитать только новое
+            // последняя буква могла быть недописанной: пересчитать с её начала (не дальше 3 байт назад)
+            long long from = c->nb, b = c->nb;
+            while (b > 0 && c->nb - b < 3 && ((unsigned char)s[b - 1] & 0xC0) == 0x80) b--;
+            if (b > 0 && (unsigned char)s[b - 1] >= 0xC0) from = b - 1;
+            c->nl = c->nl - tb_u8count(s + from, c->nb - from) + tb_u8count(s + from, nb - from);
+            c->nb = nb;
+            if (c->bi > from) { c->li = 0; c->bi = 0; }
+            return c;
+        }
+        break;
+    }
+    tb_u8slot *c = &tb_u8c[tb_u8c_next];
+    tb_u8c_next = (tb_u8c_next + 1) & 3;
+    c->p = s;
+    c->nb = nb >= 0 ? nb : (long long)strlen(s);
+    c->nl = tb_u8count(s, c->nb);
+    c->li = 0; c->bi = 0;
+    return c;
+}
+TB_API long long tb_ulen(const char *s) { return tb_u8info(s, -1)->nl; }
+TB_API long long tb_ulen_n(const char *s, long long nb) { return nb < 0 ? tb_ulen(s) : tb_u8info(s, nb)->nl; }
+// байт, с которого начинается буква i (i == букв — конец текста)
+TB_API long long tb_u8off(tb_u8slot *c, long long i) {
+    if (c->nl == c->nb) return i;   // одна латиница: буква = байт
+    const unsigned char *s = (const unsigned char *)c->p;
+    long long li = c->li, bi = c->bi;
+    if (i < li && i < li - i) { li = 0; bi = 0; }   // ближе к началу, чем к прошлому месту
+    while (li < i) { long long k = tb_u8n(s + bi); if (bi + k > c->nb) k = 1; bi += k; li++; }
+    while (li > i) {   // назад: на начало предыдущей буквы
+        long long b = bi - 1, back = 0;
+        while (b > 0 && (s[b] & 0xC0) == 0x80 && back < 3) { b--; back++; }
+        if (b + tb_u8n(s + b) != bi) b = bi - 1;   // не сложилось в букву — один байт
+        bi = b; li--;
+    }
+    c->li = li; c->bi = bi;
+    return bi;
+}
+// буквы из двух байт (русские, греческие...): готовые строки, как tb_chars для латиницы
+TB_API char tb_chars2[2048 * 4];
+TB_API const char *tb_u8text(const char *p, long long n) {
+    if (n == 1) return tb_chr((unsigned char)p[0]);
+    if (n == 2) {
+        unsigned cp = (((unsigned char)p[0] & 0x1F) << 6) | ((unsigned char)p[1] & 0x3F);
+        char *t = tb_chars2 + cp * 4;
+        if (!t[0]) { t[1] = p[1]; t[2] = 0; __atomic_store_n(&t[0], p[0], __ATOMIC_RELEASE); }
+        return t;
+    }
+    char *r = tb_tmem(n + 1);
+    memcpy(r, p, n); r[n] = 0;
+    return r;
+}
+// s[i]: буква номер i; n — длина в байтах, если компилятор её знает (текст, в который дописывают), иначе -1
+TB_API const char *tb_char_at(const char *s, long long i, long long n, int line) {
+    tb_u8slot *c = tb_u8info(s, n);
+    if (i < 0 || i >= c->nl) tb_crash(line, "номер за пределами текста");
+    if (c->nl == c->nb) return tb_chr((unsigned char)s[i]);
+    long long b = tb_u8off(c, i);
+    long long k = tb_u8n((const unsigned char *)s + b);
+    if (b + k > c->nb) k = 1;
+    return tb_u8text(s + b, k);
+}
+// each ch in s: буква с байта *i; *i становится последним байтом буквы (цикл сам прибавит 1)
+TB_API const char *tb_u8take(const char *s, long long *i) {
+    const unsigned char *p = (const unsigned char *)s + *i;
+    if (*p < 0x80) return tb_chr(*p);
+    long long k = tb_u8n(p);
+    *i += k - 1;
+    return tb_u8text((const char *)p, k);
 }
 // s += b: дописать в конец своей памяти s, а не собирать третий текст из двух.
 // *rl — длина s в своей памяти (-1: своей памяти нет, s могли сохранить где-то ещё — сначала копия),
@@ -1197,19 +1296,51 @@ TB_API void tb_app_n(const char **p, long long *rl, long long *rc, const char *b
     s[*rl] = 0;
 }
 TB_API const char *tb_cut(const char *s, long long from, long long to, int line) {
-    long long n = (long long)strlen(s);
-    if (from < 0 || to >= n || from > to + 1) tb_crash(line, "cut: номера за пределами текста");
-    char *r = tb_tmem(to - from + 2);
-    memcpy(r, s + from, to - from + 1);
-    r[to - from + 1] = 0;
+    tb_u8slot *c = tb_u8info(s, -1);
+    if (from < 0 || to >= c->nl || from > to + 1) tb_crash(line, "cut: номера за пределами текста");
+    long long a = tb_u8off(c, from), b = tb_u8off(c, to + 1);
+    char *r = tb_tmem(b - a + 1);
+    memcpy(r, s + a, b - a);
+    r[b - a] = 0;
     return r;
+}
+// байты текста (для дисков, сети, форматов файлов): byte_len, byte_at, byte_char
+TB_API long long tb_byte_len(const char *s) { return tb_tlen(s); }
+TB_API long long tb_byte_at(const char *s, long long i, int line) {
+    if (i < 0 || i >= tb_tlen(s)) tb_crash(line, "byte_at: номер за пределами текста");
+    return (unsigned char)s[i];
+}
+TB_API const char *tb_byte_char(long long b, int line) {
+    if (b < 1 || b > 255) tb_crash(line, "byte_char: байт должен быть от 1 до 255 (байт 0 кончает текст)");
+    return tb_chr(b);
 }
 TB_API long long tb_code(const char *s, int line) {
     if (s[0] == 0) tb_crash(line, "code: текст пустой");
-    return (unsigned char)s[0];
+    const unsigned char *p = (const unsigned char *)s;
+    long long k = tb_u8n(p);
+    if (k == 1) return p[0];
+    if (k == 2) return ((p[0] & 0x1F) << 6) | (p[1] & 0x3F);
+    if (k == 3) return ((p[0] & 0x0F) << 12) | ((p[1] & 0x3F) << 6) | (p[2] & 0x3F);
+    return ((p[0] & 0x07) << 18) | ((p[1] & 0x3F) << 12) | ((p[2] & 0x3F) << 6) | (p[3] & 0x3F);
 }
-TB_API long long tb_div(long long a, long long b, int line) { if (b == 0) tb_crash(line, "деление на ноль"); return a / b; }
-TB_API long long tb_mod(long long a, long long b, int line) { if (b == 0) tb_crash(line, "остаток от деления на ноль"); return a % b; }
+// char(1087) → "п": буква по её номеру в Юникоде
+TB_API const char *tb_uchr(long long x, int line) {
+    if (x < 1 || x > 0x10FFFF || (x >= 0xD800 && x <= 0xDFFF)) tb_crash(line, "char: такого номера буквы нет (от 1 до 1114111)");
+    if (x < 0x80) return tb_chr(x);
+    char b[4];
+    if (x < 0x800) { b[0] = (char)(0xC0 | (x >> 6)); b[1] = (char)(0x80 | (x & 0x3F)); return tb_u8text(b, 2); }
+    if (x < 0x10000) { b[0] = (char)(0xE0 | (x >> 12)); b[1] = (char)(0x80 | ((x >> 6) & 0x3F)); b[2] = (char)(0x80 | (x & 0x3F)); return tb_u8text(b, 3); }
+    b[0] = (char)(0xF0 | (x >> 18)); b[1] = (char)(0x80 | ((x >> 12) & 0x3F)); b[2] = (char)(0x80 | ((x >> 6) & 0x3F)); b[3] = (char)(0x80 | (x & 0x3F));
+    return tb_u8text(b, 4);
+}
+// переполнение int — остановка с номером строки (внутри danger числа заворачиваются, как в железе)
+TB_COLD TB_API void tb_ovf(int line) { tb_crash(line, "число не помещается в int: больше 9223372036854775807 или меньше -9223372036854775808"); }
+TB_INL long long tb_addo(long long a, long long b, int line) { long long r; if (__builtin_expect(__builtin_add_overflow(a, b, &r), 0)) tb_ovf(line); return r; }
+TB_INL long long tb_subo(long long a, long long b, int line) { long long r; if (__builtin_expect(__builtin_sub_overflow(a, b, &r), 0)) tb_ovf(line); return r; }
+TB_INL long long tb_mulo(long long a, long long b, int line) { long long r; if (__builtin_expect(__builtin_mul_overflow(a, b, &r), 0)) tb_ovf(line); return r; }
+TB_INL long long tb_nego(long long a, int line) { if (__builtin_expect(a == (-9223372036854775807LL - 1), 0)) tb_ovf(line); return -a; }
+TB_API long long tb_div(long long a, long long b, int line) { if (b == 0) tb_crash(line, "деление на ноль"); if (b == -1) return tb_nego(a, line); return a / b; }
+TB_API long long tb_mod(long long a, long long b, int line) { if (b == 0) tb_crash(line, "остаток от деления на ноль"); if (b == -1) return 0; return a % b; }
 TB_API long long tb_round(double x) { return (long long)(x < 0 ? x - 0.5 : x + 0.5); }
 TB_API void tb_ps(const char *s) { fputs(s, stdout); }
 
@@ -1264,7 +1395,7 @@ TB_API const char *tb_trim(const char *s) {
 }
 TB_API long long tb_find(const char *s, const char *part) {
     const char *p = strstr(s, part);
-    return p ? (long long)(p - s) : -1;
+    return p ? tb_u8count(s, (long long)(p - s)) : -1;   // номер буквы, а не байта
 }
 TB_API int tb_starts(const char *s, const char *p) { return strncmp(s, p, strlen(p)) == 0; }
 TB_API int tb_ends(const char *s, const char *p) {
@@ -8222,6 +8353,9 @@ TB_X(const char *, btos, (int v), (v))
 TB_X(const char *, digits, (long long v, char *d, long long *n), (v, d, n))
 TB_X(void *, mem_np, (long long n), (n))
 TB_X(long long, tlen, (const char *s), (s))
+TB_X(long long, ulen, (const char *s), (s))
+TB_X(long long, ulen_n, (const char *s, long long n), (s, n))
+TB_X(const char *, u8take, (const char *s, long long *i), (s, i))
 TB_X(const char *, char_at, (const char *s, long long i, long long n, int line), (s, i, n, line))
 TB_X(const char *, cat, (const char *a, const char *b), (a, b))
 TB_X(const char *, ctext, (const char *p), (p))
@@ -8279,7 +8413,7 @@ TB_X(_Bool, bpop, (tb_list *l, int line), (l, line))
 TB_X(tb_list *, bits_new, (void), ())
 TB_X(tb_list *, bits_from, (long long n, const unsigned char *s), (n, s))
 const char **tb_x_errp(void) { return &tb_err; }
-void tb_ll_crash(int line, int what) { tb_crash(line, what == 0 ? "деление на ноль" : what == 1 ? "остаток от деления на ноль" : what == 3 ? "номер за пределами списка" : what == 5 ? "объект пустой: его ещё не создали" : what == 6 ? "канал закрыт и пуст: receive() нечего взять" : what == 7 ? "размер куска в by должен быть больше 0" : "obj пустой: его ещё не создали"); }
+void tb_ll_crash(int line, int what) { tb_crash(line, what == 0 ? "деление на ноль" : what == 1 ? "остаток от деления на ноль" : what == 3 ? "номер за пределами списка" : what == 5 ? "объект пустой: его ещё не создали" : what == 6 ? "канал закрыт и пуст: receive() нечего взять" : what == 7 ? "размер куска в by должен быть больше 0" : what == 8 ? "число не помещается в int: больше 9223372036854775807 или меньше -9223372036854775808" : "obj пустой: его ещё не создали"); }
 void tb_ll_noreturn(int line, const char *name) { char m[256]; snprintf(m, sizeof m, "функция %s дошла до конца без return", name); tb_crash(line, m); }
 // программа целиком в .ll: память obj, показ чисел, начало main, фоновые задачи
 TB_X(void *, obj_mem, (long long n), (n))
@@ -8317,9 +8451,12 @@ void tb_x_start(int argc, char **argv, void *top) {
 #define TB_B(r, n, p, a) r tb_xb_##n p { return a; }
 #define TB_BV(n, p, a) void tb_xb_##n p { a; }
 TB_B(long long, round, (double x, int line), tb_round(x))
-TB_B(const char *, char, (long long x, int line), tb_chr(x))
+TB_B(const char *, char, (long long x, int line), tb_uchr(x, line))
 TB_B(const char *, cut, (const char *s, long long a, long long b, int line), tb_cut(s, a, b, line))
 TB_B(long long, code, (const char *s, int line), tb_code(s, line))
+TB_B(long long, byte_len, (const char *s, int line), tb_byte_len(s))
+TB_B(long long, byte_at, (const char *s, long long i, int line), tb_byte_at(s, i, line))
+TB_B(const char *, byte_char, (long long b, int line), tb_byte_char(b, line))
 TB_B(long long, to_int, (const char *s, int line), tb_to_int(s))
 TB_B(double, to_dec, (const char *s, int line), tb_to_dec(s))
 TB_B(const char *, read_file, (const char *s, int line), tb_read_file(s))

@@ -41,7 +41,7 @@ func main()
             print("большой: " + err)
             big = ""
         if big != ""
-            print("большой: " + len(big) + " байт, последняя строка цела: " + ends_with(big, "строка 300\n"))
+            print("большой: " + byte_len(big) + " байт, последняя строка цела: " + ends_with(big, "строка 300\n"))
         b, n = ofs.get_mem(k, "программа") else err
             print("программа: " + err)
             b = 0

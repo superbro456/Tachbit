@@ -187,8 +187,8 @@ func ide_flush(drive: int) gives ok: bool
 // текст → память с адреса a (без нуля в конце); ответ — сколько байт
 modpub func put_text(a: int, s: text) gives n: int
     danger
-        each ch in s
-            write8(a + n, bit_and(code(ch), 255))
+        count i from 0 to byte_len(s) - 1
+            write8(a + n, byte_at(s, i))
             n += 1
 
 // n байт из памяти → текст (байт 0 текст закончил бы — его пропускаем)
@@ -197,7 +197,7 @@ modpub func get_text(a: int, n: int) gives s: text
         count i from 0 to n - 1
             b = read8(a + i)
             if b != 0
-                s += char(b)
+                s += byte_char(b)
 
 // ---------- байты любые (картинки, программы) ↔ текст без нулей ----------
 // Текст Tachbit кончается на байте 0, поэтому по каналам байты идут «с заменой»:
@@ -208,18 +208,18 @@ modpub func bin_text(a: int, n: int) gives s: text
         count i from 0 to n - 1
             b = read8(a + i)
             if b == 0
-                s += char(1) + char(1)
+                s += byte_char(1) + byte_char(1)
             else if b == 1
-                s += char(1) + char(2)
+                s += byte_char(1) + byte_char(2)
             else
-                s += char(b)
+                s += byte_char(b)
 
 // обратно: текст → настоящие байты с адреса a; ответ — сколько байт
 modpub func text_bin(a: int, s: text) gives n: int
     esc = false
     danger
-        each ch in s
-            c = bit_and(code(ch), 255)
+        count i from 0 to byte_len(s) - 1
+            c = byte_at(s, i)
             if esc
                 write8(a + n, c - 1)
                 n += 1
@@ -233,10 +233,10 @@ modpub func text_bin(a: int, s: text) gives n: int
 // сколько настоящих байт в тексте с заменой
 modpub func bin_size(s: text) gives n: int
     esc = false
-    each ch in s
+    count i from 0 to byte_len(s) - 1
         if esc
             esc = false
-        else if bit_and(code(ch), 255) == 1
+        else if byte_at(s, i) == 1
             esc = true
             n += 1
         else

@@ -248,6 +248,7 @@ obj Comp
     rg_busy: list text
     // внутри danger (сколько блоков вокруг), внутри lock и сколько циклов было снаружи lock
     danger_depth: int
+    emit_danger: int     // вывод кода внутри danger: числа без проверки переполнения
     lock_depth: int
     lock_loops: int
     // имена замков (lock имя) и прерывания (номер:функция C) для вывода

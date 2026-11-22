@@ -327,41 +327,25 @@ modpub func key_repeat(u: Ui, name: text)
     n = u.held[name]
     return free(u) and (n == 1 or (n > 19 and n % 3 == 0))
 
-// сколько букв видно (русская буква — 2 байта, а на экране одна)
+// сколько букв (len уже считает буквы; имя оставлено для старого кода)
 modpub func chars(s: text)
-    n = 0
-    each ch in s
-        if bit_and(code(ch), 192) != 128
-            n += 1
-    return n
+    return len(s)
 
 // первые n букв
 modpub func first_chars(s: text, n: int)
     if n <= 0
         return ""
-    seen = 0
-    count i from 0 to len(s) - 1
-        if bit_and(code(s[i]), 192) != 128
-            if seen == n
-                return cut(s, 0, i - 1)
-            seen += 1
-    return s
+    if n >= len(s)
+        return s
+    return cut(s, 0, n - 1)
 
 // последние n букв
 modpub func last_chars(s: text, n: int)
     if n <= 0
         return ""
-    total = chars(s)
-    if total <= n
+    if n >= len(s)
         return s
-    skip_n = total - n
-    seen = 0
-    count i from 0 to len(s) - 1
-        if bit_and(code(s[i]), 192) != 128
-            if seen == skip_n
-                return cut(s, i, len(s) - 1)
-            seen += 1
-    return s
+    return cut(s, len(s) - n, len(s) - 1)
 
 // буквы с a-й до b-й (b не входит)
 modpub func mid_chars(s: text, a: int, b: int)
