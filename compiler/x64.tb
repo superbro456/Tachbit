@@ -40,6 +40,12 @@ obj X64
     in_danger: int
     // временная область функции (tb_x_fa_begin): ячейки флага и метки, -1 — нет
     fa_slot: int
+    // тексты, к которым дописывают (s += x): своя память на месте, как в обычной сборке
+    bld_names: list text
+    // несколько выходов: ячейки, куда вызов положил выходы; в самой функции — ячейки с их адресами
+    mtemps: list int
+    out_ptrs: list int
+    out_names: list text
     fm_slot: int
     // запись bool одним байтом (значения dict)
     byte_store: bool
@@ -181,6 +187,7 @@ func xload_name(g: X64, n: Node)
         xload_global(g, gk)
     else if has_var(g, n.name)
         xload_var(g, xslot(g, n.name))
+        xbld_forget(g, n.name)
     else
         xfail(g, n.line, "переменную " + n.name)
 
@@ -196,6 +203,7 @@ func xstore_name(g: X64, name: text)
         xstore_global(g, gk)
     else
         xstore_var(g, xslot(g, name))
+        xbld_forget(g, name)
 
 // текст из программы: байты в .rodata, rax = их адрес (lea rax, [rip + ...])
 func xstring(g: X64, v: text)
@@ -899,6 +907,57 @@ func xconcat(g: X64, c: Comp, parts: list Node)
     xbs(g, [0xC6, 0x07, 0x00])
     xload_var(g, res)
 
+// ---------- s += x на месте: у текста s ячейки #rl.s (длина своей памяти, -1 — своей нет) и #rc.s ----------
+
+func xfind_blds(g: X64, c: Comp, n: Node)
+    if n.kind == "set" and n.value == "+=" and n.kids[0].kind == "name" and kind_of(c, n.ty) == "text"
+        if not xbld_has(g, n.kids[0].name)
+            g.bld_names.add(n.kids[0].name)
+    each k in n.kids
+        xfind_blds(g, c, k)
+
+func xbld_has(g: X64, name: text) gives yes: bool
+    each b in g.bld_names
+        if b == name
+            return true
+    return false
+
+// своей памяти больше нет: текст могли где-то сохранить, следующее дописывание сделает копию
+func xbld_forget(g: X64, name: text)
+    if xbld_has(g, name)
+        xbs(g, [0x48, 0xC7, 0x85])
+        x32(g, -8 * (xslot(g, "#rl." + name) + 1))
+        x32(g, -1)
+
+// rdi = &s, rsi = &rl, rdx = &rc
+func xbld_args(g: X64, name: text)
+    xbs(g, [0x48, 0x8D, 0xBD])
+    x32(g, -8 * (xslot(g, name) + 1))
+    xbs(g, [0x48, 0x8D, 0xB5])
+    x32(g, -8 * (xslot(g, "#rl." + name) + 1))
+    xbs(g, [0x48, 0x8D, 0x95])
+    x32(g, -8 * (xslot(g, "#rc." + name) + 1))
+
+func xbld_app(g: X64, c: Comp, name: text, part: Node)
+    k = kind_of(c, part.ty)
+    if k == "int"
+        xexpr(g, c, part)
+        xbs(g, [0x48, 0x89, 0xC1])
+        xbld_args(g, name)
+        xcall(g, "tb_x_app_i")
+    else if part.kind == "string"
+        bytes, ok = ll_str_bytes(part.value)
+        xstring(g, part.value)
+        xbs(g, [0x48, 0x89, 0xC1, 0x41, 0xB8])
+        x32(g, len(bytes))
+        xbld_args(g, name)
+        xcall(g, "tb_x_app_n")
+    else
+        xas_text(g, c, part)
+        xbs(g, [0x48, 0x89, 0xC1])
+        xbld_args(g, name)
+        xcall(g, "tb_x_app")
+
 func xexpr(g: X64, c: Comp, n: Node)
     k = n.kind
     if k == "number"
@@ -1127,11 +1186,16 @@ func xexpr(g: X64, c: Comp, n: Node)
 
 func xcall_user(g: X64, c: Comp, n: Node)
     f = n.ref
-    if len(f.kids[2].kids) > 1
-        xfail(g, n.line, "функции с несколькими выходами")
-        return
-    if len(n.kids) > 6
-        xfail(g, n.line, "больше 6 параметров")
+    nout = len(f.kids[2].kids)
+    if nout > 1
+        // несколько выходов отдельной строкой: выходы — во временные ячейки (их потом заберёт a, b = ...)
+        g.mtemps.clear()
+        each o in f.kids[2].kids
+            g.mtemps.add(xslot(g, "#mo" + len(g.vars)))
+    else
+        nout = 0
+    if len(n.kids) + nout > 6
+        xfail(g, n.line, "больше 6 параметров вместе с выходами")
         return
     each p in f.kids[0].kids
         if p.is_link
@@ -1140,9 +1204,14 @@ func xcall_user(g: X64, c: Comp, n: Node)
     count i from 0 to len(n.kids) - 1
         xas(g, c, n.kids[i].kids[0], f.kids[0].kids[i].ty)
         xpush(g)
+    each mt in g.mtemps
+        if nout > 0
+            xbs(g, [0x48, 0x8D, 0x85])
+            x32(g, -8 * (mt + 1))
+            xpush(g)
     // pop в rdi, rsi, rdx, rcx, r8, r9 — с конца
     regs = [[0x5F], [0x5E], [0x5A], [0x59], [0x41, 0x58], [0x41, 0x59]]
-    i = len(n.kids) - 1
+    i = len(n.kids) + nout - 1
     repeat while i >= 0
         xbs(g, regs[i])
         g.depth -= 1
@@ -1306,10 +1375,17 @@ func xstmt(g: X64, c: Comp, n: Node)
                 xfail(g, n.line, "знак " + n.value + " у текста")
                 return
             // s += x: s = s + x (новый текст)
-            parts = [n.kids[0]]
+            parts = list Node
             xconcat_parts(c, n.kids[1], parts)
-            xconcat(g, c, parts)
-            xstore_name(g, name)
+            if xbld_has(g, name) and has_var(g, name)
+                each part in parts
+                    xbld_app(g, c, name, part)
+            else
+                all = [n.kids[0]]
+                each part in parts
+                    all.add(part)
+                xconcat(g, c, all)
+                xstore_name(g, name)
             return
         xas(g, c, n.kids[1], n.ty)
         if n.value != "="
@@ -1346,7 +1422,7 @@ func xstmt(g: X64, c: Comp, n: Node)
         xloop_body(g, c, n.kids[1], head, out)
         xjump(g, [0xE9], head)
         xplace(g, out)
-    else if k == "repeat_times" or (k == "count" and not n.is_par)
+    else if k == "repeat_times" or k == "count"
         // count i from a to b: конец считается один раз (как везде); repeat N times — счётчик свой
         cnt = ""
         endk = xslot(g, "#end" + len(g.vars))
@@ -1403,12 +1479,20 @@ func xstmt(g: X64, c: Comp, n: Node)
         xbs(g, [0x48, 0x8B, 0x8D])
         x32(g, -8 * (hold + 1))
         xbs(g, [0x48, 0x89, 0x08])
-    else if k == "each" and not n.is_par and not n.by_vec and not n.by_piece and kind_of(c, n.kids[0].ty) == "list"
-        if not xlist_ok(g, c, n.kids[0].ty, n.line)
+    else if k == "each" and not n.by_piece and (kind_of(c, n.kids[0].ty) == "list" or kind_of(c, n.kids[0].ty) == "dict")
+        // on all cores и by vec — здесь просто по очереди (в ядре Омниума это и так один проход)
+        isdict = kind_of(c, n.kids[0].ty) == "dict"
+        if isdict
+            if not xdict_ok(g, c, n.kids[0].ty, n.line)
+                return
+        else if not xlist_ok(g, c, n.kids[0].ty, n.line)
             return
         lk = xslot(g, "#l" + len(g.vars))
         ik = xslot(g, "#i" + len(g.vars))
         xexpr(g, c, n.kids[0])
+        if isdict
+            // each k in d: по списку ключей (он первым лежит в dict)
+            xbs(g, [0x48, 0x8B, 0x00])
         xstore_var(g, lk)
         xconst(g, 0)
         xstore_var(g, ik)
@@ -1447,7 +1531,7 @@ func xstmt(g: X64, c: Comp, n: Node)
         if xlist_ok(g, c, n.kids[0].kids[0].ty, n.line)
             xexpr(g, c, n.kids[0].kids[0])
             xbs(g, [0x48, 0xC7, 0x40, 0x08, 0, 0, 0, 0])
-    else if k == "each" and not n.is_par and kind_of(c, n.kids[0].ty) == "text"
+    else if k == "each" and kind_of(c, n.kids[0].ty) == "text"
         // по буквам: tb_x_u8take берёт букву и двигает номер на её последний байт
         tk = xslot(g, "#s" + len(g.vars))
         ik = xslot(g, "#i" + len(g.vars))
@@ -1494,6 +1578,19 @@ func xstmt(g: X64, c: Comp, n: Node)
             xlock_give(g, li, fk)
     else if k == "unlock"
         xlock_give(g, xlock_index(g, n.name), g.lheld[len(g.lheld) - 1])
+    else if k == "multi"
+        // a, b = f() / a, b = f() else err / try f(): выходы во временные ячейки, потом в переменные
+        call = n.kids[len(n.kids) - 1]
+        xexpr(g, c, call)
+        tmps = list int
+        each mt in g.mtemps
+            tmps.add(mt)
+        if len(tmps) != len(n.kids) - 1
+            xfail(g, n.line, "a, b = ... здесь")
+            return
+        count i from 0 to len(n.kids) - 2
+            xload_var(g, tmps[i])
+            xstore_name(g, n.kids[i].name)
     else if k == "fail"
         xexpr(g, c, n.kids[0])
         xpush(g)
@@ -1520,6 +1617,9 @@ func xfunc(g: X64, c: Comp, f: Node, name: text)
     g.fn = f
     g.out_name = ""
     g.fa_slot = -1
+    g.bld_names.clear()
+    g.out_ptrs.clear()
+    g.out_names.clear()
     s = xsym(g, name)
     g.sdef[s] = len(g.code)
     // push rbp; mov rbp, rsp; sub rsp, размер кадра (допишем)
@@ -1535,6 +1635,34 @@ func xfunc(g: X64, c: Comp, f: Node, name: text)
         count i from 0 to min(len(params), 6) - 1
             xbs(g, stores[i])
             x32(g, -8 * (xslot(g, params[i].name) + 1))
+        g.bld_names.clear()
+        xfind_blds(g, c, f.kids[1])
+        each b in g.bld_names
+            xbs(g, [0x48, 0xC7, 0x85])
+            x32(g, -8 * (xslot(g, "#rl." + b) + 1))
+            x32(g, -1)
+            xbs(g, [0x48, 0xC7, 0x85])
+            x32(g, -8 * (xslot(g, "#rc." + b) + 1))
+            x32(g, 0)
+        outs = f.kids[2].kids
+        g.out_ptrs.clear()
+        g.out_names.clear()
+        if len(outs) > 1
+            if len(params) + len(outs) > 6
+                xfail(g, f.line, "больше 6 параметров вместе с выходами")
+            count i from 0 to len(outs) - 1
+                at = len(params) + i
+                if at < 6
+                    op = xslot(g, "#op" + i)
+                    xbs(g, stores[at])
+                    x32(g, -8 * (op + 1))
+                    g.out_ptrs.add(op)
+                    g.out_names.add(outs[i].name)
+            // выход с именем параметра — та же переменная; остальные — пустые значения
+            each o in outs
+                if not has_var(g, o.name)
+                    xdefault(g, c, o.ty, f.line)
+                    xstore_var(g, xslot(g, o.name))
         if func_arena_ok(c, f)
             // всё, что функция создаёт, — во временной области; отдаётся при выходе
             fm = len(g.vars)
@@ -1547,9 +1675,6 @@ func xfunc(g: X64, c: Comp, f: Node, name: text)
             xcall(g, "tb_x_fa_begin")
             xbs(g, [0x48, 0x63, 0xC0])
             xstore_var(g, g.fa_slot)
-        outs = f.kids[2].kids
-        if len(outs) > 1
-            xfail(g, f.line, "функции с несколькими выходами")
         if len(outs) == 1
             g.out_name = outs[0].name
             if not has_var(g, g.out_name)
@@ -1566,6 +1691,12 @@ func xfunc(g: X64, c: Comp, f: Node, name: text)
                 xstore_global(g, xglobal(g, gl.name))
         xcall(g, ll_fname(f.ref))
     xplace(g, g.ret_l)
+    // несколько выходов: значения — по адресам, которые дал вызов
+    count i from 0 to len(g.out_ptrs) - 1
+        xload_var(g, xslot(g, g.out_names[i]))
+        xbs(g, [0x48, 0x8B, 0x8D])
+        x32(g, -8 * (g.out_ptrs[i] + 1))
+        xbs(g, [0x48, 0x89, 0x01])
     if g.fa_slot >= 0
         keep = xslot(g, "#ret")
         xstore_var(g, keep)
@@ -1721,7 +1852,7 @@ modpub func x64_app(c: Comp, program: Node) gives bytes: list int, err: text
                 if pk != "int" and pk != "bool" and pk != "text" and pk != "dec" and pk != "list" and pk != "obj" and pk != "enum" and pk != "dict"
                     xfail(g, top.line, "параметры типа " + pk)
             rk = kind_of(c, top.ty)
-            if rk != "int" and rk != "bool" and rk != "text" and rk != "none" and rk != "dec" and rk != "list" and rk != "obj" and rk != "enum" and rk != "dict"
+            if rk != "int" and rk != "bool" and rk != "text" and rk != "none" and rk != "dec" and rk != "list" and rk != "obj" and rk != "enum" and rk != "dict" and rk != "multi"
                 xfail(g, top.line, "ответ типа " + rk)
             xfunc(g, c, top, ll_fname(top))
         else if top.kind == "obj" and top.by_cols
