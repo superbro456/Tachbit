@@ -1,0 +1,755 @@
+// model — готовые 3D-модели из файлов: OBJ (+ MTL) и glTF 2.0 (.gltf и .glb).
+// Библиотека на чистом Tachbit, без новых слов языка: читает файл и складывает
+// треугольники в обычные сетки через mesh_add / mesh_add_uv.
+//
+//   use model
+//   md = try model.load("дом.obj")        // или .gltf / .glb
+//   model.fit(md, 2.0)                    // самая длинная сторона 2, низ на y = 0, по центру
+//   model.build(md)                       // сетки для видеокарты (после window_open)
+//   repeat while window_alive()
+//       model.draw(md, x, y, z, поворот, наклон, крен)
+//
+// Оси Tachbit: x вправо, y вверх, z вперёд (от камеры). В OBJ и glTF z смотрит на зрителя,
+// поэтому при чтении z меняет знак (модель стоит так же, как в Blender, лицом к камере),
+// а у треугольников меняется порядок углов, чтобы лицевые грани остались лицевыми.
+
+// кусок модели с одним цветом или одной картинкой — одна сетка
+obj Part
+    name: text
+    color: int
+    image_file: text
+    image: int
+    pos: list dec          // по 9 чисел на треугольник
+    uv: list dec           // по 6 чисел на треугольник (пусто — без картинки)
+    tri_color: list int    // свой цвет треугольника (цвета вершин в OBJ), пусто — color
+    mesh: int
+
+obj Model
+    parts: list Part
+    tris: int
+    min_x: dec
+    min_y: dec
+    min_z: dec
+    max_x: dec
+    max_y: dec
+    max_z: dec
+    folder: text
+
+// ---------- общее ----------
+
+modpub func load(path: text) gives md: Model
+    low = lower(path)
+    if ends_with(low, ".obj")
+        md = try load_obj(path)
+        return
+    if ends_with(low, ".gltf") or ends_with(low, ".glb")
+        md = try load_gltf(path)
+        return
+    fail "model: не знаю такой формат (нужен .obj, .gltf или .glb): " + path
+
+// сколько треугольников всего
+modpub func triangles(md: Model)
+    return md.tris
+
+// размеры модели: ширина, высота, глубина
+modpub func size(md: Model) gives w: dec, h: dec, d: dec
+    w = md.max_x - md.min_x
+    h = md.max_y - md.min_y
+    d = md.max_z - md.min_z
+
+// уменьшить или увеличить так, чтобы самая длинная сторона стала size,
+// поставить на пол (низ на y = 0) и в середину по x и z
+modpub func fit(md: Model, size_to: dec)
+    w = md.max_x - md.min_x
+    h = md.max_y - md.min_y
+    d = md.max_z - md.min_z
+    big = max(w, max(h, d))
+    if big <= 0.0
+        return
+    k = size_to / big
+    cx = (md.min_x + md.max_x) / 2
+    cz = (md.min_z + md.max_z) / 2
+    base = md.min_y
+    each p in md.parts
+        i = 0
+        repeat while i < len(p.pos)
+            p.pos[i] = (p.pos[i] - cx) * k
+            p.pos[i + 1] = (p.pos[i + 1] - base) * k
+            p.pos[i + 2] = (p.pos[i + 2] - cz) * k
+            i += 3
+    md.min_x = (md.min_x - cx) * k
+    md.max_x = (md.max_x - cx) * k
+    md.min_y = 0.0
+    md.max_y = h * k
+    md.min_z = (md.min_z - cz) * k
+    md.max_z = (md.max_z - cz) * k
+
+// растянуть во сколько раз (1 — как есть)
+modpub func scale(md: Model, k: dec)
+    each p in md.parts
+        count i from 0 to len(p.pos) - 1
+            p.pos[i] = p.pos[i] * k
+    md.min_x = md.min_x * k
+    md.min_y = md.min_y * k
+    md.min_z = md.min_z * k
+    md.max_x = md.max_x * k
+    md.max_y = md.max_y * k
+    md.max_z = md.max_z * k
+
+// сделать сетки для видеокарты; картинки грузятся здесь (нужно открытое окно)
+modpub func build(md: Model)
+    each p in md.parts
+        p.mesh = mesh_new()
+        if p.image_file != "" and p.image < 0
+            p.image = load_image(p.image_file) or -1
+        if p.image >= 0 and len(p.uv) > 0
+            mesh_image(p.mesh, p.image)
+        n = len(p.pos) / 9
+        count t from 0 to n - 1
+            a = t * 9
+            if p.image >= 0 and len(p.uv) > 0
+                b = t * 6
+                mesh_add_uv(p.mesh, p.pos[a], p.pos[a + 1], p.pos[a + 2], p.uv[b], p.uv[b + 1], p.pos[a + 3], p.pos[a + 4], p.pos[a + 5], p.uv[b + 2], p.uv[b + 3], p.pos[a + 6], p.pos[a + 7], p.pos[a + 8], p.uv[b + 4], p.uv[b + 5])
+            else
+                c = p.color
+                if len(p.tri_color) > 0
+                    c = p.tri_color[t]
+                mesh_add(p.mesh, p.pos[a], p.pos[a + 1], p.pos[a + 2], p.pos[a + 3], p.pos[a + 4], p.pos[a + 5], p.pos[a + 6], p.pos[a + 7], p.pos[a + 8], c)
+
+// нарисовать модель в точке мира, повёрнутой как draw_mesh_rot
+modpub func draw(md: Model, x: dec, y: dec, z: dec, yaw: dec, pitch: dec, roll: dec)
+    each p in md.parts
+        if p.mesh >= 0
+            draw_mesh_rot(p.mesh, x, y, z, yaw, pitch, roll)
+
+// перекрасить все куски без картинки
+modpub func paint(md: Model, c: int)
+    each p in md.parts
+        p.color = c
+        p.tri_color.clear()
+
+func new_model() gives md: Model
+    md = Model(min_x: 1000000000000.0, min_y: 1000000000000.0, min_z: 1000000000000.0, max_x: -1000000000000.0, max_y: -1000000000000.0, max_z: -1000000000000.0)
+
+func new_part(name: text, c: int) gives p: Part
+    p = Part(name: name, color: c, image: -1, mesh: -1)
+
+func grow_box(md: Model, x: dec, y: dec, z: dec)
+    md.min_x = min(md.min_x, x)
+    md.min_y = min(md.min_y, y)
+    md.min_z = min(md.min_z, z)
+    md.max_x = max(md.max_x, x)
+    md.max_y = max(md.max_y, y)
+    md.max_z = max(md.max_z, z)
+
+func finish(md: Model)
+    keep = list Part
+    total = 0
+    each p in md.parts
+        if len(p.pos) > 0
+            keep.add(p)
+            total += len(p.pos) / 9
+    md.parts = keep
+    md.tris = total
+    if total == 0
+        md.min_x = 0.0
+        md.min_y = 0.0
+        md.min_z = 0.0
+        md.max_x = 0.0
+        md.max_y = 0.0
+        md.max_z = 0.0
+
+func folder_of(path: text)
+    i = len(path) - 1
+    repeat while i >= 0
+        if path[i] == "/" or path[i] == "\\"
+            return cut(path, 0, i)
+        i -= 1
+    return ""
+
+func dec_or(s: text, d: dec)
+    return to_dec(s) or d
+
+func clamp255(v: dec)
+    n = round(v * 255)
+    if n < 0
+        return 0
+    if n > 255
+        return 255
+    return n
+
+// ---------- OBJ ----------
+
+modpub func load_obj(path: text) gives md: Model
+    src = try read_file(path)
+    md = try parse_obj(src, folder_of(path))
+
+// разобрать текст OBJ; folder — откуда брать .mtl и картинки
+modpub func parse_obj(src: text, folder: text) gives md: Model
+    md = new_model()
+    md.folder = folder
+    vx = list dec
+    vy = list dec
+    vz = list dec
+    vc = list int              // цвет вершины (v x y z r g b), -1 — нет
+    tu = list dec
+    tv = list dec
+    mats = dict text Part      // материалы из .mtl
+    cur = new_part("", rgb(200, 200, 200))
+    md.parts.add(cur)
+    by_name = dict text int    // имя материала → номер куска
+    line_no = 0
+    each raw in split(src, "\n")
+        line_no += 1
+        ln = trim(replace(raw, "\t", " "))
+        if ln == "" or starts_with(ln, "#")
+            skip
+        w = words(ln)
+        k = w[0]
+        if k == "v" and len(w) >= 4
+            vx.add(dec_or(w[1], 0.0))
+            vy.add(dec_or(w[2], 0.0))
+            vz.add(-dec_or(w[3], 0.0))
+            if len(w) >= 7
+                vc.add(rgb(clamp255(dec_or(w[4], 1.0)), clamp255(dec_or(w[5], 1.0)), clamp255(dec_or(w[6], 1.0))))
+            else
+                vc.add(-1)
+        else if k == "vt" and len(w) >= 3
+            tu.add(dec_or(w[1], 0.0))
+            tv.add(1.0 - dec_or(w[2], 0.0))
+        else if k == "mtllib" and len(w) >= 2
+            mpath = join_path(folder, rest_of(ln, 6))
+            msrc = read_file(mpath) or ""
+            read_mtl(msrc, folder, mats)
+        else if k == "usemtl"
+            name = rest_of(ln, 6)
+            if by_name.has(name)
+                cur = md.parts[by_name[name]]
+            else
+                p = new_part(name, rgb(200, 200, 200))
+                if mats.has(name)
+                    m = mats[name]
+                    p.color = m.color
+                    p.image_file = m.image_file
+                md.parts.add(p)
+                by_name[name] = len(md.parts) - 1
+                cur = p
+        else if k == "f" and len(w) >= 4
+            nv = len(w) - 1
+            pi = list int
+            ti = list int
+            each j in range_list(1, nv)
+                a, b = face_ref(w[j], len(vx), len(tu))
+                if a < 0 or a >= len(vx)
+                    fail "model: строка " + line_no + ": нет такой вершины: " + w[j]
+                pi.add(a)
+                ti.add(b)
+            // многоугольник → веер треугольников
+            count j from 1 to nv - 2
+                tri(md, cur, vx, vy, vz, vc, tu, tv, pi[0], pi[j + 1], pi[j], ti[0], ti[j + 1], ti[j])
+    finish(md)
+
+func range_list(a: int, n: int) gives xs: list int
+    count i from a to n
+        xs.add(i)
+
+func tri(md: Model, p: Part, vx: list dec, vy: list dec, vz: list dec, vc: list int, tu: list dec, tv: list dec, a: int, b: int, c: int, ta: int, tb: int, tc: int)
+    each i in [a, b, c]
+        p.pos.add(vx[i])
+        p.pos.add(vy[i])
+        p.pos.add(vz[i])
+        grow_box(md, vx[i], vy[i], vz[i])
+    if ta >= 0 and tb >= 0 and tc >= 0
+        p.uv.add(tu[ta])
+        p.uv.add(tv[ta])
+        p.uv.add(tu[tb])
+        p.uv.add(tv[tb])
+        p.uv.add(tu[tc])
+        p.uv.add(tv[tc])
+    else if len(p.uv) > 0
+        repeat 6 times
+            p.uv.add(0.0)
+    if vc[a] >= 0
+        if len(p.tri_color) == 0 and len(p.pos) > 9
+            repeat len(p.pos) / 9 - 1 times
+                p.tri_color.add(p.color)
+        p.tri_color.add(avg_color(vc[a], vc[b], vc[c]))
+    else if len(p.tri_color) > 0
+        p.tri_color.add(p.color)
+
+func avg_color(a: int, b: int, c: int)
+    r = (shift_right(a, 16) % 256 + shift_right(b, 16) % 256 + shift_right(c, 16) % 256) / 3
+    g = (shift_right(a, 8) % 256 + shift_right(b, 8) % 256 + shift_right(c, 8) % 256) / 3
+    bl = (a % 256 + b % 256 + c % 256) / 3
+    return rgb(r, g, bl)
+
+// "7", "7/3", "7/3/5", "7//5"; номера с 1, минус — с конца
+func face_ref(s: text, nv: int, nt: int) gives v: int, t: int
+    parts = split(s, "/")
+    v = ref_index(parts[0], nv)
+    t = -1
+    if len(parts) >= 2 and parts[1] != ""
+        t = ref_index(parts[1], nt)
+        if t >= nt
+            t = -1
+
+func ref_index(s: text, n: int)
+    i = to_int(s) or 0
+    if i < 0
+        return n + i
+    return i - 1
+
+func words(s: text) gives out: list text
+    each piece in split(s, " ")
+        if piece != ""
+            out.add(piece)
+
+func rest_of(ln: text, n: int)
+    return trim(cut(ln, n, len(ln) - 1))
+
+func join_path(folder: text, name: text)
+    if folder == "" or starts_with(name, "/")
+        return name
+    return folder + "/" + name
+
+func read_mtl(src: text, folder: text, mats: dict text Part)
+    cur = ""
+    each raw in split(src, "\n")
+        ln = trim(replace(raw, "\t", " "))
+        if ln == "" or starts_with(ln, "#")
+            skip
+        w = words(ln)
+        if w[0] == "newmtl" and len(w) >= 2
+            cur = rest_of(ln, 6)
+            mats[cur] = new_part(cur, rgb(200, 200, 200))
+        else if cur == ""
+            skip
+        else if w[0] == "Kd" and len(w) >= 4
+            mats[cur].color = rgb(clamp255(dec_or(w[1], 0.8)), clamp255(dec_or(w[2], 0.8)), clamp255(dec_or(w[3], 0.8)))
+        else if w[0] == "map_Kd" and len(w) >= 2
+            mats[cur].image_file = join_path(folder, w[len(w) - 1])
+
+// ---------- glTF 2.0 ----------
+// .gltf (JSON, буферы рядом в .bin или внутри как base64) и .glb (всё в одном файле).
+// Берётся сцена по умолчанию со всеми узлами (сдвиг, поворот, масштаб, матрица),
+// треугольники, цвет материала, картинка цвета (файл или внутри .glb), цвета вершин.
+// Анимации и кости пока не читаются: модель встаёт в исходной позе.
+
+use c
+    func fopen(path: text, mode: text) gives u64
+    func fread(buf: int, size: u64, n: u64, f: u64) gives u64
+    func fseek(f: u64, off: i64, whence: i32) gives i32
+    func ftell(f: u64) gives i64
+    func fclose(f: u64) gives i32
+
+obj Gltf
+    j: text
+    folder: text
+    buf_addr: list int
+    buf_len: list int
+    pow2: list dec            // 2^(e-150) для e = 0..255: дроби из 32 бит
+    md: Model
+    part_of: dict int int     // номер материала → номер куска
+
+modpub func load_gltf(path: text) gives md: Model
+    g = Gltf(folder: folder_of(path))
+    md = new_model()
+    md.folder = g.folder
+    g.md = md
+    if ends_with(lower(path), ".glb")
+        try read_glb(g, path)
+    else
+        g.j = try read_file(path)
+        try read_buffers(g)
+    p = 1.0
+    count e from 0 to 149
+        p = p / 2
+    count e from 0 to 255
+        g.pow2.add(p)
+        p = p * 2
+    scene = to_int(json_get(g.j, "scene") or "0") or 0
+    ident = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+    roots = json_count(g.j, "scenes." + scene + ".nodes")
+    if roots == 0
+        // сцены нет — все сетки как есть
+        count m from 0 to json_count(g.j, "meshes") - 1
+            try add_mesh(g, m, ident)
+    count i from 0 to roots - 1
+        n = to_int(json_get(g.j, "scenes." + scene + ".nodes." + i) or "0") or 0
+        try add_node(g, n, ident, 0)
+    free_buffers(g)
+    finish(md)
+
+// сколько элементов в списке JSON по пути
+func json_count(j: text, path: text)
+    n = 0
+    repeat while true
+        v = json_get(j, path + "." + n) or "§нет§"
+        if v == "§нет§"
+            return n
+        n += 1
+    return n
+
+func jnum(j: text, path: text, d: dec)
+    s = json_get(j, path) or ""
+    if s == ""
+        return d
+    return to_dec(s) or d
+
+func jint(j: text, path: text, d: int)
+    s = json_get(j, path) or ""
+    if s == ""
+        return d
+    return to_int(s) or d
+
+func add_node(g: Gltf, n: int, parent: list dec, depth: int)
+    if depth > 64
+        fail "model: узлы glTF зациклены"
+    base = "nodes." + n
+    local = node_matrix(g.j, base)
+    world = mat_mul(parent, local)
+    if (json_get(g.j, base + ".mesh") or "") != ""
+        try add_mesh(g, jint(g.j, base + ".mesh", 0), world)
+    count i from 0 to json_count(g.j, base + ".children") - 1
+        try add_node(g, jint(g.j, base + ".children." + i, 0), world, depth + 1)
+
+// матрица узла 4×4 по столбцам, как в glTF
+func node_matrix(j: text, base: text) gives m: list dec
+    if json_count(j, base + ".matrix") == 16
+        count i from 0 to 15
+            m.add(jnum(j, base + ".matrix." + i, 0.0))
+        return
+    tx = jnum(j, base + ".translation.0", 0.0)
+    ty = jnum(j, base + ".translation.1", 0.0)
+    tz = jnum(j, base + ".translation.2", 0.0)
+    qx = jnum(j, base + ".rotation.0", 0.0)
+    qy = jnum(j, base + ".rotation.1", 0.0)
+    qz = jnum(j, base + ".rotation.2", 0.0)
+    qw = jnum(j, base + ".rotation.3", 1.0)
+    sx = jnum(j, base + ".scale.0", 1.0)
+    sy = jnum(j, base + ".scale.1", 1.0)
+    sz = jnum(j, base + ".scale.2", 1.0)
+    m = [(1 - 2 * (qy * qy + qz * qz)) * sx, (2 * (qx * qy + qz * qw)) * sx, (2 * (qx * qz - qy * qw)) * sx, 0.0, (2 * (qx * qy - qz * qw)) * sy, (1 - 2 * (qx * qx + qz * qz)) * sy, (2 * (qy * qz + qx * qw)) * sy, 0.0, (2 * (qx * qz + qy * qw)) * sz, (2 * (qy * qz - qx * qw)) * sz, (1 - 2 * (qx * qx + qy * qy)) * sz, 0.0, tx, ty, tz, 1.0]
+
+func mat_mul(a: list dec, b: list dec) gives m: list dec
+    count col from 0 to 3
+        count row from 0 to 3
+            s = 0.0
+            count k from 0 to 3
+                s += a[k * 4 + row] * b[col * 4 + k]
+            m.add(s)
+
+func add_mesh(g: Gltf, mi: int, w: list dec)
+    det = w[0] * (w[5] * w[10] - w[9] * w[6]) - w[4] * (w[1] * w[10] - w[9] * w[2]) + w[8] * (w[1] * w[6] - w[5] * w[2])
+    base = "meshes." + mi + ".primitives"
+    count pi from 0 to json_count(g.j, base) - 1
+        pb = base + "." + pi
+        mode = jint(g.j, pb + ".mode", 4)
+        if mode != 4
+            skip
+        pa = jint(g.j, pb + ".attributes.POSITION", -1)
+        if pa < 0
+            skip
+        pos = try read_acc(g, pa)
+        nv = len(pos) / 3
+        uv = list dec
+        ta = jint(g.j, pb + ".attributes.TEXCOORD_0", -1)
+        if ta >= 0
+            uv = try read_acc(g, ta)
+        col = list dec
+        ca = jint(g.j, pb + ".attributes.COLOR_0", -1)
+        ccomp = 0
+        if ca >= 0
+            col = try read_acc(g, ca)
+            ccomp = len(col) / max(nv, 1)
+        idx = list int
+        ia = jint(g.j, pb + ".indices", -1)
+        if ia >= 0
+            raw = try read_acc(g, ia)
+            each x in raw
+                idx.add(round(x))
+        else
+            count i from 0 to nv - 1
+                idx.add(i)
+        mat = jint(g.j, pb + ".material", -1)
+        p = part_for(g, mat)
+        // вершины в мир: матрица узла, потом z меняет знак
+        px = list dec
+        py = list dec
+        pz = list dec
+        count i from 0 to nv - 1
+            x = pos[i * 3]
+            y = pos[i * 3 + 1]
+            z = pos[i * 3 + 2]
+            px.add(w[0] * x + w[4] * y + w[8] * z + w[12])
+            py.add(w[1] * x + w[5] * y + w[9] * z + w[13])
+            pz.add(-(w[2] * x + w[6] * y + w[10] * z + w[14]))
+        t = 0
+        repeat while t + 2 < len(idx)
+            a = idx[t]
+            b = idx[t + 1]
+            c = idx[t + 2]
+            if det >= 0.0
+                b = idx[t + 2]
+                c = idx[t + 1]
+            t += 3
+            if a >= nv or b >= nv or c >= nv
+                fail "model: номер вершины за краем в сетке " + mi
+            each v in [a, b, c]
+                p.pos.add(px[v])
+                p.pos.add(py[v])
+                p.pos.add(pz[v])
+                grow_box(g.md, px[v], py[v], pz[v])
+            if len(uv) >= nv * 2 and p.image_file != ""
+                each v in [a, b, c]
+                    p.uv.add(uv[v * 2])
+                    p.uv.add(uv[v * 2 + 1])
+            else if len(p.uv) > 0
+                repeat 6 times
+                    p.uv.add(0.0)
+            if ccomp >= 3
+                if len(p.tri_color) == 0 and len(p.pos) > 9
+                    repeat len(p.pos) / 9 - 1 times
+                        p.tri_color.add(p.color)
+                r = (col[a * ccomp] + col[b * ccomp] + col[c * ccomp]) / 3
+                gg = (col[a * ccomp + 1] + col[b * ccomp + 1] + col[c * ccomp + 1]) / 3
+                bb = (col[a * ccomp + 2] + col[b * ccomp + 2] + col[c * ccomp + 2]) / 3
+                p.tri_color.add(tint(p.color, r, gg, bb))
+            else if len(p.tri_color) > 0
+                p.tri_color.add(p.color)
+
+// цвет материала × цвет вершины (вершины в glTF линейные, как и множитель)
+func tint(c: int, r: dec, g: dec, b: dec)
+    cr = shift_right(c, 16) % 256
+    cg = shift_right(c, 8) % 256
+    cb = c % 256
+    return rgb(clamp255(cr / 255.0 * sqrt(max(r, 0.0))), clamp255(cg / 255.0 * sqrt(max(g, 0.0))), clamp255(cb / 255.0 * sqrt(max(b, 0.0))))
+
+func part_for(g: Gltf, mat: int) gives p: Part
+    if g.part_of.has(mat)
+        p = g.md.parts[g.part_of[mat]]
+        return
+    p = new_part("", rgb(200, 200, 200))
+    if mat >= 0
+        mb = "materials." + mat
+        p.name = json_get(g.j, mb + ".name") or ("материал " + mat)
+        f = mb + ".pbrMetallicRoughness.baseColorFactor"
+        // в glTF цвет линейный, на экран — примерно корень (гамма 2)
+        p.color = rgb(clamp255(sqrt(jnum(g.j, f + ".0", 1.0))), clamp255(sqrt(jnum(g.j, f + ".1", 1.0))), clamp255(sqrt(jnum(g.j, f + ".2", 1.0))))
+        tex = jint(g.j, mb + ".pbrMetallicRoughness.baseColorTexture.index", -1)
+        if tex >= 0
+            img = jint(g.j, "textures." + tex + ".source", -1)
+            if img >= 0
+                uri = json_get(g.j, "images." + img + ".uri") or ""
+                if uri != "" and not starts_with(uri, "data:")
+                    p.image_file = join_path(g.folder, url_decode(uri))
+                else
+                    bv = jint(g.j, "images." + img + ".bufferView", -1)
+                    if bv >= 0
+                        p.image_file = "#" + bv
+                        p.image = view_image(g, bv)
+    g.md.parts.add(p)
+    g.part_of[mat] = len(g.md.parts) - 1
+
+// картинка внутри .glb: сразу в картинку Tachbit (до free_buffers)
+func view_image(g: Gltf, bv: int)
+    vb = "bufferViews." + bv
+    b = jint(g.j, vb + ".buffer", 0)
+    off = jint(g.j, vb + ".byteOffset", 0)
+    n = jint(g.j, vb + ".byteLength", 0)
+    if b >= len(g.buf_addr) or off + n > g.buf_len[b]
+        return -1
+    danger
+        im = image_from_mem(g.buf_addr[b] + off, n) or -1
+        return im
+    return -1
+
+func url_decode(s: text)
+    return replace(s, "%20", " ")
+
+// прочитать accessor в список дробей (целые тоже дробями)
+func read_acc(g: Gltf, ai: int) gives out: list dec
+    ab = "accessors." + ai
+    bv = jint(g.j, ab + ".bufferView", -1)
+    n = jint(g.j, ab + ".count", 0)
+    ct = jint(g.j, ab + ".componentType", 5126)
+    norm = (json_get(g.j, ab + ".normalized") or "") == "true"
+    tp = json_get(g.j, ab + ".type") or "SCALAR"
+    k = 1
+    match tp
+        "VEC2"
+            k = 2
+        "VEC3"
+            k = 3
+        "VEC4"
+            k = 4
+        "MAT4"
+            k = 16
+        else
+            k = 1
+    cs = 4
+    if ct == 5123 or ct == 5122
+        cs = 2
+    if ct == 5121 or ct == 5120
+        cs = 1
+    if bv < 0
+        repeat n * k times
+            out.add(0.0)
+        return
+    vb = "bufferViews." + bv
+    b = jint(g.j, vb + ".buffer", 0)
+    stride = jint(g.j, vb + ".byteStride", 0)
+    if stride == 0
+        stride = k * cs
+    start = jint(g.j, vb + ".byteOffset", 0) + jint(g.j, ab + ".byteOffset", 0)
+    if b >= len(g.buf_addr)
+        fail "model: нет буфера " + b
+    if n > 0 and start + (n - 1) * stride + k * cs > g.buf_len[b]
+        fail "model: accessor " + ai + " выходит за край буфера"
+    a0 = g.buf_addr[b] + start
+    danger
+        count i from 0 to n - 1
+            at = a0 + i * stride
+            count c from 0 to k - 1
+                p = at + c * cs
+                v = 0.0
+                if ct == 5126
+                    v = f32(g, read32(p))
+                else if ct == 5125
+                    v = read32(p) * 1.0
+                else if ct == 5123
+                    v = read16(p) * 1.0
+                    if norm
+                        v = v / 65535
+                else if ct == 5121
+                    v = read8(p) * 1.0
+                    if norm
+                        v = v / 255
+                else if ct == 5122
+                    s = read16(p)
+                    if s >= 32768
+                        s -= 65536
+                    v = s * 1.0
+                    if norm
+                        v = max(v / 32767, -1.0)
+                else
+                    s = read8(p)
+                    if s >= 128
+                        s -= 256
+                    v = s * 1.0
+                    if norm
+                        v = max(v / 127, -1.0)
+                out.add(v)
+
+// 32 бита IEEE 754 → dec
+func f32(g: Gltf, bits: int)
+    e = bit_and(shift_right(bits, 23), 255)
+    m = bit_and(bits, 0x7FFFFF)
+    v = 0.0
+    if e == 0
+        v = m * g.pow2[1]
+    else if e == 255
+        v = 0.0
+    else
+        v = (m + 8388608) * g.pow2[e]
+    if bit_and(bits, 0x80000000) != 0
+        v = -v
+    return v
+
+func read_buffers(g: Gltf)
+    count i from 0 to json_count(g.j, "buffers") - 1
+        n = jint(g.j, "buffers." + i + ".byteLength", 0)
+        uri = json_get(g.j, "buffers." + i + ".uri") or ""
+        if starts_with(uri, "data:")
+            k = find(uri, ",")
+            a, got = try base64_mem(cut(uri, k + 1, len(uri) - 1))
+            g.buf_addr.add(a)
+            g.buf_len.add(got)
+        else
+            a, got = try read_bin(join_path(g.folder, url_decode(uri)))
+            g.buf_addr.add(a)
+            g.buf_len.add(got)
+        if g.buf_len[i] < n
+            fail "model: буфер " + i + " короче, чем написано в файле"
+
+func free_buffers(g: Gltf)
+    danger
+        each a in g.buf_addr
+            free_mem(a)
+    g.buf_addr.clear()
+    g.buf_len.clear()
+
+// файл целиком в память: адрес и длина
+func read_bin(path: text) gives a: int, n: int
+    danger
+        f = c.fopen(path, "rb")
+        if f == 0
+            fail "model: не открыть " + path
+        c.fseek(f, 0, 2)
+        n = c.ftell(f)
+        c.fseek(f, 0, 0)
+        a = new_mem(n + 1) else err
+            c.fclose(f)
+            fail "model: мало памяти для " + path
+        got = c.fread(a, 1, n, f)
+        c.fclose(f)
+        if got != n
+            free_mem(a)
+            fail "model: не дочитать " + path
+
+func read_glb(g: Gltf, path: text)
+    a, n = try read_bin(path)
+    danger
+        if n < 20 or read32(a) != 0x46546C67
+            free_mem(a)
+            fail "model: это не .glb: " + path
+        jl = read32(a + 12)
+        if read32(a + 16) != 0x4E4F534A or 20 + jl > n
+            free_mem(a)
+            fail "model: в .glb нет JSON: " + path
+        js = ""
+        count i from 0 to jl - 1
+            js += byte_char(read8(a + 20 + i))
+        g.j = js
+        at = 20 + jl
+        if at + 8 <= n and read32(a + at + 4) == 0x004E4942
+            bl = read32(a + at)
+            b = try new_mem(bl + 1)
+            copy_mem(b, a + at + 8, min(bl, n - at - 8))
+            g.buf_addr.add(b)
+            g.buf_len.add(bl)
+        free_mem(a)
+    // внешние буферы, если они есть кроме встроенного
+    count i from 0 to json_count(g.j, "buffers") - 1
+        uri = json_get(g.j, "buffers." + i + ".uri") or ""
+        if uri != "" and i >= len(g.buf_addr)
+            if starts_with(uri, "data:")
+                k = find(uri, ",")
+                ba, bn = try base64_mem(cut(uri, k + 1, len(uri) - 1))
+                g.buf_addr.add(ba)
+                g.buf_len.add(bn)
+            else
+                ba, bn = try read_bin(join_path(g.folder, url_decode(uri)))
+                g.buf_addr.add(ba)
+                g.buf_len.add(bn)
+
+func base64_mem(s: text) gives a: int, n: int
+    abc = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    val = dict int int
+    count i from 0 to 63
+        val[code(abc[i])] = i
+    danger
+        a = try new_mem(len(s) * 3 / 4 + 4)
+        acc = 0
+        bits = 0
+        n = 0
+        each ch in s
+            cc = code(ch)
+            if not val.has(cc)
+                skip
+            acc = bit_or(shift_left(bit_and(acc, 0xFFFF), 6), val[cc])
+            bits += 6
+            if bits >= 8
+                bits -= 8
+                write8(a + n, bit_and(shift_right(acc, bits), 255))
+                n += 1

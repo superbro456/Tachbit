@@ -369,6 +369,47 @@ repeat while window_alive()
 
 <p align="center"><img src="../assets/playground-screenshot.png" alt="Площадка 3D" width="560"></p>
 
+## Модели: lib/model.tb
+
+`use model` — готовые 3D-модели из Blender и с сайтов моделей (Sketchfab, Poly Pizza, Kenney ...):
+`.obj` (с `.mtl`: цвета `Kd` и картинки `map_Kd`), `.gltf` (буферы рядом или внутри файла base64) и
+`.glb` (всё в одном файле, картинки внутри тоже). Из glTF читаются узлы со сдвигом, поворотом и
+масштабом, цвет материала, картинка `baseColorTexture`, цвета углов `COLOR_0`. Анимации и кости
+из файла пока не читаются (двигать модель — `lib/anim.tb`).
+
+```
+use model
+
+func main()
+    try window_open(900, 600, "Дом")
+    md = model.load("дом.glb") else err
+        print("ошибка: " + err)
+        return
+    model.fit(md, 3.0)          // длинная сторона 3, низ на y = 0, по центру
+    model.build(md)             // сетки и картинки в видеокарту, один раз
+    camera(0, 3, -7, 0, 1.2, 0)
+    sunlight(0.5, 1, -0.3, 0.3)
+    turn = 0.0
+    repeat while window_alive()
+        clear_window(rgb(28, 32, 46))
+        model.draw(md, 0, 0, 0, turn, 0, 0)
+        turn += 1
+```
+
+| Слово | Что делает |
+|---|---|
+| `model.load(путь)` | читает `.obj`, `.gltf` или `.glb`; может упасть (`else err`, `try`) |
+| `model.triangles(md)` | сколько треугольников |
+| `model.size(md)` | `gives w, h, d` — ширина, высота, глубина |
+| `model.fit(md, n)` / `model.scale(md, k)` | подогнать длинную сторону под `n` / умножить на `k` |
+| `model.paint(md, цвет)` | перекрасить всю модель одним цветом |
+| `model.build(md)` | собрать сетки (`mesh_add_uv` с картинкой или `mesh_add` с цветом) |
+| `model.draw(md, x, y, z, поворот, наклон, крен)` | нарисовать все куски через `draw_mesh_rot` |
+
+Куски модели лежат в `md.parts` (имя, цвет, картинка, треугольники), так что можно рисовать
+и менять их по одному. Стороны переворачиваются сами: в OBJ и glTF ось z смотрит на зрителя, в Tachbit — вперёд.
+Пример: `tb run examples/basics/view_model.tb мой.glb` — стрелки крутят, колёсико приближает.
+
 `examples/apps/football`: футбол на том же. Стрелки — бег, Shift — быстрее, X — удар (коротко — пас,
 держать — сильнее и выше), C — взять мяч в руки и бросить. Вратарь ловит, иногда не удерживает сильный
 удар и выбивает мяч в поле; считаются голы, ауты и сейвы. Мяч крутится, когда катится: повернуть сетку
