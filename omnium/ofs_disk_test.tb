@@ -1,6 +1,7 @@
 // OFS3 на диске: первый запуск пишет, следующие (тот же диск) видят всё, что было записано.
 // tests/omnium_disk.sh между запусками портит диск: суперблок (как сбой посреди записи) и данные
 use ofs
+use disk
 
 func main()
     bell = channel int
@@ -27,6 +28,10 @@ func main()
         ofs.snapshot(k, "утро") else err
             print(err)
         d = ofs.put(k, "заметки", "всё стёрла") or 0
+        raw = mem_new(1000)
+        count i from 0 to 999
+            set8(raw + i, i % 5)
+        e = ofs.put_mem(k, "программа", raw, 1000) or 0
         print("записано версий: " + a + " " + b + " " + c + " " + d)
     else
         print("файлы: " + join(names, ", "))
@@ -37,6 +42,16 @@ func main()
             big = ""
         if big != ""
             print("большой: " + len(big) + " байт, последняя строка цела: " + ends_with(big, "строка 300\n"))
+        b, n = ofs.get_mem(k, "программа") else err
+            print("программа: " + err)
+            b = 0
+            n = 0
+        same = n == 1000
+        if same
+            count i from 0 to 999
+                if get8(b + i) != i % 5
+                    same = false
+        print("программа: " + n + " байт, совпали: " + same)
         ofs.restore(k, "утро") else err
             print(err)
         print("после снимка: " + (ofs.get(k, "заметки") or "?"))

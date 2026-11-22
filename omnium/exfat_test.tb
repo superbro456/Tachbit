@@ -1,6 +1,7 @@
 // exFAT на втором диске (флешка): читать файлы и папки, писать новые, удалять
 use ofs
 use exfat
+use disk
 
 func names(k: Key, path: text) gives s: text
     ns = exfat.ls(k, path) else err
@@ -38,5 +39,32 @@ func main()
         print(err)
     print("после записи: " + names(k, "/Омниум") + " / " + (exfat.get(k, "/Омниум/привет.txt") or "?"))
     print("документы: " + names(k, "/Документы"))
+    // байты с нулями внутри (как у картинки): записать и прочитать как было
+    a = mem_new(300)
+    count i from 0 to 299
+        set8(a + i, i % 7)
+    exfat.put_mem(k, "/Омниум/картинка.bin", a, 300) else err
+        print(err)
+    b, n = exfat.get_mem(k, "/Омниум/картинка.bin") else err
+        print(err)
+        b = 0
+        n = 0
+    same = n == 300
+    if same
+        count i from 0 to 299
+            if get8(b + i) != i % 7
+                same = false
+    print("байты с нулями: " + n + " байт, совпали: " + same)
+    // много файлов в одной папке: места под имена не хватит, папка должна вырасти
+    exfat.mkdir(k, "/много") else err
+        print(err)
+    count i from 1 to 150
+        exfat.put(k, "/много/файл " + i + ".txt", "номер " + i) else err
+            print("файл " + i + ": " + err)
+            stop
+    many = exfat.ls(k, "/много") else err
+        print(err)
+        return
+    print("в папке «много»: " + len(many) + ", последний: " + (exfat.get(k, "/много/файл 150.txt") or "?"))
     bell.close()
     usb.wait

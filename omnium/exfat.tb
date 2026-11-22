@@ -11,7 +11,6 @@
 //
 // Что умеет: папки, длинные имена (UTF-16, русские буквы), файлы на цепочке FAT и сплошные.
 // Новые файлы пишутся сплошным куском (без цепочки FAT), как делает сама Windows.
-// Пока не умеет: расширять папку, когда в ней кончились места под имена; файлы с байтом 0 внутри.
 use disk
 use ofs
 use rtc
@@ -22,6 +21,8 @@ obj Vol
     note: text
     label: text
     fat: int          // сектор начала FAT
+    fat_len: int      // секторов в одной FAT
+    nfats: int        // сколько FAT (1, у TexFAT 2)
     heap: int         // сектор начала кластеров
     count_c: int      // сколько кластеров
     root: int         // первый кластер корневой папки
@@ -221,6 +222,10 @@ obj Dir
     a: int
     n: int
     es: list Ent
+    root: bool
+    nofat: bool       // папка лежит сплошным куском (без цепочки FAT)
+    pcs: list int     // кластеры папки-родителя (у корня нет)
+    pslot: int        // запись 0x85 этой папки у родителя
 
 func free_dir(d: Dir)
     if d.a != 0
@@ -232,6 +237,10 @@ func open_dir(v: Vol, path: text) gives d: Dir
     first = v.root
     nofat = false
     size = 0
+    pfirst = 0
+    pnofat = false
+    psize = 0
+    pslot = -1
     each part in split(path, "/")
         if part == ""
             skip
@@ -244,6 +253,10 @@ func open_dir(v: Vol, path: text) gives d: Dir
         found = false
         each e in es
             if e.is_dir and same_name(e.name, part)
+                pfirst = first
+                pnofat = nofat
+                psize = size
+                pslot = e.slot
                 first = e.first
                 nofat = e.nofat
                 size = e.size
@@ -252,6 +265,11 @@ func open_dir(v: Vol, path: text) gives d: Dir
         if not found
             return
     d.cs = chain(v, first, nofat, size)
+    d.nofat = nofat
+    d.root = pslot < 0
+    d.pslot = pslot
+    if pslot >= 0
+        d.pcs = chain(v, pfirst, pnofat, psize)
     d.a = load(v, d.cs)
     if d.a == 0
         return
@@ -295,6 +313,8 @@ func mount(v: Vol)
         v.note = "сектор не 512 байт: пока не умею"
         return
     v.fat = get32(v.buf + 0x50)
+    v.fat_len = get32(v.buf + 0x54)
+    v.nfats = get8(v.buf + 0x6E)
     v.heap = get32(v.buf + 0x58)
     v.count_c = get32(v.buf + 0x5C)
     v.root = get32(v.buf + 0x60)
@@ -352,7 +372,7 @@ func ex_read(v: Vol, path: text) gives r: text
         return "err\nфайл не читается"
     s = ""
     if e.size > 0
-        s = get_text(a, e.size)
+        s = bin_text(a, e.size)
         mem_free(a)
     return "ok\n" + s
 
@@ -445,31 +465,117 @@ func add_ent(v: Vol, d: Dir, name: text, is_dir: bool, first: int, size: int) gi
             ci = k * 15 + j
             if ci < len(u)
                 set16(e + 2 + j * 2, u[ci])
-    // сумма набора (байты 2 и 3 первой записи не считаются)
+    set_sum(p)
+    return true
+
+// сумма набора записей с адреса p (байты 2 и 3 первой записи не считаются)
+func set_sum(p: int)
+    need = get8(p + 1) + 1
     h = 0
     count i from 0 to need * 32 - 1
         if i == 2 or i == 3
             skip
         h = bit_and(bit_or(shift_left(bit_and(h, 1), 15), shift_right(h, 1)) + get8(p + i), 0xFFFF)
     set16(p + 2, h)
-    return true
+
+// число в FAT (во всех копиях FAT)
+func fat_set(v: Vol, c: int, val: int) gives ok: bool
+    ok = true
+    count f from 0 to max(v.nfats, 1) - 1
+        s = v.fat + f * v.fat_len + c * 4 / 512
+        if not disk_read(v.drive, s, v.buf)
+            return false
+        set32(v.buf + (c * 4) % 512, val)
+        if not disk_write(v.drive, s, v.buf)
+            return false
+
+// в папке кончилось место под имена: добавить ей кластер.
+// Порядок для живучести: новый кластер (нули) → FAT → запись папки у родителя; карту занятости
+// и саму папку потом пишет тот, кто зовёт.
+func grow_dir(v: Vol, d: Dir) gives ok: bool
+    last = d.cs[len(d.cs) - 1]
+    nc = 0
+    if last + 1 < v.count_c + 2 and not bm_get(v, last + 1)
+        nc = last + 1
+        bm_set(v, nc, true)
+    else
+        nc = alloc(v, 1)
+    if nc == 0
+        return false
+    a2 = mem_new((len(d.cs) + 1) * v.csize + 512)
+    if a2 == 0
+        bm_set(v, nc, false)
+        return false
+    zero(a2, (len(d.cs) + 1) * v.csize)
+    if not disk_write_n(v.drive, sector_of(v, nc), v.spc, a2 + len(d.cs) * v.csize)
+        mem_free(a2)
+        bm_set(v, nc, false)
+        return false
+    ok = true
+    if d.nofat and nc != last + 1
+        // кусок больше не сплошной: папка переходит на цепочку FAT
+        count i from 0 to len(d.cs) - 2
+            ok = ok and fat_set(v, d.cs[i], d.cs[i + 1])
+        d.nofat = false
+    if not d.nofat
+        ok = ok and fat_set(v, last, nc) and fat_set(v, nc, 0xFFFFFFFF)
+    if not ok
+        mem_free(a2)
+        bm_set(v, nc, false)
+        return false
+    copy(a2, d.a, len(d.cs) * v.csize)
+    mem_free(d.a)
+    d.a = a2
+    d.cs.add(nc)
+    d.n = len(d.cs) * v.csize / 32
+    if d.root
+        return true
+    // у родителя: новый размер папки и «сплошная или нет»
+    pa = load(v, d.pcs)
+    if pa == 0
+        return false
+    p = pa + d.pslot * 32
+    q = p + 32
+    fl = bit_and(get8(q + 1), 0xFD)
+    if d.nofat
+        fl = bit_or(fl, 2)
+    set8(q + 1, fl)
+    set64(q + 8, len(d.cs) * v.csize)
+    set64(q + 24, len(d.cs) * v.csize)
+    set_sum(p)
+    ok = store(v, d.pcs, pa)
+    mem_free(pa)
 
 func ex_write(v: Vol, path: text, data: text, is_dir: bool) gives r: text
     folder, name = split_path(path)
     if name == ""
         return "err\nнет имени"
+    if len(utf8_codes(name)) > 255
+        return "err\nимя длиннее 255 знаков"
     d = open_dir(v, folder)
     if not d.ok
         return "err\nнет папки: " + folder
     at = find_ent(d, name)
-    if at >= 0
-        if d.es[at].is_dir
-            free_dir(d)
-            if is_dir
-                return "ok\n"
-            return "err\nтакая папка уже есть: " + path
-        drop_ent(v, d, d.es[at])
-    size = len(data)
+    if at >= 0 and d.es[at].is_dir
+        free_dir(d)
+        if is_dir
+            return "ok\n"
+        return "err\nтакая папка уже есть: " + path
+    // карта занятости до записи: что-то не вышло — вернём её как была
+    bm0 = mem_new(v.bm_len + 8)
+    if bm0 == 0
+        free_dir(d)
+        return "err\nпамяти нет"
+    copy(bm0, v.bm, v.bm_len)
+    r = ex_write2(v, d, at, name, data, is_dir)
+    if starts_with(r, "err")
+        copy(v.bm, bm0, v.bm_len)
+    mem_free(bm0)
+    free_dir(d)
+
+// сначала новые данные в свободное место (старый файл ещё цел), потом папка
+func ex_write2(v: Vol, d: Dir, at: int, name: text, data: text, is_dir: bool) gives r: text
+    size = bin_size(data)
     if is_dir
         size = v.csize
     first = 0
@@ -477,23 +583,25 @@ func ex_write(v: Vol, path: text, data: text, is_dir: bool) gives r: text
         n = (size + v.csize - 1) / v.csize
         first = alloc(v, n)
         if first == 0
-            free_dir(d)
             return "err\nна диске нет места"
         a = mem_new(n * v.csize + 512)
+        if a == 0
+            return "err\nпамяти нет"
         zero(a, n * v.csize)
-        k = put_text(a, data)
+        k = text_bin(a, data)
         cs = chain(v, first, true, size)
         ok = store(v, cs, a)
         mem_free(a)
         if not ok
-            free_dir(d)
             return "err\nдиск не записал"
+    if at >= 0
+        drop_ent(v, d, d.es[at])
     if not add_ent(v, d, name, is_dir, first, size)
-        free_dir(d)
-        return "err\nв папке кончилось место под имена (или имя длиннее 255)"
+        // в папке кончилось место под имена — папка растёт на кластер
+        if not grow_dir(v, d) or not add_ent(v, d, name, is_dir, first, size)
+            return "err\nпапку не удалось расширить (места нет)"
     // порядок: данные → карта занятости → папка
     ok2 = bm_save(v) and store(v, d.cs, d.a)
-    free_dir(d)
     ok3 = disk_flush(v.drive)
     if not ok2
         return "err\nдиск не записал"
@@ -583,6 +691,18 @@ modpub func get(k: Key, path: text) gives s: text
 
 modpub func put(k: Key, path: text, data: text)
     r = try ex_ask(k, "write\n" + path + "\n" + data)
+
+// любые байты из памяти (картинка, программа)
+modpub func put_mem(k: Key, path: text, a: int, n: int)
+    r = try ex_ask(k, "write\n" + path + "\n" + bin_text(a, n))
+
+// файл → новая память (её потом mem_free); n — сколько байт
+modpub func get_mem(k: Key, path: text) gives a: int, n: int
+    s = try ex_ask(k, "read\n" + path)
+    a = mem_new(len(s) + 1)
+    if a == 0
+        fail "памяти нет"
+    n = text_bin(a, s)
 
 modpub func mkdir(k: Key, path: text)
     r = try ex_ask(k, "mkdir\n" + path)

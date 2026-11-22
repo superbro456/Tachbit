@@ -134,7 +134,8 @@ func head_sum(kind: int, seq: int, nlen: int, dlen: int, dsum: int, nsum: int) g
 // kind: 1 — версия файла, 2 — удаление, 3 — снимок
 func append_rec(st: Store, kind: int, name: text, data: text) gives at: int
     nlen = len(name)
-    dlen = len(data)
+    // data — текст с заменой (disk.bin_text): на диск идут настоящие байты
+    dlen = bin_size(data)
     if nlen > 440
         return 0
     ns = (dlen + 511) / 512
@@ -145,7 +146,8 @@ func append_rec(st: Store, kind: int, name: text, data: text) gives at: int
         d = mem_new(ns * 512)
         if d == 0
             return 0
-        n = put_text(d, data)
+        zero(d, ns * 512)
+        n = text_bin(d, data)
         ok = disk_write_n(st.drive, st.log_end + 1, ns, d)
         mem_free(d)
         if not ok
@@ -185,7 +187,7 @@ func read_rec_data(st: Store, at: int, size: int) gives s: text
     if d == 0
         return ""
     if disk_read_n(st.drive, at + 1, ns, d)
-        s = get_text(d, size)
+        s = bin_text(d, size)
     mem_free(d)
 
 // запустить: найти свежий суперблок и пройти журнал; нет файловой системы — разметить диск
@@ -275,7 +277,7 @@ func add_version(st: Store, f: Ofile, data: text, alive: bool) gives ok: bool
             return false
         f.datas.add("")
         f.lbas.add(at)
-    f.sizes.add(len(data))
+    f.sizes.add(bin_size(data))
     f.sums.add(sum_of(data))
     f.alive.add(alive)
     return true
@@ -450,6 +452,19 @@ func ask(k: Key, req: text) gives r: text
 modpub func put(k: Key, name: text, data: text) gives v: int
     r = try ask(k, "put\n" + name + "\n" + data)
     return to_int(r) or 0
+
+// любые байты из памяти (картинка, программа): a — адрес, n — сколько байт
+modpub func put_mem(k: Key, name: text, a: int, n: int) gives v: int
+    r = try ask(k, "put\n" + name + "\n" + bin_text(a, n))
+    return to_int(r) or 0
+
+// файл → новая память (её потом mem_free); n — сколько байт
+modpub func get_mem(k: Key, name: text) gives a: int, n: int
+    s = try ask(k, "get\n" + name)
+    a = mem_new(len(s) + 1)
+    if a == 0
+        fail "памяти нет"
+    n = text_bin(a, s)
 
 // последняя версия
 modpub func get(k: Key, name: text) gives s: text
