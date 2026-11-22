@@ -37,9 +37,16 @@ obj X64
     cont: list int
     brk: list int
     depth: int
+    in_danger: int
     ret_l: int
     out_name: text
     fn: Node
+    // типы, которым нужна своя функция печати tb_xshow_N (списки, obj, enum)
+    show_need: list int
+    // замки lock имя: по 8 байт в .bss; у открытого замка — ячейка с флагами прерываний
+    lnames: list text
+    loffs: list int
+    lheld: list int
 
 func xb(g: X64, b: int)
     g.code.add(bit_and(b, 255))
@@ -248,9 +255,10 @@ func xarith(g: X64, op: text, line: int)
             return
         xbs(g, [0x48, 0x39, 0xC8, 0x0F, cc, 0xC0, 0x48, 0x0F, 0xB6, 0xC0])
         return
-    // + - *: переполнение int — остановка (jno мимо)
-    xbs(g, [0x71, 19])
-    xcrash(g, line, 8)
+    // + - *: переполнение int — остановка (jno мимо); внутри danger — заворачивается, как в железе
+    if g.in_danger == 0
+        xbs(g, [0x71, 19])
+        xcrash(g, line, 8)
 
 // значение как текст: число и да/нет — через ядро
 func xas_text(g: X64, c: Comp, n: Node)
@@ -385,7 +393,7 @@ func xdefault(g: X64, c: Comp, t: int, line: int)
                 xcall(g, "tb_x_list_new")
             else
                 xcall(g, "tb_x_list_new_np")
-    else if k == "int" or k == "bool" or k == "dec" or k == "none"
+    else if k == "int" or k == "bool" or k == "dec" or k == "none" or k == "obj" or k == "enum"
         xconst(g, 0)
     else
         xfail(g, line, "пустое значение типа " + k)
@@ -488,6 +496,200 @@ func xbail(g: X64)
         xconst(g, 0)
     xjump(g, [0xE9], g.ret_l)
 
+// ---------- obj: своё устройство — каждое качество по 8 байт подряд (программа Омниума наружу obj не отдаёт) ----------
+
+func xfield_index(c: Comp, t: int, name: text) gives at: int
+    at = -1
+    o = c.types[t].obj_node
+    count i from 0 to len(o.kids) - 1
+        if o.kids[i].name == name
+            at = i
+
+func xobj_ok(g: X64, c: Comp, t: int, line: int) gives ok: bool
+    if kind_of(c, t) != "obj" or c.types[t].obj_node.by_cols
+        xfail(g, line, "такие obj")
+        return false
+    return true
+
+// rax — obj; пустой — остановка
+func xnull_check(g: X64, line: int)
+    xbs(g, [0x48, 0x85, 0xC0, 0x75, 19])
+    xcrash(g, line, 4)
+
+func xnew_obj(g: X64, c: Comp, n: Node)
+    o = n.ref
+    nf = len(o.kids)
+    if nf == 0
+        nf = 1
+    xconst(g, nf * 8)
+    xmov_rdi(g)
+    xcall(g, "tb_x_obj_mem")
+    hold = xslot(g, "#o" + len(g.vars))
+    xstore_var(g, hold)
+    count i from 0 to len(o.kids) - 1
+        ft = o.kids[i].ty
+        if n.kids[i].kind == "missing"
+            xdefault(g, c, ft, n.line)
+        else
+            xas(g, c, n.kids[i].kids[0], ft)
+        xbs(g, [0x48, 0x8B, 0x95])
+        x32(g, -8 * (hold + 1))
+        xbs(g, [0x48, 0x89, 0x82])
+        x32(g, i * 8)
+    xload_var(g, hold)
+
+// место (адрес в rdx) = значение из ячейки hold, или место op= значение
+func xstore_at_rdx(g: X64, c: Comp, op: text, et: int, hold: int, line: int)
+    if op == "="
+        xload_var(g, hold)
+    else
+        o2 = cut(op, 0, len(op) - 2)
+        ek = kind_of(c, et)
+        if o2 != "+" and o2 != "-" and o2 != "*"
+            xfail(g, line, "знак " + op + " здесь")
+            return
+        // rdx жив: + - * его не трогают
+        xbs(g, [0x48, 0x8B, 0x02, 0x48, 0x8B, 0x8D])
+        x32(g, -8 * (hold + 1))
+        if ek == "dec"
+            xarith_dec(g, o2, line)
+        else if ek == "int"
+            xarith(g, o2, line)
+        else
+            xfail(g, line, "знак " + op + " у такого значения")
+    xbs(g, [0x48, 0x89, 0x02])
+
+// ---------- печать списков, obj, enum: свои функции tb_xshow_N (как tb_show_N в обычной сборке) ----------
+
+func xps_lit(g: X64, s: text)
+    xstring_raw(g, s)
+    xmov_rdi(g)
+    xcall(g, "tb_x_ps")
+
+// значение в rax типа t → на экран
+func xshow_val(g: X64, c: Comp, t: int, line: int)
+    k = kind_of(c, t)
+    xmov_rdi(g)
+    if k == "int"
+        xcall(g, "tb_x_show_i")
+    else if k == "bool"
+        xcall(g, "tb_x_btos")
+        xmov_rdi(g)
+        xcall(g, "tb_x_ps")
+    else if k == "text"
+        xcall(g, "tb_x_ps")
+    else if k == "dec"
+        xmov_xmm0(g)
+        xcall(g, "tb_x_show_d")
+    else if (k == "list" and xlist_ok(g, c, t, line)) or (k == "obj" and xobj_ok(g, c, t, line)) or k == "enum"
+        has = false
+        each d in g.show_need
+            if d == t
+                has = true
+        if not has
+            g.show_need.add(t)
+        xcall(g, "tb_xshow_" + t)
+    else
+        xfail(g, line, "печать типа " + k)
+
+func xshow_func(g: X64, c: Comp, t: int)
+    g.vars.clear()
+    g.lpos.clear()
+    g.fix_at.clear()
+    g.fix_l.clear()
+    g.depth = 0
+    g.out_name = ""
+    sk = xsym(g, "tb_xshow_" + t)
+    g.sdef[sk] = len(g.code)
+    xbs(g, [0x55, 0x48, 0x89, 0xE5, 0x48, 0x81, 0xEC])
+    frame_at = len(g.code)
+    x32(g, 0)
+    g.ret_l = xlabel(g)
+    v = xslot(g, "#x")
+    xbs(g, [0x48, 0x89, 0xBD])
+    x32(g, -8 * (v + 1))
+    k = kind_of(c, t)
+    if k == "list"
+        ik = xslot(g, "#i")
+        xps_lit(g, "[")
+        xconst(g, 0)
+        xstore_var(g, ik)
+        head = xlabel(g)
+        out = xlabel(g)
+        first = xlabel(g)
+        xplace(g, head)
+        xload_var(g, v)
+        xbs(g, [0x48, 0x8B, 0x8D])
+        x32(g, -8 * (ik + 1))
+        xbs(g, [0x48, 0x3B, 0x48, 0x08])
+        xjump(g, [0x0F, 0x8D], out)
+        xbs(g, [0x48, 0x85, 0xC9])
+        xjump(g, [0x0F, 0x84], first)
+        xps_lit(g, ", ")
+        xplace(g, first)
+        xload_var(g, v)
+        xbs(g, [0x48, 0x8B, 0x8D])
+        x32(g, -8 * (ik + 1))
+        xbs(g, [0x48, 0x8B, 0x00, 0x48, 0x8B, 0x04, 0xC8])
+        xshow_val(g, c, c.types[t].elem, 0)
+        xload_var(g, ik)
+        xbs(g, [0x48, 0xFF, 0xC0])
+        xstore_var(g, ik)
+        xjump(g, [0xE9], head)
+        xplace(g, out)
+        xps_lit(g, "]")
+    else if k == "obj"
+        o = c.types[t].obj_node
+        xps_lit(g, o.name + "(")
+        count i from 0 to len(o.kids) - 1
+            if i > 0
+                xps_lit(g, ", ")
+            xps_lit(g, o.kids[i].name + ": ")
+            xload_var(g, v)
+            xbs(g, [0x48, 0x8B, 0x80])
+            x32(g, i * 8)
+            xshow_val(g, c, o.kids[i].ty, o.line)
+        xps_lit(g, ")")
+    else
+        names = c.types[t].obj_node.kids
+        count i from 0 to len(names) - 1
+            nx = xlabel(g)
+            xload_var(g, v)
+            xbs(g, [0x48, 0x3D])
+            x32(g, i)
+            xjump(g, [0x0F, 0x85], nx)
+            xps_lit(g, names[i].name)
+            xjump(g, [0xE9], g.ret_l)
+            xplace(g, nx)
+    xplace(g, g.ret_l)
+    xbs(g, [0x48, 0x89, 0xEC, 0x5D, 0xC3])
+    put32(g, frame_at, (len(g.vars) * 8 + 15) / 16 * 16)
+    count i from 0 to len(g.fix_at) - 1
+        at = g.fix_at[i]
+        put32(g, at, g.lpos[g.fix_l[i]] - (at + 4))
+
+// ---------- замки: lock имя — 8 байт в .bss, tb_x_lock_take / tb_x_lock_give из ядра ----------
+
+func xlock_index(g: X64, name: text) gives k: int
+    count i from 0 to len(g.lnames) - 1
+        if g.lnames[i] == name
+            return i
+    g.lnames.add(name)
+    g.loffs.add(g.bss)
+    g.bss += 8
+    return len(g.lnames) - 1
+
+// rdi = адрес замка
+func xlock_addr(g: X64, li: int)
+    xbs(g, [0x48, 0x8D, 0x3D])
+    xreloc(g, 3, 2, g.loffs[li] - 4)
+
+func xlock_give(g: X64, li: int, fk: int)
+    xbs(g, [0x48, 0x8B, 0xB5])
+    x32(g, -8 * (fk + 1))
+    xlock_addr(g, li)
+    xcall(g, "tb_x_lock_give")
+
 func xexpr(g: X64, c: Comp, n: Node)
     k = n.kind
     if k == "number"
@@ -509,8 +711,10 @@ func xexpr(g: X64, c: Comp, n: Node)
         if n.value == "not"
             xbs(g, [0x48, 0x83, 0xF0, 0x01])
         else if kind_of(c, n.ty) == "int"
-            xbs(g, [0x48, 0xF7, 0xD8, 0x71, 19])
-            xcrash(g, n.line, 8)
+            xbs(g, [0x48, 0xF7, 0xD8])
+            if g.in_danger == 0
+                xbs(g, [0x71, 19])
+                xcrash(g, n.line, 8)
         else if kind_of(c, n.ty) == "dec"
             xbs(g, [0x48, 0xB9, 0, 0, 0, 0, 0, 0, 0, 0x80, 0x48, 0x31, 0xC8])
         else
@@ -526,7 +730,7 @@ func xexpr(g: X64, c: Comp, n: Node)
             xjump(g, [0x0F, 0x85], done)
         xexpr(g, c, n.kids[1])
         xplace(g, done)
-    else if k == "binop" and kind_of(c, n.ty) == "text"
+    else if k == "binop" and n.value != "orelse" and kind_of(c, n.ty) == "text"
         xas_text(g, c, n.kids[0])
         xpush(g)
         xas_text(g, c, n.kids[1])
@@ -534,7 +738,7 @@ func xexpr(g: X64, c: Comp, n: Node)
         xb(g, 0x5F)
         g.depth -= 1
         xcall(g, "tb_x_cat")
-    else if k == "binop" and (kind_of(c, n.kids[0].ty) == "dec" or kind_of(c, n.kids[1].ty) == "dec")
+    else if k == "binop" and n.value != "orelse" and (kind_of(c, n.kids[0].ty) == "dec" or kind_of(c, n.kids[1].ty) == "dec")
         xas_dec(g, c, n.kids[0])
         xpush(g)
         xas_dec(g, c, n.kids[1])
@@ -542,15 +746,16 @@ func xexpr(g: X64, c: Comp, n: Node)
         xb(g, 0x58)
         g.depth -= 1
         xarith_dec(g, n.value, n.line)
-    else if k == "binop" and kind_of(c, n.kids[0].ty) == "text"
+    else if k == "binop" and n.value != "orelse" and kind_of(c, n.ty) != "text" and kind_of(c, n.kids[0].ty) == "text"
         xexpr(g, c, n.kids[0])
         xpush(g)
         xexpr(g, c, n.kids[1])
         xstrcmp(g)
         xbs(g, [0x48, 0x31, 0xC9])
         xarith(g, n.value, n.line)
-    else if k == "binop"
-        if kind_of(c, n.kids[0].ty) != "int" and kind_of(c, n.kids[0].ty) != "bool"
+    else if k == "binop" and n.value != "orelse"
+        k0 = kind_of(c, n.kids[0].ty)
+        if k0 != "int" and k0 != "bool" and k0 != "enum"
             xfail(g, n.line, "знак " + n.value + " у такого типа")
             return
         xexpr(g, c, n.kids[0])
@@ -577,12 +782,33 @@ func xexpr(g: X64, c: Comp, n: Node)
             xfail(g, n.line, "len у такого типа")
     else if k == "call" and not n.has_ref
         xbuiltin(g, c, n)
+    else if k == "enumval"
+        xconst(g, to_int(n.value) or 0)
+    else if k == "call" and n.has_ref and n.ref.kind == "obj"
+        if xobj_ok(g, c, n.ty, n.line)
+            xnew_obj(g, c, n)
+    else if k == "field" and kind_of(c, n.kids[0].ty) == "obj"
+        if xobj_ok(g, c, n.kids[0].ty, n.line)
+            xexpr(g, c, n.kids[0])
+            xnull_check(g, n.line)
+            xbs(g, [0x48, 0x8B, 0x80])
+            x32(g, xfield_index(c, n.kids[0].ty, n.name) * 8)
     else if k == "decimal"
         xdecimal(g, n.value, n.line)
     else if k == "type"
         xdefault(g, c, n.ty, n.line)
     else if k == "list"
         xlist_lit(g, c, n)
+    else if k == "index" and kind_of(c, n.kids[0].ty) == "text"
+        // s[i]: буква (tb_x_char_at: номер за пределами — остановка)
+        xexpr(g, c, n.kids[0])
+        xpush(g)
+        xexpr(g, c, n.kids[1])
+        xbs(g, [0x48, 0x89, 0xC6, 0x5F])
+        g.depth -= 1
+        xbs(g, [0x48, 0xC7, 0xC2, 0xFF, 0xFF, 0xFF, 0xFF, 0xB9])
+        x32(g, n.line)
+        xcall(g, "tb_x_char_at")
     else if k == "index" and kind_of(c, n.kids[0].ty) == "list"
         if xlist_ok(g, c, n.kids[0].ty, n.line)
             xexpr(g, c, n.kids[0])
@@ -687,7 +913,7 @@ func xprint(g: X64, c: Comp, n: Node, newline: bool)
             xmov_xmm0(g)
             xcall(g, "tb_x_show_d")
         else
-            xfail(g, v.line, "печать типа " + vk)
+            xshow_val(g, c, v.ty, v.line)
     if newline
         xstring_raw(g, "\\n")
         xmov_rdi(g)
@@ -725,24 +951,53 @@ func xstmt(g: X64, c: Comp, n: Node)
         xpush(g)
         xexpr(g, c, t.kids[1])
         xelem_addr(g, n.line)
-        ek = kind_of(c, et)
-        if n.value == "="
-            xload_var(g, hold)
-        else
-            op = cut(n.value, 0, len(n.value) - 2)
-            if op != "+" and op != "-" and op != "*"
-                xfail(g, n.line, "знак " + n.value + " у элемента списка")
-                return
-            // rdx жив: + - * его не трогают
-            xbs(g, [0x48, 0x8B, 0x02, 0x48, 0x8B, 0x8D])
-            x32(g, -8 * (hold + 1))
-            if ek == "dec"
-                xarith_dec(g, op, n.line)
-            else if ek == "int"
-                xarith(g, op, n.line)
+        xstore_at_rdx(g, c, n.value, et, hold, n.line)
+    else if k == "set" and n.kids[0].kind == "field" and kind_of(c, n.kids[0].kids[0].ty) == "obj"
+        t = n.kids[0]
+        if not xobj_ok(g, c, t.kids[0].ty, n.line)
+            return
+        fi = xfield_index(c, t.kids[0].ty, t.name)
+        et = c.types[t.kids[0].ty].obj_node.kids[fi].ty
+        hold = xslot(g, "#v" + len(g.vars))
+        xas(g, c, n.kids[1], et)
+        xstore_var(g, hold)
+        xexpr(g, c, t.kids[0])
+        xnull_check(g, n.line)
+        xbs(g, [0x48, 0x8D, 0x90])
+        x32(g, fi * 8)
+        xstore_at_rdx(g, c, n.value, et, hold, n.line)
+    else if k == "match"
+        subj = n.kids[0]
+        textual = kind_of(c, subj.ty) == "text"
+        hold = xslot(g, "#m" + len(g.vars))
+        xexpr(g, c, subj)
+        xstore_var(g, hold)
+        done = xlabel(g)
+        count i from 1 to len(n.kids) - 1
+            cs = n.kids[i]
+            if cs.name == "else"
+                xblock(g, c, cs.kids[1])
+                xjump(g, [0xE9], done)
             else
-                xfail(g, n.line, "знак " + n.value + " у такого элемента")
-        xbs(g, [0x48, 0x89, 0x02])
+                yes = xlabel(g)
+                no = xlabel(g)
+                each v in cs.kids[0].kids
+                    xload_var(g, hold)
+                    xpush(g)
+                    xexpr(g, c, v)
+                    if textual
+                        xstrcmp(g)
+                        xbs(g, [0x48, 0x85, 0xC0])
+                    else
+                        xbs(g, [0x48, 0x89, 0xC1, 0x58, 0x48, 0x39, 0xC8])
+                        g.depth -= 1
+                    xjump(g, [0x0F, 0x84], yes)
+                xjump(g, [0xE9], no)
+                xplace(g, yes)
+                xblock(g, c, cs.kids[1])
+                xjump(g, [0xE9], done)
+                xplace(g, no)
+        xplace(g, done)
     else if k == "set" and n.kids[0].kind == "name"
         name = n.kids[0].name
         tk = kind_of(c, n.ty)
@@ -880,6 +1135,69 @@ func xstmt(g: X64, c: Comp, n: Node)
         xstore_var(g, ik)
         xjump(g, [0xE9], head)
         xplace(g, out)
+    else if k == "temp"
+        // всё, что создано внутри, отдаётся разом в конце: tb_x_temp_begin_p / end_p (16 байт в кадре)
+        first = len(g.vars)
+        g.vars.add("#t" + first)
+        g.vars.add("#t" + first + "b")
+        xbs(g, [0x48, 0x8D, 0xBD])
+        x32(g, -8 * (first + 2))
+        xcall(g, "tb_x_temp_begin_p")
+        xblock(g, c, n.kids[0])
+        xbs(g, [0x48, 0x8D, 0xBD])
+        x32(g, -8 * (first + 2))
+        xcall(g, "tb_x_temp_end_p")
+    else if k == "expr_stmt" and n.kids[0].kind == "method" and n.kids[0].name == "clear" and kind_of(c, n.kids[0].kids[0].ty) == "list"
+        if xlist_ok(g, c, n.kids[0].kids[0].ty, n.line)
+            xexpr(g, c, n.kids[0].kids[0])
+            xbs(g, [0x48, 0xC7, 0x40, 0x08, 0, 0, 0, 0])
+    else if k == "each" and not n.is_par and kind_of(c, n.kids[0].ty) == "text"
+        // по буквам: tb_x_u8take берёт букву и двигает номер на её последний байт
+        tk = xslot(g, "#s" + len(g.vars))
+        ik = xslot(g, "#i" + len(g.vars))
+        xexpr(g, c, n.kids[0])
+        xstore_var(g, tk)
+        xconst(g, 0)
+        xstore_var(g, ik)
+        head = xlabel(g)
+        step = xlabel(g)
+        out = xlabel(g)
+        xplace(g, head)
+        xload_var(g, tk)
+        xbs(g, [0x48, 0x8B, 0x8D])
+        x32(g, -8 * (ik + 1))
+        xbs(g, [0x80, 0x3C, 0x08, 0x00])
+        xjump(g, [0x0F, 0x84], out)
+        xload_var(g, tk)
+        xmov_rdi(g)
+        xbs(g, [0x48, 0x8D, 0xB5])
+        x32(g, -8 * (ik + 1))
+        xcall(g, "tb_x_u8take")
+        xstore_var(g, xslot(g, n.name))
+        xloop_body(g, c, n.kids[1], step, out)
+        xplace(g, step)
+        xload_var(g, ik)
+        xbs(g, [0x48, 0xFF, 0xC0])
+        xstore_var(g, ik)
+        xjump(g, [0xE9], head)
+        xplace(g, out)
+    else if k == "lock"
+        li = xlock_index(g, n.name)
+        fk = xslot(g, "#lf" + len(g.vars))
+        xlock_addr(g, li)
+        xcall(g, "tb_x_lock_take")
+        xstore_var(g, fk)
+        g.lheld.add(fk)
+        xblock(g, c, n.kids[0])
+        gone = g.lheld.pop()
+        freed = false
+        each st in n.kids[0].kids
+            if st.kind == "unlock"
+                freed = true
+        if not freed
+            xlock_give(g, li, fk)
+    else if k == "unlock"
+        xlock_give(g, xlock_index(g, n.name), g.lheld[len(g.lheld) - 1])
     else if k == "fail"
         xexpr(g, c, n.kids[0])
         xpush(g)
@@ -890,7 +1208,9 @@ func xstmt(g: X64, c: Comp, n: Node)
     else if k == "expr_stmt"
         xexpr(g, c, n.kids[0])
     else if k == "danger"
+        g.in_danger += 1
         xblock(g, c, n.kids[0])
+        g.in_danger -= 1
     else
         xfail(g, n.line, "«" + k + "»")
 
@@ -1067,7 +1387,7 @@ modpub func x64_app(c: Comp, program: Node) gives bytes: list int, err: text
     g.sdef = [-1, -1, -1, -1]
     each gl in c.globals
         gk = kind_of(c, gl.ty)
-        if gk != "int" and gk != "bool" and gk != "dec"
+        if gk != "int" and gk != "bool" and gk != "dec" and gk != "enum"
             xfail(g, gl.line, "shared типа " + gk)
         g.gnames.add(gl.name)
         g.goffs.add(g.bss)
@@ -1080,16 +1400,23 @@ modpub func x64_app(c: Comp, program: Node) gives bytes: list int, err: text
         if top.kind == "func"
             each p in top.kids[0].kids
                 pk = kind_of(c, p.ty)
-                if pk != "int" and pk != "bool" and pk != "text" and pk != "dec" and pk != "list"
+                if pk != "int" and pk != "bool" and pk != "text" and pk != "dec" and pk != "list" and pk != "obj" and pk != "enum"
                     xfail(g, top.line, "параметры типа " + pk)
             rk = kind_of(c, top.ty)
-            if rk != "int" and rk != "bool" and rk != "text" and rk != "none" and rk != "dec" and rk != "list"
+            if rk != "int" and rk != "bool" and rk != "text" and rk != "none" and rk != "dec" and rk != "list" and rk != "obj" and rk != "enum"
                 xfail(g, top.line, "ответ типа " + rk)
             xfunc(g, c, top, ll_fname(top))
-        else if top.kind != "use" and top.kind != "global"
+        else if top.kind == "obj" and top.by_cols
+            xfail(g, top.line, "obj by columns")
+        else if top.kind != "use" and top.kind != "global" and top.kind != "obj" and top.kind != "enum"
             xfail(g, top.line, "«" + top.kind + "» в начале файла")
     start = Node(kind: "appmain", ref: main_func, has_ref: true)
     xfunc(g, c, start, "tb_appmain")
+    // функции печати: каждая может попросить ещё (список obj → obj)
+    k = 0
+    repeat while k < len(g.show_need)
+        xshow_func(g, c, g.show_need[k])
+        k += 1
     err = g.err
     if err == ""
         bytes = xelf(g)
