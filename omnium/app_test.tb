@@ -1,6 +1,7 @@
 // Омниум: загрузчик программ. Модули (qemu -initrd "a.oapp,b.oapp") — программы от tb app;
 // каждую грузим и запускаем в своей клетке: упавшая программа не трогает ядро
 use app
+use ofs
 
 func go(entry: int) gives ok: bool
     app.start(entry)
@@ -23,6 +24,25 @@ func main()
         t = background go(e)
         fell = t.crashed
         print("программа", i, "упала:", fell)
+    // программа как файл на OFS: положили, достали, запустили
+    if n > 0
+        bell = channel int
+        asks = list channel text
+        answers = list channel text
+        writes = list bool
+        k = ofs.key(bell, asks, answers, writes, true)
+        fs = service ofs.ofs(-1, bell, move asks, move answers, move writes)
+        danger
+            v = ofs.put_mem(k, "привет.oapp", module_addr(0), module_size(0)) or 0
+        a, size = ofs.get_mem(k, "привет.oapp") else err
+            print("OFS:", err)
+            return
+        e = app.load(a, size) else err
+            print("из файла не загрузилась:", err)
+            return
+        t = background go(e)
+        fell = t.crashed
+        print("из файла OFS упала:", fell)
     // не программа: мусор вместо ELF
     bad = app.load(0x100000, 64) else err
         print("мусор:", err)
