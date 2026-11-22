@@ -1,0 +1,57 @@
+// 3D: картинки на сетках (mesh_image, mesh_add_uv) — с перспективой, повтором, прозрачными дырками и светом.
+// Ящик с картинкой кувыркается, пол из плитки (картинка повторяется 8 раз), решётка с дырками,
+// камера подходит к ящику вплотную (старый путь с обрезкой). TB_GPU_CHECK=1 сверяет с процессором
+func main()
+    try window_open(320, 200, "GPU картинки")
+    tile = try load_image("tests/gpu/tile.png")
+    box = mesh_new()
+    mesh_image(box, tile)
+    tface(box, -1, -1, -1, -1, 1, -1, 1, 1, -1, 1, -1, -1)
+    tface(box, -1, -1, 1, 1, -1, 1, 1, 1, 1, -1, 1, 1)
+    tface(box, -1, -1, -1, -1, -1, 1, -1, 1, 1, -1, 1, -1)
+    tface(box, 1, -1, -1, 1, 1, -1, 1, 1, 1, 1, -1, 1)
+    tface(box, -1, 1, -1, -1, 1, 1, 1, 1, 1, 1, 1, -1)
+    // одна грань своим цветом (без картинки)
+    mesh_add(box, -1, -1, -1, 1, -1, -1, 1, -1, 1, rgb(240, 120, 60))
+    mesh_add(box, -1, -1, -1, 1, -1, 1, -1, -1, 1, rgb(240, 120, 60))
+    floor = mesh_new()
+    mesh_image(floor, tile)
+    mesh_add_uv(floor, -8, -1, -8, 0, 0, 8, -1, -8, 8, 0, 8, -1, 8, 8, 8)
+    mesh_add_uv(floor, -8, -1, -8, 0, 0, 8, -1, 8, 8, 8, -8, -1, 8, 0, 8)
+    // решётка: картинка с прозрачными клетками — сквозь дырки видно то, что дальше
+    holes = try load_image("tests/gpu/holes.png")
+    fence = mesh_new()
+    mesh_image(fence, holes)
+    mesh_add_uv(fence, -3, -1, 3, 0, 2, -3, 2, 3, 0, 0, 3, 2, 3, 4, 0)
+    mesh_add_uv(fence, -3, -1, 3, 0, 2, 3, 2, 3, 4, 0, 3, -1, 3, 4, 2)
+    frame = 0
+    repeat while window_alive()
+        frame += 1
+        if frame > 60
+            stop
+        clear_window(rgb(20, 24, 34))
+        sunlight(0.5, 1, -0.6, 0.35)
+        a = frame * 0.05
+        d = 6.0 - frame * 0.075
+        camera(d * cos_t(a), 1.2, d * sin_t(a), 0, 0, 0)
+        draw_mesh(floor, 0, 0, 0, frame)
+        draw_mesh_rot(box, 0, 0.2, 0, frame * 3, frame * 2, 0)
+        draw_mesh_rot(box, 2.5, 0, 2, 0, 0, frame * 5)
+        draw_mesh(fence, 0, 0, 0, 0)
+        draw_text(4, 4, "кадр " + frame, 1, rgb(255, 255, 255))
+    print("кадров:", frame)
+
+func tface(m: int, x1: dec, y1: dec, z1: dec, x2: dec, y2: dec, z2: dec, x3: dec, y3: dec, z3: dec, x4: dec, y4: dec, z4: dec)
+    mesh_add_uv(m, x1, y1, z1, 0, 1, x2, y2, z2, 0, 0, x3, y3, z3, 1, 0)
+    mesh_add_uv(m, x1, y1, z1, 0, 1, x3, y3, z3, 1, 0, x4, y4, z4, 1, 1)
+
+func sin_t(x: dec)
+    repeat while x > 3.14159265
+        x -= 6.2831853
+    repeat while x < -3.14159265
+        x += 6.2831853
+    x2 = x * x
+    return x * (1 - x2 / 6 * (1 - x2 / 20 * (1 - x2 / 42 * (1 - x2 / 72 * (1 - x2 / 110)))))
+
+func cos_t(x: dec)
+    return sin_t(x + 1.57079633)

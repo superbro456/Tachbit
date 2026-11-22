@@ -1,0 +1,40 @@
+// 3D: полный поворот сетки (draw_mesh_rot): кубы кувыркаются вокруг всех трёх осей,
+// один подходит к камере вплотную (старый путь с обрезкой). TB_GPU_CHECK=1 сверяет с процессором
+func main()
+    try window_open(320, 200, "GPU поворот")
+    cube = mesh_new()
+    add_cube(cube, 1.0)
+    // длинная палка: видно, куда она наклонена
+    stick = mesh_new()
+    add_box(stick, 0.15, 1.6, 0.15)
+    frame = 0
+    repeat while window_alive()
+        frame += 1
+        if frame > 60
+            stop
+        clear_window(rgb(16, 18, 28))
+        camera(0, 1.0, -6, 0, 0, 0)
+        draw_mesh_rot(cube, -2, 0, 0, frame * 3, frame * 5, frame * 7)
+        draw_mesh_rot(cube, 2, 0, 1, 30, -frame * 4, 0)
+        draw_mesh_rot(stick, 0, 0, 0, 0, 0, frame * 6)
+        draw_mesh_rot(stick, 0, 0, 2, frame * 2, 70, 0)
+        // ближе 0.05 к камере: обрезка
+        draw_mesh_rot(cube, 0, 1.0, -5.2 + frame * 0.01, frame, frame, frame)
+        draw_text(4, 4, "кадр " + frame, 1, rgb(255, 255, 255))
+    print("кадров:", frame)
+
+func add_cube(m: int, h: dec)
+    add_box(m, h, h, h)
+
+// коробка 2a × 2b × 2c, грани против часовой стрелки снаружи (сетка закрытая)
+func add_box(m: int, a: dec, b: dec, c: dec)
+    face(m, -a, -b, -c, -a, b, -c, a, b, -c, a, -b, -c, rgb(230, 80, 80))
+    face(m, -a, -b, c, a, -b, c, a, b, c, -a, b, c, rgb(80, 200, 120))
+    face(m, -a, -b, -c, -a, -b, c, -a, b, c, -a, b, -c, rgb(80, 130, 230))
+    face(m, a, -b, -c, a, b, -c, a, b, c, a, -b, c, rgb(240, 200, 70))
+    face(m, -a, b, -c, -a, b, c, a, b, c, a, b, -c, rgb(200, 90, 200))
+    face(m, -a, -b, -c, a, -b, -c, a, -b, c, -a, -b, c, rgb(70, 200, 210))
+
+func face(m: int, x1: dec, y1: dec, z1: dec, x2: dec, y2: dec, z2: dec, x3: dec, y3: dec, z3: dec, x4: dec, y4: dec, z4: dec, c: int)
+    mesh_add(m, x1, y1, z1, x2, y2, z2, x3, y3, z3, c)
+    mesh_add(m, x1, y1, z1, x3, y3, z3, x4, y4, z4, c)
