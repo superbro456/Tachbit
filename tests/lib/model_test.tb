@@ -1,0 +1,23 @@
+// lib/model: чтение OBJ с материалами, размеры, fit
+use model
+
+func r2(v: dec) gives s: text
+    s = "" + round(v * 100) / 100.0
+
+func main()
+    md = try model.load("tests/lib/models/box.obj")
+    print("треугольников:", model.triangles(md), "кусков:", len(md.parts))
+    each p in md.parts
+        print(p.name, len(p.pos) / 9, "uv:", len(p.uv) / 6, "картинка:", p.image_file != "")
+    w, h, d = model.size(md)
+    print("размер:", r2(w), r2(h), r2(d))
+    model.fit(md, 1.0)
+    w2, h2, d2 = model.size(md)
+    print("после fit:", r2(w2), r2(h2), r2(d2), "низ:", r2(md.min_y))
+    each f in ["tests/lib/models/cubes.gltf", "tests/lib/models/cubes.glb"]
+        g = try model.load(f)
+        gw, gh, gd = model.size(g)
+        print(f, "треугольников:", model.triangles(g), "кусок:", g.parts[0].name, "размер:", r2(gw), r2(gh), r2(gd), "x от", r2(g.min_x), "до", r2(g.max_x))
+    bad = model.load("нет.obj") else err
+        print("ошибка:", err)
+        return

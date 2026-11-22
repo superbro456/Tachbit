@@ -1,0 +1,42 @@
+// смотреть готовую 3D-модель: OBJ, glTF или GLB (например, из Blender: Файл → Экспорт → glTF 2.0).
+//   tb run examples/basics/view_model.tb                       — пример: кубы из glb
+//   tb run examples/basics/view_model.tb ~/Desktop/машина.glb  — своя модель
+// Стрелки ← → — крутить, ↑ ↓ — наклон, колёсико — ближе и дальше, Esc — выход.
+use model
+
+func main()
+    path = "examples/basics/models/cubes.glb"
+    if len(args()) > 0
+        path = args()[0]
+    window_sharp()
+    try window_open(900, 600, "Модель: " + path)
+    md = model.load(path) else err
+        print(err)
+        return
+    model.fit(md, 3.0)
+    model.build(md)
+    floor = try model.load("examples/basics/models/floor.glb")
+    model.scale(floor, 4.0)
+    model.build(floor)
+    turn = 0.0
+    tilt = 0.0
+    far = 7.0
+    sunlight(0.4, 1, -0.6, 0.35)
+    repeat while window_alive()
+        if key_down("escape")
+            stop
+        dt = frame_ms() / 1000
+        if key_down("left")
+            turn += 90 * dt
+        if key_down("right")
+            turn -= 90 * dt
+        if key_down("up")
+            tilt = min(tilt + 60 * dt, 80.0)
+        if key_down("down")
+            tilt = max(tilt - 60 * dt, -80.0)
+        far = min(max(far - mouse_wheel() * 0.5, 2.0), 40.0)
+        camera(0, far * 0.45, -far, 0, 1.2, 0)
+        clear_window(rgb(28, 32, 46))
+        model.draw(floor, 0, 0, 0, 0, 0, 0)
+        model.draw(md, 0, 0, 0, turn, tilt, 0)
+        draw_text(10, 10, path + "   треугольников: " + model.triangles(md) + "   кадров в секунду: " + fps(), 1, rgb(235, 235, 240))
