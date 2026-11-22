@@ -351,7 +351,7 @@ func build(c: Comp, path: text, exe: text, native: bool)
             print("и открой терминал заново. Подробнее: tools/install.ps1")
             return 1
         // -static: программе не нужны чужие .dll; стек 8 МБ, как на Linux
-        command = cc + " -O2 -w -o " + quote(exe_file(exe)) + " " + quote(c_path) + c.c_link + " -static -Wl,--stack,8388608 -lm -lpthread"
+        command = cc + " -O2 -w -o " + quote(exe_file(exe)) + " " + quote(c_path) + c.c_link + " -static -Wl,--stack,8388608 -lm -lpthread -lws2_32"
         if c.gfx
             command += " -lgdi32"
     // сообщения cc — в отдельный файл: человеку не нужна простыня на C

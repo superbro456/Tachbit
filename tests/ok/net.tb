@@ -1,0 +1,32 @@
+// сеть: свой сервер отвечает эхом, клиент в этой же программе
+func serve(srv: int) gives got: text
+    got = ""
+    c = net_accept(srv) else err
+        got = "accept: " + err
+        return
+    repeat while true
+        part = net_receive(c) else err
+            stop
+        if part == ""
+            stop                         // клиент закрыл связь
+        got += part
+        net_send(c, "эхо: " + part) else err
+            stop
+    net_close(c)
+
+func main()
+    srv = try net_listen(0)              // 0 — система выберет свободный порт
+    port = net_port(srv)
+    print("порт выбран:", port > 0)
+    w = background serve(srv)
+    c = try net_connect("localhost", port)
+    try net_send(c, "привет")
+    answer = try net_receive(c)
+    print(answer)
+    net_close(c)
+    print("сервер получил:", w.wait)
+    net_close(srv)
+    bad = net_connect("localhost", 1) else err
+        print("ошибка как надо:", starts_with(err, "не подключился"))
+    x = net_listen(70000) else err
+        print(err)
