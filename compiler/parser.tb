@@ -891,6 +891,12 @@ modpub func parse(c: Comp)
             add_kid(program, f)
         else if is_cmd(c, "func")
             add_kid(program, parse_func(c))
+        else if now(c).kind == "name" and now(c).word == "gpu" and ahead(c).kind == "command" and ahead(c).word == "func"
+            // gpu func water(p: pixel)  —  шейдер: его собирает компилятор для видеокарты (SPIR-V, Metal) и процессора
+            next(c)
+            g = parse_func(c)
+            g.kind = "gpufunc"
+            add_kid(program, g)
         else if is_cmd(c, "obj")
             add_kid(program, parse_obj(c))
         else if is_cmd(c, "enum")
@@ -912,13 +918,13 @@ modpub func parse(c: Comp)
         else if now(c).kind == "indent"
             error_at(c, line_now(c), "лишний отступ", "")
         else
-            error_at(c, line_now(c), "снаружи функций можно писать только use, func, obj, enum, shape и shared", what_is_here(c))
+            error_at(c, line_now(c), "снаружи функций можно писать только use, func, gpu func, obj, enum, shape и shared", what_is_here(c))
     return program
 
 // ---------- печать дерева (команда tree) ----------
 
 modpub func node_kind_name(kind: text)
-    names = {"program": "ПРОГРАММА", "func": "ФУНКЦИЯ", "param": "ПАРАМЕТР", "block": "БЛОК", "obj": "OBJ", "type": "ТИП", "assign": "ПРИСВОИТЬ", "set": "ИЗМЕНИТЬ", "linkdecl": "ЯРЛЫК", "multi": "НЕСКОЛЬКО", "if": "ЕСЛИ", "each": "EACH", "count": "COUNT", "repeat_times": "REPEAT TIMES", "repeat_while": "REPEAT WHILE", "skip": "SKIP", "stop": "STOP", "return": "RETURN", "expr_stmt": "ВЫЗОВ-СТРОКА", "number": "ЧИСЛО", "decimal": "ДРОБЬ", "string": "ТЕКСТ", "bool": "ДА/НЕТ", "name": "ИМЯ", "list": "СПИСОК", "call": "ВЫЗОВ", "arg": "АРГУМЕНТ", "binop": "ОПЕРАЦИЯ", "unary": "ОДИНОЧНАЯ", "index": "ИНДЕКС", "field": "КАЧЕСТВО", "method": "МЕТОД", "dict": "СЛОВАРЬ", "use": "USE", "fail": "FAIL", "try": "TRY", "else_err": "ELSE ERR", "temp": "TEMP", "together": "TOGETHER", "background": "BACKGROUND", "danger": "DANGER", "lock": "LOCK", "unlock": "UNLOCK", "global": "SHARED", "shape": "SHAPE", "shape_at": "SHAPE AT", "enum": "ENUM", "match": "MATCH", "case": "CASE", "enumval": "ВАРИАНТ", "cuse": "USE C", "cfunc": "ФУНКЦИЯ C", "ccall": "ВЫЗОВ C"}
+    names = {"program": "ПРОГРАММА", "func": "ФУНКЦИЯ", "gpufunc": "GPU ФУНКЦИЯ", "param": "ПАРАМЕТР", "block": "БЛОК", "obj": "OBJ", "type": "ТИП", "assign": "ПРИСВОИТЬ", "set": "ИЗМЕНИТЬ", "linkdecl": "ЯРЛЫК", "multi": "НЕСКОЛЬКО", "if": "ЕСЛИ", "each": "EACH", "count": "COUNT", "repeat_times": "REPEAT TIMES", "repeat_while": "REPEAT WHILE", "skip": "SKIP", "stop": "STOP", "return": "RETURN", "expr_stmt": "ВЫЗОВ-СТРОКА", "number": "ЧИСЛО", "decimal": "ДРОБЬ", "string": "ТЕКСТ", "bool": "ДА/НЕТ", "name": "ИМЯ", "list": "СПИСОК", "call": "ВЫЗОВ", "arg": "АРГУМЕНТ", "binop": "ОПЕРАЦИЯ", "unary": "ОДИНОЧНАЯ", "index": "ИНДЕКС", "field": "КАЧЕСТВО", "method": "МЕТОД", "dict": "СЛОВАРЬ", "use": "USE", "fail": "FAIL", "try": "TRY", "else_err": "ELSE ERR", "temp": "TEMP", "together": "TOGETHER", "background": "BACKGROUND", "danger": "DANGER", "lock": "LOCK", "unlock": "UNLOCK", "global": "SHARED", "shape": "SHAPE", "shape_at": "SHAPE AT", "enum": "ENUM", "match": "MATCH", "case": "CASE", "enumval": "ВАРИАНТ", "cuse": "USE C", "cfunc": "ФУНКЦИЯ C", "ccall": "ВЫЗОВ C"}
     return names[kind]
 
 modpub func tree_lines(n: Node, depth: int, out: list text)

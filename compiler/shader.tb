@@ -1,0 +1,1442 @@
+// Tachbit 1.3 — gpu func: шейдеры на самом Tachbit, их собирает компилятор.
+//   gpu func water(p: pixel, wave: dec)  — шейдер точки: меняет p.r, p.g, p.b, p.a
+//   gpu func sway(v: corner, wind: dec)  — шейдер углов: двигает v.x, v.y, v.z
+//   gpu func hash(n: dec) gives r: dec   — помощник: зовут из шейдеров
+// Параметры после p и v (wave, wind) — настройки: программа меняет их словом shader_set(m, "wave", 0.3).
+// Внутри только числа int, dec (на видеокарте — 32-битные дробные) и bool, if, count, repeat, return.
+// Из каждой gpu func компилятор пишет три вида: SPIR-V (Vulkan: Linux, Windows), Metal (Mac) и C (процессор).
+use types
+use errors
+use parser
+
+obj ShFn
+    node: Node
+    name: text
+    stage: text
+    pname: text
+    // переменные: сначала параметры (у помощника — и выход), потом свои
+    vnames: list text
+    vtypes: list int
+    npar: int
+    // настройки шейдера (параметры после p): имена по порядку, номер переменной
+    sets: list text
+    ret: int
+    calls: list text
+    loops: int
+
+// поля точки и угла: место в общем массиве io (одинаково в SPIR-V, Metal и C)
+modpub func sh_fields(stage: text) gives f: list text
+    if stage == "pixel"
+        f = ["x", "y", "z", "wx", "wy", "wz", "nx", "ny", "nz", "u", "v", "r", "g", "b", "a", "time", "sx", "sy", "sz", "amb", "cx", "cy", "cz", "p0", "p1", "p2", "p3", "p4", "p5", "p6", "p7"]
+    else if stage == "corner"
+        f = ["x", "y", "z", "nx", "ny", "nz", "u", "v", "r", "g", "b", "a", "time", "i", "p0", "p1", "p2", "p3", "p4", "p5", "p6", "p7"]
+    return f
+
+modpub func sh_field_at(stage: text, name: text)
+    fs = sh_fields(stage)
+    count i from 0 to len(fs) - 1
+        if fs[i] == name
+            return i
+    return -1
+
+// где в io первая настройка (p0)
+modpub func sh_set_base(stage: text)
+    return sh_field_at(stage, "p0")
+
+// готовые помощники и шейдеры по умолчанию (на Tachbit): их видит каждая программа с gpu func
+modpub func sh_prelude() gives s: text
+    s = "gpu func hash(n: dec) gives r: dec\n"
+    s += "    return fract(sin(n) * 43758.5453)\n"
+    s += "\n"
+    s += "gpu func noise(x: dec, y: dec, z: dec) gives r: dec\n"
+    s += "    ix = floor(x)\n    iy = floor(y)\n    iz = floor(z)\n"
+    s += "    fx = x - ix\n    fy = y - iy\n    fz = z - iz\n"
+    s += "    fx = fx * fx * (3 - 2 * fx)\n    fy = fy * fy * (3 - 2 * fy)\n    fz = fz * fz * (3 - 2 * fz)\n"
+    s += "    n = ix + iy * 57 + iz * 113\n"
+    s += "    a = mix(hash(n), hash(n + 1), fx)\n"
+    s += "    b = mix(hash(n + 57), hash(n + 58), fx)\n"
+    s += "    c = mix(hash(n + 113), hash(n + 114), fx)\n"
+    s += "    d = mix(hash(n + 170), hash(n + 171), fx)\n"
+    s += "    return mix(mix(a, b, fy), mix(c, d, fy), fz)\n"
+    s += "\n"
+    s += "gpu func tb_corner(v: corner)\n"
+    s += "    v.x = v.x\n"
+    s += "\n"
+    s += "gpu func tb_pixel(p: pixel)\n"
+    s += "    l = p.nx * p.sx + p.ny * p.sy + p.nz * p.sz\n"
+    s += "    if l < 0\n        l = 0\n"
+    s += "    k = p.amb + (1 - p.amb) * l\n"
+    s += "    p.r = p.r * k\n    p.g = p.g * k\n    p.b = p.b * k\n"
+    return s
+
+// ---------- проверка ----------
+
+func sh_type_word(w: text)
+    if w == "int"
+        return 1
+    if w == "dec"
+        return 2
+    if w == "bool"
+        return 3
+    return 0
+
+func sh_type_name(t: int)
+    if t == 1
+        return "int"
+    if t == 2
+        return "dec"
+    if t == 3
+        return "bool"
+    return "ничего"
+
+func sh_var(f: ShFn, name: text)
+    count i from 0 to len(f.vnames) - 1
+        if f.vnames[i] == name
+            return i
+    return -1
+
+func sh_find(fns: list ShFn, name: text)
+    count i from 0 to len(fns) - 1
+        if fns[i].name == name
+            return i
+    return -1
+
+// сколько чисел ждёт встроенная функция шейдера (0 — такой нет)
+modpub func sh_math(name: text)
+    each w in ["sin", "cos", "tan", "asin", "acos", "atan", "sqrt", "exp", "log", "floor", "ceil", "fract", "sign", "abs", "to_int", "to_dec", "round"]
+        if w == name
+            return 1
+    each w in ["min", "max", "pow", "atan2", "step"]
+        if w == name
+            return 2
+    each w in ["clamp", "mix", "smoothstep"]
+        if w == name
+            return 3
+    return 0
+
+func sh_is_num(t: int)
+    return t == 1 or t == 2
+
+func sh_fits(want: int, got: int)
+    return want == got or (want == 2 and got == 1)
+
+func sh_int_math(name: text)
+    return name == "abs" or name == "min" or name == "max" or name == "clamp"
+
+func sh_err(c: Comp, n: Node, msg: text, detail: text)
+    error_at(c, n.line, msg, detail)
+
+func sh_expr(c: Comp, fns: list ShFn, f: ShFn, n: Node) gives t: int
+    k = n.kind
+    t = 0
+    if k == "number"
+        t = 1
+    else if k == "decimal"
+        t = 2
+    else if k == "bool"
+        t = 3
+    else if k == "name"
+        i = sh_var(f, n.name)
+        if i < 0
+            if n.name == f.pname
+                sh_err(c, n, "это вся точка шейдера; пиши её поле: " + f.pname + ".r, " + f.pname + ".x ...", n.name)
+            sh_err(c, n, "в gpu func нет такой переменной", n.name)
+        t = f.vtypes[i]
+    else if k == "field"
+        base = n.kids[0]
+        if f.pname == "" or base.kind != "name" or base.name != f.pname
+            sh_err(c, n, "в gpu func поля есть только у точки или угла шейдера", n.name)
+        if sh_field_at(f.stage, n.name) < 0
+            sh_err(c, n, "у " + f.stage + " нет такого поля (есть " + join(sh_fields(f.stage), ", ") + ")", n.name)
+        t = 2
+    else if k == "unary"
+        a = sh_expr(c, fns, f, n.kids[0])
+        if n.value == "not"
+            if a != 3
+                sh_err(c, n, "not ставится перед да/нет", "")
+            t = 3
+        else
+            if not sh_is_num(a)
+                sh_err(c, n, "минус ставится перед числом", "")
+            t = a
+    else if k == "binop"
+        a = sh_expr(c, fns, f, n.kids[0])
+        b = sh_expr(c, fns, f, n.kids[1])
+        op = n.value
+        if op == "and" or op == "or"
+            if a != 3 or b != 3
+                sh_err(c, n, op + " соединяет да/нет", "")
+            t = 3
+        else if op == "==" or op == "!=" or op == "<" or op == ">" or op == "<=" or op == ">="
+            if not ((a == 3 and b == 3 and (op == "==" or op == "!=")) or (sh_is_num(a) and sh_is_num(b)))
+                sh_err(c, n, "так сравнивать нельзя", sh_type_name(a) + " " + op + " " + sh_type_name(b))
+            t = 3
+        else
+            if not sh_is_num(a) or not sh_is_num(b)
+                sh_err(c, n, "считать можно только числа", op)
+            t = 1
+            if a == 2 or b == 2
+                t = 2
+    else if k == "call"
+        args = list int
+        each arg in n.kids
+            if arg.name != ""
+                sh_err(c, arg, "в gpu func аргументы пишутся по порядку, без имён", arg.name)
+            args.add(sh_expr(c, fns, f, arg.kids[0]))
+        m = sh_math(n.name)
+        if m > 0
+            if len(args) != m
+                sh_err(c, n, n.name + " ждёт чисел: " + m, "")
+            all_int = true
+            each a in args
+                if not sh_is_num(a)
+                    sh_err(c, n, n.name + " ждёт числа", "")
+                if a != 1
+                    all_int = false
+            t = 2
+            if (sh_int_math(n.name) and all_int) or n.name == "to_int" or n.name == "round"
+                t = 1
+        else
+            h = sh_find(fns, n.name)
+            if h < 0
+                sh_err(c, n, "в gpu func можно звать только встроенные числовые функции (sin, cos, mix, noise ...) и другие gpu func", n.name)
+            g = fns[h]
+            if g.stage != ""
+                sh_err(c, n, "шейдер точки или угла сам не зовут: его ставит на сетку mesh_shader", n.name)
+            if len(args) != g.npar
+                sh_err(c, n, n.name + " ждёт чисел: " + g.npar, "")
+            count i from 0 to len(args) - 1
+                if not sh_fits(g.vtypes[i], args[i])
+                    sh_err(c, n, "не тот тип у аргумента " + (i + 1), sh_type_name(args[i]) + " вместо " + sh_type_name(g.vtypes[i]))
+            f.calls.add(n.name)
+            t = g.ret
+    else if k == "string"
+        sh_err(c, n, "в gpu func нет текста: только числа и да/нет", "")
+    else
+        sh_err(c, n, "в gpu func так нельзя", node_kind_name(k))
+    n.ty = t
+    return t
+
+func sh_block(c: Comp, fns: list ShFn, f: ShFn, b: Node, loops: int)
+    each s in b.kids
+        sh_stmt(c, fns, f, s, loops)
+
+func sh_new_var(f: ShFn, name: text, t: int)
+    f.vnames.add(name)
+    f.vtypes.add(t)
+
+func sh_stmt(c: Comp, fns: list ShFn, f: ShFn, s: Node, loops: int)
+    k = s.kind
+    if k == "assign"
+        if s.has_tsyn or len(s.kids) != 1
+            sh_err(c, s, "в gpu func тип пишется сам: x = 0.5", s.name)
+        t = sh_expr(c, fns, f, s.kids[0])
+        if t == 0
+            sh_err(c, s, "справа нет значения", s.name)
+        if s.name == f.pname
+            sh_err(c, s, "точку шейдера заменить нельзя, меняй её поля", s.name)
+        i = sh_var(f, s.name)
+        if i < 0
+            sh_new_var(f, s.name, t)
+        else if not sh_fits(f.vtypes[i], t)
+            sh_err(c, s, "у " + s.name + " тип " + sh_type_name(f.vtypes[i]) + ", а справа", sh_type_name(t))
+    else if k == "set"
+        target = s.kids[0]
+        t = sh_expr(c, fns, f, s.kids[1])
+        vt = 0
+        if target.kind == "name"
+            i = sh_var(f, target.name)
+            if i < 0
+                sh_err(c, s, "в gpu func нет такой переменной", target.name)
+            vt = f.vtypes[i]
+            target.ty = vt
+        else if target.kind == "field"
+            vt = sh_expr(c, fns, f, target)
+        else
+            sh_err(c, s, "в gpu func слева бывает имя или поле точки", "")
+        if s.value != "=" and not sh_is_num(vt)
+            sh_err(c, s, s.value + " бывает только у чисел", "")
+        if not sh_fits(vt, t)
+            sh_err(c, s, "слева " + sh_type_name(vt) + ", а справа", sh_type_name(t))
+    else if k == "if"
+        i = 0
+        repeat while i < len(s.kids)
+            if i + 1 < len(s.kids)
+                if sh_expr(c, fns, f, s.kids[i]) != 3
+                    sh_err(c, s, "после if нужно да/нет", "")
+                sh_block(c, fns, f, s.kids[i + 1], loops)
+                i += 2
+            else
+                sh_block(c, fns, f, s.kids[i], loops)
+                i += 1
+    else if k == "count"
+        if sh_expr(c, fns, f, s.kids[0]) != 1 or sh_expr(c, fns, f, s.kids[1]) != 1
+            sh_err(c, s, "count в gpu func идёт по целым числам", "")
+        if s.is_par
+            sh_err(c, s, "on all cores в gpu func не бывает: шейдер и так идёт на тысячах ядер", "")
+        i = sh_var(f, s.name)
+        if i < 0
+            sh_new_var(f, s.name, 1)
+        else if f.vtypes[i] != 1
+            sh_err(c, s, "счётчик count должен быть int", s.name)
+        f.loops += 1
+        sh_block(c, fns, f, s.kids[2], loops + 1)
+    else if k == "repeat_while"
+        if sh_expr(c, fns, f, s.kids[0]) != 3
+            sh_err(c, s, "после repeat while нужно да/нет", "")
+        sh_block(c, fns, f, s.kids[1], loops + 1)
+    else if k == "repeat_times"
+        if sh_expr(c, fns, f, s.kids[0]) != 1
+            sh_err(c, s, "repeat ... times ждёт целое число", "")
+        f.loops += 1
+        sh_block(c, fns, f, s.kids[1], loops + 1)
+    else if k == "skip" or k == "stop"
+        if loops == 0
+            sh_err(c, s, k + " бывает только внутри цикла", "")
+    else if k == "return"
+        if len(s.kids) > 0
+            if f.ret == 0
+                sh_err(c, s, "шейдер точки или угла ничего не отдаёт: просто return", "")
+            t = sh_expr(c, fns, f, s.kids[0])
+            if not sh_fits(f.ret, t)
+                sh_err(c, s, "отдаёт " + sh_type_name(t) + ", а обещано", sh_type_name(f.ret))
+    else if k == "expr_stmt"
+        sh_err(c, s, "в gpu func вызов отдельной строкой ничего не делает", "")
+    else
+        sh_err(c, s, "в gpu func так нельзя", node_kind_name(k))
+
+// функция не зовёт сама себя (видеокарта так не умеет)
+func sh_no_loop(c: Comp, fns: list ShFn, f: ShFn, start: text, depth: int)
+    if depth > 40
+        return
+    each name in f.calls
+        if name == start
+            c.file_name = f.node.file
+            error_at(c, f.node.line, "gpu func не может звать сама себя (и по кругу через другие)", start)
+        h = sh_find(fns, name)
+        if h >= 0
+            sh_no_loop(c, fns, fns[h], start, depth + 1)
+
+modpub func shader_fns(c: Comp, program: Node) gives fns: list ShFn
+    each top in program.kids
+        if top.kind != "gpufunc"
+            skip
+        c.file_name = top.file
+        if sh_find(fns, top.name) >= 0
+            error_at(c, top.line, "две gpu func с одним именем", top.name)
+        f = ShFn(node: top, name: top.name)
+        params = top.kids[0]
+        outs = top.kids[2]
+        first = ""
+        if len(params.kids) > 0 and params.kids[0].has_tsyn
+            first = params.kids[0].tsyn.name
+        if first == "pixel" or first == "corner"
+            f.stage = first
+            f.pname = params.kids[0].name
+            if len(outs.kids) != 0
+                error_at(c, top.line, "шейдер " + first + " ничего не отдаёт (gives не нужен): он меняет поля " + f.pname, top.name)
+            count i from 1 to len(params.kids) - 1
+                p = params.kids[i]
+                if p.is_link or not p.has_tsyn or (p.tsyn.name != "dec" and p.tsyn.name != "int")
+                    error_at(c, p.line, "настройка шейдера — число: " + p.name + ": dec", p.name)
+                if len(f.sets) == 8
+                    error_at(c, p.line, "у шейдера не больше 8 настроек", p.name)
+                f.sets.add(p.name)
+                sh_new_var(f, p.name, sh_type_word(p.tsyn.name))
+            f.npar = len(f.vnames)
+        else
+            each p in params.kids
+                if p.is_link or not p.has_tsyn or sh_type_word(p.tsyn.name) == 0
+                    error_at(c, p.line, "у gpu func параметры int, dec, bool, а первым может быть p: pixel (точка) или v: corner (угол)", p.name)
+                sh_new_var(f, p.name, sh_type_word(p.tsyn.name))
+            f.npar = len(f.vnames)
+            if len(outs.kids) != 1 or not outs.kids[0].has_tsyn or sh_type_word(outs.kids[0].tsyn.name) == 0
+                error_at(c, top.line, "помощник gpu func отдаёт одно число: gives r: dec", top.name)
+            f.ret = sh_type_word(outs.kids[0].tsyn.name)
+            if sh_var(f, outs.kids[0].name) < 0
+                sh_new_var(f, outs.kids[0].name, f.ret)
+        fns.add(f)
+    each f in fns
+        c.file_name = f.node.file
+        sh_block(c, fns, f, f.node.kids[1], 0)
+    each f in fns
+        sh_no_loop(c, fns, f, f.name, 0)
+    return fns
+
+modpub func has_gpu(program: Node)
+    each top in program.kids
+        if top.kind == "gpufunc"
+            return true
+    return false
+
+// ---------- C и Metal ----------
+
+func sh_ctype(t: int, msl: bool)
+    if t == 1
+        return "int"
+    if t == 2
+        return "float"
+    if t == 3
+        if msl
+            return "bool"
+        return "int"
+    return "void"
+
+func sh_dec_text(v: text)
+    s = v
+    if find(s, ".") < 0 and find(s, "e") < 0
+        s += ".0"
+    return s + "f"
+
+// значение n как тип want (int → dec)
+func sh_ce(f: ShFn, n: Node, want: int) gives r: text
+    e = sh_ctext(f, n)
+    if want == 2 and n.ty == 1
+        return "(float)(" + e + ")"
+    if want == 1 and n.ty == 2
+        return "(int)(" + e + ")"
+    return e
+
+func sh_ctext(f: ShFn, n: Node) gives r: text
+    k = n.kind
+    if k == "number"
+        return n.value
+    if k == "decimal"
+        return sh_dec_text(n.value)
+    if k == "bool"
+        if n.value == "true"
+            return "1"
+        return "0"
+    if k == "name"
+        return "v_" + n.name
+    if k == "field"
+        return "io[" + sh_field_at(f.stage, n.name) + "]"
+    if k == "unary"
+        if n.value == "not"
+            return "(!" + sh_ctext(f, n.kids[0]) + ")"
+        return "(-" + sh_ctext(f, n.kids[0]) + ")"
+    if k == "binop"
+        op = n.value
+        a = n.kids[0]
+        b = n.kids[1]
+        if op == "and"
+            return "(" + sh_ctext(f, a) + " && " + sh_ctext(f, b) + ")"
+        if op == "or"
+            return "(" + sh_ctext(f, a) + " || " + sh_ctext(f, b) + ")"
+        w = n.ty
+        if n.ty == 3
+            w = 1
+            if a.ty == 2 or b.ty == 2
+                w = 2
+            if a.ty == 3
+                w = 3
+        if op == "%" and w == 2
+            return "tbs_fmod(" + sh_ce(f, a, 2) + ", " + sh_ce(f, b, 2) + ")"
+        if op == "%"
+            return "tbs_imod(" + sh_ce(f, a, 1) + ", " + sh_ce(f, b, 1) + ")"
+        if op == "/" and w == 1
+            return "tbs_idiv(" + sh_ce(f, a, 1) + ", " + sh_ce(f, b, 1) + ")"
+        return "(" + sh_ce(f, a, w) + " " + op + " " + sh_ce(f, b, w) + ")"
+    if k == "call"
+        m = sh_math(n.name)
+        s = "tbs_" + n.name + "("
+        if m > 0
+            if n.ty == 1 and sh_int_math(n.name)
+                s = "tbs_i" + n.name + "("
+            want = 2
+            if n.ty == 1 and sh_int_math(n.name)
+                want = 1
+            if n.name == "to_dec"
+                want = 2
+            count i from 0 to len(n.kids) - 1
+                if i > 0
+                    s += ", "
+                s += sh_ce(f, n.kids[i].kids[0], want)
+            return s + ")"
+        return s + sh_cargs(f, n) + ")"
+    return "0"
+
+// аргументы помощника: типы подставит C (int → float сам), bool — как есть
+func sh_cargs(f: ShFn, n: Node) gives r: text
+    s = ""
+    count i from 0 to len(n.kids) - 1
+        if i > 0
+            s += ", "
+        s += sh_ctext(f, n.kids[i].kids[0])
+    return s
+
+func sh_ind(d: int)
+    s = ""
+    count i from 1 to d
+        s += "    "
+    return s
+
+func sh_cblock(f: ShFn, b: Node, d: int, out: list text, hid: list int)
+    each s in b.kids
+        sh_cstmt(f, s, d, out, hid)
+
+func sh_vty(f: ShFn, name: text)
+    return f.vtypes[sh_var(f, name)]
+
+func sh_cstmt(f: ShFn, s: Node, d: int, out: list text, hid: list int)
+    k = s.kind
+    p = sh_ind(d)
+    if k == "assign"
+        out.add(p + "v_" + s.name + " = " + sh_ce(f, s.kids[0], sh_vty(f, s.name)) + ";\n")
+    else if k == "set"
+        t = s.kids[0]
+        lhs = sh_ctext(f, t)
+        vt = t.ty
+        if s.value == "/=" and vt == 1
+            out.add(p + lhs + " = tbs_idiv(" + lhs + ", " + sh_ce(f, s.kids[1], 1) + ");\n")
+        else
+            out.add(p + lhs + " " + s.value + " " + sh_ce(f, s.kids[1], vt) + ";\n")
+    else if k == "if"
+        i = 0
+        repeat while i < len(s.kids)
+            if i + 1 < len(s.kids)
+                head = "if ("
+                if i > 0
+                    head = "} else if ("
+                out.add(p + head + sh_ctext(f, s.kids[i]) + ") {\n")
+                sh_cblock(f, s.kids[i + 1], d + 1, out, hid)
+                i += 2
+            else
+                out.add(p + "} else {\n")
+                sh_cblock(f, s.kids[i], d + 1, out, hid)
+                i += 1
+        out.add(p + "}\n")
+    else if k == "count"
+        hid[0] += 1
+        e = "tb_e" + hid[0]
+        out.add(p + "{ int " + e + " = " + sh_ctext(f, s.kids[1]) + "; for (v_" + s.name + " = " + sh_ctext(f, s.kids[0]) + "; v_" + s.name + " <= " + e + "; v_" + s.name + "++) {\n")
+        sh_cblock(f, s.kids[2], d + 1, out, hid)
+        out.add(p + "} }\n")
+    else if k == "repeat_while"
+        out.add(p + "while (" + sh_ctext(f, s.kids[0]) + ") {\n")
+        sh_cblock(f, s.kids[1], d + 1, out, hid)
+        out.add(p + "}\n")
+    else if k == "repeat_times"
+        hid[0] += 1
+        e = "tb_e" + hid[0]
+        out.add(p + "{ int " + e + " = " + sh_ctext(f, s.kids[0]) + "; for (int " + e + "k = 0; " + e + "k < " + e + "; " + e + "k++) {\n")
+        sh_cblock(f, s.kids[1], d + 1, out, hid)
+        out.add(p + "} }\n")
+    else if k == "stop"
+        out.add(p + "break;\n")
+    else if k == "skip"
+        out.add(p + "continue;\n")
+    else if k == "return"
+        if f.ret == 0
+            out.add(p + "return;\n")
+        else if len(s.kids) > 0
+            out.add(p + "return " + sh_ce(f, s.kids[0], f.ret) + ";\n")
+        else
+            out.add(p + "return v_" + f.vnames[f.npar] + ";\n")
+
+func sh_chead(f: ShFn, msl: bool)
+    s = "static " + sh_ctype(f.ret, msl) + " tbs_" + f.name + "("
+    if f.stage != ""
+        if msl
+            s += "thread float *io"
+        else
+            s += "float *io"
+    else
+        count i from 0 to f.npar - 1
+            if i > 0
+                s += ", "
+            s += sh_ctype(f.vtypes[i], msl) + " v_" + f.vnames[i]
+        if f.npar == 0
+            if not msl
+                s += "void"
+    return s + ")"
+
+func sh_cfunc(f: ShFn, msl: bool, out: list text)
+    out.add(sh_chead(f, msl) + " {\n")
+    first = f.npar
+    if f.stage != ""
+        // настройки берутся из io (p0 ...)
+        base = sh_set_base(f.stage)
+        count i from 0 to len(f.sets) - 1
+            out.add("    " + sh_ctype(f.vtypes[i], msl) + " v_" + f.vnames[i] + " = (" + sh_ctype(f.vtypes[i], msl) + ")io[" + (base + i) + "];\n")
+    count i from first to len(f.vnames) - 1
+        out.add("    " + sh_ctype(f.vtypes[i], msl) + " v_" + f.vnames[i] + " = 0;\n")
+    hid = [0]
+    sh_cblock(f, f.node.kids[1], 1, out, hid)
+    if f.ret != 0
+        out.add("    return v_" + f.vnames[f.npar] + ";\n")
+    out.add("}\n")
+
+// общие числовые функции для C (процессор) и Metal
+func sh_preamble(msl: bool, out: list text)
+    one = ["sin", "cos", "tan", "asin", "acos", "atan", "sqrt", "exp", "log", "floor", "ceil"]
+    each w in one
+        if msl
+            out.add("static float tbs_" + w + "(float x) { return metal::" + w + "(x); }\n")
+        else
+            out.add("static inline float tbs_" + w + "(float x) { return " + w + "f(x); }\n")
+    if msl
+        out.add("static float tbs_abs(float x) { return metal::fabs(x); }\n")
+        out.add("static float tbs_pow(float x, float y) { return metal::pow(x, y); }\n")
+        out.add("static float tbs_atan2(float y, float x) { return metal::atan2(y, x); }\n")
+        out.add("static float tbs_fmod(float x, float y) { return metal::fmod(x, y); }\n")
+        out.add("static float tbs_min(float x, float y) { return metal::fmin(x, y); }\n")
+        out.add("static float tbs_max(float x, float y) { return metal::fmax(x, y); }\n")
+    else
+        out.add("static inline float tbs_abs(float x) { return fabsf(x); }\n")
+        out.add("static inline float tbs_pow(float x, float y) { return powf(x, y); }\n")
+        out.add("static inline float tbs_atan2(float y, float x) { return atan2f(y, x); }\n")
+        out.add("static inline float tbs_fmod(float x, float y) { return fmodf(x, y); }\n")
+        out.add("static inline float tbs_min(float x, float y) { return x < y ? x : y; }\n")
+        out.add("static inline float tbs_max(float x, float y) { return x > y ? x : y; }\n")
+    st = "static inline "
+    if msl
+        st = "static "
+    out.add(st + "float tbs_fract(float x) { return x - tbs_floor(x); }\n")
+    out.add(st + "float tbs_sign(float x) { return x > 0 ? 1.0f : x < 0 ? -1.0f : 0.0f; }\n")
+    out.add(st + "float tbs_clamp(float x, float a, float b) { return tbs_min(tbs_max(x, a), b); }\n")
+    out.add(st + "float tbs_mix(float a, float b, float t) { return a * (1.0f - t) + b * t; }\n")
+    out.add(st + "float tbs_step(float e, float x) { return x < e ? 0.0f : 1.0f; }\n")
+    out.add(st + "float tbs_smoothstep(float a, float b, float x) { float t = tbs_clamp((x - a) / (b - a), 0.0f, 1.0f); return t * t * (3.0f - 2.0f * t); }\n")
+    out.add(st + "float tbs_to_dec(float x) { return x; }\n")
+    out.add(st + "int tbs_to_int(float x) { return (int)x; }\n")
+    out.add(st + "int tbs_round(float x) { return (int)tbs_floor(x + 0.5f); }\n")
+    out.add(st + "int tbs_iabs(int x) { return x < 0 ? -x : x; }\n")
+    out.add(st + "int tbs_imin(int x, int y) { return x < y ? x : y; }\n")
+    out.add(st + "int tbs_imax(int x, int y) { return x > y ? x : y; }\n")
+    out.add(st + "int tbs_iclamp(int x, int a, int b) { return tbs_imin(tbs_imax(x, a), b); }\n")
+    out.add(st + "int tbs_idiv(int a, int b) { return b == 0 ? 0 : a / b; }\n")
+    out.add(st + "int tbs_imod(int a, int b) { return b == 0 ? 0 : a % b; }\n")
+
+func sh_ftext(fns: list ShFn, msl: bool, out: list text)
+    sh_preamble(msl, out)
+    each f in fns
+        out.add(sh_chead(f, msl) + ";\n")
+    each f in fns
+        sh_cfunc(f, msl, out)
+
+// Metal: входы и выходы шейдеров (у каждого шейдера углов — вершинная функция, у точки — функция точки)
+func sh_msl_wrappers(fns: list ShFn, out: list text)
+    out.add("struct TbsVin { float3 pos [[attribute(0)]]; float3 nrm [[attribute(1)]]; float4 col [[attribute(2)]]; float2 uv [[attribute(3)]]; };\n")
+    out.add("struct TbsVout { float4 pos [[position]]; float3 w; float3 n; float4 c; float2 uv; };\n")
+    each f in fns
+        if f.stage == "corner"
+            out.add("vertex TbsVout tbs_v_" + f.name + "(TbsVin in [[stage_in]], uint vid [[vertex_id]], device const float *rec [[buffer(1)]], constant uint &off [[buffer(2)]]) {\n")
+            out.add("    device const float *R = rec + off;\n    float io[32];\n    for (int k = 0; k < 32; k++) io[k] = 0;\n")
+            out.add("    io[0] = in.pos.x; io[1] = in.pos.y; io[2] = in.pos.z; io[3] = in.nrm.x; io[4] = in.nrm.y; io[5] = in.nrm.z;\n")
+            out.add("    io[6] = in.uv.x; io[7] = in.uv.y; io[8] = in.col.x; io[9] = in.col.y; io[10] = in.col.z; io[11] = in.col.w;\n")
+            out.add("    io[12] = R[27]; io[13] = float(vid);\n    for (int k = 0; k < 8; k++) io[14 + k] = R[40 + k];\n")
+            out.add("    tbs_" + f.name + "(io);\n")
+            out.add("    float3 w = float3(R[0] * io[0] + R[1] * io[1] + R[2] * io[2] + R[9], R[3] * io[0] + R[4] * io[1] + R[5] * io[2] + R[10], R[6] * io[0] + R[7] * io[1] + R[8] * io[2] + R[11]);\n")
+            out.add("    float3 n = float3(R[0] * io[3] + R[1] * io[4] + R[2] * io[5], R[3] * io[3] + R[4] * io[4] + R[5] * io[5], R[6] * io[3] + R[7] * io[4] + R[8] * io[5]);\n")
+            out.add("    float3 d = w - float3(R[12], R[13], R[14]);\n")
+            out.add("    float cx = d.x * R[15] + d.y * R[16] + d.z * R[17], cy = d.x * R[18] + d.y * R[19] + d.z * R[20], cz = d.x * R[21] + d.y * R[22] + d.z * R[23];\n")
+            out.add("    TbsVout o;\n    o.pos = float4(cx * R[24], cy * R[25], cz - R[26], cz);\n")
+            out.add("    o.w = w; o.n = n; o.c = float4(io[8], io[9], io[10], io[11]); o.uv = float2(io[6], io[7]);\n    return o;\n}\n")
+        else if f.stage == "pixel"
+            out.add("fragment float4 tbs_f_" + f.name + "(TbsVout in [[stage_in]], device const float *rec [[buffer(1)]], constant uint &off [[buffer(2)]]) {\n")
+            out.add("    device const float *R = rec + off;\n    float io[32];\n    for (int k = 0; k < 32; k++) io[k] = 0;\n")
+            out.add("    float3 n = metal::normalize(in.n);\n")
+            out.add("    io[0] = in.pos.x - 0.5; io[1] = in.pos.y - 0.5; io[2] = in.pos.z; io[3] = in.w.x; io[4] = in.w.y; io[5] = in.w.z;\n")
+            out.add("    io[6] = n.x; io[7] = n.y; io[8] = n.z; io[9] = in.uv.x; io[10] = in.uv.y;\n")
+            out.add("    io[11] = in.c.x; io[12] = in.c.y; io[13] = in.c.z; io[14] = in.c.w; io[15] = R[27];\n")
+            out.add("    io[16] = R[28]; io[17] = R[29]; io[18] = R[30]; io[19] = R[31]; io[20] = R[12]; io[21] = R[13]; io[22] = R[14];\n")
+            out.add("    for (int k = 0; k < 8; k++) io[23 + k] = R[32 + k];\n")
+            out.add("    tbs_" + f.name + "(io);\n")
+            out.add("    float a = metal::clamp(io[14], 0.0, 1.0);\n")
+            out.add("    return float4(metal::clamp(io[11], 0.0, 1.0) * a, metal::clamp(io[12], 0.0, 1.0) * a, metal::clamp(io[13], 0.0, 1.0) * a, a);\n}\n")
+
+// ---------- SPIR-V ----------
+
+obj Spv
+    bound: int
+    ann: list int
+    glob: list int
+    code: list int
+    keys: list text
+    vals: list int
+    glsl: int
+    vars: list int
+    hid: list int
+    hnext: int
+    io: int
+    params: list int
+    done: bool
+    brk: list int
+    cont: list int
+    fnids: list int
+
+func sv_none() gives r: list int
+    return r
+
+func sv_id(s: Spv)
+    s.bound += 1
+    return s.bound
+
+func sv_ins(out: list int, op: int, args: list int)
+    out.add((len(args) + 1) * 65536 + op)
+    each a in args
+        out.add(a)
+
+func sv_str(args: list int, t: text)
+    n = byte_len(t)
+    w = 0
+    k = 0
+    count i from 0 to n
+        b = 0
+        if i < n
+            b = byte_at(t, i)
+        w = bit_or(w, shift_left(b, 8 * k))
+        k += 1
+        if k == 4
+            args.add(w)
+            w = 0
+            k = 0
+    if k > 0
+        args.add(w)
+
+func sv_get(s: Spv, key: text)
+    count i from 0 to len(s.keys) - 1
+        if s.keys[i] == key
+            return s.vals[i]
+    return 0
+
+func sv_keep(s: Spv, key: text, id: int)
+    s.keys.add(key)
+    s.vals.add(id)
+    return id
+
+func sv_simple(s: Spv, key: text, op: int, args: list int)
+    id = sv_get(s, key)
+    if id != 0
+        return id
+    id = sv_id(s)
+    full = [id]
+    each a in args
+        full.add(a)
+    sv_ins(s.glob, op, full)
+    return sv_keep(s, key, id)
+
+func sv_void(s: Spv)
+    return sv_simple(s, "void", 19, sv_none())
+
+func sv_bool(s: Spv)
+    return sv_simple(s, "bool", 20, sv_none())
+
+func sv_int(s: Spv)
+    return sv_simple(s, "int", 21, [32, 1])
+
+func sv_uint(s: Spv)
+    return sv_simple(s, "uint", 21, [32, 0])
+
+func sv_float(s: Spv)
+    return sv_simple(s, "float", 22, [32])
+
+func sv_vec(s: Spv, n: int)
+    f = sv_float(s)
+    return sv_simple(s, "vec" + n, 23, [f, n])
+
+func sv_ptr(s: Spv, sc: int, t: int)
+    return sv_simple(s, "ptr" + sc + ":" + t, 32, [sc, t])
+
+func sv_ty(s: Spv, t: int)
+    if t == 1
+        return sv_int(s)
+    if t == 2
+        return sv_float(s)
+    if t == 3
+        return sv_bool(s)
+    return sv_void(s)
+
+func sv_const(s: Spv, ty: int, key: text, v: int)
+    id = sv_get(s, key)
+    if id != 0
+        return id
+    id = sv_id(s)
+    sv_ins(s.glob, 43, [ty, id, v])
+    return sv_keep(s, key, id)
+
+func sv_cint(s: Spv, v: int)
+    t = sv_int(s)
+    return sv_const(s, t, "ci" + v, bit_and(v, 4294967295))
+
+func sv_cuint(s: Spv, v: int)
+    t = sv_uint(s)
+    return sv_const(s, t, "cu" + v, v)
+
+modpub func f32_bits(x: dec) gives b: int
+    if x == 0
+        return 0
+    sign = 0
+    m = x
+    if m < 0
+        sign = 2147483648
+        m = -m
+    e = 0
+    repeat while m >= 2
+        m = m / 2
+        e += 1
+    repeat while m < 1
+        m = m * 2
+        e -= 1
+    if e > 127
+        return sign + 2139095040
+    if e < -126
+        return sign
+    fr = round((m - 1) * 8388608)
+    if fr >= 8388608
+        fr = 0
+        e += 1
+    return sign + (e + 127) * 8388608 + fr
+
+func sv_cflt(s: Spv, x: dec)
+    t = sv_float(s)
+    b = f32_bits(x)
+    return sv_const(s, t, "cf" + b, b)
+
+func sv_cbool(s: Spv, v: bool)
+    t = sv_bool(s)
+    if v
+        return sv_simple(s, "true", 41, [t])
+    return sv_simple(s, "false", 42, [t])
+
+func sv_zero(s: Spv, t: int)
+    if t == 1
+        return sv_cint(s, 0)
+    if t == 3
+        return sv_cbool(s, false)
+    return sv_cflt(s, 0.0)
+
+func sv_fnty(s: Spv, ret: int, ps: list int)
+    key = "fn" + ret
+    each p in ps
+        key += ":" + p
+    full = [ret]
+    each p in ps
+        full.add(p)
+    return sv_simple(s, key, 33, full)
+
+func sv_arr32(s: Spv)
+    f = sv_float(s)
+    n = sv_cint(s, 32)
+    return sv_simple(s, "arr32", 28, [f, n])
+
+// одна команда в теле функции с результатом
+func sv_op(s: Spv, op: int, ty: int, args: list int)
+    r = sv_id(s)
+    full = [ty, r]
+    each a in args
+        full.add(a)
+    sv_ins(s.code, op, full)
+    return r
+
+func sv_ext(s: Spv, ty: int, inst: int, args: list int)
+    r = sv_id(s)
+    full = [ty, r, s.glsl, inst]
+    each a in args
+        full.add(a)
+    sv_ins(s.code, 12, full)
+    return r
+
+func sv_label(s: Spv, id: int)
+    sv_ins(s.code, 248, [id])
+    s.done = false
+
+func sv_branch(s: Spv, dst: int)
+    if not s.done
+        sv_ins(s.code, 249, [dst])
+        s.done = true
+
+func sv_conv(s: Spv, id: int, src: int, dst: int)
+    if src == dst or dst == 0
+        return id
+    if src == 1 and dst == 2
+        return sv_op(s, 111, sv_float(s), [id])
+    if src == 2 and dst == 1
+        return sv_op(s, 110, sv_int(s), [id])
+    return id
+
+// место io[k]
+func sv_io(s: Spv, k: int)
+    p = sv_ptr(s, 7, sv_float(s))
+    return sv_op(s, 65, p, [s.io, sv_cint(s, k)])
+
+func sv_load(s: Spv, ty: int, ptr: int)
+    return sv_op(s, 61, ty, [ptr])
+
+func sv_store(s: Spv, ptr: int, v: int)
+    sv_ins(s.code, 62, [ptr, v])
+
+func sv_e(s: Spv, fns: list ShFn, f: ShFn, n: Node, want: int) gives r: int
+    return sv_conv(s, sv_expr(s, fns, f, n), n.ty, want)
+
+func sv_glsl_no(name: text)
+    names = ["sin", "cos", "tan", "asin", "acos", "atan", "sqrt", "exp", "log", "floor", "ceil", "fract", "sign", "abs", "min", "max", "pow", "atan2", "step", "clamp", "mix", "smoothstep"]
+    nums = [13, 14, 15, 16, 17, 18, 31, 27, 28, 8, 9, 10, 6, 4, 37, 40, 26, 25, 48, 43, 46, 49]
+    count i from 0 to len(names) - 1
+        if names[i] == name
+            return nums[i]
+    return 0
+
+func sv_expr(s: Spv, fns: list ShFn, f: ShFn, n: Node) gives r: int
+    k = n.kind
+    if k == "number"
+        return sv_cint(s, to_int(n.value) or 0)
+    if k == "decimal"
+        return sv_cflt(s, to_dec(n.value) or 0.0)
+    if k == "bool"
+        return sv_cbool(s, n.value == "true")
+    if k == "name"
+        i = sh_var(f, n.name)
+        return sv_load(s, sv_ty(s, f.vtypes[i]), s.vars[i])
+    if k == "field"
+        return sv_load(s, sv_float(s), sv_io(s, sh_field_at(f.stage, n.name)))
+    if k == "unary"
+        a = sv_expr(s, fns, f, n.kids[0])
+        if n.value == "not"
+            return sv_op(s, 168, sv_bool(s), [a])
+        if n.ty == 2
+            return sv_op(s, 127, sv_float(s), [a])
+        return sv_op(s, 126, sv_int(s), [a])
+    if k == "binop"
+        op = n.value
+        a = n.kids[0]
+        b = n.kids[1]
+        if op == "and" or op == "or"
+            x = sv_expr(s, fns, f, a)
+            y = sv_expr(s, fns, f, b)
+            code = 167
+            if op == "or"
+                code = 166
+            return sv_op(s, code, sv_bool(s), [x, y])
+        w = n.ty
+        if w == 3
+            w = 1
+            if a.ty == 2 or b.ty == 2
+                w = 2
+            if a.ty == 3
+                w = 3
+        x = sv_e(s, fns, f, a, w)
+        y = sv_e(s, fns, f, b, w)
+        ops = ["+", "-", "*", "/", "%", "==", "!=", "<", ">", "<=", ">="]
+        ints = [128, 130, 132, 135, 138, 170, 171, 177, 173, 179, 175]
+        flts = [129, 131, 133, 136, 140, 180, 183, 184, 186, 188, 190]
+        count i from 0 to len(ops) - 1
+            if ops[i] == op
+                if w == 3
+                    code = 164
+                    if op == "!="
+                        code = 165
+                    return sv_op(s, code, sv_bool(s), [x, y])
+                code = ints[i]
+                if w == 2
+                    code = flts[i]
+                ty = sv_ty(s, n.ty)
+                return sv_op(s, code, ty, [x, y])
+        return x
+    if k == "call"
+        m = sh_math(n.name)
+        if m > 0
+            name = n.name
+            if name == "to_dec"
+                return sv_e(s, fns, f, n.kids[0].kids[0], 2)
+            if name == "to_int"
+                return sv_e(s, fns, f, n.kids[0].kids[0], 1)
+            if name == "round"
+                x = sv_e(s, fns, f, n.kids[0].kids[0], 2)
+                x = sv_op(s, 129, sv_float(s), [x, sv_cflt(s, 0.5)])
+                x = sv_ext(s, sv_float(s), 8, [x])
+                return sv_op(s, 110, sv_int(s), [x])
+            want = 2
+            inst = sv_glsl_no(name)
+            if n.ty == 1
+                want = 1
+                if name == "abs"
+                    inst = 5
+                else if name == "min"
+                    inst = 39
+                else if name == "max"
+                    inst = 42
+                else if name == "clamp"
+                    inst = 45
+            args = list int
+            each arg in n.kids
+                args.add(sv_e(s, fns, f, arg.kids[0], want))
+            return sv_ext(s, sv_ty(s, n.ty), inst, args)
+        h = sh_find(fns, n.name)
+        g = fns[h]
+        args = [s.fnids[h]]
+        count i from 0 to len(n.kids) - 1
+            args.add(sv_e(s, fns, f, n.kids[i].kids[0], g.vtypes[i]))
+        return sv_op(s, 57, sv_ty(s, g.ret), args)
+    return sv_zero(s, 2)
+
+func sv_block(s: Spv, fns: list ShFn, f: ShFn, b: Node)
+    each st in b.kids
+        if s.done
+            stop
+        sv_stmt(s, fns, f, st)
+
+func sv_if(s: Spv, fns: list ShFn, f: ShFn, n: Node, i: int)
+    cond = sv_expr(s, fns, f, n.kids[i])
+    then = sv_id(s)
+    merge = sv_id(s)
+    rest = len(n.kids) - (i + 2)
+    other = merge
+    if rest > 0
+        other = sv_id(s)
+    sv_ins(s.code, 247, [merge, 0])
+    sv_ins(s.code, 250, [cond, then, other])
+    s.done = true
+    sv_label(s, then)
+    sv_block(s, fns, f, n.kids[i + 1])
+    sv_branch(s, merge)
+    if rest > 0
+        sv_label(s, other)
+        if rest >= 2
+            sv_if(s, fns, f, n, i + 2)
+        else
+            sv_block(s, fns, f, n.kids[i + 2])
+        sv_branch(s, merge)
+    sv_label(s, merge)
+
+// цикл: cond_var — место счётчика (0 — while с условием cn), end — место конца
+func sv_loop(s: Spv, fns: list ShFn, f: ShFn, cn: Node, ctr: int, end: int, body: Node)
+    hdr = sv_id(s)
+    test = sv_id(s)
+    bb = sv_id(s)
+    cont = sv_id(s)
+    merge = sv_id(s)
+    sv_branch(s, hdr)
+    sv_label(s, hdr)
+    sv_ins(s.code, 246, [merge, cont, 0])
+    sv_ins(s.code, 249, [test])
+    s.done = true
+    sv_label(s, test)
+    c = 0
+    if ctr == 0
+        c = sv_expr(s, fns, f, cn)
+    else
+        it = sv_int(s)
+        c = sv_op(s, 179, sv_bool(s), [sv_load(s, it, ctr), sv_load(s, it, end)])
+    sv_ins(s.code, 250, [c, bb, merge])
+    s.done = true
+    sv_label(s, bb)
+    s.brk.add(merge)
+    s.cont.add(cont)
+    sv_block(s, fns, f, body)
+    gone = s.brk.pop()
+    gone = s.cont.pop()
+    sv_branch(s, cont)
+    sv_label(s, cont)
+    if ctr != 0
+        it = sv_int(s)
+        v = sv_op(s, 128, it, [sv_load(s, it, ctr), sv_cint(s, 1)])
+        sv_store(s, ctr, v)
+    sv_ins(s.code, 249, [hdr])
+    s.done = true
+    sv_label(s, merge)
+
+func sv_hidden(s: Spv)
+    id = s.hid[s.hnext]
+    s.hnext += 1
+    return id
+
+func sv_stmt(s: Spv, fns: list ShFn, f: ShFn, n: Node)
+    k = n.kind
+    if k == "assign"
+        i = sh_var(f, n.name)
+        sv_store(s, s.vars[i], sv_e(s, fns, f, n.kids[0], f.vtypes[i]))
+    else if k == "set"
+        t = n.kids[0]
+        vt = t.ty
+        ptr = 0
+        if t.kind == "name"
+            ptr = s.vars[sh_var(f, t.name)]
+        else
+            ptr = sv_io(s, sh_field_at(f.stage, t.name))
+        v = sv_e(s, fns, f, n.kids[1], vt)
+        if n.value != "="
+            ty = sv_ty(s, vt)
+            old = sv_load(s, ty, ptr)
+            ops = ["+=", "-=", "*=", "/="]
+            ints = [128, 130, 132, 135]
+            flts = [129, 131, 133, 136]
+            count i from 0 to 3
+                if ops[i] == n.value
+                    code = ints[i]
+                    if vt == 2
+                        code = flts[i]
+                    v = sv_op(s, code, ty, [old, v])
+        sv_store(s, ptr, v)
+    else if k == "if"
+        sv_if(s, fns, f, n, 0)
+    else if k == "count"
+        ctr = s.vars[sh_var(f, n.name)]
+        end = sv_hidden(s)
+        sv_store(s, ctr, sv_e(s, fns, f, n.kids[0], 1))
+        sv_store(s, end, sv_e(s, fns, f, n.kids[1], 1))
+        sv_loop(s, fns, f, n, ctr, end, n.kids[2])
+    else if k == "repeat_times"
+        ctr = sv_hidden(s)
+        end = sv_hidden(s)
+        sv_store(s, ctr, sv_cint(s, 1))
+        sv_store(s, end, sv_e(s, fns, f, n.kids[0], 1))
+        sv_loop(s, fns, f, n, ctr, end, n.kids[1])
+    else if k == "repeat_while"
+        sv_loop(s, fns, f, n.kids[0], 0, 0, n.kids[1])
+    else if k == "stop"
+        sv_branch(s, s.brk[len(s.brk) - 1])
+    else if k == "skip"
+        sv_branch(s, s.cont[len(s.cont) - 1])
+    else if k == "return"
+        sv_ret(s, fns, f, n)
+
+func sv_ret(s: Spv, fns: list ShFn, f: ShFn, n: Node)
+    if s.done
+        return
+    if f.ret == 0
+        sv_ins(s.code, 253, sv_none())
+    else if len(n.kids) > 0
+        sv_ins(s.code, 254, [sv_e(s, fns, f, n.kids[0], f.ret)])
+    else
+        sv_ins(s.code, 254, [sv_load(s, sv_ty(s, f.ret), s.vars[f.npar])])
+    s.done = true
+
+func sv_func(s: Spv, fns: list ShFn, f: ShFn, fid: int)
+    ps = list int
+    if f.stage != ""
+        ps.add(sv_ptr(s, 7, sv_arr32(s)))
+    else
+        count i from 0 to f.npar - 1
+            ps.add(sv_ty(s, f.vtypes[i]))
+    rt = sv_ty(s, f.ret)
+    fty = sv_fnty(s, rt, ps)
+    sv_ins(s.code, 54, [rt, fid, 0, fty])
+    s.params = sv_none()
+    each p in ps
+        pid = sv_id(s)
+        sv_ins(s.code, 55, [p, pid])
+        s.params.add(pid)
+    if f.stage != ""
+        s.io = s.params[0]
+    sv_label(s, sv_id(s))
+    s.vars = sv_none()
+    count i from 0 to len(f.vnames) - 1
+        v = sv_id(s)
+        sv_ins(s.code, 59, [sv_ptr(s, 7, sv_ty(s, f.vtypes[i])), v, 7])
+        s.vars.add(v)
+    s.hid = sv_none()
+    s.hnext = 0
+    count i from 1 to 2 * f.loops
+        v = sv_id(s)
+        sv_ins(s.code, 59, [sv_ptr(s, 7, sv_int(s)), v, 7])
+        s.hid.add(v)
+    count i from 0 to len(f.vnames) - 1
+        if f.stage == "" and i < f.npar
+            sv_store(s, s.vars[i], s.params[i])
+        else if f.stage != "" and i < f.npar
+            x = sv_load(s, sv_float(s), sv_io(s, sh_set_base(f.stage) + i))
+            sv_store(s, s.vars[i], sv_conv(s, x, 2, f.vtypes[i]))
+        else
+            sv_store(s, s.vars[i], sv_zero(s, f.vtypes[i]))
+    sv_block(s, fns, f, f.node.kids[1])
+    sv_ret(s, fns, f, Node())
+    sv_ins(s.code, 56, sv_none())
+
+// какие функции нужны шейдеру f (он сам и все помощники, которых он зовёт)
+func sh_reach(fns: list ShFn, f: ShFn, got: list text)
+    each x in got
+        if x == f.name
+            return
+    got.add(f.name)
+    each name in f.calls
+        h = sh_find(fns, name)
+        if h >= 0
+            sh_reach(fns, fns[h], got)
+
+// записи сетки в буфере (номер числа): поворот 0..8, место 9..11, камера 12..14, вправо 15..17, вверх 18..20,
+// вперёд 21..23, масштаб экрана 24, 25, ближняя глубина 26, время 27, солнце 28..30, небо 31,
+// настройки шейдера точки 32..39, шейдера углов 40..47
+func sv_rec(s: Spv, rec: int, off: int, k: int)
+    f = sv_float(s)
+    idx = sv_op(s, 128, sv_uint(s), [off, sv_cuint(s, k)])
+    p = sv_op(s, 65, sv_ptr(s, 2, f), [rec, sv_cint(s, 0), idx])
+    return sv_load(s, f, p)
+
+func sv_fmul(s: Spv, a: int, b: int)
+    return sv_op(s, 133, sv_float(s), [a, b])
+
+func sv_fadd(s: Spv, a: int, b: int)
+    return sv_op(s, 129, sv_float(s), [a, b])
+
+func sv_fsub(s: Spv, a: int, b: int)
+    return sv_op(s, 131, sv_float(s), [a, b])
+
+func sv_dot3(s: Spv, a: list int, b: list int)
+    return sv_fadd(s, sv_fadd(s, sv_fmul(s, a[0], b[0]), sv_fmul(s, a[1], b[1])), sv_fmul(s, a[2], b[2]))
+
+func sv_decor(s: Spv, id: int, what: list int)
+    full = [id]
+    each w in what
+        full.add(w)
+    sv_ins(s.ann, 71, full)
+
+func sv_var(s: Spv, ty: int, sc: int)
+    id = sv_id(s)
+    sv_ins(s.glob, 59, [sv_ptr(s, sc, ty), id, sc])
+    return id
+
+func sv_in(s: Spv, ty: int, loc: int)
+    id = sv_var(s, ty, 1)
+    sv_decor(s, id, [30, loc])
+    return id
+
+func sv_out(s: Spv, ty: int, loc: int)
+    id = sv_var(s, ty, 3)
+    sv_decor(s, id, [30, loc])
+    return id
+
+func sv_parts(s: Spv, v: int, n: int) gives r: list int
+    count i from 0 to n - 1
+        r.add(sv_op(s, 81, sv_float(s), [v, i]))
+    return r
+
+func sv_set_io(s: Spv, k: int, v: int)
+    sv_store(s, sv_io(s, k), v)
+
+func sv_get_io(s: Spv, k: int)
+    return sv_load(s, sv_float(s), sv_io(s, k))
+
+// SPIR-V одного шейдера: вершинный (corner) или точки (pixel), с обёрткой main
+modpub func shader_spirv(fns: list ShFn, f: ShFn) gives words: list int
+    s = Spv()
+    s.glsl = sv_id(s)
+    main_id = sv_id(s)
+    count i from 0 to len(fns) - 1
+        s.fnids.add(sv_id(s))
+    fl = sv_float(s)
+    v2 = sv_vec(s, 2)
+    v3 = sv_vec(s, 3)
+    v4 = sv_vec(s, 4)
+    // записи сеток: buffer { float r[]; } (binding 0), номер своей записи — push constant
+    rta = sv_simple(s, "rtarr", 29, [fl])
+    sv_decor(s, rta, [6, 4])
+    rst = sv_simple(s, "recst", 30, [rta])
+    sv_decor(s, rst, [3])
+    sv_ins(s.ann, 72, [rst, 0, 35, 0])
+    sv_ins(s.ann, 72, [rst, 0, 24])
+    rec = sv_var(s, rst, 2)
+    sv_decor(s, rec, [34, 0])
+    sv_decor(s, rec, [33, 0])
+    pst = sv_simple(s, "pcst", 30, [sv_uint(s)])
+    sv_decor(s, pst, [2])
+    sv_ins(s.ann, 72, [pst, 0, 35, 0])
+    pc = sv_var(s, pst, 9)
+    iface = list int
+    ins = list int
+    outs = list int
+    if f.stage == "corner"
+        ins = [sv_in(s, v3, 0), sv_in(s, v3, 1), sv_in(s, v4, 2), sv_in(s, v2, 3)]
+        vid = sv_var(s, sv_int(s), 1)
+        sv_decor(s, vid, [11, 42])
+        ins.add(vid)
+        gp = sv_var(s, v4, 3)
+        sv_decor(s, gp, [11, 0])
+        outs = [gp, sv_out(s, v3, 0), sv_out(s, v3, 1), sv_out(s, v4, 2), sv_out(s, v2, 3)]
+    else
+        ins = [sv_in(s, v3, 0), sv_in(s, v3, 1), sv_in(s, v4, 2), sv_in(s, v2, 3)]
+        fc = sv_var(s, v4, 1)
+        sv_decor(s, fc, [11, 15])
+        ins.add(fc)
+        outs = [sv_out(s, v4, 0)]
+    each x in ins
+        iface.add(x)
+    each x in outs
+        iface.add(x)
+    // main
+    vt = sv_void(s)
+    sv_ins(s.code, 54, [vt, main_id, 0, sv_fnty(s, vt, sv_none())])
+    sv_label(s, sv_id(s))
+    io = sv_id(s)
+    sv_ins(s.code, 59, [sv_ptr(s, 7, sv_arr32(s)), io, 7])
+    s.io = io
+    off = sv_load(s, sv_uint(s), sv_op(s, 65, sv_ptr(s, 9, sv_uint(s)), [pc, sv_cint(s, 0)]))
+    count k from 0 to 31
+        sv_set_io(s, k, sv_cflt(s, 0.0))
+    me = sh_find(fns, f.name)
+    if f.stage == "corner"
+        pos = sv_parts(s, sv_load(s, v3, ins[0]), 3)
+        nrm = sv_parts(s, sv_load(s, v3, ins[1]), 3)
+        col = sv_parts(s, sv_load(s, v4, ins[2]), 4)
+        uv = sv_parts(s, sv_load(s, v2, ins[3]), 2)
+        count k from 0 to 2
+            sv_set_io(s, k, pos[k])
+            sv_set_io(s, 3 + k, nrm[k])
+        sv_set_io(s, 6, uv[0])
+        sv_set_io(s, 7, uv[1])
+        count k from 0 to 3
+            sv_set_io(s, 8 + k, col[k])
+        sv_set_io(s, 12, sv_rec(s, rec, off, 27))
+        sv_set_io(s, 13, sv_op(s, 111, fl, [sv_load(s, sv_int(s), ins[4])]))
+        count k from 0 to 7
+            sv_set_io(s, 14 + k, sv_rec(s, rec, off, 40 + k))
+        done_call = sv_op(s, 57, vt, [s.fnids[me], io])
+        p = [sv_get_io(s, 0), sv_get_io(s, 1), sv_get_io(s, 2)]
+        nn = [sv_get_io(s, 3), sv_get_io(s, 4), sv_get_io(s, 5)]
+        w = list int
+        n = list int
+        count r from 0 to 2
+            row = [sv_rec(s, rec, off, 3 * r), sv_rec(s, rec, off, 3 * r + 1), sv_rec(s, rec, off, 3 * r + 2)]
+            w.add(sv_fadd(s, sv_dot3(s, row, p), sv_rec(s, rec, off, 9 + r)))
+            n.add(sv_dot3(s, row, nn))
+        d = [sv_fsub(s, w[0], sv_rec(s, rec, off, 12)), sv_fsub(s, w[1], sv_rec(s, rec, off, 13)), sv_fsub(s, w[2], sv_rec(s, rec, off, 14))]
+        cx = sv_dot3(s, d, [sv_rec(s, rec, off, 15), sv_rec(s, rec, off, 16), sv_rec(s, rec, off, 17)])
+        cy = sv_dot3(s, d, [sv_rec(s, rec, off, 18), sv_rec(s, rec, off, 19), sv_rec(s, rec, off, 20)])
+        cz = sv_dot3(s, d, [sv_rec(s, rec, off, 21), sv_rec(s, rec, off, 22), sv_rec(s, rec, off, 23)])
+        // Vulkan: y вниз
+        px = sv_fmul(s, cx, sv_rec(s, rec, off, 24))
+        py = sv_op(s, 127, fl, [sv_fmul(s, cy, sv_rec(s, rec, off, 25))])
+        pz = sv_fsub(s, cz, sv_rec(s, rec, off, 26))
+        sv_store(s, outs[0], sv_op(s, 80, v4, [px, py, pz, cz]))
+        sv_store(s, outs[1], sv_op(s, 80, v3, [w[0], w[1], w[2]]))
+        sv_store(s, outs[2], sv_op(s, 80, v3, [n[0], n[1], n[2]]))
+        sv_store(s, outs[3], sv_op(s, 80, v4, [sv_get_io(s, 8), sv_get_io(s, 9), sv_get_io(s, 10), sv_get_io(s, 11)]))
+        sv_store(s, outs[4], sv_op(s, 80, v2, [sv_get_io(s, 6), sv_get_io(s, 7)]))
+    else
+        fcv = sv_parts(s, sv_load(s, v4, ins[4]), 3)
+        wv = sv_parts(s, sv_load(s, v3, ins[0]), 3)
+        nv = sv_parts(s, sv_ext(s, v3, 69, [sv_load(s, v3, ins[1])]), 3)
+        col = sv_parts(s, sv_load(s, v4, ins[2]), 4)
+        uv = sv_parts(s, sv_load(s, v2, ins[3]), 2)
+        half = sv_cflt(s, 0.5)
+        sv_set_io(s, 0, sv_fsub(s, fcv[0], half))
+        sv_set_io(s, 1, sv_fsub(s, fcv[1], half))
+        sv_set_io(s, 2, fcv[2])
+        count k from 0 to 2
+            sv_set_io(s, 3 + k, wv[k])
+            sv_set_io(s, 6 + k, nv[k])
+        sv_set_io(s, 9, uv[0])
+        sv_set_io(s, 10, uv[1])
+        count k from 0 to 3
+            sv_set_io(s, 11 + k, col[k])
+        sv_set_io(s, 15, sv_rec(s, rec, off, 27))
+        count k from 0 to 3
+            sv_set_io(s, 16 + k, sv_rec(s, rec, off, 28 + k))
+        count k from 0 to 2
+            sv_set_io(s, 20 + k, sv_rec(s, rec, off, 12 + k))
+        count k from 0 to 7
+            sv_set_io(s, 23 + k, sv_rec(s, rec, off, 32 + k))
+        done_call = sv_op(s, 57, vt, [s.fnids[me], io])
+        zero = sv_cflt(s, 0.0)
+        one = sv_cflt(s, 1.0)
+        a = sv_ext(s, fl, 43, [sv_get_io(s, 14), zero, one])
+        rgb = list int
+        count k from 0 to 2
+            rgb.add(sv_fmul(s, sv_ext(s, fl, 43, [sv_get_io(s, 11 + k), zero, one]), a))
+        sv_store(s, outs[0], sv_op(s, 80, v4, [rgb[0], rgb[1], rgb[2], a]))
+    sv_ins(s.code, 253, sv_none())
+    sv_ins(s.code, 56, sv_none())
+    // сам шейдер и его помощники
+    got = list text
+    sh_reach(fns, f, got)
+    count i from 0 to len(fns) - 1
+        each name in got
+            if name == fns[i].name
+                sv_func(s, fns, fns[i], s.fnids[i])
+    // начало модуля
+    head = list int
+    sv_ins(head, 17, [1])
+    imp = [s.glsl]
+    sv_str(imp, "GLSL.std.450")
+    sv_ins(head, 11, imp)
+    sv_ins(head, 14, [0, 1])
+    model = 4
+    if f.stage == "corner"
+        model = 0
+    ep = [model, main_id]
+    sv_str(ep, "main")
+    each x in iface
+        ep.add(x)
+    sv_ins(head, 15, ep)
+    if f.stage == "pixel"
+        sv_ins(head, 16, [main_id, 7])
+    words = [119734787, 65536, 0, s.bound + 1, 0]
+    each x in head
+        words.add(x)
+    each x in s.ann
+        words.add(x)
+    each x in s.glob
+        words.add(x)
+    each x in s.code
+        words.add(x)
+    return words
+
+// ---------- всё вместе: кусок C для программы ----------
+
+func sh_hex(v: int)
+    digits = "0123456789abcdef"
+    s = ""
+    count i from 0 to 7
+        d = bit_and(shift_right(v, 4 * (7 - i)), 15)
+        s += digits[d]
+    return "0x" + s
+
+func sh_c_string(lines: list text, out: list text)
+    each l in lines
+        parts = split(l, "\n")
+        count i from 0 to len(parts) - 1
+            if i == len(parts) - 1 and parts[i] == ""
+                skip
+            t = replace(replace(parts[i], "\\", "\\\\"), "\"", "\\\"")
+            nl = "\\n"
+            out.add("    \"" + t + nl + "\"\n")
+
+// C-код шейдеров: функции для процессора, SPIR-V, текст Metal и tbs_register() (зовёт main)
+modpub func shader_c(c: Comp, program: Node, out: list text)
+    fns = shader_fns(c, program)
+    out.add("\n// ---- gpu func: шейдеры (1.3) ----\n#ifdef TB_GFX\n")
+    sh_ftext(fns, false, out)
+    each f in fns
+        if f.stage == ""
+            skip
+        words = shader_spirv(fns, f)
+        out.add("static const uint32_t tbs_spv_" + f.name + "[" + len(words) + "] = {")
+        count i from 0 to len(words) - 1
+            if i % 8 == 0
+                out.add("\n   ")
+            out.add(" " + sh_hex(words[i]) + ",")
+        out.add("\n};\n")
+    msl = list text
+    msl.add("#include <metal_stdlib>\nusing namespace metal;\n")
+    sh_ftext(fns, true, msl)
+    sh_msl_wrappers(fns, msl)
+    out.add("static const char tbs_msl[] =\n")
+    sh_c_string(msl, out)
+    out.add("    \"\";\n")
+    out.add("static void tbs_register(void) {\n    tb_sh_lib(tbs_msl);\n")
+    each f in fns
+        if f.stage == ""
+            skip
+        st = "1"
+        if f.stage == "corner"
+            st = "0"
+        out.add("    tb_sh_reg(\"" + f.name + "\", " + st + ", tbs_" + f.name + ", tbs_spv_" + f.name + ", sizeof tbs_spv_" + f.name + ", \"" + join(f.sets, ",") + "\");\n")
+    out.add("}\n#endif\n")
+
+// для проверки: SPIR-V одного шейдера (tachbit spirv файл.tb имя)
+modpub func shader_words(c: Comp, program: Node, name: text) gives words: list int
+    fns = shader_fns(c, program)
+    each f in fns
+        if f.name == name and f.stage != ""
+            words = shader_spirv(fns, f)
+    return words
+
+modpub func shader_msl(c: Comp, program: Node) gives s: text
+    fns = shader_fns(c, program)
+    msl = list text
+    msl.add("#include <metal_stdlib>\nusing namespace metal;\n")
+    sh_ftext(fns, true, msl)
+    sh_msl_wrappers(fns, msl)
+    s = join(msl, "")
+    return s

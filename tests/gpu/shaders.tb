@@ -1,0 +1,105 @@
+// gpu func (1.3): свои шейдеры, их собирает компилятор (SPIR-V, Metal, C).
+// Вода: волны шейдером углов, блеск и цвет шейдером точки; полосатый шар; обычный куб рядом
+gpu func waves(v: corner, height: dec, speed: dec)
+    v.y += sin(v.x * 2 + v.time * speed) * height + cos(v.z * 3 + v.time * speed) * height * 0.5
+    v.ny = 1
+
+gpu func water(p: pixel, deep: dec)
+    l = p.nx * p.sx + p.ny * p.sy + p.nz * p.sz
+    if l < 0
+        l = 0
+    // блик: взгляд от камеры отражается от воды
+    vx = p.wx - p.cx
+    vy = p.wy - p.cy
+    vz = p.wz - p.cz
+    vl = sqrt(vx * vx + vy * vy + vz * vz)
+    h = (p.sy - vy / vl) * 0.5
+    spec = pow(clamp(h, 0, 1), 8)
+    n = noise(p.wx * 3, p.wz * 3, p.time)
+    p.r = 0.05 + 0.1 * n + spec
+    p.g = 0.25 + deep * 0.2 * l + 0.1 * n + spec
+    p.b = 0.5 + 0.3 * l + spec
+    p.a = 0.85
+
+gpu func stripes(p: pixel, count_n: dec)
+    s = fract(p.wy * count_n)
+    if s < 0.5
+        p.r = 1
+        p.g = 0.9
+        p.b = 0.2
+    k = p.amb + (1 - p.amb) * max(p.nx * p.sx + p.ny * p.sy + p.nz * p.sz, 0)
+    p.r = p.r * k
+    p.g = p.g * k
+    p.b = p.b * k
+
+func main()
+    try window_open(320, 200, "свои шейдеры")
+    sea = mesh_new()
+    count i from -8 to 7
+        count j from -8 to 7
+            x = i * 0.5
+            z = j * 0.5
+            mesh_add(sea, x, 0, z, x, 0, z + 0.5, x + 0.5, 0, z + 0.5, rgb(40, 110, 200))
+            mesh_add(sea, x, 0, z, x + 0.5, 0, z + 0.5, x + 0.5, 0, z, rgb(40, 110, 200))
+    mesh_shader(sea, "waves")
+    mesh_shader(sea, "water")
+    shader_set(sea, "height", 0.15)
+    shader_set(sea, "speed", 2)
+    shader_set(sea, "deep", 1)
+    ball = mesh_new()
+    sphere(ball, 0.8, 12, rgb(200, 60, 60))
+    mesh_smooth(ball, true)
+    mesh_shader(ball, "stripes")
+    shader_set(ball, "count_n", 3)
+    cube = mesh_new()
+    box(cube, -0.5, -0.5, -0.5, 0.5, 0.5, 0.5, rgb(90, 150, 230))
+    frame = 0
+    repeat while window_alive()
+        frame += 1
+        if frame > 30
+            stop
+        clear_window(rgb(150, 170, 190))
+        sunlight(0.5, 1.0, -0.3, 0.3)
+        camera(0, 2.5, -6, 0, 0, 0)
+        draw_mesh(cube, 2, 0.8, 0, frame * 4)
+        draw_mesh(ball, -1.5, 1, 0, frame * 3)
+        draw_mesh(sea, 0, 0, 0, 0)
+        draw_text(4, 4, "кадр " + frame, 1, rgb(20, 20, 30))
+    print("кадров:", frame)
+
+func box(m: int, x0: dec, y0: dec, z0: dec, x1: dec, y1: dec, z1: dec, c: int)
+    face(m, x0, y0, z0, x0, y1, z0, x1, y1, z0, x1, y0, z0, c)
+    face(m, x0, y0, z1, x1, y0, z1, x1, y1, z1, x0, y1, z1, c)
+    face(m, x0, y0, z0, x0, y0, z1, x0, y1, z1, x0, y1, z0, c)
+    face(m, x1, y0, z0, x1, y1, z0, x1, y1, z1, x1, y0, z1, c)
+    face(m, x0, y1, z0, x0, y1, z1, x1, y1, z1, x1, y1, z0, c)
+    face(m, x0, y0, z0, x1, y0, z0, x1, y0, z1, x0, y0, z1, c)
+
+func face(m: int, x1: dec, y1: dec, z1: dec, x2: dec, y2: dec, z2: dec, x3: dec, y3: dec, z3: dec, x4: dec, y4: dec, z4: dec, c: int)
+    mesh_add(m, x1, y1, z1, x2, y2, z2, x3, y3, z3, c)
+    mesh_add(m, x1, y1, z1, x3, y3, z3, x4, y4, z4, c)
+
+func sphere(m: int, r: dec, n: int, c: int)
+    count i from 0 to n - 1
+        count j from 0 to 2 * n - 1
+            a0 = 3.14159265 * i / n
+            a1 = 3.14159265 * (i + 1) / n
+            b0 = 3.14159265 * j / n
+            b1 = 3.14159265 * (j + 1) / n
+            y0 = r * cos_t(a0)
+            y1 = r * cos_t(a1)
+            if i > 0
+                mesh_add(m, r * sin_t(a0) * cos_t(b0), y0, r * sin_t(a0) * sin_t(b0), r * sin_t(a0) * cos_t(b1), y0, r * sin_t(a0) * sin_t(b1), r * sin_t(a1) * cos_t(b1), y1, r * sin_t(a1) * sin_t(b1), c)
+            if i < n - 1
+                mesh_add(m, r * sin_t(a0) * cos_t(b0), y0, r * sin_t(a0) * sin_t(b0), r * sin_t(a1) * cos_t(b1), y1, r * sin_t(a1) * sin_t(b1), r * sin_t(a1) * cos_t(b0), y1, r * sin_t(a1) * sin_t(b0), c)
+
+func sin_t(x: dec)
+    repeat while x > 3.14159265
+        x -= 6.2831853
+    repeat while x < -3.14159265
+        x += 6.2831853
+    x2 = x * x
+    return x * (1 - x2 / 6 * (1 - x2 / 20 * (1 - x2 / 42 * (1 - x2 / 72 * (1 - x2 / 110)))))
+
+func cos_t(x: dec)
+    return sin_t(x + 1.57079633)

@@ -9,6 +9,7 @@ use check
 use emit
 use emit_ll
 use x64
+use shader
 
 // "examples/shop.tb" → папка "examples/" (на Windows и "examples\\shop.tb")
 func folder_of(path: text)
@@ -79,6 +80,15 @@ func load_program(c: Comp, path: text)
     program = new_node("program", 1)
     loaded = list text
     load_module(c, program, path, 0, path, loaded)
+    // gpu func: готовые помощники (noise, hash) и шейдеры по умолчанию — тоже на Tachbit
+    if has_gpu(program)
+        c.file_name = "(готовые шейдеры)"
+        lex(c, sh_prelude())
+        part = parse(c)
+        each k in part.kids
+            k.mod = program.kids[0].mod
+            k.file = "(готовые шейдеры)"
+            add_kid(program, k)
     c.file_name = path
     return program
 
@@ -313,7 +323,7 @@ func build(c: Comp, path: text, exe: text, native: bool)
         ll_pick(c, program)
     emit_c(c, program)
     // вся программа на LLVM: собираем без clang (llvm-link, opt, llc), если есть инструменты LLVM
-    if c.ll and not on_windows() and env("TB_CLANG") == "" and ll_pure_ok(c, program)
+    if c.ll and not on_windows() and env("TB_CLANG") == "" and not has_gpu(program) and ll_pure_ok(c, program)
         c.ll_pure = true
         if build_pure(c, program, exe, native)
             return 0
@@ -676,6 +686,21 @@ func main()
         check(c, program)
         emit_c(c, program)
         print(cut(join(c.out, ""), 0, len(join(c.out, "")) - 2))
+        return
+    if mode == "spirv"
+        // tachbit spirv файл.tb имя — SPIR-V шейдера gpu func числами (для проверки spirv-val)
+        program = load_program(c, path)
+        check(c, program)
+        name = ""
+        if len(a) > 2
+            name = a[2]
+        each w in shader_words(c, program, name)
+            print(w)
+        return
+    if mode == "msl"
+        program = load_program(c, path)
+        check(c, program)
+        print(shader_msl(c, program))
         return
     if mode == "ll"
         // показать, какие функции уйдут в LLVM, и сам текст .ll
