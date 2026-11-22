@@ -6,8 +6,8 @@
 // совпадает с кадром процессора точка в точку на любой видеокарте (дроби разные карты считают чуть по-разному).
 // Дальше — как обычный треугольник с глубиной: квадрат вокруг, точки решает tb.frag.
 layout(push_constant) uniform P { vec2 size; int tbase, ntri, rbase, f, gw, gh, cull; } pc;
-layout(std430, set = 0, binding = 3) readonly buffer Mesh { ivec4 v[]; } mesh;   // углы (x, y, z) × 4096 и треугольники (a, b, c, цвет)
-layout(std430, set = 0, binding = 4) readonly buffer Rec { ivec4 r[]; } rec;     // на draw_mesh 3 строки: поворот × 2^30, сдвиг × 4096
+layout(std430, set = 0, binding = 3) readonly buffer Mesh { ivec4 v[]; } mesh;   // углы (x, y, z) × 4096 и треугольники: (a, b, c, цвет), (нормаль × 2^14, -1)
+layout(std430, set = 0, binding = 4) readonly buffer Rec { ivec4 r[]; } rec;     // на draw_mesh 4 строки: поворот × 2^30, сдвиг × 4096; свет
 layout(location = 0) flat out ivec2 vo;
 layout(location = 1) flat out uvec2 vcm;
 layout(location = 2) flat out ivec4 vq;
@@ -31,12 +31,22 @@ i64vec3 corner(ivec4 p, int ri) {
 }
 void main() {
     int iid = gl_InstanceIndex, d = iid / pc.ntri, t = iid - d * pc.ntri;
-    ivec4 tr = mesh.v[pc.tbase + t];
-    int ri = pc.rbase + d * 3;
+    ivec4 tr = mesh.v[pc.tbase + 2 * t], nr = mesh.v[pc.tbase + 2 * t + 1];
+    int ri = pc.rbase + d * 4;
     i64vec3 a = corner(mesh.v[tr.x], ri), b = corner(mesh.v[tr.y], ri), c = corner(mesh.v[tr.z], ri);
     // tb_m3_tri: площадь, невидимые грани, углы по кругу, плоскость глубины
     int64_t area = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
     bool skip = area == 0l || (pc.cull > 0 && area > 0l) || (pc.cull < 0 && area < 0l);
+    // свет (tb_shade): грань к солнцу ярче; со спины — от обратной стороны
+    uint col = uint(tr.w) & 0xFFFFFFu;
+    ivec4 L = rec.r[ri + 3];
+    if (L.w >= 0) {
+        int s = nr.x * L.x + nr.y * L.y + nr.z * L.z;
+        if (area < 0l) s = -s;
+        if (s < 0) s = 0;
+        uint k = uint(L.w + (((256 - L.w) * (s >> 14)) >> 14));
+        col = ((((col >> 16) & 255u) * k + 128u) >> 8) << 16 | ((((col >> 8) & 255u) * k + 128u) >> 8) << 8 | (((col & 255u) * k + 128u) >> 8);
+    }
     if (area < 0l) { i64vec3 k = b; b = c; c = k; area = -area; }
     if (skip) area = 1l;
     int64_t e1x = b.x - a.x, e1y = b.y - a.y, e2x = c.x - a.x, e2y = c.y - a.y, d1 = b.z - a.z, d2 = c.z - a.z;
@@ -53,7 +63,7 @@ void main() {
     vec2 p = vec2((v & 1) != 0 ? bb.z : bb.x, (v & 2) != 0 ? bb.w : bb.y);
     gl_Position = vec4(p / pc.size * 2.0 - 1.0, 0.0, 1.0);
     vo = o;
-    vcm = uvec2(uint(tr.w) & 0xFFFFFFu, 3u);
+    vcm = uvec2(col, 3u);
     vq = q;
     vp = uvec4(uint(uint64_t(A) & 0xFFFFFFFFul), uint(uint64_t(B) & 0xFFFFFFFFul), uint(uint64_t(C) & 0xFFFFFFFFul), 0u);
 }

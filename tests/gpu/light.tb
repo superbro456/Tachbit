@@ -1,0 +1,69 @@
+// 3D: свет (light) — солнце и фон. Кубы кувыркаются, пол освещён сверху (обе стороны листа),
+// большая сетка-холм на видеокарте кусками; посреди кадра свет выключается и включается снова.
+// TB_GPU_CHECK=1 сверяет кадр видеокарты с процессором точка в точку
+func main()
+    try window_open(320, 200, "GPU свет")
+    cube = mesh_new()
+    face(cube, -1, -1, -1, -1, 1, -1, 1, 1, -1, 1, -1, -1, rgb(230, 230, 230))
+    face(cube, -1, -1, 1, 1, -1, 1, 1, 1, 1, -1, 1, 1, rgb(230, 230, 230))
+    face(cube, -1, -1, -1, -1, -1, 1, -1, 1, 1, -1, 1, -1, rgb(80, 130, 230))
+    face(cube, 1, -1, -1, 1, 1, -1, 1, 1, 1, 1, -1, 1, rgb(240, 200, 70))
+    face(cube, -1, 1, -1, -1, 1, 1, 1, 1, 1, 1, 1, -1, rgb(200, 90, 200))
+    face(cube, -1, -1, -1, 1, -1, -1, 1, -1, 1, -1, -1, 1, rgb(70, 200, 210))
+    floor = mesh_new()
+    count i from -5 to 4
+        count j from -5 to 4
+            c = rgb(120, 160, 110)
+            if (i + j) % 2 == 0
+                c = rgb(150, 190, 140)
+            // половина клеток повёрнута «спиной» вверх: свет всё равно сверху
+            if i % 2 == 0
+                mesh_add(floor, i, -1, j, i + 1, -1, j, i + 1, -1, j + 1, c)
+                mesh_add(floor, i, -1, j, i + 1, -1, j + 1, i, -1, j + 1, c)
+            else
+                mesh_add(floor, i, -1, j, i + 1, -1, j + 1, i + 1, -1, j, c)
+                mesh_add(floor, i, -1, j, i, -1, j + 1, i + 1, -1, j + 1, c)
+    hills = mesh_new()
+    count i from 0 to 59
+        count j from 0 to 59
+            x = i * 0.3 - 9
+            z = j * 0.3 - 9
+            mesh_add(hills, x, wave(i, j), z, x + 0.3, wave(i + 1, j), z, x + 0.3, wave(i + 1, j + 1), z + 0.3, rgb(200, 200, 210))
+            mesh_add(hills, x, wave(i, j), z, x + 0.3, wave(i + 1, j + 1), z + 0.3, x, wave(i, j + 1), z + 0.3, rgb(200, 200, 210))
+    frame = 0
+    repeat while window_alive()
+        frame += 1
+        if frame > 60
+            stop
+        clear_window(rgb(16, 18, 28))
+        if frame == 30
+            sunlight(0, 0, 0, 0)
+        else
+            sunlight(0.6, 1.0, -0.4 + frame * 0.02, 0.25)
+        a = frame * 0.09
+        camera(7 * cos_t(a), 2.5, 7 * sin_t(a), 0, 0, 0)
+        draw_mesh(floor, 0, 0, 0, 0)
+        draw_mesh(hills, 0, -2.5, 0, frame)
+        draw_mesh_rot(cube, 0, 0.2, 0, frame * 4, frame * 3, frame * 5)
+        draw_mesh_rot(cube, 3, 0, 1, 20, 0, frame * 6)
+        // вплотную к камере — старый путь, тоже со светом
+        draw_mesh_rot(cube, 7 * cos_t(a) * 0.8, 2.3, 7 * sin_t(a) * 0.8, frame, frame * 2, 0)
+    print("кадров:", frame)
+
+func face(m: int, x1: dec, y1: dec, z1: dec, x2: dec, y2: dec, z2: dec, x3: dec, y3: dec, z3: dec, x4: dec, y4: dec, z4: dec, c: int)
+    mesh_add(m, x1, y1, z1, x2, y2, z2, x3, y3, z3, c)
+    mesh_add(m, x1, y1, z1, x3, y3, z3, x4, y4, z4, c)
+
+func wave(i: int, j: int)
+    return sin_t(i * 0.4) * 0.5 + sin_t(j * 0.3) * 0.5
+
+func sin_t(x: dec)
+    repeat while x > 3.14159265
+        x -= 6.2831853
+    repeat while x < -3.14159265
+        x += 6.2831853
+    x2 = x * x
+    return x * (1 - x2 / 6 * (1 - x2 / 20 * (1 - x2 / 42 * (1 - x2 / 72 * (1 - x2 / 110)))))
+
+func cos_t(x: dec)
+    return sin_t(x + 1.57079633)
