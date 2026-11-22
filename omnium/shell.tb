@@ -4,6 +4,9 @@
 // Оболочка — обычная клетка: danger ей не нужен. Время она спрашивает у службы часов,
 // строки для «Терминала» получает из канала журнала.
 
+use ofs
+use exfat
+
 obj Win
     app: text
     title: text
@@ -38,6 +41,17 @@ obj Shell
     sky: int           // снимок фона (рисуется один раз)
     f: int             // шрифт Inter (-1 — нет, тогда свой 8×16)
     fb: int            // Inter SemiBold
+    fs: Key            // ключ к файлам (OFS3)
+    has_fs: bool
+    note_save: int     // когда сохранить «Заметки» (0 — сохранено)
+    fs_note: text      // что за файловая система (для «О системе»)
+    fs_used: int
+    fs_total: int
+    usb: Key           // ключ к флешке (exFAT)
+    has_usb: bool
+    usb_note: text
+    fs_files: list text    // для окна «Файлы»
+    usb_files: list text
 
 // ---------- стиль «Капли» ----------
 func ink() gives c: int
@@ -52,7 +66,7 @@ func dark_glass() gives c: int
     return rgba(18, 22, 34, 215)
 
 modpub func apps() gives names: list text
-    names = ["Терминал", "Заметки", "О системе", "Часы"]
+    names = ["Терминал", "Заметки", "Файлы", "О системе", "Часы"]
 
 // ---------- фигуры ----------
 // стекло: то, что под ним, размывается, сверху — полупрозрачный цвет; углы сглажены
@@ -208,7 +222,7 @@ func search_btn(s: Shell) gives cx: int, cy: int
 // ---------- поиск: стеклянная панель по центру ----------
 func found(s: Shell) gives r: list text
     q = lower(s.query)
-    latin = ["terminal", "notes", "about", "clock"]
+    latin = ["terminal", "notes", "files", "about", "clock"]
     i = 0
     each a in apps()
         if q == "" or find(lower(a), q) >= 0 or find(latin[i], q) >= 0
@@ -217,7 +231,7 @@ func found(s: Shell) gives r: list text
 
 func drop_box(s: Shell) gives x: int, y: int, w: int, h: int
     w = 560
-    h = 340
+    h = 446
     x = (s.w - w) / 2
     y = s.h / 5
 
@@ -271,6 +285,10 @@ func icon(cx: int, cy: int, app: text)
             draw_rect(cx - 8, cy - 6, 16, 2, rgb(150, 110, 40))
             draw_rect(cx - 8, cy, 16, 2, rgb(150, 110, 40))
             draw_rect(cx - 8, cy + 6, 10, 2, rgb(150, 110, 40))
+        "Файлы"
+            rbox(cx - 18, cy - 13, 16, 8, 3, rgb(90, 160, 255))
+            rbox(cx - 18, cy - 9, 36, 26, 6, rgb(110, 180, 255))
+            rbox(cx - 18, cy - 4, 36, 21, 6, rgb(140, 200, 255))
         "О системе"
             draw_circle(cx, cy, 18, rgb(170, 140, 255))
             draw_circle(cx, cy - 7, 2, rgb(255, 255, 255))
@@ -331,12 +349,34 @@ func content(s: Shell, win: Win, fg: int)
             if s.note_on and (s.frames / 30) % 2 == 0
                 last = lines[len(lines) - 1]
                 draw_rect(x + 1 + text_w(s, last, 15), yy - 22, 2, 19, accent())
+        "Файлы"
+            bold(s, x, y, "Омниум (OFS3)", 14, fg)
+            yy = y + 26
+            each f in s.fs_files
+                if yy > win.y + win.h - 24
+                    stop
+                label(s, x + 8, yy, fit(f, 26), 13, fg)
+                yy += 20
+            if len(s.fs_files) == 0
+                label(s, x + 8, yy, "пусто", 13, dim())
+            cx = x + win.w / 2
+            bold(s, cx, y, "Флешка (exFAT)", 14, fg)
+            yy = y + 26
+            if not s.has_usb or len(s.usb_files) == 0
+                label(s, cx + 8, yy, fit(s.usb_note, 26), 13, dim())
+            each f in s.usb_files
+                if yy > win.y + win.h - 24
+                    stop
+                label(s, cx + 8, yy, fit(f, 26), 13, fg)
+                yy += 20
         "О системе"
             bold(s, x, y, "Омниум", 34, fg)
             label(s, x, y + 56, "ядро на Tachbit, x86-64", 14, fg)
             label(s, x, y + 80, "клетки на каналах, без системных вызовов", 14, dim())
             label(s, x, y + 104, "окон открыто: " + len(s.wins), 14, dim())
             label(s, x, y + 128, "работает: " + uptime_ms() / 1000 + " с", 14, dim())
+            if s.has_fs
+                label(s, x, y + 152, "файлы: " + s.fs_note + ", занято " + s.fs_used / 2 + " КБ из " + s.fs_total / 2048 + " МБ", 14, dim())
         else
             bold(s, x + 6, y + 6, s.clock, 56, fg)
             label(s, x + 10, y + 86, s.date, 14, dim())
@@ -365,8 +405,8 @@ modpub func open_app(s: Shell, app: text)
         w = 300
         h = 160
     if app == "О системе"
-        w = 420
-        h = 180
+        w = 440
+        h = 206
     x = 90 + n * 40
     y = 80 + n * 34
     if app == "О системе"
@@ -378,6 +418,12 @@ modpub func open_app(s: Shell, app: text)
     if app == "Заметки"
         x = 160
         y = 380
+    if app == "Файлы"
+        w = 560
+        h = 320
+        x = 260
+        y = 300
+        files_refresh(s)
     win = Win(app: app, title: app, x: x, y: y, w: w, h: h, born: uptime_ms())
     s.wins.add(win)
     s.note_on = app == "Заметки"
@@ -495,6 +541,8 @@ func keys(s: Shell)
         if e
             s.note += "\n"
         s.note += t
+        // сохраним, когда перестанут печатать (через секунду)
+        s.note_save = uptime_ms() + 1000
         return
     if x
         s.query = ""
@@ -514,11 +562,21 @@ func keys(s: Shell)
 
 // ---------- сама клетка оболочки ----------
 // log — строки для «Терминала»; ask/answer — ключ к службе часов; frames — сколько кадров жить (0 — всегда)
-modpub func shell(w: int, h: int, log: channel text, ask: channel int, answer: channel text, frames: int, start: list text)
+// fs — ключ к файловой системе OFS3 (has_fs false — файлов нет)
+// usb — ключ к службе exFAT (флешка; has_usb false — флешки нет)
+modpub func shell(w: int, h: int, log: channel text, ask: channel int, answer: channel text, frames: int, start: list text, fs: Key, has_fs: bool, usb: Key, has_usb: bool)
     window_open(w, h, "Омниум") else err
         log.send("[оболочка] нет экрана: " + err)
         return
     s = Shell(w: w, h: h, drag: -1, dirty: true, asked: -100000, sky: -1)
+    s.fs = fs
+    s.has_fs = has_fs
+    s.usb = usb
+    s.has_usb = has_usb
+    s.usb_note = "флешки нет"
+    if has_fs
+        s.note = ofs.get(fs, "заметки") or ""
+        fs_info(s)
     s.f = load_font("fonts/Inter-Regular.ttf") or -1
     s.fb = load_font("fonts/Inter-SemiBold.ttf") or -1
     each a in start
@@ -558,6 +616,12 @@ modpub func shell(w: int, h: int, log: channel text, ask: channel int, answer: c
             s.dirty = true
         if s.frames % 60 == 0 and shown(s, "О системе")
             s.dirty = true
+        if s.note_save > 0 and uptime_ms() > s.note_save
+            s.note_save = 0
+            if s.has_fs
+                v = ofs.put(s.fs, "заметки", s.note) else err
+                    s.log.add("[файлы] не сохранила заметки: " + err)
+                fs_info(s)
         if s.dirty
             draw(s)
             s.dirty = false
@@ -581,3 +645,31 @@ func draw(s: Shell)
         i += 1
     capsule(s)
     drop(s)
+
+func fs_info(s: Shell)
+    note, n, used, total = ofs.info(s.fs) else err
+        s.fs_note = err
+        return
+    s.fs_note = note
+    s.fs_used = used
+    s.fs_total = total
+
+// что показать в окне «Файлы»: файлы OFS3 (с числом версий) и корень флешки
+func files_refresh(s: Shell)
+    s.fs_files.clear()
+    s.usb_files.clear()
+    if s.has_fs
+        names = ofs.file_names(s.fs) else err
+            return
+        each n in names
+            s.fs_files.add(n + "  · версий " + (ofs.versions(s.fs, n) or 0))
+    if s.has_usb
+        note, fkb, tkb = exfat.info(s.usb) else err
+            s.usb_note = err
+            return
+        s.usb_note = note
+        root = exfat.ls(s.usb, "/") else err
+            s.usb_note = err
+            return
+        each n in root
+            s.usb_files.add(n)

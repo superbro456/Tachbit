@@ -1,0 +1,600 @@
+// exFAT — файловая система флешек и внешних дисков (Windows, Mac, Linux, фотоаппараты).
+// Служба exFAT в своей клетке: читает и пишет такой диск, программы ходят к ней по каналам с ключом,
+// как к OFS3. Главная файловая система Омниума — OFS3; exFAT — чтобы обмениваться файлами с миром.
+//
+//   k = ofs.key(bell, asks, answers, writes, true)     ключи те же, что у OFS3
+//   usb = service exfat.exfat(1, bell, move asks, move answers, move writes)   диск IDE номер 1
+//   names = exfat.ls(k, "/Документы") or ...          "имя" (папка — с "/" в конце)
+//   s = exfat.get(k, "/hello.txt") or ""
+//   exfat.put(k, "/Документы/новый.txt", "текст") else err ...
+//   exfat.mkdir(k, "/Фото") ...   exfat.delete(k, "/hello.txt") ...
+//
+// Что умеет: папки, длинные имена (UTF-16, русские буквы), файлы на цепочке FAT и сплошные.
+// Новые файлы пишутся сплошным куском (без цепочки FAT), как делает сама Windows.
+// Пока не умеет: расширять папку, когда в ней кончились места под имена; файлы с байтом 0 внутри.
+use disk
+use ofs
+use rtc
+
+obj Vol
+    drive: int
+    ok: bool
+    note: text
+    label: text
+    fat: int          // сектор начала FAT
+    heap: int         // сектор начала кластеров
+    count_c: int      // сколько кластеров
+    root: int         // первый кластер корневой папки
+    spc: int          // секторов в кластере
+    csize: int        // байт в кластере
+    bm_first: int     // кластер карты занятости
+    bm_len: int
+    bm: int           // карта занятости в памяти
+    buf: int          // сектор для работы
+
+// запись в папке: где лежит набор записей, что за файл
+obj Ent
+    name: text
+    is_dir: bool
+    first: int
+    size: int
+    nofat: bool
+    slot: int         // номер 32-байтной записи 0x85 в папке
+    n_slots: int
+
+// ---------- сектора и кластеры ----------
+func sector_of(v: Vol, c: int) gives s: int
+    return v.heap + (c - 2) * v.spc
+
+// следующий кластер по FAT (>= 0xFFFFFFF7 — конец)
+func fat_next(v: Vol, c: int) gives n: int
+    s = v.fat + c * 4 / 512
+    if not disk_read(v.drive, s, v.buf)
+        return 0xFFFFFFFF
+    n = bit_and(get32(v.buf + (c * 4) % 512), 0xFFFFFFFF)
+
+// кластеры файла или папки
+func chain(v: Vol, first: int, nofat: bool, size: int) gives cs: list int
+    if first < 2
+        return
+    if nofat
+        n = (size + v.csize - 1) / v.csize
+        count i from 0 to n - 1
+            cs.add(first + i)
+        return
+    c = first
+    repeat while c >= 2 and c < v.count_c + 2 and len(cs) <= v.count_c
+        cs.add(c)
+        c = fat_next(v, c)
+
+// кластеры → память (адрес; 0 — не вышло)
+func load(v: Vol, cs: list int) gives a: int
+    a = mem_new(len(cs) * v.csize + 512)
+    if a == 0
+        return 0
+    count i from 0 to len(cs) - 1
+        if not disk_read_n(v.drive, sector_of(v, cs[i]), v.spc, a + i * v.csize)
+            mem_free(a)
+            return 0
+
+func store(v: Vol, cs: list int, a: int) gives ok: bool
+    ok = true
+    count i from 0 to len(cs) - 1
+        if not disk_write_n(v.drive, sector_of(v, cs[i]), v.spc, a + i * v.csize)
+            return false
+
+// ---------- карта занятости ----------
+func bm_get(v: Vol, c: int) gives used: bool
+    i = c - 2
+    return bit_and(get8(v.bm + i / 8), shift_left(1, i % 8)) != 0
+
+func bm_set(v: Vol, c: int, used: bool)
+    i = c - 2
+    b = get8(v.bm + i / 8)
+    m = shift_left(1, i % 8)
+    if used
+        set8(v.bm + i / 8, bit_or(b, m))
+    else
+        set8(v.bm + i / 8, bit_and(b, bit_xor(m, 0xFF)))
+
+func bm_save(v: Vol) gives ok: bool
+    cs = chain(v, v.bm_first, false, v.bm_len)
+    a = mem_new(len(cs) * v.csize + 512)
+    if a == 0
+        return false
+    copy(a, v.bm, v.bm_len)
+    ok = store(v, cs, a)
+    mem_free(a)
+
+// n свободных кластеров подряд; ответ — первый (0 — места нет)
+func alloc(v: Vol, n: int) gives first: int
+    run = 0
+    c = 2
+    repeat while c < v.count_c + 2
+        if bm_get(v, c)
+            run = 0
+        else
+            run += 1
+            if run == n
+                first = c - n + 1
+                count k from first to c
+                    bm_set(v, k, true)
+                return
+        c += 1
+    return 0
+
+// ---------- имена: UTF-8 ↔ UTF-16 ----------
+func utf8_codes(s: text) gives cps: list int
+    i = 0
+    n = len(s)
+    repeat while i < n
+        b = bit_and(code(s[i]), 255)
+        if b < 0x80
+            cps.add(b)
+            i += 1
+        else if b < 0xE0 and i + 1 < n
+            cps.add(bit_or(shift_left(bit_and(b, 0x1F), 6), bit_and(code(s[i + 1]), 0x3F)))
+            i += 2
+        else if b < 0xF0 and i + 2 < n
+            cps.add(bit_or(bit_or(shift_left(bit_and(b, 0x0F), 12), shift_left(bit_and(code(s[i + 1]), 0x3F), 6)), bit_and(code(s[i + 2]), 0x3F)))
+            i += 3
+        else if i + 3 < n
+            cp = bit_or(bit_or(shift_left(bit_and(b, 0x07), 18), shift_left(bit_and(code(s[i + 1]), 0x3F), 12)), bit_or(shift_left(bit_and(code(s[i + 2]), 0x3F), 6), bit_and(code(s[i + 3]), 0x3F)))
+            cp -= 0x10000
+            cps.add(0xD800 + shift_right(cp, 10))
+            cps.add(0xDC00 + bit_and(cp, 0x3FF))
+            i += 4
+        else
+            i += 1
+
+func utf8_of(u: list int) gives s: text
+    i = 0
+    repeat while i < len(u)
+        cp = u[i]
+        if cp >= 0xD800 and cp < 0xDC00 and i + 1 < len(u)
+            cp = 0x10000 + shift_left(cp - 0xD800, 10) + (u[i + 1] - 0xDC00)
+            i += 1
+        if cp < 0x80
+            s += char(cp)
+        else if cp < 0x800
+            s += char(bit_or(0xC0, shift_right(cp, 6))) + char(bit_or(0x80, bit_and(cp, 0x3F)))
+        else if cp < 0x10000
+            s += char(bit_or(0xE0, shift_right(cp, 12))) + char(bit_or(0x80, bit_and(shift_right(cp, 6), 0x3F))) + char(bit_or(0x80, bit_and(cp, 0x3F)))
+        else
+            s += char(bit_or(0xF0, shift_right(cp, 18))) + char(bit_or(0x80, bit_and(shift_right(cp, 12), 0x3F))) + char(bit_or(0x80, bit_and(shift_right(cp, 6), 0x3F))) + char(bit_or(0x80, bit_and(cp, 0x3F)))
+        i += 1
+
+// большая буква (как таблица up-case у exFAT для латиницы и кириллицы)
+func up(c: int) gives r: int
+    if c >= 0x61 and c <= 0x7A
+        return c - 32
+    if c >= 0x430 and c <= 0x44F
+        return c - 32
+    if c >= 0x450 and c <= 0x45F
+        return c - 80
+    return c
+
+func same_name(a: text, b: text) gives yes: bool
+    x = utf8_codes(a)
+    y = utf8_codes(b)
+    if len(x) != len(y)
+        return false
+    count i from 0 to len(x) - 1
+        if up(x[i]) != up(y[i])
+            return false
+    return true
+
+func name_hash(u: list int) gives h: int
+    each c in u
+        cu = up(c)
+        h = bit_and(bit_or(shift_left(bit_and(h, 1), 15), shift_right(h, 1)) + bit_and(cu, 0xFF), 0xFFFF)
+        h = bit_and(bit_or(shift_left(bit_and(h, 1), 15), shift_right(h, 1)) + shift_right(cu, 8), 0xFFFF)
+
+// ---------- папка ----------
+// разобрать папку (память a, n записей по 32 байта)
+func entries(a: int, n: int) gives es: list Ent
+    i = 0
+    repeat while i < n
+        t = get8(a + i * 32)
+        if t == 0
+            stop
+        if t == 0x85
+            sc = get8(a + i * 32 + 1)
+            if sc >= 2 and i + sc < n and get8(a + (i + 1) * 32) == 0xC0
+                st = a + (i + 1) * 32
+                nl = get8(st + 3)
+                u = list int
+                count k from 2 to sc
+                    e = a + (i + k) * 32
+                    count j from 0 to 14
+                        if len(u) < nl
+                            u.add(get16(e + 2 + j * 2))
+                es.add(Ent(name: utf8_of(u), is_dir: bit_and(get16(a + i * 32 + 4), 0x10) != 0, first: get32(st + 20), size: get64(st + 24), nofat: bit_and(get8(st + 1), 2) != 0, slot: i, n_slots: sc + 1))
+                i += sc + 1
+                skip
+        i += 1
+
+// папка по пути: кластеры, память, записи; ok false — нет такой папки
+obj Dir
+    ok: bool
+    cs: list int
+    a: int
+    n: int
+    es: list Ent
+
+func free_dir(d: Dir)
+    if d.a != 0
+        mem_free(d.a)
+        d.a = 0
+
+func open_dir(v: Vol, path: text) gives d: Dir
+    d = Dir(ok: false)
+    first = v.root
+    nofat = false
+    size = 0
+    each part in split(path, "/")
+        if part == ""
+            skip
+        cs = chain(v, first, nofat, size)
+        a = load(v, cs)
+        if a == 0
+            return
+        es = entries(a, len(cs) * v.csize / 32)
+        mem_free(a)
+        found = false
+        each e in es
+            if e.is_dir and same_name(e.name, part)
+                first = e.first
+                nofat = e.nofat
+                size = e.size
+                found = true
+                stop
+        if not found
+            return
+    d.cs = chain(v, first, nofat, size)
+    d.a = load(v, d.cs)
+    if d.a == 0
+        return
+    d.n = len(d.cs) * v.csize / 32
+    d.es = entries(d.a, d.n)
+    d.ok = true
+
+// путь → папка и имя в ней
+func split_path(path: text) gives folder: text, name: text
+    p = split(path, "/")
+    parts = list text
+    each x in p
+        if x != ""
+            parts.add(x)
+    folder = "/"
+    if len(parts) == 0
+        return
+    name = parts[len(parts) - 1]
+    count i from 0 to len(parts) - 2
+        folder += parts[i] + "/"
+
+func find_ent(d: Dir, name: text) gives at: int
+    count i from 0 to len(d.es) - 1
+        if same_name(d.es[i].name, name)
+            return i
+    return -1
+
+// ---------- запуск ----------
+func mount(v: Vol)
+    v.buf = mem_new(512)
+    if disk_size(v.drive) == 0
+        v.note = "диска " + v.drive + " нет"
+        return
+    if not disk_read(v.drive, 0, v.buf)
+        v.note = "диск не читается"
+        return
+    if get_text(v.buf + 3, 8) != "EXFAT   "
+        v.note = "это не exFAT"
+        return
+    if get8(v.buf + 0x6C) != 9
+        v.note = "сектор не 512 байт: пока не умею"
+        return
+    v.fat = get32(v.buf + 0x50)
+    v.heap = get32(v.buf + 0x58)
+    v.count_c = get32(v.buf + 0x5C)
+    v.root = get32(v.buf + 0x60)
+    v.spc = shift_left(1, get8(v.buf + 0x6D))
+    v.csize = v.spc * 512
+    d = open_dir(v, "/")
+    if not d.ok
+        v.note = "корневая папка не читается"
+        return
+    count i from 0 to d.n - 1
+        t = get8(d.a + i * 32)
+        if t == 0
+            stop
+        if t == 0x81
+            v.bm_first = get32(d.a + i * 32 + 20)
+            v.bm_len = get64(d.a + i * 32 + 24)
+        if t == 0x83
+            u = list int
+            count j from 0 to get8(d.a + i * 32 + 1) - 1
+                u.add(get16(d.a + i * 32 + 2 + j * 2))
+            v.label = utf8_of(u)
+    free_dir(d)
+    v.bm = mem_new(v.bm_len + v.csize + 512)
+    bcs = chain(v, v.bm_first, false, v.bm_len)
+    a = load(v, bcs)
+    if v.bm == 0 or a == 0
+        v.note = "карта занятости не читается"
+        return
+    copy(v.bm, a, v.bm_len)
+    mem_free(a)
+    v.ok = true
+    v.note = "exFAT «" + v.label + "» на диске " + v.drive
+
+func free_clusters(v: Vol) gives n: int
+    count c from 2 to v.count_c + 1
+        if not bm_get(v, c)
+            n += 1
+
+// ---------- действия ----------
+func ex_read(v: Vol, path: text) gives r: text
+    folder, name = split_path(path)
+    d = open_dir(v, folder)
+    if not d.ok
+        return "err\nнет папки: " + folder
+    at = find_ent(d, name)
+    free_dir(d)
+    if at < 0
+        return "err\nнет файла: " + path
+    e = d.es[at]
+    if e.is_dir
+        return "err\nэто папка: " + path
+    cs = chain(v, e.first, e.nofat, e.size)
+    a = load(v, cs)
+    if a == 0 and e.size > 0
+        return "err\nфайл не читается"
+    s = ""
+    if e.size > 0
+        s = get_text(a, e.size)
+        mem_free(a)
+    return "ok\n" + s
+
+func ex_list(v: Vol, path: text) gives r: text
+    d = open_dir(v, path)
+    if not d.ok
+        return "err\nнет папки: " + path
+    free_dir(d)
+    names = list text
+    each e in d.es
+        if e.is_dir
+            names.add(e.name + "/")
+        else
+            names.add(e.name)
+    return "ok\n" + join(names, "\n")
+
+// освободить кластеры записи и пометить её набор «удалён» (в памяти папки)
+func drop_ent(v: Vol, d: Dir, e: Ent)
+    if e.nofat
+        each c in chain(v, e.first, true, e.size)
+            bm_set(v, c, false)
+    else
+        // цепочку FAT тоже освобождаем в карте (сами числа FAT можно не трогать)
+        each c in chain(v, e.first, false, e.size)
+            bm_set(v, c, false)
+    count k from 0 to e.n_slots - 1
+        p = d.a + (e.slot + k) * 32
+        set8(p, bit_and(get8(p), 0x7F))
+
+// время для записи: из часов ядра
+func stamp() gives t: int
+    c, dd = rtc_now()
+    hm = split(c, ":")
+    dmy = split(dd, ".")
+    if len(hm) != 2 or len(dmy) != 3
+        return 0
+    y = (to_int(dmy[2]) or 2026) - 1980
+    t = shift_left(y, 25) + shift_left(to_int(dmy[1]) or 1, 21) + shift_left(to_int(dmy[0]) or 1, 16) + shift_left(to_int(hm[0]) or 0, 11) + shift_left(to_int(hm[1]) or 0, 5)
+
+// новый набор записей (файл или папка) в папке d; first/size — данные
+func add_ent(v: Vol, d: Dir, name: text, is_dir: bool, first: int, size: int) gives ok: bool
+    u = list int
+    each c in utf8_codes(name)
+        u.add(c)
+    if len(u) == 0 or len(u) > 255
+        return false
+    nn = (len(u) + 14) / 15
+    need = 2 + nn
+    // место: подряд need записей «пусто» (0) или «удалено» (старший бит 0)
+    at = -1
+    run = 0
+    count i from 0 to d.n - 1
+        if bit_and(get8(d.a + i * 32), 0x80) == 0
+            run += 1
+            if run == need
+                at = i - need + 1
+                stop
+        else
+            run = 0
+    if at < 0
+        return false
+    // если заняли конец папки (записи 0), следующая за ними должна остаться 0 — так и есть
+    p = d.a + at * 32
+    zero(p, need * 32)
+    set8(p, 0x85)
+    set8(p + 1, need - 1)
+    attr = 0x20
+    if is_dir
+        attr = 0x10
+    set16(p + 4, attr)
+    t = stamp()
+    set32(p + 8, t)
+    set32(p + 12, t)
+    set32(p + 16, t)
+    q = p + 32
+    set8(q, 0xC0)
+    flags = 1
+    if first >= 2
+        flags = 3          // место выделено, без цепочки FAT
+    set8(q + 1, flags)
+    set8(q + 3, len(u))
+    set16(q + 4, name_hash(u))
+    set64(q + 8, size)
+    set32(q + 20, first)
+    set64(q + 24, size)
+    count k from 0 to nn - 1
+        e = p + (2 + k) * 32
+        set8(e, 0xC1)
+        count j from 0 to 14
+            ci = k * 15 + j
+            if ci < len(u)
+                set16(e + 2 + j * 2, u[ci])
+    // сумма набора (байты 2 и 3 первой записи не считаются)
+    h = 0
+    count i from 0 to need * 32 - 1
+        if i == 2 or i == 3
+            skip
+        h = bit_and(bit_or(shift_left(bit_and(h, 1), 15), shift_right(h, 1)) + get8(p + i), 0xFFFF)
+    set16(p + 2, h)
+    return true
+
+func ex_write(v: Vol, path: text, data: text, is_dir: bool) gives r: text
+    folder, name = split_path(path)
+    if name == ""
+        return "err\nнет имени"
+    d = open_dir(v, folder)
+    if not d.ok
+        return "err\nнет папки: " + folder
+    at = find_ent(d, name)
+    if at >= 0
+        if d.es[at].is_dir
+            free_dir(d)
+            if is_dir
+                return "ok\n"
+            return "err\nтакая папка уже есть: " + path
+        drop_ent(v, d, d.es[at])
+    size = len(data)
+    if is_dir
+        size = v.csize
+    first = 0
+    if size > 0
+        n = (size + v.csize - 1) / v.csize
+        first = alloc(v, n)
+        if first == 0
+            free_dir(d)
+            return "err\nна диске нет места"
+        a = mem_new(n * v.csize + 512)
+        zero(a, n * v.csize)
+        k = put_text(a, data)
+        cs = chain(v, first, true, size)
+        ok = store(v, cs, a)
+        mem_free(a)
+        if not ok
+            free_dir(d)
+            return "err\nдиск не записал"
+    if not add_ent(v, d, name, is_dir, first, size)
+        free_dir(d)
+        return "err\nв папке кончилось место под имена (или имя длиннее 255)"
+    // порядок: данные → карта занятости → папка
+    ok2 = bm_save(v) and store(v, d.cs, d.a)
+    free_dir(d)
+    ok3 = disk_flush(v.drive)
+    if not ok2
+        return "err\nдиск не записал"
+    return "ok\n" + size
+
+func ex_remove(v: Vol, path: text) gives r: text
+    folder, name = split_path(path)
+    d = open_dir(v, folder)
+    if not d.ok
+        return "err\nнет папки: " + folder
+    at = find_ent(d, name)
+    if at < 0
+        free_dir(d)
+        return "err\nнет файла: " + path
+    e = d.es[at]
+    if e.is_dir
+        inner = open_dir(v, path)
+        busy = inner.ok and len(inner.es) > 0
+        free_dir(inner)
+        if busy
+            free_dir(d)
+            return "err\nпапка не пустая"
+    drop_ent(v, d, e)
+    ok = bm_save(v) and store(v, d.cs, d.a)
+    free_dir(d)
+    ok2 = disk_flush(v.drive)
+    if not ok
+        return "err\nдиск не записал"
+    return "ok\n"
+
+func handle(v: Vol, req: text, can_write: bool) gives r: text
+    p = find(req, "\n")
+    cmd = req
+    rest = ""
+    if p >= 0
+        cmd = cut(req, 0, p - 1)
+        rest = cut(req, p + 1, len(req) - 1)
+    path = rest
+    data = ""
+    q = find(rest, "\n")
+    if q >= 0
+        path = cut(rest, 0, q - 1)
+        data = cut(rest, q + 1, len(rest) - 1)
+    if cmd == "info"
+        return "ok\n" + v.note + "\n" + free_clusters(v) * v.csize / 1024 + "\n" + v.count_c * v.csize / 1024
+    if not v.ok
+        return "err\n" + v.note
+    if (cmd == "write" or cmd == "mkdir" or cmd == "remove") and not can_write
+        return "err\nключ только для чтения"
+    if cmd == "ls"
+        return ex_list(v, path)
+    if cmd == "read"
+        return ex_read(v, path)
+    if cmd == "write"
+        return ex_write(v, path, data, false)
+    if cmd == "mkdir"
+        return ex_write(v, path, "", true)
+    if cmd == "remove"
+        return ex_remove(v, path)
+    return "err\nне знаю команду: " + cmd
+
+// служба: drive — номер диска IDE с exFAT
+modpub func exfat(drive: int, bell: channel int, asks: list channel text, answers: list channel text, writes: list bool)
+    v = Vol(drive: drive)
+    mount(v)
+    each ring in bell
+        count i from 0 to len(asks) - 1
+            repeat while asks[i].ready()
+                answers[i].send(handle(v, asks[i].receive(), writes[i]))
+
+// ---------- для клиентов ----------
+func ex_ask(k: Key, req: text) gives r: text
+    k.ask.send(req)
+    k.bell.send(1)
+    a = k.answer.receive()
+    if starts_with(a, "err\n")
+        fail cut(a, 4, len(a) - 1)
+    return cut(a, 3, len(a) - 1)
+
+modpub func ls(k: Key, path: text) gives names: list text
+    s = try ex_ask(k, "ls\n" + path)
+    if s != ""
+        names = split(s, "\n")
+
+modpub func get(k: Key, path: text) gives s: text
+    return try ex_ask(k, "read\n" + path)
+
+modpub func put(k: Key, path: text, data: text)
+    r = try ex_ask(k, "write\n" + path + "\n" + data)
+
+modpub func mkdir(k: Key, path: text)
+    r = try ex_ask(k, "mkdir\n" + path)
+
+modpub func delete(k: Key, path: text)
+    r = try ex_ask(k, "remove\n" + path)
+
+// что за диск, свободно и всего (КБ)
+modpub func info(k: Key) gives note: text, free_kb: int, total_kb: int
+    r = try ex_ask(k, "info")
+    p = split(r, "\n")
+    if len(p) == 3
+        note = p[0]
+        free_kb = to_int(p[1]) or 0
+        total_kb = to_int(p[2]) or 0

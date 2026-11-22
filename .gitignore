@@ -35,3 +35,5 @@ bench/*
 !bench/*.sh
 !bench/*.py
 !bench/*.md
+# диски Омниума (создаёт omnium/run.sh)
+omnium/*.img

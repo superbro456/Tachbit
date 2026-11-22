@@ -1,0 +1,148 @@
+// Драйвер диска: IDE/ATA, обмен через порты (PIO), сектора по 512 байт, адрес LBA28.
+// Доверенный модуль (danger: порты). Диск 0 — главный на первом канале, диск 1 — второй.
+// Кто зовёт эти функции, тот должен быть драйвером (OFS, exFAT); программы ходят к ним по каналам.
+// Все обращения к каналу IDE идут под замком ata: две службы не перемешают команды.
+// В QEMU:  -drive file=disk.img,format=raw,if=ide,index=0   (и index=1 — второй диск)
+
+func ata_status() gives s: int
+    danger
+        s = port_in8(0x1F7)
+
+// ждать, пока диск занят (BSY); ответ — false, если диск сказал «ошибка» или так и не ответил
+func ata_ready(need_drq: bool) gives ok: bool
+    repeat 2000000 times
+        s = ata_status()
+        if s == 0 or s == 0xFF
+            return false
+        if bit_and(s, 0x80) == 0
+            if bit_and(s, 0x01) != 0 or bit_and(s, 0x20) != 0
+                return false
+            if not need_drq or bit_and(s, 0x08) != 0
+                return true
+    return false
+
+func ata_select(drive: int, lba: int, cmd: int)
+    danger
+        port_out8(0x1F6, bit_or(0xE0, bit_or(shift_left(drive, 4), bit_and(shift_right(lba, 24), 0x0F))))
+        port_out8(0x1F2, 1)
+        port_out8(0x1F3, bit_and(lba, 0xFF))
+        port_out8(0x1F4, bit_and(shift_right(lba, 8), 0xFF))
+        port_out8(0x1F5, bit_and(shift_right(lba, 16), 0xFF))
+        port_out8(0x1F7, cmd)
+
+// сколько секторов на диске (0 — диска нет)
+modpub func disk_size(drive: int) gives n: int
+    lock ata
+        danger
+            port_out8(0x1F6, bit_or(0xA0, shift_left(drive, 4)))
+            port_out8(0x1F2, 0)
+            port_out8(0x1F3, 0)
+            port_out8(0x1F4, 0)
+            port_out8(0x1F5, 0)
+            port_out8(0x1F7, 0xEC)
+        if ata_status() != 0 and ata_ready(true)
+            danger
+                count i from 0 to 255
+                    w = port_in16(0x1F0)
+                    if i == 60
+                        n = w
+                    if i == 61
+                        n = n + shift_left(w, 16)
+
+// прочитать сектор lba в память buf (512 байт)
+modpub func disk_read(drive: int, lba: int, buf: int) gives ok: bool
+    lock ata
+        ata_select(drive, lba, 0x20)
+        ok = ata_ready(true)
+        if ok
+            danger
+                count i from 0 to 255
+                    write16(buf + i * 2, port_in16(0x1F0))
+
+// записать сектор из buf
+modpub func disk_write(drive: int, lba: int, buf: int) gives ok: bool
+    lock ata
+        ata_select(drive, lba, 0x30)
+        ok = ata_ready(true)
+        if ok
+            danger
+                count i from 0 to 255
+                    port_out16(0x1F0, read16(buf + i * 2))
+            ok = ata_ready(false)
+
+// всё записанное — на диск (кэш диска сбрасывается)
+modpub func disk_flush(drive: int) gives ok: bool
+    lock ata
+        danger
+            port_out8(0x1F6, bit_or(0xE0, shift_left(drive, 4)))
+            port_out8(0x1F7, 0xE7)
+        ok = ata_ready(false)
+
+// ---------- байты в памяти: числа little-endian, текст ----------
+// текст → память с адреса a (без нуля в конце); ответ — сколько байт
+modpub func put_text(a: int, s: text) gives n: int
+    danger
+        each ch in s
+            write8(a + n, bit_and(code(ch), 255))
+            n += 1
+
+// n байт из памяти → текст (байт 0 текст закончил бы — его пропускаем)
+modpub func get_text(a: int, n: int) gives s: text
+    danger
+        count i from 0 to n - 1
+            b = read8(a + i)
+            if b != 0
+                s += char(b)
+
+modpub func mem_new(n: int) gives a: int
+    danger
+        a = new_mem(n) else err
+            return 0
+
+modpub func mem_free(a: int)
+    danger
+        free_mem(a)
+
+modpub func get8(a: int) gives v: int
+    danger
+        v = read8(a)
+modpub func get16(a: int) gives v: int
+    danger
+        v = read16(a)
+modpub func get32(a: int) gives v: int
+    danger
+        v = read32(a)
+modpub func get64(a: int) gives v: int
+    danger
+        v = read64(a)
+modpub func set8(a: int, v: int)
+    danger
+        write8(a, v)
+modpub func set16(a: int, v: int)
+    danger
+        write16(a, v)
+modpub func set32(a: int, v: int)
+    danger
+        write32(a, v)
+modpub func set64(a: int, v: int)
+    danger
+        write64(a, v)
+modpub func zero(a: int, n: int)
+    danger
+        fill_mem(a, 0, n)
+modpub func copy(dst: int, src: int, n: int)
+    danger
+        copy_mem(dst, src, n)
+
+// несколько секторов подряд
+modpub func disk_read_n(drive: int, lba: int, count_s: int, buf: int) gives ok: bool
+    ok = true
+    count i from 0 to count_s - 1
+        if not disk_read(drive, lba + i, buf + i * 512)
+            return false
+
+modpub func disk_write_n(drive: int, lba: int, count_s: int, buf: int) gives ok: bool
+    ok = true
+    count i from 0 to count_s - 1
+        if not disk_write(drive, lba + i, buf + i * 512)
+            return false

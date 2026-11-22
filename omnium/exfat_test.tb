@@ -1,0 +1,42 @@
+// exFAT на втором диске (флешка): читать файлы и папки, писать новые, удалять
+use ofs
+use exfat
+
+func names(k: Key, path: text) gives s: text
+    ns = exfat.ls(k, path) else err
+        return err
+    return join(ns, ", ")
+
+func main()
+    bell = channel int
+    asks = list channel text
+    answers = list channel text
+    writes = list bool
+    k = ofs.key(bell, asks, answers, writes, true)
+    usb = service exfat.exfat(1, bell, move asks, move answers, move writes)
+    note, free_kb, total_kb = exfat.info(k) else err
+        print(err)
+        return
+    print(note + ", всего " + total_kb + " КБ")
+    root = exfat.ls(k, "/") else err
+        print("корень: " + err)
+        return
+    print("корень: " + join(root, ", "))
+    print("hello.txt: " + (exfat.get(k, "/hello.txt") or "?"))
+    print("документы: " + names(k, "/документы"))
+    plan = exfat.get(k, "/Документы/план.txt") or "?"
+    print("план: " + replace(plan, "\n", " | "))
+    big = exfat.get(k, "/Документы/длинное имя файла для проверки.txt") or ""
+    print("длинный файл: " + len(big) + " байт, конец цел: " + ends_with(big, "строка 2000\n"))
+    exfat.mkdir(k, "/Омниум") else err
+        print(err)
+    exfat.put(k, "/Омниум/привет.txt", "записано из Омниума\n") else err
+        print(err)
+    exfat.put(k, "/hello.txt", "привет, переписан\n") else err
+        print(err)
+    exfat.delete(k, "/Документы/план.txt") else err
+        print(err)
+    print("после записи: " + names(k, "/Омниум") + " / " + (exfat.get(k, "/Омниум/привет.txt") or "?"))
+    print("документы: " + names(k, "/Документы"))
+    bell.close()
+    usb.wait

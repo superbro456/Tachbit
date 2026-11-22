@@ -1,0 +1,49 @@
+// OFS3 на диске: первый запуск пишет, следующие (тот же диск) видят всё, что было записано.
+// tests/omnium_disk.sh между запусками портит диск: суперблок (как сбой посреди записи) и данные
+use ofs
+
+func main()
+    bell = channel int
+    asks = list channel text
+    answers = list channel text
+    writes = list bool
+    k = ofs.key(bell, asks, answers, writes, true)
+    fs = service ofs.ofs(0, bell, move asks, move answers, move writes)
+    note, files, used, total = ofs.info(k) else err
+        print(err)
+        return
+    print(note + ", файлов " + files)
+    names = ofs.file_names(k) else err
+        print(err)
+        return
+    if len(names) == 0
+        // первый запуск
+        a = ofs.put(k, "заметки", "купить хлеб") or 0
+        b = ofs.put(k, "заметки", "купить хлеб и молоко") or 0
+        long = ""
+        count i from 1 to 300
+            long += "строка " + i + "\n"
+        c = ofs.put(k, "большой", long) or 0
+        ofs.snapshot(k, "утро") else err
+            print(err)
+        d = ofs.put(k, "заметки", "всё стёрла") or 0
+        print("записано версий: " + a + " " + b + " " + c + " " + d)
+    else
+        print("файлы: " + join(names, ", "))
+        print("заметки: " + (ofs.get(k, "заметки") or "?") + ", версий " + (ofs.versions(k, "заметки") or 0))
+        print("первая: " + (ofs.get_version(k, "заметки", 1) or "?"))
+        big = ofs.get(k, "большой") else err
+            print("большой: " + err)
+            big = ""
+        if big != ""
+            print("большой: " + len(big) + " байт, последняя строка цела: " + ends_with(big, "строка 300\n"))
+        ofs.restore(k, "утро") else err
+            print(err)
+        print("после снимка: " + (ofs.get(k, "заметки") or "?"))
+        chk = ofs.check(k) else err
+            print("проверка: " + err)
+            chk = ""
+        if chk != ""
+            print("проверка: " + chk)
+    bell.close()
+    fs.wait

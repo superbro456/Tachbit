@@ -24,7 +24,7 @@ func main()
     writes = list bool
     k = ofs.key(bell, asks, answers, writes, true)
     r = ofs.key(bell, asks, answers, writes, false)
-    fs = service ofs.ofs(bell, move asks, move answers, move writes)
+    fs = service ofs.ofs(-1, bell, move asks, move answers, move writes)
     v1 = ofs.put(k, "заметки", "купить хлеб") or 0
     v2 = ofs.put(k, "заметки", "купить хлеб и молоко") or 0
     print("версии: " + v1 + ", " + v2)

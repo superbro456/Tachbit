@@ -3,6 +3,8 @@
 // Сборка и запуск:  ./omnium/run.sh
 use rtc
 use shell
+use ofs
+use exfat
 
 // клетка «счётчик»: считает и пишет в журнал
 func counter(no: int, log: channel text) gives r: int
@@ -30,7 +32,31 @@ func main()
     if bad.crashed
         log.send("[ядро] клетка «сломанная» упала, остальные работают")
     log.send("[ядро] печатай — откроется поиск; Enter открывает первое")
-    shell.shell(1024, 768, log, ask, answer, 0, ["Терминал", "О системе"])
+    // главная файловая система: OFS3 на диске 0 (нет диска — в памяти)
+    fbell = channel int
+    fasks = list channel text
+    fanswers = list channel text
+    fwrites = list bool
+    fk = ofs.key(fbell, fasks, fanswers, fwrites, true)
+    files = service ofs.ofs(0, fbell, move fasks, move fanswers, move fwrites)
+    note, n, used, total = ofs.info(fk) else err
+        note = err
+    log.send("[ядро] файлы: " + note + ", файлов " + n)
+    // флешка exFAT на диске 1 (./omnium/run.sh --usb файл.img)
+    ubell = channel int
+    uasks = list channel text
+    uanswers = list channel text
+    uwrites = list bool
+    uk = ofs.key(ubell, uasks, uanswers, uwrites, true)
+    usb = service exfat.exfat(1, ubell, move uasks, move uanswers, move uwrites)
+    unote, ufree, utotal = exfat.info(uk) else err
+        unote = err
+    log.send("[ядро] флешка: " + unote)
+    shell.shell(1024, 768, log, ask, answer, 0, ["Терминал", "О системе"], fk, true, uk, true)
+    fbell.close()
+    files.wait
+    ubell.close()
+    usb.wait
     ask.close()
     time.wait
     sum = c0.wait + c1.wait

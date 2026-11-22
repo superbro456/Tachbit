@@ -1,7 +1,14 @@
-// OFS3 — файловая служба Омниума (идея из старой Омниум: объекты, версии, проверка целостности, снимки).
-// Служба живёт в своей клетке и ходит только по каналам. Ключ = пара каналов (ask, answer):
-// у кого ключ, тот и ходит к файлам; ключ бывает «читать и писать» или «только читать».
-// Пока всё лежит в памяти; диск (virtio) встанет под это же позже, клиенты не заметят.
+// OFS3 — главная файловая система Омниума (идея из старой Омниум: объекты, версии, проверка
+// целостности, снимки, живучесть при сбое). Служба живёт в своей клетке и ходит только по каналам.
+// Ключ = пара каналов (ask, answer): у кого ключ, тот и ходит к файлам; ключ бывает «читать и писать»
+// или «только читать», его можно отозвать.
+//
+// На диске (drive 0, 1 — диск IDE; -1 — только в памяти) всё лежит журналом, как у APFS «копия при записи»:
+//   сектор 0 и 1 — два суперблока по очереди (номер поколения, конец журнала, сумма);
+//   с сектора 2 — записи подряд: заголовок (вид, имя, длина, суммы) + сектора данных.
+// Старое не перезаписывается никогда: новая версия — новая запись в конце. Запись сначала ложится
+// на диск целиком, и только потом суперблок говорит «журнал теперь длиннее». Выключили питание
+// посреди записи — после запуска её просто нет, всё остальное цело.
 //
 //   bell = channel int                 звонок службы
 //   asks = list channel text           каналы ключей (раздаём до запуска службы)
@@ -9,16 +16,20 @@
 //   writes = list bool
 //   k = ofs.key(bell, asks, answers, writes, true)     ключ на чтение и запись
 //   r = ofs.key(bell, asks, answers, writes, false)    ключ только на чтение
-//   files = service ofs.ofs(bell, move asks, move answers, move writes)
+//   files = service ofs.ofs(0, bell, move asks, move answers, move writes)
 //   ofs.put(k, "заметки", "привет") else err ...
 //   s = ofs.get(r, "заметки") else err ...
 //   ofs.revoke(k, r)                   отозвать ключ r: дальше у него «ключ отозван»
 //   bell.close()                       служба заканчивается
+use disk
 
-// файл: все версии подряд, у каждой — контрольная сумма; удалённый файл — версия-«надгробие»
+
+// файл: все версии подряд. В памяти — сами данные; на диске — где лежит заголовок записи и длина
 obj Ofile
     name: text
     datas: list text
+    lbas: list int
+    sizes: list int
     sums: list int
     alive: list bool
 
@@ -27,6 +38,18 @@ obj Snap
     tag: text
     names: list text
     counts: list int
+
+// всё хозяйство службы
+obj Store
+    drive: int
+    files: list Ofile
+    snaps: list Snap
+    gen: int
+    log_end: int
+    sectors: int
+    seq: int
+    buf: int
+    note: text
 
 obj Key
     ask: channel text
@@ -66,23 +89,217 @@ func find_snap(snaps: list Snap, tag: text) gives at: int
             return i
     return -1
 
-func add_version(f: Ofile, data: text, alive: bool)
-    f.datas.add(data)
+// ---------- диск ----------
+func sb_sum(gen: int, log_end: int, sectors: int) gives h: int
+    return ((0x3353464F % 1000000007 * 31 + gen) % 1000000007 * 31 + log_end % 1000000007) % 1000000007 * 31 % 1000000007 + sectors % 1000000007
+
+// суперблок поколения gen ложится в сектор gen % 2: прошлый остаётся целым, пока новый не дописан
+func write_sb(st: Store) gives ok: bool
+    b = st.buf
+    zero(b, 512)
+    set32(b, 0x3353464F)
+    set64(b + 8, st.gen)
+    set64(b + 16, st.log_end)
+    set64(b + 24, st.sectors)
+    set64(b + 32, sb_sum(st.gen, st.log_end, st.sectors))
+    if not disk_write(st.drive, st.gen % 2, b)
+        return false
+    return disk_flush(st.drive)
+
+// прочитать суперблок из сектора n: поколение (-1 — нет или испорчен) и конец журнала
+func read_sb(st: Store, n: int) gives gen: int, log_end: int
+    gen = -1
+    b = st.buf
+    if not disk_read(st.drive, n, b)
+        return
+    if get32(b) != 0x3353464F
+        return
+    g = get64(b + 8)
+    e = get64(b + 16)
+    if get64(b + 32) != sb_sum(g, e, get64(b + 24)) or e < 2
+        return
+    gen = g
+    log_end = e
+
+func head_sum(kind: int, seq: int, nlen: int, dlen: int, dsum: int, nsum: int) gives h: int
+    h = 0x3352464F % 1000000007
+    h = (h * 31 + kind) % 1000000007
+    h = (h * 31 + seq % 1000000007) % 1000000007
+    h = (h * 31 + nlen) % 1000000007
+    h = (h * 31 + dlen % 1000000007) % 1000000007
+    h = (h * 31 + dsum) % 1000000007
+    h = (h * 31 + nsum) % 1000000007
+
+// дописать запись в конец журнала; ответ — номер сектора заголовка (0 — не вышло)
+// kind: 1 — версия файла, 2 — удаление, 3 — снимок
+func append_rec(st: Store, kind: int, name: text, data: text) gives at: int
+    nlen = len(name)
+    dlen = len(data)
+    if nlen > 440
+        return 0
+    ns = (dlen + 511) / 512
+    if st.log_end + 1 + ns + 1 > st.sectors
+        return 0
+    // сначала данные
+    if ns > 0
+        d = mem_new(ns * 512)
+        if d == 0
+            return 0
+        n = put_text(d, data)
+        ok = disk_write_n(st.drive, st.log_end + 1, ns, d)
+        mem_free(d)
+        if not ok
+            return 0
+    // потом заголовок
+    st.seq += 1
+    b = st.buf
+    zero(b, 512)
+    set32(b, 0x3352464F)
+    set8(b + 4, kind)
+    set64(b + 8, st.seq)
+    set32(b + 16, nlen)
+    set64(b + 24, dlen)
+    dsum = sum_of(data)
+    set64(b + 32, dsum)
+    set64(b + 40, head_sum(kind, st.seq, nlen, dlen, dsum, sum_of(name)))
+    n2 = put_text(b + 48, name)
+    if not disk_write(st.drive, st.log_end, b)
+        return 0
+    if not disk_flush(st.drive)
+        return 0
+    // и только теперь журнал «вырос»: новый суперблок
+    at = st.log_end
+    st.log_end += 1 + ns
+    st.gen += 1
+    if not write_sb(st)
+        st.gen -= 1
+        st.log_end = at
+        return 0
+
+// прочитать данные записи с заголовком в секторе at
+func read_rec_data(st: Store, at: int, size: int) gives s: text
+    ns = (size + 511) / 512
+    if ns == 0
+        return ""
+    d = mem_new(ns * 512)
+    if d == 0
+        return ""
+    if disk_read_n(st.drive, at + 1, ns, d)
+        s = get_text(d, size)
+    mem_free(d)
+
+// запустить: найти свежий суперблок и пройти журнал; нет файловой системы — разметить диск
+func mount(st: Store)
+    st.sectors = disk_size(st.drive)
+    if st.sectors < 16
+        st.note = "диска нет: файлы только в памяти"
+        st.drive = -1
+        return
+    g0, e0 = read_sb(st, 0)
+    g1, e1 = read_sb(st, 1)
+    if g0 < 0 and g1 < 0
+        st.gen = 0
+        st.log_end = 2
+        ok = write_sb(st)
+        st.note = "диск размечен под OFS3"
+        return
+    st.gen = g0
+    st.log_end = e0
+    if g1 > g0
+        st.gen = g1
+        st.log_end = e1
+    at = 2
+    b = st.buf
+    repeat while at < st.log_end
+        if not disk_read(st.drive, at, b) or get32(b) != 0x3352464F
+            stop
+        kind = get8(b + 4)
+        seq = get64(b + 8)
+        nlen = get32(b + 16)
+        dlen = get64(b + 24)
+        dsum = get64(b + 32)
+        if nlen > 440 or dlen < 0
+            stop
+        name = get_text(b + 48, nlen)
+        if get64(b + 40) != head_sum(kind, seq, nlen, dlen, dsum, sum_of(name))
+            stop
+        st.seq = seq
+        if kind == 1 or kind == 2
+            fi = find_file(st.files, name)
+            if fi < 0
+                st.files.add(Ofile(name: name))
+                fi = len(st.files) - 1
+            f = st.files[fi]
+            f.datas.add("")
+            f.lbas.add(at)
+            f.sizes.add(dlen)
+            f.sums.add(dsum)
+            f.alive.add(kind == 1)
+        if kind == 3
+            snap_from_text(st, name, read_rec_data(st, at, dlen))
+        at += 1 + (dlen + 511) / 512
+    if at < st.log_end
+        // журнал испорчен с этого места: дальше не верим, конец — здесь
+        st.note = "журнал обрезан на секторе " + at
+        st.log_end = at
+        st.gen += 1
+        ok = write_sb(st)
+    else
+        st.note = "OFS3 на диске " + st.drive
+
+func snap_from_text(st: Store, tag: text, body: text)
+    s = Snap(tag: tag)
+    if body != ""
+        each line in split(body, "\n")
+            t = find(line, "\t")
+            if t > 0
+                s.names.add(cut(line, 0, t - 1))
+                s.counts.add(to_int(cut(line, t + 1, len(line) - 1)) or 0)
+    si = find_snap(st.snaps, tag)
+    if si >= 0
+        st.snaps[si] = s
+    else
+        st.snaps.add(s)
+
+// новая версия файла (в памяти или записью на диск); false — диск не записал
+func add_version(st: Store, f: Ofile, data: text, alive: bool) gives ok: bool
+    if st.drive < 0
+        f.datas.add(data)
+        f.lbas.add(0)
+    else
+        kind = 1
+        if not alive
+            kind = 2
+        at = append_rec(st, kind, f.name, data)
+        if at == 0
+            return false
+        f.datas.add("")
+        f.lbas.add(at)
+    f.sizes.add(len(data))
     f.sums.add(sum_of(data))
     f.alive.add(alive)
+    return true
+
+func data_of(st: Store, f: Ofile, i: int) gives s: text
+    if f.lbas[i] == 0
+        return f.datas[i]
+    return read_rec_data(st, f.lbas[i], f.sizes[i])
 
 // версия v файла (с 1); проверка суммы при каждом чтении
-func read_version(f: Ofile, v: int) gives r: text
-    if v < 1 or v > len(f.datas)
+func read_version(st: Store, f: Ofile, v: int) gives r: text
+    if v < 1 or v > len(f.sums)
         return "err\nнет версии " + v + " у файла " + f.name
     if not f.alive[v - 1]
         return "err\nфайл удалён: " + f.name
-    if sum_of(f.datas[v - 1]) != f.sums[v - 1]
+    d = data_of(st, f, v - 1)
+    if sum_of(d) != f.sums[v - 1]
         return "err\nфайл повреждён: " + f.name + ", версия " + v
-    return "ok\n" + f.datas[v - 1]
+    return "ok\n" + d
 
 // запрос: «команда\nимя\nданные»
-func handle(files: list Ofile, snaps: list Snap, req: text, can_write: bool) gives r: text
+func handle(st: Store, req: text, can_write: bool) gives r: text
+    files = st.files
+    snaps = st.snaps
     p = find(req, "\n")
     cmd = req
     rest = ""
@@ -96,6 +313,7 @@ func handle(files: list Ofile, snaps: list Snap, req: text, can_write: bool) giv
         name = cut(rest, 0, q - 1)
         data = cut(rest, q + 1, len(rest) - 1)
     writes = cmd == "put" or cmd == "del" or cmd == "snap" or cmd == "back"
+    full = "err\nдиск не записал (места нет или ошибка диска)"
     if writes and not can_write
         return "err\nключ только для чтения"
     at = find_file(files, name)
@@ -105,24 +323,26 @@ func handle(files: list Ofile, snaps: list Snap, req: text, can_write: bool) giv
         if at < 0
             files.add(Ofile(name: name))
             at = len(files) - 1
-        add_version(files[at], data, true)
-        return "ok\n" + len(files[at].datas)
+        if not add_version(st, files[at], data, true)
+            return full
+        return "ok\n" + len(files[at].sums)
     if cmd == "get" or cmd == "getv"
         if at < 0
             return "err\nнет файла: " + name
-        v = len(files[at].datas)
+        v = len(files[at].sums)
         if cmd == "getv"
             v = to_int(data) or 0
-        return read_version(files[at], v)
+        return read_version(st, files[at], v)
     if cmd == "versions"
         if at < 0
             return "err\nнет файла: " + name
-        return "ok\n" + len(files[at].datas)
+        return "ok\n" + len(files[at].sums)
     if cmd == "del"
         if at < 0 or not files[at].alive[len(files[at].alive) - 1]
             return "err\nнет файла: " + name
-        add_version(files[at], "", false)
-        return "ok\n" + len(files[at].datas)
+        if not add_version(st, files[at], "", false)
+            return full
+        return "ok\n" + len(files[at].sums)
     if cmd == "list"
         names = list text
         each f in files
@@ -132,22 +352,26 @@ func handle(files: list Ofile, snaps: list Snap, req: text, can_write: bool) giv
     if cmd == "check"
         bad = 0
         each f in files
-            count i from 0 to len(f.datas) - 1
-                if sum_of(f.datas[i]) != f.sums[i]
+            count i from 0 to len(f.sums) - 1
+                if sum_of(data_of(st, f, i)) != f.sums[i]
                     bad += 1
         if bad > 0
             return "err\nповреждённых версий: " + bad
         return "ok\nвсе версии целы"
+    if cmd == "info"
+        used = 0
+        if st.drive >= 0
+            used = st.log_end
+        return "ok\n" + st.note + "\n" + len(files) + "\n" + used + "\n" + st.sectors
     if cmd == "snap"
-        s = Snap(tag: name)
+        body = list text
         each f in files
-            s.names.add(f.name)
-            s.counts.add(len(f.datas))
-        si = find_snap(snaps, name)
-        if si >= 0
-            snaps[si] = s
-        else
-            snaps.add(s)
+            body.add(f.name + "\t" + len(f.sums))
+        text_body = join(body, "\n")
+        if st.drive >= 0
+            if append_rec(st, 3, name, text_body) == 0
+                return full
+        snap_from_text(st, name, text_body)
         return "ok\n" + len(files)
     if cmd == "back"
         si = find_snap(snaps, name)
@@ -162,19 +386,25 @@ func handle(files: list Ofile, snaps: list Snap, req: text, can_write: bool) giv
                     j = i
             if j < 0
                 if f.alive[len(f.alive) - 1]
-                    add_version(f, "", false)
+                    if not add_version(st, f, "", false)
+                        return full
             else
                 n = s.counts[j]
-                same = n == len(f.datas)
+                same = n == len(f.sums)
                 if not same
-                    add_version(f, f.datas[n - 1], f.alive[n - 1])
+                    if not add_version(st, f, data_of(st, f, n - 1), f.alive[n - 1])
+                        return full
         return "ok\n" + s.tag
     return "err\nне знаю команду: " + cmd
 
 // сама служба: звонок → смотрим, у какого ключа есть запрос; bell.close() — конец
-modpub func ofs(bell: channel int, asks: list channel text, answers: list channel text, writes: list bool)
-    files = list Ofile
-    snaps = list Snap
+// drive: номер диска IDE (0, 1) или -1 — всё только в памяти
+modpub func ofs(drive: int, bell: channel int, asks: list channel text, answers: list channel text, writes: list bool)
+    st = Store(drive: drive, buf: mem_new(512))
+    if drive >= 0
+        mount(st)
+    else
+        st.note = "файлы только в памяти"
     // отозванные ключи: их канал ответа закрыт, запросы по ним больше не читаются
     gone = list bool
     count i from 0 to len(asks) - 1
@@ -197,7 +427,7 @@ modpub func ofs(bell: channel int, asks: list channel text, answers: list channe
                         if n != i
                             answers[i].send("ok\n")
                     skip
-                answers[i].send(handle(files, snaps, q, writes[i]))
+                answers[i].send(handle(st, q, writes[i]))
 
 // ---------- для клиентов ----------
 func ask(k: Key, req: text) gives r: text
@@ -253,3 +483,13 @@ modpub func check(k: Key) gives s: text
 // отозвать ключ who (может только ключ на запись): у who больше ничего не выйдет
 modpub func revoke(k: Key, who: Key)
     r = try ask(k, "revoke\n" + who.no)
+
+// что за файловая система: строка о диске, сколько файлов, занято и всего секторов
+modpub func info(k: Key) gives note: text, files: int, used: int, total: int
+    r = try ask(k, "info")
+    p = split(r, "\n")
+    if len(p) == 4
+        note = p[0]
+        files = to_int(p[1]) or 0
+        used = to_int(p[2]) or 0
+        total = to_int(p[3]) or 0
