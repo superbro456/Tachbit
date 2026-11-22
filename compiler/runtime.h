@@ -1640,6 +1640,116 @@ TB_API const char *tb_json_text(const char *s) {
     *o = 0;
     return out;
 }
+// ---------- сеть: свой сервер и клиент (TCP) ----------
+// net_listen(порт) → сервер, net_accept(сервер) → связь, net_connect(адрес, порт) → связь,
+// net_send(связь, текст), net_receive(связь) → текст ("" — другая сторона закрыла), net_close(что угодно)
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+TB_API int tb_net_ready = 0;
+TB_API void tb_net_start(void) { if (!tb_net_ready) { WSADATA w; WSAStartup(MAKEWORD(2, 2), &w); tb_net_ready = 1; } }
+#define tb_sock_close closesocket
+#else
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <netdb.h>
+#include <signal.h>
+TB_API int tb_net_ready = 0;
+// запись в закрытую связь не должна молча убивать программу (SIGPIPE): пусть будет ошибкой
+TB_API void tb_net_start(void) { if (!tb_net_ready) { signal(SIGPIPE, SIG_IGN); tb_net_ready = 1; } }
+#define tb_sock_close close
+#endif
+TB_API const char *tb_net_why(const char *what) {
+#ifdef _WIN32
+    char num[32]; sprintf(num, " (код %d)", WSAGetLastError());
+    return tb_cat(what, num);
+#else
+    return tb_cat(tb_cat(what, ": "), strerror(errno));
+#endif
+}
+TB_API long long tb_net_listen(long long port) {
+    tb_net_start();
+    if (port < 0 || port > 65535) { tb_err = "порт должен быть от 0 до 65535"; return -1; }
+    long long s = (long long)socket(AF_INET6, SOCK_STREAM, 0);
+    int v6 = 1;
+    if (s < 0) { s = (long long)socket(AF_INET, SOCK_STREAM, 0); v6 = 0; }
+    if (s < 0) { tb_err = tb_net_why("не могу открыть сеть"); return -1; }
+    int one = 1, zero = 0;
+    setsockopt((int)s, SOL_SOCKET, SO_REUSEADDR, (const char *)&one, sizeof one);
+    int r;
+    if (v6) {
+        setsockopt((int)s, IPPROTO_IPV6, IPV6_V6ONLY, (const char *)&zero, sizeof zero);  // и IPv4, и IPv6
+        struct sockaddr_in6 a; memset(&a, 0, sizeof a);
+        a.sin6_family = AF_INET6; a.sin6_port = htons((unsigned short)port); a.sin6_addr = in6addr_any;
+        r = bind((int)s, (struct sockaddr *)&a, sizeof a);
+    } else {
+        struct sockaddr_in a; memset(&a, 0, sizeof a);
+        a.sin_family = AF_INET; a.sin_port = htons((unsigned short)port); a.sin_addr.s_addr = htonl(INADDR_ANY);
+        r = bind((int)s, (struct sockaddr *)&a, sizeof a);
+    }
+    if (r != 0) {
+        char num[32]; sprintf(num, "%lld", port);
+        tb_err = tb_net_why(tb_cat("порт занят или закрыт: ", num));
+        tb_sock_close((int)s); return -1;
+    }
+    if (listen((int)s, 64) != 0) { tb_err = tb_net_why("не могу слушать порт"); tb_sock_close((int)s); return -1; }
+    return s;
+}
+// номер порта сервера (полезно, если слушали порт 0 — тогда система выбрала свободный)
+TB_API long long tb_net_port(long long s) {
+    struct sockaddr_storage a; socklen_t n = sizeof a;
+    if (getsockname((int)s, (struct sockaddr *)&a, &n) != 0) return -1;
+    if (a.ss_family == AF_INET6) return ntohs(((struct sockaddr_in6 *)&a)->sin6_port);
+    return ntohs(((struct sockaddr_in *)&a)->sin_port);
+}
+TB_API long long tb_net_accept(long long s) {
+    fflush(stdout);
+    long long c = (long long)accept((int)s, 0, 0);
+    if (c < 0) { tb_err = tb_net_why("не дождался подключения"); return -1; }
+    int one = 1;
+    setsockopt((int)c, IPPROTO_TCP, TCP_NODELAY, (const char *)&one, sizeof one);
+    return c;
+}
+TB_API long long tb_net_connect(const char *host, long long port) {
+    tb_net_start();
+    if (port <= 0 || port > 65535) { tb_err = "порт должен быть от 1 до 65535"; return -1; }
+    char ps[16]; sprintf(ps, "%lld", port);
+    struct addrinfo hint, *res = 0, *p;
+    memset(&hint, 0, sizeof hint);
+    hint.ai_family = AF_UNSPEC; hint.ai_socktype = SOCK_STREAM;
+    if (getaddrinfo(host, ps, &hint, &res) != 0 || !res) { tb_err = tb_cat("не нашёл адрес: ", host); return -1; }
+    long long s = -1;
+    for (p = res; p; p = p->ai_next) {
+        s = (long long)socket(p->ai_family, p->ai_socktype, p->ai_protocol);
+        if (s < 0) continue;
+        if (connect((int)s, p->ai_addr, (int)p->ai_addrlen) == 0) break;
+        tb_sock_close((int)s); s = -1;
+    }
+    freeaddrinfo(res);
+    if (s < 0) { tb_err = tb_net_why(tb_cat(tb_cat(tb_cat("не подключился к ", host), ":"), ps)); return -1; }
+    int one = 1;
+    setsockopt((int)s, IPPROTO_TCP, TCP_NODELAY, (const char *)&one, sizeof one);
+    return s;
+}
+TB_API void tb_net_send(long long c, const char *t) {
+    size_t n = strlen(t), done = 0;
+    while (done < n) {
+        long long k = (long long)send((int)c, t + done, (int)(n - done), 0);
+        if (k <= 0) { tb_err = tb_net_why("не отправил: связь закрыта"); return; }
+        done += (size_t)k;
+    }
+}
+// всё, что пришло сейчас (до 64 КБ за раз); "" — другая сторона закрыла связь
+TB_API const char *tb_net_receive(long long c) {
+    fflush(stdout);
+    char *buf = tb_tmem(65537);
+    long long k = (long long)recv((int)c, buf, 65536, 0);
+    if (k < 0) { tb_err = tb_net_why("связь оборвалась"); return ""; }
+    buf[k] = 0;
+    return buf;
+}
+TB_API void tb_net_close(long long c) { if (c >= 0) tb_sock_close((int)c); }
 // ---------- время и случайные числа ----------
 TB_API long long tb_time_us(void) {
     struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -8993,6 +9103,15 @@ TB_B(const char *, json_get, (const char *s, const char *p, int line), tb_json_g
 #endif
 #ifndef TB_BARE
 TB_B(const char *, json_text, (const char *s, int line), tb_json_text(s))
+#endif
+#ifndef TB_BARE
+TB_B(long long, net_listen, (long long a, int line), tb_net_listen(a))
+TB_B(long long, net_port, (long long a, int line), tb_net_port(a))
+TB_B(long long, net_accept, (long long a, int line), tb_net_accept(a))
+TB_B(long long, net_connect, (const char *h, long long a, int line), tb_net_connect(h, a))
+TB_BV(net_send, (long long a, const char *t, int line), tb_net_send(a, t))
+TB_B(const char *, net_receive, (long long a, int line), tb_net_receive(a))
+TB_BV(net_close, (long long a, int line), tb_net_close(a))
 #endif
 #ifndef TB_BARE
 TB_B(const char *, date_now, (int line), tb_date_now())
