@@ -5,7 +5,7 @@
   </picture>
 </p>
 
-# Tachbit 1.1
+# Tachbit 1.2
 
 **Write complex programs in a clear language and get a real, fast program, not a prototype.**
 
@@ -91,7 +91,17 @@ Checked before the program runs:
 - `background` takes only plain values, channels, or a list handed over with `move` (no second name, not stored anywhere, not used afterwards);
 - removing keys from a dict while `each` walks it is an error.
 
-Not caught yet (honest list): integer overflow wraps silently; the same object placed twice in a list under `each ... on all cores`; interrupt handlers vs. main code in the no-OS mode; nothing at all inside `danger` (by design). Memory is managed for you: loop steps, functions and `temp` free their memory right away, and since 1.1 a garbage collector frees long-lived objects, lists, dicts and texts nobody uses any more (`TB_GC_STATS=1` prints each collection).
+Not caught yet (honest list): the same object placed twice in a list under `each ... on all cores`; interrupt handlers vs. main code in the no-OS mode; nothing at all inside `danger` (by design). Memory is managed for you: loop steps, functions and `temp` free their memory right away, and since 1.1 a garbage collector frees long-lived objects, lists, dicts and texts nobody uses any more (`TB_GC_STATS=1` prints each collection).
+
+## Frozen core (1.2)
+
+Since 1.2 the language core is frozen: the compiler, the syntax and the built-in words do not change any more. A program that builds on 1.2 keeps building.
+
+- **Open for change:** libraries in `lib/` and new libraries on top, apps, Omnium, examples, compiler bug fixes and speed-ups that do not change what programs mean.
+- **Closed without a separate decision:** new keywords, new built-in functions, new meaning for existing words.
+- **Left out on purpose:** real separate OS windows (a program has one window; windows inside it come from `lib/ui.tb`); overflow checks for `on all cores` and `by vec` sums.
+
+New features are first tried as a Tachbit library. If a new word is truly needed, it is a separate decision and ships as 1.3.
 
 ## Speed
 

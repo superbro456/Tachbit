@@ -2835,7 +2835,7 @@ modpub func emit_c(c: Comp, program: Node)
     fresh = list text
     c.out = fresh
     c.label = 0
-    put(c, "// Сделано компилятором Tachbit 1.1. Не правь руками: правь файл .tb\n")
+    put(c, "// Сделано компилятором Tachbit 1.2. Не правь руками: правь файл .tb\n")
     if c.bare
         put(c, "#define TB_BARE 1\n")
     if c.gfx

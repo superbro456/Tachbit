@@ -1,4 +1,4 @@
-// Сделано компилятором Tachbit 1.1. Не правь руками: правь файл .tb
+// Сделано компилятором Tachbit 1.2. Не правь руками: правь файл .tb
 // функции библиотеки: внутри файла (static). Для --llvm файл .ll зовёт их через
 // маленькие обёртки tb_x_* (их пишет компилятор в конце библиотеки), LTO встраивает всё обратно
 #define TB_API static
@@ -13788,7 +13788,7 @@ TB_API long long f_main__build_bare_or_app(tb_o_Comp * v_c, const char * v_path,
 }
 
 TB_API void f_main__usage(void) {
-    (tb_show_4("Tachbit 1.1 (компилятор на Tachbit)\n"), tb_ps("\n"));
+    (tb_show_4("Tachbit 1.2 (компилятор на Tachbit)\n"), tb_ps("\n"));
     (tb_show_4("  tb new   имя             новый проект: папка имя/ с main.tb"), tb_ps("\n"));
     (tb_show_4("  tb start имя [слова]     собрать проект и запустить (без имени — текущая папка)\n"), tb_ps("\n"));
     (tb_show_4("  tachbit run    файл.tb [слова]   сделать программу и запустить"), tb_ps("\n"));
@@ -13844,7 +13844,7 @@ TB_API void f_main__main(void) {
         return;
     }
     if ((({ const char *tb_s302 = v_mode; ((unsigned char)tb_s302[0] == 118 && (unsigned char)tb_s302[1] == 101 && (unsigned char)tb_s302[2] == 114 && (unsigned char)tb_s302[3] == 115 && (unsigned char)tb_s302[4] == 105 && (unsigned char)tb_s302[5] == 111 && (unsigned char)tb_s302[6] == 110 && tb_s302[7] == 0); }) || (strcmp(v_mode, "--version") == 0))) {
-        (tb_show_4("Tachbit 1.1 (компилятор на Tachbit)"), tb_ps("\n"));
+        (tb_show_4("Tachbit 1.2 (компилятор на Tachbit)"), tb_ps("\n"));
         return;
     }
     if (({ const char *tb_s303 = v_mode; ((unsigned char)tb_s303[0] == 115 && (unsigned char)tb_s303[1] == 116 && (unsigned char)tb_s303[2] == 97 && (unsigned char)tb_s303[3] == 114 && (unsigned char)tb_s303[4] == 116 && tb_s303[5] == 0); })) {
@@ -35241,7 +35241,7 @@ TB_API void f_emit__emit_c(tb_o_Comp * v_c, tb_o_Node * v_program) {
     tb_list * v_fresh = tb_list_new(sizeof(const char *));
     { tb_list * tb_v13796 = v_fresh; tb_list * *tb_p13796 = &(((tb_o_Comp *)tb_nn(v_c, 2836))->q_out); *tb_p13796 = tb_v13796; }
     { long long tb_v13797 = 0LL; long long *tb_p13797 = &(((tb_o_Comp *)tb_nn(v_c, 2837))->q_label); *tb_p13797 = tb_v13797; }
-    f_emit__put(v_c, "// Сделано компилятором Tachbit 1.1. Не правь руками: правь файл .tb\n");
+    f_emit__put(v_c, "// Сделано компилятором Tachbit 1.2. Не правь руками: правь файл .tb\n");
     if (((tb_o_Comp *)tb_nn(v_c, 2839))->q_bare) {
         f_emit__put(v_c, "#define TB_BARE 1\n");
     }
