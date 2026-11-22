@@ -1,0 +1,15 @@
+// Омниум: запустить программу из первого модуля (qemu -initrd файл.oapp) прямо в main —
+// для проверки: её вывод должен совпасть с обычной сборкой (tests/run_own.sh)
+use app
+
+func main()
+    a = 0
+    n = 0
+    danger
+        if module_count() > 0
+            a = module_addr(0)
+            n = module_size(0)
+    e = app.load(a, n) else err
+        print("не загрузилась:", err)
+        return
+    app.start(e)

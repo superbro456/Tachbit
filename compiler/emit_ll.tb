@@ -111,7 +111,7 @@ func ll_row(c: Comp, t: int)
     return true
 
 // список obj by columns: указатель на tb_cols_X, len лежит первым
-func ll_colist(c: Comp, t: int)
+modpub func ll_colist(c: Comp, t: int)
     return kind_of(c, t) == "list" and is_cols_list(c, t) and ll_row(c, c.types[t].elem)
 
 // выражение-строка: имя, Point(...), pts[i]
@@ -794,11 +794,11 @@ func ll_each_cols(g: LLGen, c: Comp, n: Node)
     ll_label(g, out)
 
 // list bool: по биту на элемент (tb_bget/tb_bset/tb_badd/tb_bpop из C, LTO их встраивает)
-func ll_bits(c: Comp, t: int)
+modpub func ll_bits(c: Comp, t: int)
     return kind_of(c, t) == "list" and c.types[t].elem == 3
 
 // в списке адреса (тексты, obj): уборка памяти должна смотреть внутрь
-func ll_ptr_elems(c: Comp, t: int)
+modpub func ll_ptr_elems(c: Comp, t: int)
     e = c.types[t].elem
     return not (e == 1 or e == 2 or kind_of(c, e) == "enum")
 
@@ -860,7 +860,7 @@ func ll_box(c: Comp, t: int)
     return ll_numlist(c, t) or ll_bits(c, t) or ll_colist(c, t) or ll_plainobj(c, t) or ll_dict(c, t)
 
 // dict с ключом int или text и значением, которое LLVM умеет класть и брать (8 байт, bool — 1)
-func ll_dict(c: Comp, t: int)
+modpub func ll_dict(c: Comp, t: int)
     if kind_of(c, t) != "dict"
         return false
     kk = kind_of(c, c.types[t].key)
@@ -1000,7 +1000,7 @@ func ll_dec_exact(v: text)
     return frac == "" or frac == "5" or frac == "25" or frac == "75" or frac == "125" or frac == "375" or frac == "625" or frac == "875"
 
 // 2.60 → m = "26", k = 1 (2.6 = 26 / 10^1); m без нулей впереди и позади
-func ll_dec_parts(v: text) gives m: text, k: int
+modpub func ll_dec_parts(v: text) gives m: text, k: int
     dot = find(v, ".")
     frac = cut(v, dot + 1, len(v) - 1)
     repeat while len(frac) > 0 and ends_with(frac, "0")
@@ -3003,7 +3003,7 @@ func ll_builtin_x(g: LLGen, c: Comp, n: Node)
 
 // имя в библиотеке (tb_xb_имя) и виды параметров: i — int, d — dec, p — адрес (текст, список);
 // "" — такой функции там нет (тогда программа идёт старым путём, через clang)
-func ll_xb(c: Comp, n: Node) gives name: text, ps: text
+modpub func ll_xb(c: Comp, n: Node) gives name: text, ps: text
     nm = n.name
     if nm == "sort"
         k = kind_of(c, c.types[n.kids[0].kids[0].ty].elem)
