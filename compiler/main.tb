@@ -1,4 +1,4 @@
-// Tachbit 1.2 — компилятор Tachbit, написанный на Tachbit.
+// Tachbit 1.3 — компилятор Tachbit, написанный на Tachbit.
 //   tokens / tree / check / c / build / run  файл.tb
 use types
 use errors
@@ -593,7 +593,7 @@ func build_bare_or_app(c: Comp, path: text, exe: text, app: bool)
     return 0
 
 func usage()
-    print("Tachbit 1.2 (компилятор на Tachbit)\n")
+    print("Tachbit 1.3 (компилятор на Tachbit)\n")
     print("  tb new   имя             новый проект: папка имя/ с main.tb")
     print("  tb start имя [слова]     собрать проект и запустить (без имени — текущая папка)\n")
     print("  tachbit run    файл.tb [слова]   сделать программу и запустить")
@@ -638,7 +638,7 @@ func main()
         usage()
         return
     if mode == "version" or mode == "--version"
-        print("Tachbit 1.2 (компилятор на Tachbit)")
+        print("Tachbit 1.3 (компилятор на Tachbit)")
         return
     if mode == "start"
         mode = "run"

@@ -185,6 +185,15 @@ TB_API void tb_gfx_reimage(void) {}
 TB_API void tb_gpu_flush(int present) { (void)present; }
 TB_API void tb_gpu_vsync(void) {}
 TB_API int tb_gpu_resize(int ow, int oh) { (void)ow; (void)oh; return 1; }
+// несколько окон (window_new): экран без ОС один, второе окно не открыть
+#define TB_WPLAT int bare_pad;
+#define TB_WPLAT_SAVE(s) (void)(s);
+#define TB_WPLAT_LOAD(s) (void)(s);
+TB_API uintptr_t tb_gfx_handle(void) { return 1; }
+TB_API int tb_gfx_open2(const char *title) { (void)title; return 0; }
+TB_API void tb_gfx_show(void) {}
+TB_API void tb_gfx_close2(void) {}
+TB_API void tb_gfx_poll(void) {}
 TB_API int tb_gfx_open(const char *title) {
     (void)title;
     uint64_t lfb = tb_bga_find();
