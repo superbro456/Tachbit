@@ -8,6 +8,7 @@ use parser
 use check
 use emit
 use emit_ll
+use x64
 
 // "examples/shop.tb" → папка "examples/" (на Windows и "examples\\shop.tb")
 func folder_of(path: text)
@@ -473,6 +474,36 @@ func build_bare(c: Comp, path: text, exe: text)
 func build_app(c: Comp, path: text, exe: text)
     return build_bare_or_app(c, path, exe, true)
 
+// tb app --own: свой машинный код x86-64 (compiler/x64.tb) — без LLVM и без C
+func build_app_own(c: Comp, path: text, exe: text)
+    c.bare = true
+    c.app = true
+    program = load_program(c, path)
+    check(c, program)
+    bytes, why = x64_app(c, program)
+    if why != ""
+        print(why)
+        return 1
+    // текст не держит нулевых байт: пишем буквами 0-9a-f, python3 превращает их в байты
+    oapp = exe + ".oapp"
+    hex_path = exe + ".oapp.hex"
+    digits = "0123456789abcdef"
+    h = ""
+    each b in bytes
+        h += digits[b / 16]
+        h += digits[b % 16]
+    write_file(hex_path, h) else err
+        print("не могу записать файл: " + hex_path)
+        return 1
+    ok = run("python3 -c \"import sys; open(sys.argv[2], 'wb').write(bytes.fromhex(open(sys.argv[1]).read()))\" " + quote(hex_path) + " " + quote(oapp)) == 0
+    remove(hex_path) else err
+        ignored = err
+    if not ok
+        print("не могу записать файл: " + oapp + " (нужен python3)")
+        return 1
+    print("готова программа для Омниума (свой машинный код): " + oapp)
+    return 0
+
 func build_bare_or_app(c: Comp, path: text, exe: text, app: bool)
     if on_windows()
         print("ядро без ОС пока собирается только на Linux и Mac")
@@ -568,7 +599,7 @@ func usage()
     print("  tachbit run    файл.tb [слова]   сделать программу и запустить")
     print("  tachbit build  файл.tb   сделать программу рядом с файлом")
     print("  tachbit bare   файл.tb   сделать ядро без ОС (файл.elf для QEMU)")
-    print("  tachbit app    файл.tb   сделать программу для Омниума (файл.oapp)")
+    print("  tachbit app    файл.tb   сделать программу для Омниума (файл.oapp); --own — своим машинным кодом, без LLVM")
     print("  tachbit lib    файл.tb   библиотека для C: libфайл.a и файл.h (функции с for c)")
     print("  tachbit check  файл.tb   только найти ошибки")
     print("  tachbit c      файл.tb   показать, какой C получился")
@@ -582,12 +613,15 @@ func main()
     // --llvm где угодно в строке: собрать через LLVM IR; --c: старый путь через C
     force_ll = false
     force_c = false
+    own = false
     a = list text
     each x in all_args
         if x == "--llvm"
             force_ll = true
         else if x == "--c"
             force_c = true
+        else if x == "--own"
+            own = true
         else
             a.add(x)
     if len(a) < 1
@@ -655,6 +689,8 @@ func main()
         exit(build(c, path, exe, false))
     if mode == "bare"
         exit(build_bare(c, path, exe))
+    if mode == "app" and own
+        exit(build_app_own(c, path, exe))
     if mode == "app"
         exit(build_app(c, path, exe))
     if mode == "lib"
