@@ -1,0 +1,6 @@
+gpu func paint(p: pixel)
+    name = "red"
+    p.r = 1
+
+func main()
+    print("ok")

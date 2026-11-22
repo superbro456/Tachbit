@@ -1,0 +1,227 @@
+// lib/shaders.tb — готовые шейдеры (gpu func) для игр: бери как есть или скопируй и поменяй под себя.
+//   use shaders
+//   mesh_shader(sea, "sea_waves")      // углы: волны
+//   mesh_shader(sea, "sea_water")      // точки: цвет воды, блики, пена
+//   shader_set(sea, "height", 0.2)     // настройки — числа после p или v
+// Точка p: x, y (экран), z (глубина), wx wy wz (место в мире), nx ny nz (нормаль), u v, r g b a (цвет сетки),
+// time (секунды), sx sy sz (куда светит солнце), amb (фон), cx cy cz (камера).
+// Угол v: x y z (в сетке), nx ny nz, u v, r g b a, time, i (номер угла).
+
+// ---------- общие помощники ----------
+
+// свет солнца: рассеянный + фон
+gpu func sun_light(nx: dec, ny: dec, nz: dec, sx: dec, sy: dec, sz: dec, amb: dec) gives k: dec
+    l = nx * sx + ny * sy + nz * sz
+    if l < 0
+        l = 0
+    return amb + (1 - amb) * l
+
+// блик (Блинн — Фонг): степень power, глаз в (ex, ey, ez), точка в (wx, wy, wz)
+gpu func spec_light(nx: dec, ny: dec, nz: dec, sx: dec, sy: dec, sz: dec, wx: dec, wy: dec, wz: dec, ex: dec, ey: dec, ez: dec, power: dec) gives k: dec
+    vx = ex - wx
+    vy = ey - wy
+    vz = ez - wz
+    vl = sqrt(vx * vx + vy * vy + vz * vz) + 0.0001
+    hx = sx + vx / vl
+    hy = sy + vy / vl
+    hz = sz + vz / vl
+    hl = sqrt(hx * hx + hy * hy + hz * hz) + 0.0001
+    d = (nx * hx + ny * hy + nz * hz) / hl
+    if d < 0
+        return 0
+    return pow(d, power)
+
+// рябь: сумма шума на трёх масштабах (0…1)
+gpu func ripple(x: dec, y: dec, z: dec) gives r: dec
+    return noise(x, y, z) * 0.5 + noise(x * 2.1, y * 2.1, z * 1.3) * 0.3 + noise(x * 4.3, y * 4.3, z * 1.7) * 0.2
+
+// ---------- обычный материал: свет, блик, кайма, туман ----------
+// shine — сила блика, power — острота, rim — светлая кайма по краю, fog_near / fog_far — туман (0 — без), fog_r g b — его цвет
+gpu func standard(p: pixel, shine: dec, power: dec, rim: dec, fog_near: dec, fog_far: dec, fog_r: dec, fog_g: dec, fog_b: dec)
+    k = sun_light(p.nx, p.ny, p.nz, p.sx, p.sy, p.sz, p.amb)
+    pw = power
+    if pw <= 0
+        pw = 32
+    s = shine * spec_light(p.nx, p.ny, p.nz, p.sx, p.sy, p.sz, p.wx, p.wy, p.wz, p.cx, p.cy, p.cz, pw)
+    vx = p.cx - p.wx
+    vy = p.cy - p.wy
+    vz = p.cz - p.wz
+    vl = sqrt(vx * vx + vy * vy + vz * vz) + 0.0001
+    edge = 1 - abs(p.nx * vx + p.ny * vy + p.nz * vz) / vl
+    e = rim * edge * edge * edge
+    p.r = p.r * k + s + e
+    p.g = p.g * k + s + e
+    p.b = p.b * k + s + e
+    if fog_far > fog_near
+        f = clamp((vl - fog_near) / (fog_far - fog_near), 0, 1)
+        p.r = mix(p.r, fog_r, f)
+        p.g = mix(p.g, fog_g, f)
+        p.b = mix(p.b, fog_b, f)
+
+// ---------- мультяшный: свет ступеньками и тёмный контур ----------
+gpu func toon(p: pixel, steps: dec, outline: dec)
+    n = steps
+    if n < 1
+        n = 3
+    l = p.nx * p.sx + p.ny * p.sy + p.nz * p.sz
+    if l < 0
+        l = 0
+    l = floor(l * n + 0.5) / n
+    k = p.amb + (1 - p.amb) * l
+    vx = p.cx - p.wx
+    vy = p.cy - p.wy
+    vz = p.cz - p.wz
+    vl = sqrt(vx * vx + vy * vy + vz * vz) + 0.0001
+    if abs(p.nx * vx + p.ny * vy + p.nz * vz) / vl < outline
+        k = 0.1
+    p.r = p.r * k
+    p.g = p.g * k
+    p.b = p.b * k
+
+// ---------- вода ----------
+// углы: волны высотой height, скорость speed, длина length (нормаль тоже наклоняется)
+gpu func sea_waves(v: corner, height: dec, speed: dec, length: dec)
+    ln = length
+    if ln <= 0
+        ln = 2
+    k = 6.2831853 / ln
+    t = v.time * speed
+    a = sin(v.x * k + t)
+    b = cos(v.z * k * 0.8 + t * 1.3)
+    v.y += (a + b * 0.6) * height
+    // наклон волны: производные по x и z
+    dx = cos(v.x * k + t) * k * height
+    dz = -sin(v.z * k * 0.8 + t * 1.3) * k * 0.8 * height * 0.6
+    nl = sqrt(dx * dx + 1 + dz * dz)
+    v.nx = -dx / nl
+    v.ny = 1 / nl
+    v.nz = -dz / nl
+
+// точки: глубокий и мелкий цвет, блики солнца, пена на гребнях, прозрачность clear (0 — непрозрачная)
+gpu func sea_water(p: pixel, foam: dec, clear: dec)
+    rp = ripple(p.wx * 1.5, p.wz * 1.5, p.time * 0.6)
+    nx = p.nx + (rp - 0.5) * 0.3
+    nz = p.nz + (noise(p.wz * 1.7, p.wx * 1.7, p.time * 0.5) - 0.5) * 0.3
+    nl = sqrt(nx * nx + p.ny * p.ny + nz * nz)
+    nx = nx / nl
+    ny = p.ny / nl
+    nz = nz / nl
+    k = sun_light(nx, ny, nz, p.sx, p.sy, p.sz, p.amb)
+    s = spec_light(nx, ny, nz, p.sx, p.sy, p.sz, p.wx, p.wy, p.wz, p.cx, p.cy, p.cz, 64) * 1.5
+    vx = p.cx - p.wx
+    vy = p.cy - p.wy
+    vz = p.cz - p.wz
+    vl = sqrt(vx * vx + vy * vy + vz * vz) + 0.0001
+    fres = pow(1 - clamp((nx * vx + ny * vy + nz * vz) / vl, 0, 1), 3)
+    deep_r = p.r * 0.4
+    deep_g = p.g * 0.6
+    deep_b = p.b * 0.8
+    p.r = mix(deep_r, 0.6, fres * 0.5) * k + s
+    p.g = mix(deep_g, 0.75, fres * 0.5) * k + s
+    p.b = mix(deep_b, 0.9, fres * 0.5) * k + s
+    f = smoothstep(0.62, 0.8, rp) * foam
+    p.r = mix(p.r, 1, f)
+    p.g = mix(p.g, 1, f)
+    p.b = mix(p.b, 1, f)
+    p.a = 1 - clear * (1 - fres) * (1 - f)
+
+// ---------- огонь ----------
+// углы: язык пламени качается и тянется вверх (сетка от y = 0 до y = 1)
+gpu func flame_shape(v: corner, sway: dec, speed: dec)
+    t = v.time * speed
+    h = clamp(v.y, 0, 1)
+    v.x += sin(t * 3 + v.y * 4) * sway * h
+    v.z += cos(t * 2.3 + v.y * 3) * sway * h
+    v.y += (noise(v.x * 2, v.z * 2, t) - 0.5) * 0.2 * h
+
+// точки: горячий низ, жёлтое ядро, красные края, мерцание; светится сам (свет не нужен)
+gpu func fire(p: pixel, speed: dec, power: dec)
+    t = p.time * speed
+    pw = power
+    if pw <= 0
+        pw = 1
+    n = ripple(p.wx * 3, p.wy * 3 - t * 2, t * 0.5)
+    h = clamp(p.v, 0, 1)
+    if h == 0
+        h = clamp(p.wy * 0.5, 0, 1)
+    heat = clamp((1 - h) * 1.2 * pw + n * 0.6 - 0.3, 0, 1)
+    p.r = clamp(heat * 1.8, 0, 1)
+    p.g = clamp(heat * heat * 1.4, 0, 1)
+    p.b = clamp(heat * heat * heat * 0.8, 0, 1)
+    p.a = clamp(heat * 1.5, 0, 1)
+
+// ---------- небо (на большой шар вокруг камеры) ----------
+// zenith_r g b — цвет вверху, горизонт светлее; солнце — яркий круг size
+gpu func sky(p: pixel, zenith_r: dec, zenith_g: dec, zenith_b: dec, sun_size: dec)
+    vx = p.wx - p.cx
+    vy = p.wy - p.cy
+    vz = p.wz - p.cz
+    vl = sqrt(vx * vx + vy * vy + vz * vz) + 0.0001
+    up = clamp(vy / vl, 0, 1)
+    zr = zenith_r
+    zg = zenith_g
+    zb = zenith_b
+    if zr + zg + zb == 0
+        zr = 0.25
+        zg = 0.45
+        zb = 0.85
+    h = pow(1 - up, 3)
+    p.r = mix(zr, 0.85, h)
+    p.g = mix(zg, 0.9, h)
+    p.b = mix(zb, 0.95, h)
+    d = (vx * p.sx + vy * p.sy + vz * p.sz) / vl
+    ss = sun_size
+    if ss <= 0
+        ss = 0.02
+    if d > 1 - ss
+        p.r = 1
+        p.g = 0.97
+        p.b = 0.85
+    else
+        glow = pow(clamp(d, 0, 1), 64) * 0.5
+        p.r += glow
+        p.g += glow * 0.9
+        p.b += glow * 0.6
+    // облака: шум по направлению взгляда
+    if up > 0.02
+        cx = vx / vy * 2 + p.time * 0.02
+        cz = vz / vy * 2
+        c = smoothstep(0.55, 0.8, ripple(cx, cz, 0)) * clamp(up * 4, 0, 1)
+        p.r = mix(p.r, 1, c * 0.8)
+        p.g = mix(p.g, 1, c * 0.8)
+        p.b = mix(p.b, 1, c * 0.8)
+
+// ---------- трава и листья на ветру (углы) ----------
+// чем выше угол над землёй (y), тем сильнее качается
+gpu func wind(v: corner, strength: dec, speed: dec)
+    h = max(v.y, 0)
+    t = v.time * speed
+    s = (sin(t + v.x * 0.7 + v.z * 0.4) + noise(v.x, v.z, t * 0.5) - 0.5) * strength * h * h
+    v.x += s
+    v.z += s * 0.5
+
+// ---------- голограмма: полосы, мерцание, полупрозрачная ----------
+gpu func hologram(p: pixel, lines: dec, speed: dec)
+    n = lines
+    if n <= 0
+        n = 40
+    s = fract(p.wy * n - p.time * speed)
+    band = smoothstep(0, 0.5, s) * (1 - smoothstep(0.5, 1, s))
+    flick = 0.8 + 0.2 * sin(p.time * 30)
+    p.r = p.r * (0.5 + band) * flick
+    p.g = p.g * (0.5 + band) * flick
+    p.b = p.b * (0.5 + band) * flick
+    p.a = 0.3 + 0.5 * band
+
+// ---------- растворение: точки исчезают по шуму (amount 0 — целый, 1 — нет) ----------
+gpu func dissolve(p: pixel, amount: dec, edge_glow: dec)
+    n = noise(p.wx * 4, p.wy * 4, p.wz * 4)
+    k = sun_light(p.nx, p.ny, p.nz, p.sx, p.sy, p.sz, p.amb)
+    p.r = p.r * k
+    p.g = p.g * k
+    p.b = p.b * k
+    if n < amount
+        p.a = 0
+    else if n < amount + 0.05
+        p.r += edge_glow
+        p.g += edge_glow * 0.5

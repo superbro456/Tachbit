@@ -1,0 +1,5 @@
+gpu func paint(p: pixel)
+    p.r = len(p.g)
+
+func main()
+    print("ok")

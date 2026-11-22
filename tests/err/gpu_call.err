@@ -1,0 +1,1 @@
+gpu_call.tb, строка 2: в gpu func можно звать только встроенные числовые функции (sin, cos, mix, noise ...) и другие gpu func: len

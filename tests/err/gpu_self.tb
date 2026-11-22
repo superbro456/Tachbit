@@ -1,0 +1,8 @@
+gpu func spin(x: dec) gives r: dec
+    return spin(x - 1)
+
+gpu func paint(p: pixel)
+    p.r = spin(p.x)
+
+func main()
+    print("ok")

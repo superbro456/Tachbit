@@ -621,7 +621,7 @@ func sh_msl_wrappers(fns: list ShFn, out: list text)
     out.add("struct TbsVout { float4 pos [[position]]; float3 w; float3 n; float4 c; float2 uv; };\n")
     each f in fns
         if f.stage == "corner"
-            out.add("vertex TbsVout tbs_v_" + f.name + "(TbsVin in [[stage_in]], uint vid [[vertex_id]], device const float *rec [[buffer(1)]], constant uint &off [[buffer(2)]]) {\n")
+            out.add("vertex TbsVout tbs_v_" + f.name + "(TbsVin in [[stage_in]], uint vid [[vertex_id]], device const float *rec [[buffer(10)]], constant uint &off [[buffer(11)]]) {\n")
             out.add("    device const float *R = rec + off;\n    float io[32];\n    for (int k = 0; k < 32; k++) io[k] = 0;\n")
             out.add("    io[0] = in.pos.x; io[1] = in.pos.y; io[2] = in.pos.z; io[3] = in.nrm.x; io[4] = in.nrm.y; io[5] = in.nrm.z;\n")
             out.add("    io[6] = in.uv.x; io[7] = in.uv.y; io[8] = in.col.x; io[9] = in.col.y; io[10] = in.col.z; io[11] = in.col.w;\n")
@@ -634,17 +634,17 @@ func sh_msl_wrappers(fns: list ShFn, out: list text)
             out.add("    TbsVout o;\n    o.pos = float4(cx * R[24], cy * R[25], cz - R[26], cz);\n")
             out.add("    o.w = w; o.n = n; o.c = float4(io[8], io[9], io[10], io[11]); o.uv = float2(io[6], io[7]);\n    return o;\n}\n")
         else if f.stage == "pixel"
-            out.add("fragment float4 tbs_f_" + f.name + "(TbsVout in [[stage_in]], device const float *rec [[buffer(1)]], constant uint &off [[buffer(2)]]) {\n")
+            out.add("fragment float4 tbs_f_" + f.name + "(TbsVout in [[stage_in]], device const float *rec [[buffer(10)]], constant uint &off [[buffer(11)]]) {\n")
             out.add("    device const float *R = rec + off;\n    float io[32];\n    for (int k = 0; k < 32; k++) io[k] = 0;\n")
             out.add("    float3 n = metal::normalize(in.n);\n")
-            out.add("    io[0] = in.pos.x - 0.5; io[1] = in.pos.y - 0.5; io[2] = in.pos.z; io[3] = in.w.x; io[4] = in.w.y; io[5] = in.w.z;\n")
+            out.add("    io[0] = in.pos.x - 0.5f; io[1] = in.pos.y - 0.5f; io[2] = in.pos.z; io[3] = in.w.x; io[4] = in.w.y; io[5] = in.w.z;\n")
             out.add("    io[6] = n.x; io[7] = n.y; io[8] = n.z; io[9] = in.uv.x; io[10] = in.uv.y;\n")
             out.add("    io[11] = in.c.x; io[12] = in.c.y; io[13] = in.c.z; io[14] = in.c.w; io[15] = R[27];\n")
             out.add("    io[16] = R[28]; io[17] = R[29]; io[18] = R[30]; io[19] = R[31]; io[20] = R[12]; io[21] = R[13]; io[22] = R[14];\n")
             out.add("    for (int k = 0; k < 8; k++) io[23 + k] = R[32 + k];\n")
             out.add("    tbs_" + f.name + "(io);\n")
-            out.add("    float a = metal::clamp(io[14], 0.0, 1.0);\n")
-            out.add("    return float4(metal::clamp(io[11], 0.0, 1.0) * a, metal::clamp(io[12], 0.0, 1.0) * a, metal::clamp(io[13], 0.0, 1.0) * a, a);\n}\n")
+            out.add("    float a = metal::clamp(io[14], 0.0f, 1.0f);\n    if (a <= 0.0f) discard_fragment();\n")
+            out.add("    return float4(metal::clamp(io[11], 0.0f, 1.0f) * a, metal::clamp(io[12], 0.0f, 1.0f) * a, metal::clamp(io[13], 0.0f, 1.0f) * a, a);\n}\n")
 
 // ---------- SPIR-V ----------
 
@@ -1331,6 +1331,15 @@ modpub func shader_spirv(fns: list ShFn, f: ShFn) gives words: list int
         zero = sv_cflt(s, 0.0)
         one = sv_cflt(s, 1.0)
         a = sv_ext(s, fl, 43, [sv_get_io(s, 14), zero, one])
+        // p.a = 0: точки нет совсем (ни цвета, ни глубины)
+        gone = sv_op(s, 188, sv_bool(s), [a, zero])
+        kill = sv_id(s)
+        keep = sv_id(s)
+        sv_ins(s.code, 247, [keep, 0])
+        sv_ins(s.code, 250, [gone, kill, keep])
+        sv_label(s, kill)
+        sv_ins(s.code, 252, sv_none())
+        sv_label(s, keep)
         rgb = list int
         count k from 0 to 2
             rgb.add(sv_fmul(s, sv_ext(s, fl, 43, [sv_get_io(s, 11 + k), zero, one]), a))

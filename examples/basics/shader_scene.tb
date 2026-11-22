@@ -1,0 +1,134 @@
+// Сцена на готовых шейдерах (lib/shaders.tb): море с волнами и пеной, небо с солнцем и облаками,
+// костёр, трава на ветру, мультяшный шар, обычный материал с бликом и туманом, голограмма.
+// Свой шейдер — это gpu func: открой lib/shaders.tb, скопируй любой и поменяй.
+use shaders
+
+func main()
+    try window_open(640, 400, "шейдеры")
+    sky_dome = mesh_new()
+    sphere(sky_dome, 80, 16, rgb(120, 160, 220))
+    mesh_shader(sky_dome, "sky")
+
+    sea = mesh_new()
+    count i from -24 to 23
+        count j from -24 to 23
+            grid_cell(sea, i * 0.5, j * 0.5, 0.5, -0.2, rgb(30, 100, 170))
+    mesh_shader(sea, "sea_waves")
+    mesh_shader(sea, "sea_water")
+    shader_set(sea, "height", 0.08)
+    shader_set(sea, "speed", 1.2)
+    shader_set(sea, "length", 3)
+    shader_set(sea, "foam", 0.8)
+    shader_set(sea, "clear", 0.3)
+
+    island = mesh_new()
+    count i from -6 to 5
+        count j from -6 to 5
+            grid_cell(island, i * 0.5, j * 0.5, 0.5, 0, rgb(200, 180, 120))
+    mesh_shader(island, "standard")
+    shader_set(island, "shine", 0.1)
+
+    grass = mesh_new()
+    count k from 0 to 120
+        gx = (random(0, 500) - 250) / 100.0
+        gz = (random(0, 500) - 250) / 100.0
+        mesh_add(grass, gx - 0.03, 0, gz, gx + 0.03, 0, gz, gx, 0.35, gz + 0.02, rgb(70, 150, 60))
+    mesh_shader(grass, "wind")
+    mesh_shader(grass, "standard")
+    shader_set(grass, "strength", 0.6)
+    shader_set(grass, "speed", 2)
+
+    fire = mesh_new()
+    count k from 0 to 5
+        a = k * 0.5236
+        fx = cos_t(a) * 0.25
+        fz = sin_t(a) * 0.25
+        mesh_add(fire, -fx, 0, -fz, fx, 0, fz, 0, 1.2, 0, rgb(255, 200, 80))
+    mesh_shader(fire, "flame_shape")
+    mesh_shader(fire, "fire")
+    shader_set(fire, "sway", 0.15)
+    shader_set(fire, "speed", 1.5)
+    shader_set(fire, "power", 1)
+
+    ball = mesh_new()
+    sphere(ball, 0.5, 16, rgb(230, 90, 80))
+    mesh_smooth(ball, true)
+    mesh_shader(ball, "toon")
+    shader_set(ball, "steps", 3)
+    shader_set(ball, "outline", 0.25)
+
+    cube = mesh_new()
+    box(cube, -0.4, -0.4, -0.4, 0.4, 0.4, 0.4, rgb(90, 140, 230))
+    mesh_shader(cube, "standard")
+    shader_set(cube, "shine", 0.8)
+    shader_set(cube, "power", 40)
+    shader_set(cube, "rim", 0.4)
+
+    ghost = mesh_new()
+    sphere(ghost, 0.45, 12, rgb(80, 230, 255))
+    mesh_smooth(ghost, true)
+    mesh_shader(ghost, "hologram")
+    shader_set(ghost, "lines", 30)
+    shader_set(ghost, "speed", 1)
+
+    frame = 0
+    repeat while window_alive()
+        frame += 1
+        if key_down("escape")
+            stop
+        clear_window(rgb(150, 180, 220))
+        sunlight(0.4, 0.6, 0.7, 0.35)
+        a = frame * 0.004
+        cx = 7 * cos_t(a)
+        cz = 7 * sin_t(a)
+        camera(cx, 2.4, cz, 0, 0.4, 0)
+        draw_mesh(sky_dome, cx, 0, cz, 0)
+        draw_mesh(sea, 0, 0, 0, 0)
+        draw_mesh(island, 0, 0, 0, 0)
+        draw_mesh(grass, 0, 0, 0, 0)
+        draw_mesh(fire, 0.8, 0, -0.6, 0)
+        draw_mesh(ball, -1.2, 0.5, 0.6, frame)
+        draw_mesh_rot(cube, 1.2, 0.4, 1.0, frame, frame * 0.7, 0)
+        draw_mesh(ghost, -0.6, 0.9 + sin_t(frame * 0.05) * 0.15, -1.4, 0)
+        draw_text(8, 8, "свои шейдеры: море, небо, огонь, трава, мультяшный шар, блик, голограмма", 1, rgb(20, 30, 50))
+
+func grid_cell(m: int, x: dec, z: dec, s: dec, y: dec, c: int)
+    mesh_add(m, x, y, z, x, y, z + s, x + s, y, z + s, c)
+    mesh_add(m, x, y, z, x + s, y, z + s, x + s, y, z, c)
+
+func box(m: int, x0: dec, y0: dec, z0: dec, x1: dec, y1: dec, z1: dec, c: int)
+    face(m, x0, y0, z0, x0, y1, z0, x1, y1, z0, x1, y0, z0, c)
+    face(m, x0, y0, z1, x1, y0, z1, x1, y1, z1, x0, y1, z1, c)
+    face(m, x0, y0, z0, x0, y0, z1, x0, y1, z1, x0, y1, z0, c)
+    face(m, x1, y0, z0, x1, y1, z0, x1, y1, z1, x1, y0, z1, c)
+    face(m, x0, y1, z0, x0, y1, z1, x1, y1, z1, x1, y1, z0, c)
+    face(m, x0, y0, z0, x1, y0, z0, x1, y0, z1, x0, y0, z1, c)
+
+func face(m: int, x1: dec, y1: dec, z1: dec, x2: dec, y2: dec, z2: dec, x3: dec, y3: dec, z3: dec, x4: dec, y4: dec, z4: dec, c: int)
+    mesh_add(m, x1, y1, z1, x2, y2, z2, x3, y3, z3, c)
+    mesh_add(m, x1, y1, z1, x3, y3, z3, x4, y4, z4, c)
+
+func sphere(m: int, r: dec, n: int, c: int)
+    count i from 0 to n - 1
+        count j from 0 to 2 * n - 1
+            a0 = 3.14159265 * i / n
+            a1 = 3.14159265 * (i + 1) / n
+            b0 = 3.14159265 * j / n
+            b1 = 3.14159265 * (j + 1) / n
+            y0 = r * cos_t(a0)
+            y1 = r * cos_t(a1)
+            if i > 0
+                mesh_add(m, r * sin_t(a0) * cos_t(b0), y0, r * sin_t(a0) * sin_t(b0), r * sin_t(a0) * cos_t(b1), y0, r * sin_t(a0) * sin_t(b1), r * sin_t(a1) * cos_t(b1), y1, r * sin_t(a1) * sin_t(b1), c)
+            if i < n - 1
+                mesh_add(m, r * sin_t(a0) * cos_t(b0), y0, r * sin_t(a0) * sin_t(b0), r * sin_t(a1) * cos_t(b1), y1, r * sin_t(a1) * sin_t(b1), r * sin_t(a1) * cos_t(b0), y1, r * sin_t(a1) * sin_t(b0), c)
+
+func sin_t(x: dec)
+    repeat while x > 3.14159265
+        x -= 6.2831853
+    repeat while x < -3.14159265
+        x += 6.2831853
+    x2 = x * x
+    return x * (1 - x2 / 6 * (1 - x2 / 20 * (1 - x2 / 42 * (1 - x2 / 72 * (1 - x2 / 110)))))
+
+func cos_t(x: dec)
+    return sin_t(x + 1.57079633)

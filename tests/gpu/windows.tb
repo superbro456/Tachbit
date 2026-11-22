@@ -1,0 +1,30 @@
+// несколько окон (1.3): главное рисует видеокарта, второе — процессор. Рисование во втором окне
+// посреди кадра не должно портить главное: TB_GPU_CHECK=1 сверяет главное окно с процессором
+func main()
+    try window_open(320, 200, "GPU окна")
+    side = try window_new(200, 150, "GPU окна: второе")
+    print("второе окно:", side, window_shown(side), window_shown(0))
+    tri = mesh_new()
+    mesh_add(tri, -1, -1, 0, 0, 1, 0, 1, -1, 0, rgb(250, 200, 40))
+    sunlight(0.5, 1, -0.3, 0.3)
+    frame = 0
+    repeat while window_alive()
+        frame += 1
+        if frame > 60
+            stop
+        clear_window(rgb(16, 18, 28))
+        camera(0, 0, -4, 0, 0, 0)
+        draw_mesh(tri, -0.8, 0, 0, frame * 4)
+        draw_rect(10, 10, 60, 30, rgb(200, 60, 60))
+        if frame <= 40
+            window_use(side)
+            clear_window(rgb(20, 120, 60))
+            draw_mesh(tri, 0, 0, 0, -frame * 4)
+            draw_text(4, 4, "w " + window_w() + " h " + window_h(), 1, rgb(255, 255, 255))
+            window_use(0)
+        draw_mesh(tri, 1.2, 0, 1, frame * 2)
+        draw_text(4, 180, "кадр " + frame + " w " + window_w(), 1, rgb(255, 255, 255))
+        if frame == 40
+            window_close(side)
+            print("после window_close:", window_shown(side))
+    print("кадров:", frame)

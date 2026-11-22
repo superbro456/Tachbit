@@ -1,0 +1,12 @@
+// gpu func без окна: компилятор проверяет и собирает шейдеры, программа просто работает
+gpu func glow(p: pixel, power: dec)
+    k = 0
+    count i from 1 to 3
+        k += i
+    p.r = clamp(p.r * k * power, 0, 1)
+
+gpu func lift(v: corner)
+    v.y += 0.5
+
+func main()
+    print("шейдеры собраны")
