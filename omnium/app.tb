@@ -1,0 +1,144 @@
+// Омниум: загрузчик программ. Программа — файл .oapp (его делает команда tb app файл.tb):
+// это ELF64 «до компоновки» (REL) для x86-64. Загрузчик кладёт её части в память, сам делает
+// поправки адресов, а имена функций ядра (tb_x_..., print, списки, окно) берёт из таблицы имён ядра.
+// Доверенный модуль (danger: читает и пишет память по адресам, зовёт код по адресу).
+//   entry = app.load(адрес, размер) else err    — где начало программы (tb_appmain)
+//   app.start(entry)                              — запустить (лучше внутри background: упадёт — упадёт клетка)
+
+// текст из памяти до нулевого байта (имена в ELF — латиница)
+func cstr(p: int) gives s: text
+    danger
+        i = 0
+        repeat while read8(p + i) != 0
+            s += char(read8(p + i))
+            i += 1
+
+func fits32(v: int, signed: bool) gives ok: bool
+    if signed
+        return v >= -2147483648 and v <= 2147483647
+    return v >= 0 and v <= 4294967295
+
+modpub func load(a: int, n: int) gives entry: int
+    danger
+        if n < 64 or read32(a) != 0x464C457F
+            fail "это не программа Омниума (нет метки ELF)"
+        if read8(a + 4) != 2 or read16(a + 16) != 1 or read16(a + 18) != 62
+            fail "это не программа Омниума (нужен ELF64 REL для x86-64: собери командой tb app)"
+        shoff = read64(a + 0x28)
+        shnum = read16(a + 0x3C)
+        if shoff + shnum * 64 > n
+            fail "файл программы обрезан"
+        // 1) где какая часть будет в памяти: только части с флагом ALLOC (2)
+        place = list int
+        total = 0
+        count i from 0 to shnum - 1
+            sh = a + shoff + i * 64
+            place.add(-1)
+            flags = read64(sh + 8)
+            if bit_and(flags, 0x400) != 0 and read64(sh + 32) > 0
+                fail "в программе есть переменные потока — их программам пока нельзя"
+            if bit_and(flags, 2) == 0 or read64(sh + 32) == 0
+                skip
+            al = read64(sh + 48)
+            if al < 1
+                al = 1
+            if al > 4096
+                fail "часть программы просит выравнивание больше страницы"
+            total = (total + al - 1) / al * al
+            place[i] = total
+            total += read64(sh + 32)
+        // ячейки GOT: по одной на каждую поправку «через GOT»
+        ngot = 0
+        count i from 0 to shnum - 1
+            sh = a + shoff + i * 64
+            if read32(sh + 4) == 4
+                count r from 0 to read64(sh + 32) / 24 - 1
+                    t = bit_and(read64(a + read64(sh + 24) + r * 24 + 8), 0xFFFFFFFF)
+                    if t == 9 or t == 41 or t == 42
+                        ngot += 1
+        total = (total + 7) / 8 * 8
+        got = total
+        total += ngot * 8
+        mem = new_mem(total + 4096) else err
+            fail "не хватает памяти для программы"
+        base = (mem + 4095) / 4096 * 4096
+        fill_mem(base, 0, total)
+        count i from 0 to shnum - 1
+            sh = a + shoff + i * 64
+            if place[i] >= 0 and read32(sh + 4) != 8
+                if read64(sh + 24) + read64(sh + 32) > n
+                    fail "файл программы обрезан"
+                copy_mem(base + place[i], a + read64(sh + 24), read64(sh + 32))
+        // 2) таблица символов: свои — в нашей памяти, чужие — из таблицы имён ядра
+        symsh = -1
+        count i from 0 to shnum - 1
+            if read32(a + shoff + i * 64 + 4) == 2
+                symsh = i
+        if symsh < 0
+            fail "в программе нет таблицы символов"
+        ssh = a + shoff + symsh * 64
+        strs = a + read64(a + shoff + read32(ssh + 40) * 64 + 24)
+        nsym = read64(ssh + 32) / 24
+        val = list int
+        entry = 0
+        count k from 0 to nsym - 1
+            s = a + read64(ssh + 24) + k * 24
+            ndx = read16(s + 6)
+            v = 0
+            if k == 0
+                v = 0
+            else if ndx == 0
+                nm = cstr(strs + read32(s))
+                v = kernel_symbol(nm)
+                if v == 0
+                    fail "в ядре нет функции " + nm
+            else if ndx == 0xFFF1
+                v = read64(s + 8)
+            else if ndx == 0xFFF2
+                fail "в программе есть общие (COMMON) переменные — так tb app не собирает"
+            else if ndx < shnum and place[ndx] >= 0
+                v = base + place[ndx] + read64(s + 8)
+            val.add(v)
+            if ndx != 0 and bit_and(read8(s + 4), 15) == 2 and cstr(strs + read32(s)) == "tb_appmain"
+                entry = v
+        if entry == 0
+            fail "в программе нет начала (tb_appmain)"
+        // 3) поправки (RELA): куда, какой символ, какая прибавка
+        g = 0
+        count i from 0 to shnum - 1
+            sh = a + shoff + i * 64
+            if read32(sh + 4) != 4 or place[read32(sh + 44)] < 0
+                skip
+            dst = base + place[read32(sh + 44)]
+            count r from 0 to read64(sh + 32) / 24 - 1
+                e = a + read64(sh + 24) + r * 24
+                p = dst + read64(e)
+                info = read64(e + 8)
+                t = bit_and(info, 0xFFFFFFFF)
+                sv = val[shift_right(info, 32)]
+                add = read64(e + 16)
+                if t == 1
+                    write64(p, sv + add)
+                else if t == 2 or t == 4
+                    v = sv + add - p
+                    if not fits32(v, true)
+                        fail "программа слишком далеко от ядра"
+                    write32(p, bit_and(v, 0xFFFFFFFF))
+                else if t == 9 or t == 41 or t == 42
+                    slot = base + got + g * 8
+                    g += 1
+                    write64(slot, sv)
+                    write32(p, bit_and(slot + add - p, 0xFFFFFFFF))
+                else if t == 10 or t == 11
+                    if not fits32(sv + add, t == 11)
+                        fail "адрес программы не влезает в 32 бита"
+                    write32(p, bit_and(sv + add, 0xFFFFFFFF))
+                else if t == 24
+                    write64(p, sv + add - p)
+                else
+                    fail "неизвестная поправка " + t
+
+// запустить загруженную программу: её shared получают начальные значения, потом идёт её main
+modpub func start(entry: int)
+    danger
+        call_address(entry)

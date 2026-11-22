@@ -9171,6 +9171,11 @@ TB_BV(interrupts_off, (int line), tb_irq_off())
 TB_B(long long, uptime_ms, (int line), tb_uptime_ms())
 TB_B(const char *, read_key, (int line), tb_read_key())
 TB_BV(yield, (int line), tb_yield())
+TB_B(long long, module_count, (int line), tb_module_count())
+TB_B(long long, module_addr, (long long i, int line), tb_module_addr(i))
+TB_B(long long, module_size, (long long i, int line), tb_module_size(i))
+TB_B(long long, kernel_symbol, (const char *nm, int line), tb_kernel_symbol(nm))
+TB_BV(call_address, (long long a, int line), tb_call_address(a))
 #endif
 #ifdef TB_SND
 TB_B(long long, load_sound, (const char *s, int line), tb_load_sound(s))

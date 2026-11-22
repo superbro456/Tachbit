@@ -14,7 +14,7 @@ run_kernel() {
     ./build/tb bare "$1" > "$work/build.txt" 2>&1 || { cat "$work/build.txt"; return 1; }
     # адреса в сообщении об аварии меняются от сборки к сборке — их убираем
     # на Mac нет команды timeout: ограничение по времени через perl (он есть везде)
-    perl -e 'alarm shift; exec @ARGV' 60 qemu-system-x86_64 -smp "${TB_SMP:-1}" -no-reboot -kernel "${1%.tb}.elf" -serial stdio -display none \
+    perl -e 'alarm shift; exec @ARGV' 60 qemu-system-x86_64 -smp "${TB_SMP:-1}" -no-reboot -kernel "${1%.tb}.elf" ${TB_INITRD:+-initrd "$TB_INITRD"} -serial stdio -display none \
         -device isa-debug-exit,iobase=0xf4,iosize=0x04 2> "$work/qemu.txt" < /dev/null | tr -d '\r' | sed -E 's/ \(0x[0-9a-f]+, 0x[0-9a-f]+\)$//'
     # QEMU ничего не напечатал — покажем, что он сказал сам
     [ -s "$work/qemu.txt" ] && sed 's/^/qemu: /' "$work/qemu.txt" | head -3
@@ -41,6 +41,11 @@ if [ "$got" = "$(cat omnium/ofs_test.out)" ]; then pass=$((pass + 1)); else fail
 # картинки в ядре: PNG, JPEG, GIF, BMP из файлов и из памяти (omnium/image_test.tb)
 got=$(run_kernel omnium/image_test.tb)
 if [ "$got" = "$(cat omnium/image_test.out)" ]; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "не прошёл: omnium/image_test.tb"; fi
+# программы Омниума: tb app делает .oapp, ядро грузит их из модулей (-initrd) и запускает клетками
+./build/tb app tests/apps/hello.tb > /dev/null && ./build/tb app tests/apps/crash.tb > /dev/null
+got=$(TB_INITRD="tests/apps/hello.oapp,tests/apps/crash.oapp" run_kernel omnium/app_test.tb)
+rm -f tests/apps/*.oapp
+if [ "$got" = "$(cat omnium/app_test.out)" ]; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "не прошёл: omnium/app_test.tb"; printf '%s\n' "$got" | head -8 | sed 's/^/    /'; fi
 # OFS3 на диске: несколько запусков на одном образе, сбой суперблока, испорченный сектор
 if ./tests/omnium_disk.sh > "$work/disk.txt"; then pass=$((pass + 1)); else fail=$((fail + 1)); cat "$work/disk.txt"; fi
 # оболочка «Капля» (omnium/desktop.tb): здесь только сборка — ей нужен живой экран и мышь

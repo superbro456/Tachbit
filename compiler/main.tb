@@ -467,10 +467,18 @@ func llvm_lib_bare(bin: text, gfx: bool) gives lib: text, target: text, cpu: tex
 // ядро без ОС: вся программа в .ll (никакого C от компилятора), библиотека ядра в .bc,
 // llvm-link → opt → llc (x86-64) → свой компоновщик (Python) или ld.lld
 func build_bare(c: Comp, path: text, exe: text)
+    return build_bare_or_app(c, path, exe, false)
+
+// tb app: то же, что ядро, но без библиотеки ядра — файл .oapp, его грузит ядро Омниума (app_load)
+func build_app(c: Comp, path: text, exe: text)
+    return build_bare_or_app(c, path, exe, true)
+
+func build_bare_or_app(c: Comp, path: text, exe: text, app: bool)
     if on_windows()
         print("ядро без ОС пока собирается только на Linux и Mac")
         return 1
     c.bare = true
+    c.app = app
     c.ll = true
     elf = exe + ".elf"
     program = load_program(c, path)
@@ -512,14 +520,30 @@ func build_bare(c: Comp, path: text, exe: text)
     o_path = exe + ".o"
     log = exe + ".llvm.log"
     cmd = quote(bin + "/llvm-link") + " " + quote(ll_path) + " " + quote(lib) + " -o " + quote(bc)
+    if app
+        cmd = quote(bin + "/llvm-as") + " " + quote(ll_path) + " -o " + quote(bc)
     cmd += " && " + quote(bin + "/opt") + " -passes='default<O2>' " + quote(bc) + " -o " + quote(bc)
     cmd += " && " + quote(bin + "/llc") + " -O2 -filetype=obj -mtriple=x86_64-unknown-none-elf -relocation-model=static " + quote(bc) + " -o " + quote(o_path)
     if bin == ""
         // только clang: он сам склеит .ll с библиотекой (.bc), оптимизирует и сделает машинный код
         cmd = "clang --target=x86_64-unknown-none-elf -O2 -w -c -fno-pic -mno-red-zone " + quote(ll_path) + " -Xclang -mlink-bitcode-file -Xclang " + quote(lib) + " -o " + quote(o_path)
+        if app
+            cmd = "clang --target=x86_64-unknown-none-elf -O2 -w -c -fno-pic -mno-red-zone " + quote(ll_path) + " -o " + quote(o_path)
     if run(cmd + " 2> " + quote(log)) != 0
         print("LLVM не справился (это ошибка Tachbit, а не твоя): " + log)
         return 1
+    if app
+        // программа: готовый .o и есть файл программы — его поправки делает ядро при загрузке
+        oapp = exe + ".oapp"
+        moved = run("mv " + quote(o_path) + " " + quote(oapp)) == 0
+        each f in [bc, log, ll_path]
+            remove(f) else err
+                ignored = err
+        if not moved
+            print("не могу записать файл: " + oapp)
+            return 1
+        print("готова программа для Омниума: " + oapp)
+        return 0
     // свой компоновщик (на Python, он есть почти везде)
     py_path = exe + ".link.py"
     write_file(py_path, runtime_text.linker_text()) else err
@@ -544,6 +568,7 @@ func usage()
     print("  tachbit run    файл.tb [слова]   сделать программу и запустить")
     print("  tachbit build  файл.tb   сделать программу рядом с файлом")
     print("  tachbit bare   файл.tb   сделать ядро без ОС (файл.elf для QEMU)")
+    print("  tachbit app    файл.tb   сделать программу для Омниума (файл.oapp)")
     print("  tachbit lib    файл.tb   библиотека для C: libфайл.a и файл.h (функции с for c)")
     print("  tachbit check  файл.tb   только найти ошибки")
     print("  tachbit c      файл.tb   показать, какой C получился")
@@ -584,7 +609,7 @@ func main()
     if mode == "start"
         mode = "run"
     // имя проекта можно не писать: тогда берётся текущая папка
-    if len(a) < 2 and not (mode == "run" or mode == "build" or mode == "bare" or mode == "lib" or mode == "check" or mode == "c" or mode == "ll")
+    if len(a) < 2 and not (mode == "run" or mode == "build" or mode == "bare" or mode == "app" or mode == "lib" or mode == "check" or mode == "c" or mode == "ll")
         usage()
         exit(1)
     arg = ""
@@ -630,6 +655,8 @@ func main()
         exit(build(c, path, exe, false))
     if mode == "bare"
         exit(build_bare(c, path, exe))
+    if mode == "app"
+        exit(build_app(c, path, exe))
     if mode == "lib"
         exit(build_lib(c, path, exe))
     if mode == "run"
