@@ -85,6 +85,10 @@ function activate(context) {
         diags,
         vscode.commands.registerCommand('tachbit.run', () => runInTerminal('run')),
         vscode.commands.registerCommand('tachbit.runBar', () => runInTerminal('run')),
+        // зелёная кнопка «отладка» (F5, Touch Bar, Run and Debug): просто запускаем файл
+        vscode.debug.registerDebugConfigurationProvider('tachbit', {
+            resolveDebugConfiguration() { runInTerminal('run'); return undefined; }
+        }),
         vscode.commands.registerCommand('tachbit.check', () => {
             const ed = vscode.window.activeTextEditor;
             if (ed) ed.document.save().then(() => check(ed.document));

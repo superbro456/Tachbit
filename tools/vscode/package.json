@@ -2,7 +2,7 @@
   "name": "tachbit",
   "displayName": "Tachbit",
   "description": "Язык Tachbit: цвета, темы Tachbit Dark/Light, запуск по F5 и ошибки прямо в коде",
-  "version": "0.9.2",
+  "version": "0.9.3",
   "publisher": "tachbit",
   "engines": {
     "vscode": "^1.75.0"
@@ -13,7 +13,9 @@
   ],
   "main": "./extension.js",
   "activationEvents": [
-    "onLanguage:tachbit"
+    "onLanguage:tachbit",
+    "onDebugResolve:tachbit",
+    "onDebugInitialConfigurations"
   ],
   "contributes": {
     "languages": [
@@ -129,6 +131,15 @@
         "label": "Tachbit Light",
         "uiTheme": "vs",
         "path": "./themes/tachbit-light.json"
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "tachbit",
+        "label": "Tachbit",
+        "languages": [
+          "tachbit"
+        ]
       }
     ]
   },
