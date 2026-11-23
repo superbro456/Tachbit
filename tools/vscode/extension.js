@@ -39,7 +39,7 @@ async function runInTerminal(mode) {
 function parseErrors(out, dir) {
     const res = [];
     for (const line of out.split('\n')) {
-        let m = line.match(/^(.+?\.tb), строка (\d+): (.*)$/);
+        let m = line.match(/^(.+?\.tb), (?:строка|line) (\d+): (.*)$/);
         let file, num = 1, msg;
         if (m) { file = m[1]; num = parseInt(m[2], 10); msg = m[3]; }
         else {

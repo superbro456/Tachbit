@@ -13,6 +13,16 @@ echo "стоит компилятор на Tachbit (собран сам собо
 # общие библиотеки (use ui): lib/*.tb → ~/.tachbit/lib
 mkdir -p "$HOME/.tachbit/lib" && cp lib/*.tb "$HOME/.tachbit/lib/" && echo "библиотеки: $HOME/.tachbit/lib"
 
+# язык сообщений: если ещё не выбран — по языку системы (поменять: tb lang en / tb lang ru)
+if [ ! -f "$HOME/.tachbit/lang" ]; then
+    lang=en
+    if [ "$(uname -s)" = "Darwin" ]; then
+        defaults read -g AppleLanguages 2>/dev/null | grep -q '"*ru' && lang=ru
+    fi
+    case "${LC_ALL:-${LC_MESSAGES:-$LANG}}" in ru*) lang=ru ;; esac
+    echo "$lang" > "$HOME/.tachbit/lang"
+fi
+
 line='export PATH="$HOME/.tachbit/bin:$PATH"'
 added=""
 for rc in "$HOME/.zshrc" "$HOME/.bashrc"; do

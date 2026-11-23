@@ -6,6 +6,7 @@
 // Это первый шаг: дальше в .ll можно класть то, чего C не скажет (move = noalias,
 // пределы чисел, вызовы слитых орбит), — свои проходы LLVM поверх готового LLVM.
 use check
+use errors
 use memplan
 
 obj LLGen
@@ -3821,7 +3822,7 @@ modpub func emit_ll(c: Comp, program: Node, target: text, cpu: text)
             else
                 all.add("declare " + ll_ext(c, top.ty) + ll_ty(c, top.ty) + " @\"" + ll_fname(top) + "\"(" + ps + ")\n")
     // библиотека Tachbit (runtime.h): с TB_LL её функции видны отсюда
-    all.add("declare void @tb_x_ps(ptr)\ndeclare ptr @tb_x_itos(i64)\ndeclare ptr @tb_x_dtos(double)\ndeclare ptr @tb_x_btos(i32)\n")
+    all.add("declare void @tb_x_ps(ptr)\ndeclare ptr @tb_x_tr(ptr)\ndeclare ptr @tb_x_itos(i64)\ndeclare ptr @tb_x_dtos(double)\ndeclare ptr @tb_x_btos(i32)\n")
     all.add("declare ptr @tb_x_digits(i64, ptr, ptr)\ndeclare ptr @tb_x_mem_np(i64)\ndeclare i64 @tb_x_tlen(ptr)\ndeclare i64 @tb_x_ulen(ptr)\ndeclare i64 @tb_x_ulen_n(ptr, i64)\ndeclare ptr @tb_x_u8take(ptr, ptr)\ndeclare ptr @tb_x_char_at(ptr, i64, i64, i32)\n")
     all.add("declare ptr @tb_x_cat(ptr, ptr)\ndeclare void @tb_x_app(ptr, ptr, ptr, ptr)\ndeclare void @tb_x_app_i(ptr, ptr, ptr, i64)\ndeclare void @tb_x_app_n(ptr, ptr, ptr, ptr, i64)\n")
     all.add("declare ptr @tb_x_errp()\ndeclare void @tb_x_die(ptr) noreturn cold\n")
@@ -3884,7 +3885,7 @@ modpub func ll_probe_parse(src: text) gives target: text, cpu: text
 modpub func ll_pure_ok(c: Comp, program: Node) gives ok: bool
     why = ll_pure_why(c, program)
     if why != "" and env("TB_PURE_WHY") != ""
-        print("через clang: " + why)
+        say("через clang: " + why)
     ok = why == ""
 
 modpub func ll_pure_why(c: Comp, program: Node) gives why: text
@@ -3935,6 +3936,12 @@ func ll_glue_load(g: LLGen, c: Comp, t: int, p: text)
 
 func ll_glue_ps(g: LLGen, s: text)
     nm, n = ll_strconst(g, "\"" + s + "\"")
+    if s == "пусто"
+        // слово для пустого obj — на языке пользователя
+        t = ll_new(g, "%t")
+        ll_put(g, t + " = call ptr @tb_x_tr(ptr " + nm + ")")
+        ll_put(g, "call void @tb_x_ps(ptr " + t + ")")
+        return
     ll_put(g, "call void @tb_x_ps(ptr " + nm + ")")
 
 func ll_glue_show_call(g: LLGen, c: Comp, t: int, v: text)

@@ -2,6 +2,7 @@
 # Проверка рисования на видеокарте: каждая программа tests/gpu/*.tb рисует кадры,
 # а TB_GPU_CHECK=1 сверяет кадр видеокарты с кадром процессора точка в точку.
 # Linux без экрана: нужен Xvfb и Vulkan (на сервере без видеокарты — lavapipe из mesa-vulkan-drivers).
+export TB_LANG=ru   # эталоны сообщений — на русском
 cd "$(dirname "$0")/.." || exit 1
 [ -x ./build/tb ] || ./tools/build_tb.sh > /dev/null || exit 1
 xvfb=

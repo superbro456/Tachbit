@@ -43,6 +43,8 @@ curl -fsSL https://raw.githubusercontent.com/superbro456/Tachbit/main/tools/get.
 Через Homebrew: `brew tap superbro456/tachbit https://github.com/superbro456/Tachbit && brew install --HEAD tachbit`.
 Сайт: https://superbro456.github.io/Tachbit/ (исходник `docs/index.html`). Как выпустить язык: `docs/publish.md`.
 
+Сообщения компилятора и программ — на русском или английском: язык берётся из системы, поменять — `tb lang ru` / `tb lang en` (или `TB_LANG=ru`). Переводы — в `compiler/lang/en.tsv` (после правки: `python3 tools/embed_lang.py`).
+
 Из клона репозитория, один раз и после каждого `git pull`:
 
 ```

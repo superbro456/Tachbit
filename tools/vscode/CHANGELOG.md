@@ -1,5 +1,8 @@
 # Changes
 
+## 0.9.5
+- Errors are underlined in English too (`tb lang en`).
+
 ## 0.9.4
 - The green Run/Debug button, F5 and the Touch Bar run the `.tb` file.
 - Marketplace page: README, license, links.

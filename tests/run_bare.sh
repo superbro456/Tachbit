@@ -4,6 +4,7 @@
 #   ./tests/run_bare.sh            проверить
 #   ./tests/run_bare.sh --update   записать новые .out для tests/bare
 # Нужны qemu-system-x86_64 и python3 (на Mac: brew install qemu).
+export TB_LANG=ru   # эталоны сообщений — на русском
 cd "$(dirname "$0")/.." || exit 1
 command -v qemu-system-x86_64 > /dev/null || { echo "нет qemu-system-x86_64 (на Mac: brew install qemu)"; exit 1; }
 # компилятор собираем заново: после git pull старый ./build/tb мог остаться

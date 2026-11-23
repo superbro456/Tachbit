@@ -1,6 +1,7 @@
 #!/bin/bash
 # Проверка звука: tests/sound/play.tb играет в файл (TB_SOUND_FILE), tests/sound/check.py
 # разбирает запись: длина, частота, сторона (лево/право), не трещит ли. Два пути сборки: LLVM и C.
+export TB_LANG=ru   # эталоны сообщений — на русском
 cd "$(dirname "$0")/.." || exit 1
 [ -x ./build/tb ] || ./tools/build_tb.sh > /dev/null || exit 1
 tmp=$(mktemp -d)

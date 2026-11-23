@@ -802,7 +802,7 @@ func emit_pre(c: Comp, v: Node, depth: int)
         return
     put(c, "if (tb_err != 0) {\n")
     indent(c, depth + 1)
-    put(c, "const char * const v_" + v.name + " = tb_err;\n")
+    put(c, "const char * const v_" + v.name + " = tb_tr(tb_err);\n")
     indent(c, depth + 1)
     put(c, "tb_err = 0;\n")
     emit_block(c, v.kids[1], depth + 1)
@@ -2649,9 +2649,9 @@ func emit_show(c: Comp, t: Type)
     else if k == "obj"
         o = t.obj_node
         if o.by_cols
-            put(c, "    if (x.c == 0) { tb_ps(\"пусто\"); return; }\n")
+            put(c, "    if (x.c == 0) { tb_ps(tb_tr(\"пусто\")); return; }\n")
         else
-            put(c, "    if (x == 0) { tb_ps(\"пусто\"); return; }\n")
+            put(c, "    if (x == 0) { tb_ps(tb_tr(\"пусто\")); return; }\n")
         put(c, "    tb_ps(\"" + o.name + "(\");\n")
         count i from 0 to len(o.kids) - 1
             sep = ""

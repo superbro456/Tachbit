@@ -210,6 +210,917 @@ TB_API long tb_win_sysconf(int what) {
 // список: кусок памяти, len элементов по size байт, место на cap
 typedef struct { char *data; long long len; long long cap; long long size; } tb_list;
 
+// ---------- язык сообщений: русский или английский ----------
+// TB_LANG=en/ru, иначе файл ~/.tachbit/lang (его пишет tb lang en/ru), иначе язык системы (LANG).
+// tb_tr заменяет русские куски сообщения английскими по таблице tb_lang_tab.
+#ifdef TB_BARE
+#define tb_tr(s) (s)
+#define tb_lang_en() 0
+#else
+// ---- TB_LANG_TAB (сделано tools/embed_lang.py, не правь руками) ----
+static const char *const tb_lang_tab[] = {
+    "кусок живёт только внутри своего цикла: его можно читать и менять по номеру, ходить по нему each и передавать в функцию, но нельзя сохранять, растить .add и уменьшать .pop", "a piece lives only inside its loop: you can read and change it by number, go over it with each and pass it to a function, but you cannot keep it, grow it with .add or shrink it with .pop",
+    "в background функция получает только int, dec, bool, text и channel (а список — через move: f(move xs)): списки и obj могли бы меняться сразу из двух мест", "in background a function gets only int, dec, bool, text and channel (and a list via move: f(move xs)): lists and obj could be changed from two places at once",
+    "внутри on all cores эта функция меняет полученный список или obj, а он снаружи цикла: собери свой список или obj внутри цикла и передай его", "inside on all cores this function changes a list or obj it got, and that one is outside the loop: make your own list or obj inside the loop and pass it",
+    "для ядра нужен clang (или инструменты LLVM: opt, llc, llvm-link): на Mac — xcode-select --install, на Linux — apt install clang", "a kernel needs clang (or LLVM tools: opt, llc, llvm-link): on Mac — xcode-select --install, on Linux — apt install clang",
+    "пока жив ярлык на элемент этого списка или dict, его нельзя растить и уменьшать: память переедет, и ярлык поведёт в пустоту", "while a link to an element of this list or dict is alive, it cannot grow or shrink: the memory would move and the link would point to nothing",
+    "из dict нельзя убирать ключи, пока по нему идёт each: часть ключей пропустится. Собери ключи в список и убери после цикла", "you cannot remove keys from a dict while each goes over it: some keys would be skipped. Collect the keys in a list and remove them after the loop",
+    "этот список уже отдан в background через move: им больше пользоваться нельзя (можно дать ему новое значение: xs = [1, 2])", "this list was already given to background with move: it cannot be used any more (you can give it a new value: xs = [1, 2])",
+    "через move пока отдают список или dict из int, dec, bool, text или channel: obj внутри могли бы быть видны ещё откуда-то", "for now move gives away only a list or dict of int, dec, bool, text or channel: obj inside could be seen from somewhere else",
+    "draw_round(x, y, ширина, высота, радиус, \"углы\", цвет)  — углы: \"\" все, \"top\", \"bottom\", \"left\", \"right\", \"tl tr bl br\"", "draw_round(x, y, width, height, radius, \"corners\", color)  — corners: \"\" all, \"top\", \"bottom\", \"left\", \"right\", \"tl tr bl br\"",
+    "внутри temp не видно списков, dict и obj снаружи (кроме списков чисел): создай данные внутри temp или передай числа", "lists, dict and obj from outside are not seen inside temp (except number lists): make the data inside temp or pass numbers",
+    "у gpu func параметры int, dec, bool, а первым может быть p: pixel (точка), v: corner (угол) или s: screen (экран)", "gpu func parameters are int, dec, bool, and the first can be p: pixel, v: corner or s: screen",
+    "эту shared меняет функция, которая идёт параллельно (background или on all cores): меняй её под замком  lock имя", "this shared is changed by a function that runs in parallel (background or on all cores): change it under a lock  lock name",
+    "эта функция меняет список, а на его элемент смотрит живой ярлык: если список вырастет, ярлык поведёт в пустоту", "this function changes a list while a live link looks at its element: if the list grows, the link would point to nothing",
+    "в цикле через move отдают только список, созданный в этом же шаге цикла: иначе на следующем шаге его уже нет", "in a loop move gives away only a list made in this same loop step: otherwise it is gone on the next step",
+    "в функцию отдают ярлык на элемент списка и сам список: если функция вырастит список, ярлык поведёт в пустоту", "the function gets a link to a list element and the list itself: if the function grows the list, the link would point to nothing",
+    "  tachbit app    файл.tb   сделать программу для Омниума (файл.oapp); --own — своим машинным кодом, без LLVM", "  tachbit app    file.tb   make a program for Omnium (file.oapp); --own — own machine code, without LLVM",
+    "этот список виден ещё откуда-то (второе имя или лежит в другом списке/obj): move отдал бы его сразу двоим", "this list is seen from somewhere else (a second name, or it lies in another list/obj): move would give it to two at once",
+    "в gpu func можно звать только встроенные числовые функции (sin, cos, mix, noise ...) и другие gpu func", "in gpu func you can call only built-in number functions (sin, cos, mix, noise ...) and other gpu func",
+    "из temp наружу можно сохранить только int, dec или bool: текст, списки и obj удалятся в конце блока", "only int, dec or bool can be kept outside temp: texts, lists and obj are deleted at the end of the block",
+    "spot_light(номер 0…7, x, y, z, куда x, куда y, куда z, ширина в градусах, цвет, дальность) — фонарь", "spot_light(number 0…7, x, y, z, look x, look y, look z, width in degrees, color, range) — a spotlight",
+    " нельзя менять списки и obj снаружи цикла и то, что из них взято (свои, созданные внутри, — можно)", " you cannot change lists and obj from outside the loop, or what was taken from them (your own, made inside, are fine)",
+    "подключение C-файлов через link будет в версии 0.9 (вместе с danger); файлы Tachbit подключает use", "connecting C files with link will come in version 0.9 (together with danger); use connects Tachbit files",
+    "mouse_lock(true)  —  мышь для игр от первого лица: курсора нет, поворот — mouse_dx() и mouse_dy()", "mouse_lock(true)  —  mouse for first-person games: no cursor, turning — mouse_dx() and mouse_dy()",
+    "у этого значения нет методов: они есть у списков (.add .pop) и dict (.has .remove .keys .values)", "this value has no methods: lists have them (.add .pop) and dict (.has .remove .keys .values)",
+    "программа упала: ошибка памяти. Это ошибка Tachbit, а не твоя: пришли, пожалуйста, эту программу", "the program crashed: memory error. This is a Tachbit bug, not yours: please send this program",
+    "skip и stop внутри lock работают только для циклов внутри lock: иначе замок останется закрытым", "skip and stop inside lock work only for loops inside lock: otherwise the lock would stay closed",
+    "не получилось собрать библиотеку. Это ошибка Tachbit, а не твоя: твой код прошёл все проверки.", "could not build the library. This is a Tachbit bug, not yours: your code passed all checks.",
+    "unlock пишется прямо в блоке lock, не внутри if и циклов: так всегда ясно, взят замок или нет", "unlock is written right in the lock block, not inside if or loops: that way it is always clear whether the lock is taken",
+    "не получилось собрать программу. Это ошибка Tachbit, а не твоя: твой код прошёл все проверки.", "could not build the program. This is a Tachbit bug, not yours: your code passed all checks.",
+    ", а где-то наоборот — две работы могут ждать друг друга вечно. Бери их везде в одном порядке", ", and somewhere the other way — two jobs can wait for each other forever. Take them in the same order everywhere",
+    "  --llvm / --c   к build / run: собрать через LLVM (так и есть, если есть clang) или через C", "  --llvm / --c   for build / run: build through LLVM (the default if there is clang) or through C",
+    "через move отдают только свою переменную, созданную в этой функции (не параметр и не ярлык)", "move gives away only your own variable made in this function (not a parameter and not a link)",
+    "внутри lock return нельзя: замок останется закрытым; сохрани число снаружи и выйди из блока", "return is not allowed inside lock: the lock would stay closed; save the number outside and leave the block",
+    "ярлык на элемент list bool нельзя: там каждый элемент — один бит, у бита нет своего адреса", "a link to an element of list bool is not allowed: each element there is one bit, and a bit has no address of its own",
+    "функция вызывает сама себя раньше первого return со значением: поставь простой return выше", "the function calls itself before its first return with a value: put a simple return above",
+    "внутри each ... by N return нельзя: сохрани число в переменную снаружи и выйди через stop", "return is not allowed inside each ... by N: save the number in an outside variable and leave with stop",
+    "mouse_wheel()  →  на сколько шагов повернули колёсико: + вперёд, − назад, 0 — не крутили", "mouse_wheel()  →  how many steps the wheel turned: + forward, − back, 0 — not turned",
+    "shadows(размер) — тени от солнца в квадрате размер × размер вокруг камеры; 0 — без теней", "shadows(size) — sun shadows in a size × size square around the camera; 0 — no shadows",
+    "light_shadow(лампа 0…7, true) — лампа даёт тени на сетки со своими шейдерами (до 4 ламп)", "light_shadow(lamp 0…7, true) — the lamp casts shadows on meshes with their own shaders (up to 4 lamps)",
+    "функция for c не может заканчиваться ошибкой: C не умеет её поймать; верни, например, -1", "a for c function cannot end with an error: C cannot catch it; return, for example, -1",
+    "mesh_bounds(сетка, x, y, z, радиус) — шар, из которого сетка не выходит (для отсечения)", "mesh_bounds(mesh, x, y, z, radius) — a ball the mesh never leaves (for culling)",
+    "mesh_free(сетка) — сетка больше не нужна: память отдаётся, номер достанется новой сетке", "mesh_free(mesh) — the mesh is not needed any more: memory is freed, the number goes to a new mesh",
+    "функция может закончиться ошибкой: напиши  try f(),  f() or запасное  или  f() else err", "the function can end with an error: write  try f(),  f() or fallback  or  f() else err",
+    "shared внутри on all cores можно только менять через += или -=, а читать — после цикла", "shared inside on all cores can only be changed with += or -=, and read after the loop",
+    "функция с fail в background пока нельзя: пусть она отдаёт текст ошибки обычным выходом", "a function with fail cannot go to background yet: let it give the error text as a normal output",
+    "у поля shape пишется размер: u8, u16, u32, u64, i8, i16, i32, i64, bits N или bytes N", "a shape field has a size: u8, u16, u32, u64, i8, i16, i32, i64, bits N or bytes N",
+    "число не помещается в int: больше 9223372036854775807 или меньше -9223372036854775808", "the number does not fit in int: more than 9223372036854775807 or less than -9223372036854775808",
+    "ярлык на элемент списка колонок нельзя: возьми ярлык на качество, например pts[i].x", "a link to an element of a column list is not allowed: take a link to a field, for example pts[i].x",
+    "это может закончиться ошибкой: напиши  try ...,  ... or запасное  или  ... else err", "this can end with an error: write  try ...,  ... or fallback  or  ... else err",
+    "список нельзя растить, пока по нему идёт each ... by N (и сам кусок растить нельзя)", "a list cannot grow while each ... by N goes over it (and the piece itself cannot grow)",
+    "shader_image(сетка, слот 0…3, картинка) — картинка для tex_r(слот, u, v) в шейдере", "shader_image(mesh, slot 0…3, picture) — a picture for tex_r(slot, u, v) in the shader",
+    "снаружи функций можно писать только use, func, gpu func, obj, enum, shape и shared", "outside functions you can write only use, func, gpu func, obj, enum, shape and shared",
+    "шейдер точки, угла или экрана сам не зовут: его ставят mesh_shader и screen_shader", "a pixel, corner or screen shader is not called directly: mesh_shader and screen_shader set it",
+    "draw_image_alpha(картинка, x, y)  — с настоящей прозрачностью (мягкие края, тени)", "draw_image_alpha(picture, x, y)  — with real transparency (soft edges, shadows)",
+    "draw_shadow(x, y, ширина, высота, скругление, размер, цвет)  — мягкая тень вокруг", "draw_shadow(x, y, width, height, rounding, size, color)  — a soft shadow around",
+    "  tb start имя [слова]     собрать проект и запустить (без имени — текущая папка)", "  tb start name [words]    build the project and run it (no name — current folder)",
+    "  tachbit lib    файл.tb   библиотека для C: libфайл.a и файл.h (функции с for c)", "  tachbit lib    file.tb   a library for C: libfile.a and file.h (functions with for c)",
+    ": это не адрес из new_mem или блок уже освобождён (точнее покажет TB_MEM_CHECK=1)", ": this is not an address from new_mem or the block is already freed (TB_MEM_CHECK=1 will show more)",
+    "mesh_shader(сетка, \"water\") — свой шейдер (gpu func) на сетку; \"\" — обычный свет", "mesh_shader(mesh, \"water\") — your own shader (gpu func) on a mesh; \"\" — normal light",
+    "bone_box(сетка, кость, x1, y1, z1, x2, y2, z2) — углы в коробке слушаются кости", "bone_box(mesh, bone, x1, y1, z1, x2, y2, z2) — corners in the box follow the bone",
+    "key_down(\"left\")  — стрелки left right up down, space, enter, escape, буквы \"a\"", "key_down(\"left\")  — arrows left right up down, space, enter, escape, letters \"a\"",
+    "функции C зовут внутри danger: C может испортить память, Tachbit её не проверит", "C functions are called inside danger: C can spoil memory, Tachbit will not check it",
+    "внутри temp background нельзя: память блока удалится, пока функция ещё работает", "background is not allowed inside temp: the block memory would be deleted while the function still works",
+    "в by vec переменную, которую копишь через += или -=, нельзя читать внутри цикла", "in by vec a variable accumulated with += or -= cannot be read inside the loop",
+    "image_from_mem(адрес, байт)  →  номер картинки (PNG, JPEG, BMP, GIF из памяти)", "image_from_mem(address, bytes)  →  picture number (PNG, JPEG, BMP, GIF from memory)",
+    "mesh_add_uv(сетка, x1, y1, z1, u1, v1, x2, y2, z2, u2, v2, x3, y3, z3, u3, v3)", "mesh_add_uv(mesh, x1, y1, z1, u1, v1, x2, y2, z2, u2, v2, x3, y3, z3, u3, v3)",
+    "point_light(номер 0…7, x, y, z, цвет, дальность) — лампа светит во все стороны", "point_light(number 0…7, x, y, z, color, range) — a lamp shining in all directions",
+    "fog(цвет, с какого расстояния, где уже весь цвет) — fog(0, 0, 0) убирает туман", "fog(color, from what distance, where it is all color) — fog(0, 0, 0) removes fog",
+    "внутри temp return нельзя: сохрани число в переменную снаружи и выйди из блока", "return is not allowed inside temp: save the number in an outside variable and leave the block",
+    "shared снаружи функций начинается с числа или true/false: shared ticks = int 0", "shared outside functions starts with a number or true/false: shared ticks = int 0",
+    "bone_quat(сетка, кость, x, y, z, w) — поворот кости кватернионом (как в glTF)", "bone_quat(mesh, bone, x, y, z, w) — turn the bone by a quaternion (as in glTF)",
+    "()  →  на сколько точек сдвинули мышь с прошлого раза (вправо и вниз — плюс)", "()  →  how many points the mouse moved since last time (right and down — plus)",
+    "этот замок уже взят выше: второй lock с тем же именем ждал бы сам себя вечно", "this lock is already taken above: a second lock with the same name would wait for itself forever",
+    "нет такого размера: u8, u16, u32, u64, i8, i16, i32, i64, bits N или bytes N", "no such size: u8, u16, u32, u64, i8, i16, i32, i64, bits N or bytes N",
+    "ядро пока не собрать (это ошибка Tachbit, а не твоя): в LLVM не переводится ", "the kernel cannot be built yet (this is a Tachbit bug, not yours): LLVM cannot translate ",
+    "TB_GPU_CHECK: смешивание на этой видеокарте не как округление к ближайшему: ", "TB_GPU_CHECK: blending on this GPU is not round-to-nearest: ",
+    "функция с таким именем есть в двух модулях, напиши модуль: money.total(...)", "a function with this name is in two modules, name the module: money.total(...)",
+    " нельзя менять переменную снаружи: сделай её shared и меняй через += или -=", " you cannot change an outside variable: make it shared and change it with += or -=",
+    " нельзя менять списки и obj снаружи цикла (свои, созданные внутри, — можно)", " you cannot change lists and obj outside the loop (your own, made inside, are fine)",
+    "у функции с несколькими gives return пишется без значения: он отдаёт выходы", "in a function with several gives, return is written without a value: it gives the outputs",
+    "после background (service) пишется вызов функции: a = background load(name)", "after background (service) comes a function call: a = background load(name)",
+    "window_sharp()  —  до window_open: окно в настоящих точках экрана (Retina)", "window_sharp()  —  before window_open: the window in real screen points (Retina)",
+    " try нельзя: ядро не может остановить всю функцию, пиши  or  или  else err", " try is not allowed: the core cannot stop the whole function, write  or  or  else err",
+    "по каналу each идёт просто: each x in ch (без on all cores, by vec и by N)", "each over a channel goes simply: each x in ch (without on all cores, by vec and by N)",
+    "у самого shape есть только size (сколько байт); поля читают у адреса: p = ", "shape itself has only size (how many bytes); fields are read at an address: p = ",
+    "window_use(окно)  —  рисовать, мышь и клавиши — в этом окне (0 — главное)", "window_use(window)  —  drawing, mouse and keys go to this window (0 — the main one)",
+    "внутри lock each по каналу нельзя: пока ждёшь, замок держат все остальные", "each over a channel is not allowed inside lock: while you wait, everyone else is held by the lock",
+    "прерывания бывают только в ядре без ОС: собери файл командой tachbit bare", "interrupts exist only in a kernel without an OS: build the file with tachbit bare",
+    "стек переполнен: функция зовёт себя слишком глубоко (рекурсия без конца?)", "the stack is full: a function calls itself too deep (endless recursion?)",
+    "blur_rect(x, y, ширина, высота, сила)  — размыть то, что уже нарисовано", "blur_rect(x, y, width, height, strength)  — blur what is already drawn",
+    "mesh_image(сетка, картинка) — картинка из load_image; -1 — без картинки", "mesh_image(mesh, picture) — a picture from load_image; -1 — no picture",
+    "screen_shader(\"glow\") — пропустить весь кадр через gpu func с s: screen", "screen_shader(\"glow\") — pass the whole frame through a gpu func with s: screen",
+    "внутри by vec нельзя менять переменную снаружи: копи её через += или -=", "inside by vec you cannot change an outside variable: accumulate it with += or -=",
+    "не получилось скачать (нет сети, нет curl или сервер ответил ошибкой): ", "could not download (no network, no curl or the server answered with an error): ",
+    "draw_mesh_rot(сетка, x, y, z, поворот, наклон, крен) — углы в градусах", "draw_mesh_rot(mesh, x, y, z, turn, tilt, roll) — angles in degrees",
+    "pad_axis(0, \"lx\")  →  от -1 до 1: lx ly rx ry; курки l2 r2 — от 0 до 1", "pad_axis(0, \"lx\")  →  from -1 to 1: lx ly rx ry; triggers l2 r2 — from 0 to 1",
+    " читает кадр только в самом шейдере экрана (s: screen), не в помощнике", " reads the frame only in the screen shader itself (s: screen), not in a helper",
+    "mesh_lod(сетка, сетка попроще или -1, даль) — дальше рисовать попроще", "mesh_lod(mesh, simpler mesh or -1, distance) — draw the simpler one further away",
+    "screen_image()  →  номер картинки: снимок того, что нарисовано сейчас", "screen_image()  →  picture number: a snapshot of what is drawn now",
+    "у функции прерывания не бывает параметров и gives: её зовёт процессор", "an interrupt function has no parameters and no gives: the processor calls it",
+    "после channel напиши, что по нему идёт: channel int, channel text ...", "after channel write what it carries: channel int, channel text ...",
+    "у use c ниже с отступом пишутся функции C: func abs(x: i32) gives i32", "use c has C functions below, indented: func abs(x: i32) gives i32",
+    "у функции C пишется тип: int, dec, bool, text, i8…i64, u8…u64 или f32", "a C function has a type: int, dec, bool, text, i8…i64, u8…u64 or f32",
+    "mesh_shadow(сетка, false) — сетка не отбрасывает тень (небо, стекло)", "mesh_shadow(mesh, false) — the mesh casts no shadow (sky, glass)",
+    "sunlight(к солнцу x, y, z, фон 0…1) — sunlight(0, 0, 0, 0) выключает", "sunlight(to the sun x, y, z, ambient 0…1) — sunlight(0, 0, 0, 0) turns it off",
+    "такое имя у use c уже есть: файлы C с одинаковым именем не различить", "use c already has this name: C files with the same name cannot be told apart",
+    "внутри lock receive() нельзя: пока ждёшь, замок держат все остальные", "receive() is not allowed inside lock: while you wait, everyone else is held by the lock",
+    "each ходит по списку, по ключам dict, по каналу или по буквам текста", "each goes over a list, over dict keys, over a channel or over the letters of a text",
+    "у match ниже с отступом пишутся варианты: paid  или  1, 2  или  else", "match has its variants below, indented: paid  or  1, 2  or  else",
+    "on all cores в gpu func не бывает: шейдер и так идёт на тысячах ядер", "there is no on all cores in gpu func: a shader already runs on thousands of cores",
+    "enum к тексту пока не приписывается: print(s) печатает имя варианта", "an enum cannot be added to text yet: print(s) prints the variant name",
+    "set_fps(кадров_в_секунду)  — 0: сколько успеет, без ожидания экрана", "set_fps(frames_per_second)  — 0: as fast as possible, no waiting for the screen",
+    "listener(x, y, z, куда x, куда y, куда z)  — где уши и куда смотрят", "listener(x, y, z, look x, look y, look z)  — where the ears are and where they look",
+    "image_scaled(картинка, w, h)  →  номер новой картинки этого размера", "image_scaled(picture, w, h)  →  number of a new picture of this size",
+    "rgba(красный, зелёный, синий, непрозрачность)  — каждый от 0 до 255", "rgba(red, green, blue, opacity)  — each from 0 to 255",
+    "раньше функция вернула int, а тут dec: сделай оба числа одного типа", "earlier the function returned int, and here dec: make both numbers the same type",
+    "в together пишутся только новые переменные со значением: a = d[key]", "together takes only new variables with a value: a = d[key]",
+    "on all cores и by vec внутри другого on all cores или by vec нельзя", "on all cores and by vec are not allowed inside another on all cores or by vec",
+    "shape читает и пишет память по адресу: пиши это внутри блока danger", "shape reads and writes memory at an address: write this inside a danger block",
+    "  tachbit ll     файл.tb   показать LLVM IR числовых функций (опыт)", "  tachbit ll     file.tb   show LLVM IR of number functions (experimental)",
+    "этот шрифт не TrueType (контуры CFF/OTF пока не читаю): возьми .ttf", "this font is not TrueType (CFF/OTF outlines are not read yet): take a .ttf",
+    "mesh_drawn()  →  сколько draw_mesh дошло до экрана в прошлом кадре", "mesh_drawn()  →  how many draw_mesh reached the screen in the last frame",
+    "shared бывает int, dec или text: shared y = int 0, shared out = \"\"", "shared is int, dec or text: shared y = int 0, shared out = \"\"",
+    "stop внутри on all cores нельзя: остальные ядра всё равно работают", "stop is not allowed inside on all cores: the other cores keep working anyway",
+    "  tachbit bare   файл.tb   сделать ядро без ОС (файл.elf для QEMU)", "  tachbit bare   file.tb   make a kernel without an OS (file.elf for QEMU)",
+    " работает только в ядре без ОС: собери файл командой tachbit bare", " works only in a kernel without an OS: build the file with tachbit bare",
+    "syscall(номер, a, b, ...)  — все значения int (адреса тоже числа)", "syscall(number, a, b, ...)  — all values are int (addresses are numbers too)",
+    "window_new(ширина, высота, \"заголовок\")  →  номер ещё одного окна", "window_new(width, height, \"title\")  →  number of one more window",
+    "у dict нет такого метода (есть .has .remove .keys .values .clear)", "dict has no such method (there are .has .remove .keys .values .clear)",
+    "строки в together не должны зависеть друг от друга, а здесь нужна", "lines in together must not depend on each other, but here this is needed:",
+    "  tb lang en / tb lang ru  язык сообщений: английский или русский", "  tb lang en / tb lang ru  message language: English or Russian",
+    "bone_add(сетка, родитель или -1, сустав x, y, z)  →  номер кости", "bone_add(mesh, parent or -1, joint x, y, z)  →  bone number",
+    "bone_turn(сетка, кость, поворот, наклон, крен) — углы в градусах", "bone_turn(mesh, bone, turn, tilt, roll) — angles in degrees",
+    "в ярлык link можно передать только переменную, u.age или nums[i]", "only a variable, u.age or nums[i] can be passed to a link",
+    "функция с link ни разу не вызвана, поэтому тип ярлыка неизвестен", "a function with link is never called, so the link type is unknown",
+    "  tachbit run    файл.tb [слова]   сделать программу и запустить", "  tachbit run    file.tb [words]   make a program and run it",
+    "typed_text()  →  буквы, набранные с прошлого раза (\"\" — ничего)", "typed_text()  →  letters typed since last time (\"\" — nothing)",
+    "ярлык на значение в dict нельзя: dict может переложить значения", "a link to a value in a dict is not allowed: the dict may move its values",
+    "for c бывает только в обычной программе или библиотеке (tb lib)", "for c is only in a normal program or a library (tb lib)",
+    "внутри by vec число снаружи можно только копить через += или -=", "inside by vec an outside number can only be accumulated with += or -=",
+    "ожидался тип: int, dec, text, bool, list ... или имя obj, а тут", "a type was expected: int, dec, text, bool, list ... or an obj name, but here is",
+    "число не влезает в поле i32: от -2 147 483 648 до 2 147 483 647", "the number does not fit in an i32 field: from -2 147 483 648 to 2 147 483 647",
+    "число не влезает в поле bits: от 0 до 2 в степени N без единицы", "the number does not fit in a bits field: from 0 to 2 to the power N minus one",
+    "»; есть arrow, hand, text, move, resize_x, resize_y, wait, none", "»; there are arrow, hand, text, move, resize_x, resize_y, wait, none",
+    "window_scale()  →  во сколько раз точек больше (1.0, 1.5, 2.0)", "window_scale()  →  how many times more points (1.0, 1.5, 2.0)",
+    "(звук, x, y, z)  →  номер голоса (звук в мире: слышно, где он)", "(sound, x, y, z)  →  voice number (a sound in the world: you hear where it is)",
+    "skip и stop внутри temp работают только для циклов внутри temp", "skip and stop inside temp work only for loops inside temp",
+    "main бывает только в главном файле, в модуле её быть не должно", "main can only be in the main file, not in a module",
+    "номер прерывания железа: от 32 (таймер) до 47; 33 — клавиатура", "hardware interrupt number: from 32 (timer) to 47; 33 — keyboard",
+    "gpu func пока только в обычной программе (tachbit build / run)", "gpu func is only in a normal program for now (tachbit build / run)",
+    "byte_char: байт должен быть от 1 до 255 (байт 0 кончает текст)", "byte_char: the byte must be from 1 to 255 (byte 0 ends a text)",
+    "эта функция спрятана в своём модуле: поставь перед ней modpub", "this function is hidden in its module: put modpub before it",
+    "window_fullscreen(true)  —  на весь экран; false — снова окно", "window_fullscreen(true)  —  full screen; false — a window again",
+    " — его адрес, а писать в него — copy_mem, fill_mem или write8", " is its address, and you write into it with copy_mem, fill_mem or write8",
+    "  tb new   имя             новый проект: папка имя/ с main.tb", "  tb new   name            new project: folder name/ with main.tb",
+    "use, modpub и modpri пишутся снаружи функций, в начале строки", "use, modpub and modpri are written outside functions, at the start of a line",
+    "из этого имени не выходит имя для вызова: назови файл буквами", "no name for a call comes out of this name: name the file with letters",
+    "mesh_simplify(сетка, доля углов 0…1)  →  новая сетка попроще", "mesh_simplify(mesh, share of corners 0…1)  →  a new simpler mesh",
+    "переменная уже есть: тип и const пишутся только в первый раз", "the variable already exists: type and const are written only the first time",
+    "background запускает свою функцию: a = background load(name)", "background starts its own function: a = background load(name)",
+    "в together заводятся только новые переменные, а эта уже есть", "together makes only new variables, and this one already exists",
+    "link в начале строки подключает файл: это будет в версии 0.3", "link at the start of a line connects a file: this will come in version 0.3",
+    "в gpu func поля есть только у точки, угла или экрана шейдера", "in gpu func only the shader point, corner or screen has fields",
+    "screen_set(\"glow\", \"power\", 0.8) — настройка шейдера экрана", "screen_set(\"glow\", \"power\", 0.8) — a setting of the screen shader",
+    "в by vec одну переменную копят одним знаком: или +=, или -=", "in by vec one variable is accumulated with one sign: either += or -=",
+    "shared снаружи функций пока бывает только int, dec или bool", "shared outside functions can only be int, dec or bool for now",
+    "  tachbit build  файл.tb   сделать программу рядом с файлом", "  tachbit build  file.tb   make a program next to the file",
+    "после list напиши, что в нём лежит: list int, list text ...", "after list write what it holds: list int, list text ...",
+    "у enum ниже с отступом пишутся варианты, по одному в строке", "an enum has its variants below, indented, one per line",
+    "после shared пишется новая переменная: shared ticks = int 0", "after shared comes a new variable: shared ticks = int 0",
+    "gpu func не может звать сама себя (и по кругу через другие)", "a gpu func cannot call itself (or in a circle through others)",
+    "PNG с чересстрочностью (interlace) не умею: сохрани без неё", "interlaced PNG is not supported: save it without interlace",
+    "net_accept(сервер)  →  связь с тем, кто подключился (ждёт)", "net_accept(server)  →  connection to whoever connected (waits)",
+    "у функции for c один ответ: C не знает gives с несколькими", "a for c function has one answer: C does not know gives with several",
+    "shared внутри on all cores меняется только через += или -=", "shared inside on all cores is changed only with += or -=",
+    "подряд идущих bits больше 64: раздели их полем u8, u16 ...", "more than 64 bits in a row: split them with a u8, u16 ... field",
+    "общей переменной сразу дают значение: shared ticks = int 0", "a shared variable gets a value right away: shared ticks = int 0",
+    "функция лежит в другом модуле: добавь в начало файла  use", "the function is in another module: add at the top of the file  use",
+    "zone_new(байт)  →  новая зона; байт — размер одного куска", "zone_new(bytes)  →  a new zone; bytes — size of one piece",
+    "mesh_add(сетка, x1, y1, z1, x2, y2, z2, x3, y3, z3, цвет)", "mesh_add(mesh, x1, y1, z1, x2, y2, z2, x3, y3, z3, color)",
+    "mesh_smooth(сетка, true) — плавный свет (нормали в углах)", "mesh_smooth(mesh, true) — smooth light (normals at corners)",
+    "внутри each ... by N fail нельзя: пиши  or  или  else err", "fail is not allowed inside each ... by N: write  or  or  else err",
+    "результат вызова пропадает: сохрани его, например x = ...", "the result of the call is lost: save it, for example x = ...",
+    "нет компилятора C (gcc или clang). Поставь его, например:", "no C compiler (gcc or clang). Install one, for example:",
+    "TB_GPU_CHECK: кадров со своими шейдерами (не сверялись): ", "TB_GPU_CHECK: frames with own shaders (not compared): ",
+    "у функции нет значения, тут подходит  try  или  else err", "the function has no value, use  try  or  else err  here",
+    "shader_set(сетка, \"wave\", 0.3) — настройка шейдера сетки", "shader_set(mesh, \"wave\", 0.3) — a setting of the mesh shader",
+    "у функции for c параметры только int, dec, bool или text", "a for c function has only int, dec, bool or text parameters",
+    "внутри each ... by N try нельзя: пиши  or  или  else err", "try is not allowed inside each ... by N: write  or  or  else err",
+    "on all cores ходит по списку (или count from ... to ...)", "on all cores goes over a list (or count from ... to ...)",
+    "3D на видеокарте не собралось (сетки считает процессор):", "3D on the GPU did not build (the CPU computes meshes):",
+    ", а она сама берёт этот замок: ждала бы сама себя вечно", ", and it takes this lock itself: it would wait for itself forever",
+    "больше / меньше работают с числами или с двумя текстами", "greater / less work with numbers or with two texts",
+    "clipboard_get()  →  текст из буфера обмена (\"\" — пусто)", "clipboard_get()  →  text from the clipboard (\"\" — empty)",
+    "mesh_alpha(сетка, 0…1) — прозрачность: 1 — непрозрачная", "mesh_alpha(mesh, 0…1) — transparency: 1 — solid",
+    "mesh_far(сетка, даль) — дальше не рисовать (0 — всегда)", "mesh_far(mesh, distance) — do not draw further away (0 — always)",
+    "у канала есть .send(x), .receive(), .ready() и .close()", "a channel has .send(x), .receive(), .ready() and .close()",
+    "этот вызов не может закончиться ошибкой, здесь не нужно", "this call cannot end with an error, it is not needed here",
+    "в background функция с несколькими выходами пока нельзя", "a function with several outputs cannot go to background yet",
+    "выход и параметр с одним именем должны быть одного типа", "an output and a parameter with the same name must have the same type",
+    "size у shape уже есть: Packet.size — сколько в нём байт", "shape already has size: Packet.size — how many bytes it has",
+    "после on пишется all cores: each x in nums on all cores", "after on comes all cores: each x in nums on all cores",
+    "после shared пишется новая переменная: shared y = int 0", "after shared comes a new variable: shared y = int 0",
+    "тут в JSON не объект и не список, а дальше в пути ещё: ", "here JSON is not an object or a list, but the path goes further: ",
+    "это ничего не возвращает, значение нельзя использовать", "this returns nothing, the value cannot be used",
+    " трогает железо напрямую: пиши его внутри блока danger", " touches the hardware directly: write it inside a danger block",
+    "net_listen(8080)  →  сервер (0 — любой свободный порт)", "net_listen(8080)  →  server (0 — any free port)",
+    "draw_font(шрифт, x, y, \"текст\", размер_в_точках, цвет)", "draw_font(font, x, y, \"text\", size_in_points, color)",
+    "text_width(шрифт, \"текст\", размер)  →  ширина в точках", "text_width(font, \"text\", size)  →  width in points",
+    "внутри by vec нельзя менять списки и obj снаружи цикла", "inside by vec you cannot change lists and obj outside the loop",
+    "в match варианты пишутся числом или текстом в кавычках", "in match variants are written as a number or a text in quotes",
+    "и открой терминал заново. Подробнее: tools/install.ps1", "and open the terminal again. More: tools/install.ps1",
+    "  tachbit c      файл.tb   показать, какой C получился", "  tachbit c      file.tb   show the C code it made",
+    "после obj ... by пишется columns: obj Point by columns", "after obj ... by comes columns: obj Point by columns",
+    "такой WAV не умею: нужен PCM 8/16/24/32 бита или float", "this WAV is not supported: PCM 8/16/24/32 bit or float is needed",
+    "window_shown(окно)  →  открыто? (false — его закрыли)", "window_shown(window)  →  open? (false — it was closed)",
+    "функция for c отвечает только int, dec, bool или text", "a for c function answers only int, dec, bool or text",
+    "к тексту можно приписать только текст, число или bool", "only text, a number or bool can be added to text",
+    "шейдер точки или угла ничего не отдаёт: просто return", "a pixel or corner shader gives nothing: just return",
+    "такой JPEG (без потерь / арифметический) пока не умею", "this JPEG (lossless / arithmetic) is not supported yet",
+    "address_of даёт адрес данных списка: address_of(buf)", "address_of gives the address of the list data: address_of(buf)",
+    "grow_mem(адрес, байт)  →  адрес блока нового размера", "grow_mem(address, bytes)  →  address of the block with the new size",
+    "frame_ms()  →  сколько мс шёл прошлый кадр (дробное)", "frame_ms()  →  how many ms the last frame took (decimal)",
+    "этот модуль не подключён: добавь в начало файла  use", "this module is not connected: add at the top of the file  use",
+    "by N режет на куски список: each piece in nums by 64", "by N cuts a list into pieces: each piece in nums by 64",
+    "список колонок (by columns) на куски пока не режется", "a column list (by columns) cannot be cut into pieces yet",
+    "list bool хранится битами и на куски пока не режется", "list bool is stored as bits and cannot be cut into pieces yet",
+    "нет функции main: программа начинается с func main()", "no function main: a program starts with func main()",
+    "после on пишется keyboard, timer или interrupt номер", "after on comes keyboard, timer or interrupt number",
+    "условие должно быть true или false (например a > 3)", "the condition must be true or false (for example a > 3)",
+    "by vec ходит по списку чисел: list int или list dec", "by vec goes over a list of numbers: list int or list dec",
+    "в together эта переменная уже заведена строкой выше", "in together this variable is already made in a line above",
+    "библиотека ядра не собралась (это ошибка Tachbit): ", "the kernel library did not build (this is a Tachbit bug): ",
+    "не получилось положить файлы в ядро (нужен python3)", "could not put the files into the kernel (python3 is needed)",
+    "LLVM не справился (это ошибка Tachbit, а не твоя): ", "LLVM failed (this is a Tachbit bug, not yours): ",
+    "в gpu func вызов отдельной строкой ничего не делает", "in gpu func a call on its own line does nothing",
+    " ничего не отдаёт (gives не нужен): он меняет поля ", " gives nothing (no gives needed): it changes the fields ",
+    "master_volume(громкость)  — 1.0 как было, 0 тишина", "master_volume(volume)  — 1.0 as it was, 0 silence",
+    "rgb(красный, зелёный, синий)  — каждый от 0 до 255", "rgb(red, green, blue)  — each from 0 to 255",
+    "после именованных аргументов обычные писать нельзя", "plain arguments cannot come after named ones",
+    "две функции for c с одним именем: C их не различит", "two for c functions with the same name: C cannot tell them apart",
+    "готова программа для Омниума (свой машинный код): ", "program for Omnium ready (own machine code): ",
+    "у obj ниже с отступом пишутся качества: name: text", "an obj has its fields below, indented: name: text",
+    ".clear() нельзя, пока по списку идёт each ... by N", ".clear() is not allowed while each ... by N goes over the list",
+    "число не влезает в поле u32: от 0 до 4 294 967 295", "the number does not fit in a u32 field: from 0 to 4 294 967 295",
+    "формат картинки не знаю (умею PNG, JPEG, BMP, GIF)", "unknown picture format (PNG, JPEG, BMP, GIF are supported)",
+    "менять можно только переменную, u.age или nums[i]", "you can change only a variable, u.age or nums[i]",
+    "внутри lock fail нельзя: замок останется закрытым", "fail is not allowed inside lock: the lock would stay closed",
+    "после fail пишется текст ошибки: fail \"нет файла\"", "after fail comes the error text: fail \"no file\"",
+    " background нельзя: цикл и так идёт на всех ядрах", " background is not allowed: the loop already runs on all cores",
+    "ядро без ОС пока собирается только на Linux и Mac", "a kernel without an OS builds only on Linux and Mac for now",
+    "слева от знака должно быть имя, nums[i] или u.age", "left of the sign there must be a name, nums[i] or u.age",
+    "в gpu func аргументы пишутся по порядку, без имён", "in gpu func arguments are written in order, without names",
+    "помощник gpu func отдаёт одно число: gives r: dec", "a gpu func helper gives one number: gives r: dec",
+    ": это не зона из zone_new или она уже освобождена", ": this is not a zone from zone_new or it is already freed",
+    "число не влезает в поле i16: от -32 768 до 32 767", "the number does not fit in an i16 field: from -32 768 to 32 767",
+    "по каналу пока идут только int, dec, bool и text", "a channel can only carry int, dec, bool and text for now",
+    " нет в ядре без ОС: там нет файлов, окон и часов", " is not in a kernel without an OS: there are no files, windows or clock",
+    "в asm пишется текст в кавычках сразу: asm(\"cli\")", "asm takes a text in quotes right away: asm(\"cli\")",
+    "syscall(номер, до 6 чисел): например syscall(39)", "syscall(number, up to 6 numbers): for example syscall(39)",
+    "byte_len(\"привет\")  →  12 (байт, а len — 6 букв)", "byte_len(\"привет\")  →  12 (bytes, while len gives 6 letters)",
+    "net_receive(связь)  →  текст, \"\" — связь закрыта", "net_receive(connection)  →  text, \"\" — connection closed",
+    "это const или переменная цикла, её нельзя менять", "this is a const or a loop variable, it cannot be changed",
+    "буквы в тексте менять нельзя, собери новый текст", "letters in a text cannot be changed, build a new text",
+    "ярлык link ведёт к переменной, u.age или nums[i]", "a link leads to a variable, u.age or nums[i]",
+    "внутри temp fail нельзя: пиши  or  или  else err", "fail is not allowed inside temp: write  or  or  else err",
+    "адрес должен начинаться с http:// или https://: ", "the address must start with http:// or https://: ",
+    "shader_set: у шейдеров этой сетки нет настройки ", "shader_set: the shaders of this mesh have no setting ",
+    "у встроенных функций аргументы пишутся без имён", "arguments of built-in functions are written without names",
+    "play_tone(герцы, миллисекунды)  →  номер голоса", "play_tone(hertz, milliseconds)  →  voice number",
+    "у списка колонок (by columns) .clear() пока нет", "a column list (by columns) has no .clear() yet",
+    "внутри lock try нельзя: пиши  or  или  else err", "try is not allowed inside lock: write  or  or  else err",
+    "внутри temp try нельзя: пиши  or  или  else err", "try is not allowed inside temp: write  or  or  else err",
+    "после двоеточия в строке ожидалось link (ярлык)", "after the colon in the line link was expected",
+    "char: такого номера буквы нет (от 1 до 1114111)", "char: no letter with this number (from 1 to 1114111)",
+    "видеокарта: не получилось поменять размер кадра", "GPU: could not change the frame size",
+    "mesh_shader: в программе нет gpu func с именем ", "mesh_shader: the program has no gpu func named ",
+    "list_dir(\"папка\")  →  имена, у папок / в конце", "list_dir(\"folder\")  →  names, folders end with /",
+    "json_get(текст_json, \"users.0.name\")  →  текст", "json_get(json_text, \"users.0.name\")  →  text",
+    "mesh_glow(сетка, свечение 0…1) — светится сама", "mesh_glow(mesh, glow 0…1) — glows by itself",
+    "bone_move(сетка, кость, x, y, z) — сдвиг кости", "bone_move(mesh, bone, x, y, z) — move the bone",
+    "пустой dict пишется с типом: d = dict text int", "an empty dict is written with its types: d = dict text int",
+    "return отдаёт другой тип, чем написано в gives", "return gives another type than written in gives",
+    "big у одного байта ничего не меняет: убери его", "big changes nothing for one byte: remove it",
+    "  tachbit check  файл.tb   только найти ошибки", "  tachbit check  file.tb   only find errors",
+    "после ключа напиши тип значения: dict text int", "after the key write the value type: dict text int",
+    "on all cores и by N (куски) вместе пока нельзя", "on all cores and by N (pieces) cannot go together yet",
+    "после unlock пишется имя замка: unlock counter", "after unlock comes the lock name: unlock counter",
+    "у shape ниже с отступом пишутся поля: kind: u8", "a shape has its fields below, indented: kind: u8",
+    "эта память уже освобождена: free_mem в строке ", "this memory is already freed: free_mem on line ",
+    "через move отдают переменную целиком: move xs", "move gives away a whole variable: move xs",
+    "у функции несколько выходов: пиши  a, b = ...", "the function has several outputs: write  a, b = ...",
+    "fill_mem(адрес, значение байта, сколько байт)", "fill_mem(address, byte value, how many bytes)",
+    "load_image(\"картинка.png\")  →  номер картинки", "load_image(\"picture.png\")  →  picture number",
+    "draw_mesh(сетка, x, y, z, поворот в градусах)", "draw_mesh(mesh, x, y, z, turn in degrees)",
+    "у списка колонок (by columns) .pop() пока нет", "a column list (by columns) has no .pop() yet",
+    "у списка нет такого метода (есть .add и .pop)", "list has no such method (there are .add and .pop)",
+    "main ничего не возвращает: пиши просто return", "main returns nothing: just write return",
+    "big у bytes не пишется: это просто кусок байт", "big is not written for bytes: it is just a piece of bytes",
+    "zone_take(зона, байт)  →  адрес куска (нули)", "zone_take(zone, bytes)  →  address of a piece (zeros)",
+    "mesh_clear(сетка) — стереть все треугольники", "mesh_clear(mesh) — erase all triangles",
+    "bone_weight(сетка, кость, x, y, z угла, вес)", "bone_weight(mesh, bone, corner x, y, z, weight)",
+    "pad_count()  →  сколько геймпадов подключено", "pad_count()  →  how many gamepads are connected",
+    "main не бывает for c: C зовёт другие функции", "main cannot be for c: C calls other functions",
+    "unlock пишется внутри своего блока  lock имя", "unlock is written inside its own block  lock name",
+    "/build/    — сюда кладётся готовая программа", "/build/    — the finished program goes here",
+    "в gpu func нет текста: только числа и да/нет", "there is no text in gpu func: only numbers and yes/no",
+    "точку шейдера заменить нельзя, меняй её поля", "the shader point cannot be replaced, change its fields",
+    "пустой список пишется с типом: x = list int", "an empty list is written with its type: x = list int",
+    "new_mem(байт)  →  адрес нового блока (нули)", "new_mem(bytes)  →  address of a new block (zeros)",
+    "cut(текст, с какого номера, по какой номер)", "cut(text, from number, to number)",
+    "run(\"команда терминала\")  →  код выхода int", "run(\"terminal command\")  →  exit code int",
+    "json_text(текст)  →  строка JSON в кавычках", "json_text(text)  →  a JSON string in quotes",
+    "mesh_count(сетка)  →  сколько треугольников", "mesh_count(mesh)  →  how many triangles",
+    "draw_triangle(x1, y1, x2, y2, x3, y3, цвет)", "draw_triangle(x1, y1, x2, y2, x3, y3, color)",
+    " нет такой функции: напиши её в блоке use c", " there is no such function: write it in the use c block",
+    "в int нельзя добавить дробь: сделай его dec", "a fraction cannot be added to int: make it dec",
+    "сначала отпускают внутренний замок: unlock ", "release the inner lock first: unlock ",
+    "background у функции с несколькими выходами", "background for a function with several outputs",
+    "отступ не совпадает ни с одним уровнем выше", "the indentation does not match any level above",
+    " — это папка. Переименуй папку или файл .tb", " — it is a folder. Rename the folder or the .tb file",
+    "функцию нельзя писать внутри другой функции", "a function cannot be written inside another function",
+    "число не влезает в поле u16: от 0 до 65 535", "the number does not fit in a u16 field: from 0 to 65 535",
+    "канал закрыт и пуст: receive() нечего взять", "the channel is closed and empty: receive() has nothing to take",
+    "список или объект нельзя сложить с текстом", "a list or object cannot be added to text",
+    "в поле shape пишут целое число: p.len = 20", "a shape field takes a whole number: p.len = 20",
+    "http_get(\"https://...\")  →  текст страницы", "http_get(\"https://...\")  →  page text",
+    " нельзя: забери готовое до цикла или после", " is not allowed: take the result before the loop or after it",
+    "  tachbit tree   файл.tb   показать дерево", "  tachbit tree   file.tb   show the tree",
+    "  tachbit tokens файл.tb   показать токены", "  tachbit tokens file.tb   show the tokens",
+    "это слово занято языком, возьми другое имя", "this word is taken by the language, pick another name",
+    "после lock пишется имя замка: lock counter", "after lock comes the lock name: lock counter",
+    "в gpu func слева бывает имя или поле точки", "in gpu func the left side is a name or a point field",
+    "в поле u64 число больше, чем влезает в int", "the u64 field has a number bigger than fits in int",
+    "число не влезает в поле i8: от -128 до 127", "the number does not fit in an i8 field: from -128 to 127",
+    "main запускается сама, её нельзя вызывать", "main starts by itself, it cannot be called",
+    "в условии сравнение пишется двумя знаками", "in a condition comparison is written with two signs",
+    "zone_take: размер должен быть больше нуля", "zone_take: the size must be more than zero",
+    "не то количество значений, правильно так", "wrong number of values, the right way is",
+    "byte_char(200)  →  текст из одного байта", "byte_char(200)  →  text of one byte",
+    "net_connect(\"example.com\", 80)  →  связь", "net_connect(\"example.com\", 80)  →  connection",
+    "window_open(ширина, высота, \"заголовок\")", "window_open(width, height, \"title\")",
+    "shared пишется только у новой переменной", "shared is written only for a new variable",
+    "справа должен быть вызов функции с gives", "the right side must be a call of a function with gives",
+    "у этой функции один выход, пиши  x = ...", "this function has one output, write  x = ...",
+    "background с link или строкой by columns", "background with link or a by columns list",
+    "on all cores и by vec вместе пока нельзя", "on all cores and by vec cannot go together yet",
+    "не понимаю, что делает строка, начиная с", "I do not understand what the line does, starting from",
+    "grow_mem: размер должен быть больше нуля", "grow_mem: the size must be more than zero",
+    "zone_new: размер должен быть больше нуля", "zone_new: the size must be more than zero",
+    "канал уже закрыт: в него больше не пишут", "the channel is already closed: nothing more is written into it",
+    "сначала открой главное окно: window_open", "open the main window first: window_open",
+    "screen_shader: в программе нет gpu func ", "screen_shader: the program has no gpu func ",
+    "запасное значение после or другого типа", "the fallback value after or has another type",
+    "and / or работают только с true и false", "and / or work only with true and false",
+    "списки и объекты пока нельзя сравнивать", "lists and objects cannot be compared yet",
+    "в одном списке все значения одного типа", "all values in one list have the same type",
+    "(голос, во сколько раз)  — 1.0 как было", "(voice, how many times)  — 1.0 as it was",
+    "camera(x, y, z, куда x, куда y, куда z)", "camera(x, y, z, look x, look y, look z)",
+    "load_font(\"шрифт.ttf\")  →  номер шрифта", "load_font(\"font.ttf\")  →  font number",
+    "skip и stop пишутся только внутри цикла", "skip and stop are written only inside a loop",
+    "у enum должен быть хотя бы один вариант", "an enum must have at least one variant",
+    " нет main.tb — с него начинается проект", " there is no main.tb — a project starts with it",
+    "подробности для разработчиков Tachbit: ", "details for Tachbit developers: ",
+    "после этой строки нужен блок с отступом", "this line needs an indented block after it",
+    "new_mem: размер должен быть больше нуля", "new_mem: the size must be more than zero",
+    "число не влезает в поле u8: от 0 до 255", "the number does not fit in a u8 field: from 0 to 255",
+    "эта операция работает только с числами", "this operation works only with numbers",
+    "zone_used(зона)  →  сколько байт взято", "zone_used(zone)  →  how many bytes are taken",
+    "byte_at(текст, номер байта)  →  0..255", "byte_at(text, byte number)  →  0..255",
+    "find(текст, что ищем)  →  номер или -1", "find(text, what to find)  →  number or -1",
+    "load_sound(\"звук.wav\")  →  номер звука", "load_sound(\"sound.wav\")  →  sound number",
+    "draw_text(x, y, \"текст\", размер, цвет)", "draw_text(x, y, \"text\", size, color)",
+    "у функций C аргументы пишутся без имён", "arguments of C functions are written without names",
+    "else пишется последним вариантом match", "else is written as the last variant of match",
+    "у списка в JSON номер — число, а тут: ", "a JSON list index is a number, but here: ",
+    "в поле u64 не бывает чисел меньше нуля", "a u64 field has no numbers below zero",
+    "Metal: шейдеры gpu func не собрались: ", "Metal: gpu func shaders did not build: ",
+    "shader_image: слот картинки 0…3, а не ", "shader_image: picture slot is 0…3, not ",
+    "OGG пока не умею: сохрани звук как WAV", "OGG is not supported yet: save the sound as WAV",
+    "размер куска в by должен быть больше 0", "the piece size in by must be more than 0",
+    "поменять:  tb lang en  или  tb lang ru", "to change:  tb lang en  or  tb lang ru",
+    "draw_rect(x, y, ширина, высота, цвет)", "draw_rect(x, y, width, height, color)",
+    "точка с качеством бывает только у obj", "a dot with a field is only for obj",
+    "раньше эта функция вернула другой тип", "earlier this function returned another type",
+    " fail нельзя: пиши  or  или  else err", " fail is not allowed: write  or  or  else err",
+    "у shape должно быть хотя бы одно поле", "a shape must have at least one field",
+    "это вся точка шейдера; пиши её поле: ", "this is the whole shader point; write its field: ",
+    "count в gpu func идёт по целым числам", "count in gpu func goes over whole numbers",
+    "больше 6 параметров вместе с выходами", "more than 6 parameters together with outputs",
+    "screen_set: в программе нет gpu func ", "screen_set: the program has no gpu func ",
+    "kernel_symbol(\"имя\")  →  адрес или 0", "kernel_symbol(\"name\")  →  address or 0",
+    "sound_playing(голос)  →  ещё играет?", "sound_playing(voice)  →  still playing?",
+    "mesh_shine(сетка, блеск 0…1) — блики", "mesh_shine(mesh, shine 0…1) — highlights",
+    "у методов аргументы пишутся без имён", "arguments of methods are written without names",
+    "запуск:  qemu-system-x86_64 -kernel ", "run:  qemu-system-x86_64 -kernel ",
+    "else без if над ним (проверь отступ)", "else without an if above it (check the indentation)",
+    "эта команда будет в следующей версии", "this command will come in the next version",
+    "replace: что заменять — пустой текст", "replace: what to replace is an empty text",
+    "sqrt: корень из отрицательного числа", "sqrt: root of a negative number",
+    "TB_MEM_CHECK: не освобождено блоков ", "TB_MEM_CHECK: blocks not freed ",
+    "видеокарта не приняла шейдер экрана ", "the GPU did not accept the screen shader ",
+    "видеокарта не собрала шейдер экрана ", "the GPU did not build the screen shader ",
+    "read_key()  →  нажатая буква или \"\"", "read_key()  →  the pressed letter or \"\"",
+    "unix_time()  →  секунды с 1970 года", "unix_time()  →  seconds since 1970",
+    "у main не бывает параметров и gives", "main has no parameters and no gives",
+    "новый проект делается так:  tb new ", "a new project is made like this:  tb new ",
+    "/main.tb   — здесь пишешь программу", "/main.tb   — write your program here",
+    "готовую программу некуда положить: ", "there is nowhere to put the finished program: ",
+    "Tachbit 1.3 (компилятор на Tachbit)", "Tachbit 1.3 (compiler written in Tachbit)",
+    "modpub и modpri ставятся перед func", "modpub and modpri go before func",
+    "(x, y) ждёт два числа: точку экрана", "(x, y) expects two numbers: a screen point",
+    "в gpu func тип пишется сам: x = 0.5", "in gpu func the type is written by itself: x = 0.5",
+    "нельзя переместить на другой диск: ", "cannot move to another disk: ",
+    " байт), первый из new_mem в строке ", " bytes), the first from new_mem on line ",
+    "остаток % считается только для int", "remainder % is only for int",
+    "ядро берёт файл с собой, а его нет", "the kernel takes the file with it, but the file is missing",
+    "не тот тип значения, правильно так", "wrong type of value, the right way is",
+    "file_size(\"путь\")  →  байты или -1", "file_size(\"path\")  →  bytes or -1",
+    "не то количество значений в вызове", "wrong number of values in the call",
+    "функция прерывания не бывает for c", "an interrupt function cannot be for c",
+    "not работает только с true и false", "not works only with true and false",
+    "минус ставится только перед числом", "minus goes only before a number",
+    "значение не того типа, что написан", "the value is not of the type written",
+    "match разбирает enum, int или text", "match takes apart an enum, int or text",
+    "на это прерывание уже есть функция", "there is already a function for this interrupt",
+    ": свой машинный код пока не умеет ", ": own machine code cannot do this yet: ",
+    "byte_at: номер за пределами текста", "byte_at: number outside the text",
+    "не получилось запустить background", "could not start background",
+    "syscall есть только на Linux и Mac", "syscall exists only on Linux and Mac",
+    "такое имя уже есть, возьми другое", "this name is already taken, pick another",
+    "light_off(номер) — погасить лампу", "light_off(number) — turn off a lamp",
+    "так уже называется модуль Tachbit", "a Tachbit module already has this name",
+    "[номер] берут у списка или текста", "[number] is taken from a list or a text",
+    "уже есть папка или файл с именем ", "there is already a folder or file named ",
+    "repeat ... times ждёт целое число", "repeat ... times expects a whole number",
+    "split: разделитель — пустой текст", "split: the separator is an empty text",
+    "в шрифте нет таблицы букв Unicode", "the font has no Unicode letter table",
+    "объект пустой: его ещё не создали", "the object is empty: it was not created yet",
+    "у этого списка есть второе имя: ", "this list has a second name: ",
+    " — move отдал бы его сразу двоим", " — move would give it to two at once",
+    " берут в разном порядке: где-то ", " are taken in different order: somewhere ",
+    "net_port(сервер)  →  номер порта", "net_port(server)  →  port number",
+    ".send кладёт ровно одно значение", ".send puts exactly one value",
+    "match разбирает не все варианты ", "match does not handle all variants of ",
+    "чтение или запись за краем блока", "reading or writing past the edge of a block",
+    "copy_mem: число байт меньше нуля", "copy_mem: the number of bytes is less than zero",
+    "zone_new: слишком большой размер", "zone_new: the size is too big",
+    "fill_mem: число байт меньше нуля", "fill_mem: the number of bytes is less than zero",
+    "не могу открыть окно: нет экрана", "cannot open the window: no screen",
+    "в WAV нет звука (нет куска data)", "the WAV has no sound (no data chunk)",
+    "remove(\"файл или пустая папка\")", "remove(\"file or empty folder\")",
+    "draw_circle(x, y, радиус, цвет)", "draw_circle(x, y, radius, color)",
+    "draw_line(x1, y1, x2, y2, цвет)", "draw_line(x1, y1, x2, y2, color)",
+    "этот ярлык уже был другого типа", "this link already had another type",
+    "в этом модуле нет такой функции", "this module has no such function",
+    "эта функция C уже написана выше", "this C function is already written above",
+    "по этому каналу идёт другой тип", "this channel carries another type",
+    ".add кладёт ровно одно значение", ".add puts exactly one value",
+    "в этот список кладут другой тип", "this list holds another type",
+    "ключ у dict бывает text или int", "a dict key is text or int",
+    "чтобы создать obj, нужны скобки", "brackets are needed to make an obj",
+    "в этом enum нет такого варианта", "this enum has no such variant",
+    "у этого obj нет такого качества", "this obj has no such field",
+    "общую shared-переменную внутри ", "the common shared variable inside ",
+    "такая общая переменная уже есть", "this shared variable already exists",
+    "напиши имя проекта:  tb new имя", "write the project name:  tb new name",
+    "const нужно сразу дать значение", "a const needs a value right away",
+    "в gpu func нет такой переменной", "no such variable in gpu func",
+    "после repeat while нужно да/нет", "after repeat while yes/no is needed",
+    "cut: номера за пределами текста", "cut: numbers outside the text",
+    ": блок уже освобождён в строке ", ": the block was already freed on line ",
+    "такую глубину цвета PNG не умею", "this PNG color depth is not supported",
+    "не могу прочитать файл картинки", "cannot read the picture file",
+    "шрифт сломан: нет нужных таблиц", "the font is broken: tables are missing",
+    "Packet at адрес  (адрес — int)", "Packet at address  (address — int)",
+    "поле shape читается так: p.len", "a shape field is read like this: p.len",
+    "join(список text, разделитель)", "join(list text, separator)",
+    "sort(список int, dec или text)", "sort(list int, dec or text)",
+    "ключ у этого dict другого типа", "the key of this dict has another type",
+    ".clear() есть у списков и dict", ".clear() is on lists and dict",
+    "номер в списке должен быть int", "a list index must be int",
+    "у функции другое число выходов", "the function has another number of outputs",
+    "этот вариант уже разобран выше", "this variant is already handled above",
+    "готова программа для Омниума: ", "program for Omnium ready: ",
+    "не получилось собрать ядро из ", "could not build the kernel from ",
+    "у шейдера не больше 8 настроек", "a shader has no more than 8 settings",
+    "obj пустой: его ещё не создали", "the obj is empty: it was not created yet",
+    "JSON сломан: не могу разобрать", "JSON is broken: cannot read it",
+    "порт должен быть от 0 до 65535", "the port must be from 0 to 65535",
+    "порт должен быть от 1 до 65535", "the port must be from 1 to 65535",
+    "grow_mem: слишком большой блок", "grow_mem: the block is too big",
+    "видеокарта не собрала шейдеры ", "the GPU did not build the shaders ",
+    "не нашёл домашнюю папку (HOME)", "could not find the home folder (HOME)",
+    "не то количество значений: у ", "wrong number of values: ",
+    ".clear() пишется без значений", ".clear() is written without values",
+    "счётчик count должен быть int", "the count counter must be int",
+    "new_mem: слишком большой блок", "new_mem: the block is too big",
+    "не могу прочитать файл шрифта", "cannot read the font file",
+    "видеокарта не приняла шейдер ", "the GPU did not accept the shader ",
+    "copy_mem(куда, откуда, байт)", "copy_mem(to, from, bytes)",
+    "нет параметра с таким именем", "no parameter with this name",
+    "это переменная, а не функция", "this is a variable, not a function",
+    "в ядре без ОС use c пока нет", "there is no use c in a kernel without an OS yet",
+    " меняют под замком: lock имя", " is changed under a lock: lock name",
+    "слишком глубокая вложенность", "nesting is too deep",
+    "не хватило памяти для уборки", "out of memory for cleanup",
+    "не получилось запустить ядро", "could not start a core",
+    "zone_take: не хватило памяти", "zone_take: out of memory",
+    "не могу прочитать файл звука", "cannot read the sound file",
+    "нет такого типа, obj и enum", "no such type, obj or enum",
+    "нельзя сравнить разные типы", "cannot compare different types",
+    "len(список, текст или dict)", "len(list, text or dict)",
+    "replace(текст, что, на что)", "replace(text, what, with what)",
+    "net_close(связь или сервер)", "net_close(connection or server)",
+    ".pop() пишется без значений", ".pop() is written without values",
+    "здесь нужно целое число int", "a whole number int is needed here",
+    "этот замок уже отпущен выше", "this lock is already released above",
+    "без clang не вышло, смотри ", "without clang it did not work, see ",
+    "минус ставится перед числом", "minus goes before a number",
+    " бывает только внутри цикла", " is only inside a loop",
+    "две gpu func с одним именем", "two gpu func with the same name",
+    "настройка шейдера — число: ", "a shader setting is a number: ",
+    " (блок из new_mem в строке ", " (block from new_mem on line ",
+    "кто-то писал за краем блока", "someone wrote past the edge of a block",
+    "grow_mem: не хватило памяти", "grow_mem: out of memory",
+    "zone_new: не хватило памяти", "zone_new: out of memory",
+    "JPEG не 8 бит: пока не умею", "JPEG that is not 8 bit is not supported yet",
+    "shader_image: нет картинки ", "shader_image: no picture ",
+    "слишком много разных типов", "too many different types",
+    "так уже называется функция", "a function already has this name",
+    "функцию зовут из-под lock ", "the function is called under lock ",
+    "starts_with(текст, начало)", "starts_with(text, start)",
+    "move_sound(голос, x, y, z)", "move_sound(voice, x, y, z)",
+    "draw_image(картинка, x, y)", "draw_image(picture, x, y)",
+    "mesh_new()  →  номер сетки", "mesh_new()  →  mesh number",
+    "текст в кавычках не закрыт", "the text in quotes is not closed",
+    "считать можно только числа", "only numbers can be counted",
+    " с таким числом параметров", " with this number of parameters",
+    "остаток от деления на ноль", "remainder of division by zero",
+    "не отправил: связь закрыта", "not sent: the connection is closed",
+    "new_mem: не хватило памяти", "new_mem: out of memory",
+    "Metal: нет шейдера экрана ", "Metal: no screen shader ",
+    " (шейдера точки или углов)", " (pixel or corner shader)",
+    " дошла до конца без return", " reached the end without return",
+    "язык сообщений: английский", "message language: English",
+    "write_file(\"путь\", текст)", "write_file(\"path\", text)",
+    "split(текст, разделитель)", "split(text, separator)",
+    "это имя уже есть в списке", "this name is already in the list",
+    "ожидалось значение, а тут", "a value was expected, but here is",
+    "not ставится перед да/нет", "not goes before yes/no",
+    "номер за пределами списка", "index outside the list",
+    "номер за пределами текста", "index outside the text",
+    "в списке JSON нет номера ", "the JSON list has no index ",
+    ": это не адрес из new_mem", ": this is not an address from new_mem",
+    "нет такого файла картинки", "no such picture file",
+    "нет такого файла шрифта: ", "no such font file: ",
+    "set_cursor: нет курсора «", "set_cursor: no cursor «",
+    "слишком много переменных", "too many variables",
+    "параметр указан два раза", "the parameter is given twice",
+    "параметр ждёт другой тип", "the parameter expects another type",
+    "все значения одного типа", "all values have the same type",
+    "bytes — кусок памяти: p.", "bytes is a piece of memory: p.",
+    "нет памяти на видеокарте", "no memory on the GPU",
+    "размер окна от 1 до 8192", "window size is from 1 to 8192",
+    "окон больше 16 не бывает", "there are no more than 16 windows",
+    "(звук)  →  номер голоса", "(sound)  →  voice number",
+    "переменная другого типа", "the variable has another type",
+    " (или добавь else), нет", " (or add else), missing",
+    "строка ничего не делает", "the line does nothing",
+    "bytes бывает от 1 байта", "bytes starts from 1 byte",
+    "нет проекта или файла: ", "no project or file: ",
+    "не могу сделать папку: ", "cannot make the folder: ",
+    "не могу записать файл: ", "cannot write the file: ",
+    " нет такого поля (есть ", " has no such field (there are ",
+    "не тот тип у аргумента ", "wrong type of argument ",
+    ".pop() у пустого списка", ".pop() on an empty list",
+    "не могу открыть папку: ", "cannot open the folder: ",
+    "не могу создать папку: ", "cannot make the folder: ",
+    "порт занят или закрыт: ", "the port is busy or closed: ",
+    "не дождался подключения", "no one connected",
+    "JPEG CMYK: пока не умею", "JPEG CMYK is not supported yet",
+    "такой размер не годится", "this size does not fit",
+    "язык сообщений: русский", "message language: Russian",
+    "так уже называется obj", "an obj already has this name",
+    "move(\"откуда\", \"куда\")", "move(\"from\", \"to\")",
+    "net_send(связь, текст)", "net_send(connection, text)",
+    "clipboard_set(\"текст\")", "clipboard_set(\"text\")",
+    "draw_pixel(x, y, цвет)", "draw_pixel(x, y, color)",
+    "у функции нужны скобки", "the function needs brackets",
+    "здесь лежит другой тип", "another type lies here",
+    "такой вариант уже есть", "this variant already exists",
+    "bits бывает от 1 до 64", "bits goes from 1 to 64",
+    "не могу открыть файл: ", "cannot open the file: ",
+    "после = нужно значение", "a value is needed after =",
+    " бывает только у чисел", " is only for numbers",
+    "это не дробное число: ", "this is not a decimal number: ",
+    "не могу запустить curl", "cannot start curl",
+    "такой BMP пока не умею", "this BMP is not supported yet",
+    "слишком много картинок", "too many pictures",
+    "screen_set: у шейдера ", "screen_set: shader ",
+    "нет такого файла звука", "no such sound file",
+    "качество другого типа", "the field has another type",
+    "нужен ровно один ключ", "exactly one key is needed",
+    "все ключи одного типа", "all keys have the same type",
+    "each ... by N внутри ", "each ... by N is not allowed inside ",
+    "слишком много функций", "too many functions",
+    "значение другого типа", "the value has another type",
+    "слишком много модулей", "too many modules",
+    "лишнее в конце строки", "extra text at the end of the line",
+    "так сравнивать нельзя", "cannot compare like this",
+    "в gpu func так нельзя", "this is not allowed in gpu func",
+    "после if нужно да/нет", "after if yes/no is needed",
+    "пустое значение типа ", "empty value of type ",
+    "не могу переместить: ", "cannot move: ",
+    ": блок уже освобождён", ": the block is already freed",
+    "шрифт сломан: размеры", "the font is broken: sizes",
+    "TB_GPU_CHECK: кадров ", "TB_GPU_CHECK: frames ",
+    "не собрался конвейер:", "the pipeline did not build:",
+    "Metal: шейдер экрана ", "Metal: screen shader ",
+    "(картинка)  →  точки", "(picture)  →  points",
+    "пишется без значений", "is written without values",
+    "нет такой переменной", "no such variable",
+    " нет такого варианта", " there is no such variant",
+    "здесь нужен вариант ", "the variant needed here is ",
+    "вариант другого типа", "the variant has another type",
+    " — возьми другое имя", " — pick another name",
+    "ожидалось имя, а тут", "a name was expected, but here is",
+    "не могу открыть сеть", "cannot open the network",
+    "не могу слушать порт", "cannot listen on the port",
+    "видеокарта (Vulkan, ", "GPU (Vulkan, ",
+    "нет библиотеки Metal", "no Metal library",
+    "не могу открыть окно", "cannot open the window",
+    "call_address(адрес)", "call_address(address)",
+    "file_exists(\"путь\")", "file_exists(\"path\")",
+    "make_folder(\"путь\")", "make_folder(\"path\")",
+    "такое поле уже есть", "this field already exists",
+    " ждёт целых чисел: ", " expects whole numbers: ",
+    "справа нет значения", "there is no value on the right",
+    " (собери без --own)", " (build without --own)",
+    "минус у такого типа", "minus for such a type",
+    "больше 6 параметров", "more than 6 parameters",
+    "окно ещё не открыто", "the window is not open yet",
+    "TB_GPU_CHECK: кадр ", "TB_GPU_CHECK: frame ",
+    ": не совпало точек ", ": points differ ",
+    "Metal: нет шейдера ", "Metal: no shader ",
+    "шейдер не собрался:", "the shader did not build:",
+    "нет функций шейдера", "no shader functions",
+    "видеокарта (Metal, ", "GPU (Metal, ",
+    "ошибка: window_use(", "error: window_use(",
+    "номерок background", "background ticket",
+    "address_of(список)", "address_of(list)",
+    "window_close(окно)", "window_close(window)",
+    "clear_window(цвет)", "clear_window(color)",
+    "нет такого файла C", "no such C file",
+    "это имя уже занято", "this name is already taken",
+    ".a и -lm -lpthread", ".a and -lm -lpthread",
+    "запуск:  tb start ", "run:  tb start ",
+    "такой тип в тексте", "such a type in a text",
+    " у такого значения", " for such a value",
+    "code: текст пустой", "code: the text is empty",
+    "в JSON нет ключа: ", "no key in JSON: ",
+    "в dict нет ключа: ", "no key in dict: ",
+    "в PNG нет картинки", "the PNG has no picture",
+    "файл JPEG испорчен", "the JPEG file is broken",
+    "нет такой картинки", "no such picture",
+    "нет глубины для 3D", "no depth for 3D",
+    "): нет такого окна", "): no such window",
+    "Привет из проекта ", "Hello from project ",
+    "несколько выходов", "several outputs",
+    "нет такой функции", "no such function",
+    "read_file(\"путь\")", "read_file(\"path\")",
+    "is_folder(\"путь\")", "is_folder(\"path\")",
+    "stop_sound(голос)", "stop_sound(voice)",
+    "слишком много obj", "too many obj",
+    "слишком много use", "too many use",
+    "непонятный символ", "unknown symbol",
+    "нет файла для use", "no file for use",
+    "(готовые шейдеры)", "(ready shaders)",
+    "ожидалась команда", "a command was expected",
+    "link здесь нельзя", "link is not allowed here",
+    " соединяет да/нет", " joins yes/no",
+    " ждёт целые числа", " expects whole numbers",
+    "len у такого типа", "len for such a type",
+    "не хватило памяти", "out of memory",
+    "папка не пустая: ", "the folder is not empty: ",
+    "не могу удалить: ", "cannot remove: ",
+    "не подключился к ", "could not connect to ",
+    "файл GIF испорчен", "the GIF file is broken",
+    "слишком много or", "too many or",
+    " нет такого поля", " there is no such field",
+    "нет такого shape", "no such shape",
+    " (нужен python3)", " (python3 is needed)",
+    " пишется число: ", " comes a number: ",
+    "d[k] += у текста", "d[k] += for text",
+    "a, b = ... здесь", "a, b = ... here",
+    "» в начале файла", "» at the start of the file",
+    "не нашёл адрес: ", "address not found: ",
+    "связь оборвалась", "the connection broke",
+    "файл PNG обрезан", "the PNG file is cut off",
+    "файл BMP обрезан", "the BMP file is cut off",
+    ", 3D тоже на ней", ", 3D on it too",
+    "окно уже открыто", "the window is already open",
+    "free_mem(адрес)", "free_mem(address)",
+    "параметры типа ", "parameters of type ",
+    "деление на ноль", "division by zero",
+    "Metal: шейдеры ", "Metal: shaders ",
+    " не собрались: ", " did not build: ",
+    " нет настройки ", " has no setting ",
+    "это не WAV-файл", "this is not a WAV file",
+    "bit_not(число)", "bit_not(number)",
+    "(адрес, число)", "(address, number)",
+    "asm(\"команда\")", "asm(\"instruction\")",
+    "(номер модуля)", "(module number)",
+    "random(от, до)", "random(from, to)",
+    " return нельзя", " return is not allowed",
+    " (и код на C: ", " (and the C code: ",
+    " у такого типа", " for such a type",
+    "параметры link", "link parameters",
+    "это не число: ", "this is not a number: ",
+    "нет видеокарты", "no GPU",
+    " не собрался: ", " did not build: ",
+    "(порт, число)", "(port, number)",
+    "через clang: ", "through clang: ",
+    "функция в C: ", "function in C: ",
+    "готов проект ", "project ready ",
+    "готово ядро: ", "kernel ready: ",
+    "лишний отступ", "extra indentation",
+    "ожидался знак", "a sign was expected",
+    " ждёт чисел: ", " expects numbers: ",
+    "ввод кончился", "input ended",
+    "пустая память", "empty memory",
+    "окно: рисует ", "window: drawn by ",
+    ": видеокарта ", ": GPU ",
+    "round(число)", "round(number)",
+    "upper(текст)", "upper(text)",
+    " пока нельзя", " yet",
+    "встроенная: ", "built-in: ",
+    "КОНЕЦ СТРОКИ", "END OF LINE",
+    "конец строки", "end of line",
+    "ВЫЗОВ-СТРОКА", "CALL-LINE",
+    "такие списки", "such lists",
+    "печать типа ", "printing of type ",
+    "shared типа ", "shared of type ",
+    " мс, чистка ", " ms, sweep ",
+    "PNG испорчен", "the PNG is broken",
+    ", разошлось ", ", differed ",
+    ", процессор ", ", CPU ",
+    "sqrt(число)", "sqrt(number)",
+    "КОНЕЦ ФАЙЛА", "END OF FILE",
+    "конец блока", "end of block",
+    "конец файла", "end of file",
+    "GPU ФУНКЦИЯ", "GPU FUNCTION",
+    " ждёт числа", " expects numbers",
+    ", а обещано", ", but promised",
+    "переменную ", "variable ",
+    "ответ типа ", "answer of type ",
+    " МБ, обход ", " MB, mark ",
+    "это не JPEG", "this is not a JPEG",
+    ", первая x=", ", first x=",
+    "abs(число)", "abs(number)",
+    "ошибок нет", "no errors",
+    ", а справа", ", and on the right",
+    " у дробных", " for decimals",
+    "такие dict", "such dict",
+    " МБ, было ", " MB, was ",
+    "уже есть: ", "already exists: ",
+    "это не PNG", "this is not a PNG",
+    "это не BMP", "this is not a BMP",
+    "это не GIF", "this is not a GIF",
+    "exit(код)", "exit(code)",
+    "параметр ", "parameter ",
+    " at адрес", " at address",
+    " (строка ", " (line ",
+    ", строка ", ", line ",
+    "ПРОГРАММА", "PROGRAM",
+    "ПРИСВОИТЬ", "ASSIGN",
+    "НЕСКОЛЬКО", "SEVERAL",
+    "ОДИНОЧНАЯ", "UNARY",
+    "ФУНКЦИЯ C", "C FUNCTION",
+    "такие obj", "such obj",
+    " у текста", " for text",
+    "процессор", "CPU",
+    "в use c ", "in use c ",
+    "в shape ", "in shape ",
+    "в папке ", "in the folder ",
+    "готово: ", "done: ",
+    "ПАРАМЕТР", "PARAMETER",
+    "ИЗМЕНИТЬ", "CHANGE",
+    "АРГУМЕНТ", "ARGUMENT",
+    "ОПЕРАЦИЯ", "OPERATION",
+    "КАЧЕСТВО", "FIELD",
+    " вместо ", " instead of ",
+    "[уборка ", "[cleanup ",
+    ": нужно ", ": need ",
+    "ошибка: ", "error: ",
+    "функция ", "function ",
+    "внутри ", "inside ",
+    " потом ", " then ",
+    "(адрес)", "(address)",
+    "(число)", "(number)",
+    "КОМАНДА", "COMMAND",
+    "ФУНКЦИЯ", "FUNCTION",
+    "СЛОВАРЬ", "DICT",
+    "ВАРИАНТ", "VARIANT",
+    "ВЫЗОВ C", "C CALL",
+    "отдаёт ", "gives ",
+    "шейдер ", "shader ",
+    "строка ", "line ",
+    " у bool", " for bool",
+    "ничего", "nothing",
+    "замки ", "locks ",
+    "(порт)", "(port)",
+    "(зона)", "(zone)",
+    " ждёт ", " expects ",
+    " (вид)", " (kind)",
+    "ОТСТУП", "INDENT",
+    "ВЫСТУП", "DEDENT",
+    "после ", "after ",
+    "ДА/НЕТ", "YES/NO",
+    "СПИСОК", "LIST",
+    "ИНДЕКС", "INDEX",
+    "слева ", "left ",
+    "дробь ", "decimal ",
+    "слово ", "word ",
+    " здесь", " here",
+    "число ", "number ",
+    " (код ", " (code ",
+    "пусто", "empty",
+    "ЧИСЛО", "NUMBER",
+    "ДРОБЬ", "DECIMAL",
+    "ТЕКСТ", "TEXT",
+    "ЯРЛЫК", "LINK",
+    "ВЫЗОВ", "CALL",
+    "МЕТОД", "METHOD",
+    " тип ", " type ",
+    "знак ", "sign ",
+    " или ", " or ",
+    " их ", " has ",
+    "ЗНАК", "SIGN",
+    "БЛОК", "BLOCK",
+    "ЕСЛИ", "IF",
+    " мс]", " ms]",
+    " из ", " of ",
+    " и ", " and ",
+    "ИМЯ", "NAME",
+    "ТИП", "TYPE",
+    "в ", "in ",
+    "у ", "",
+    0, 0 };
+// ---- TB_LANG_TAB конец ----
+static int tb_lang_en_v = -1;
+TB_API int tb_lang_en(void) {
+    if (tb_lang_en_v >= 0) return tb_lang_en_v;
+    int en = -1;
+    const char *e = getenv("TB_LANG");
+    if (e && *e) en = e[0] != 'r';
+    if (en < 0) {
+        const char *h = getenv("HOME");
+        if (!h || !*h) h = getenv("USERPROFILE");
+        if (h && *h) {
+            char path[1024];
+            snprintf(path, sizeof path, "%s/.tachbit/lang", h);
+            FILE *f = fopen(path, "r");
+            if (f) { int c = fgetc(f); fclose(f); if (c == 'r' || c == 'e') en = c == 'e'; }
+        }
+    }
+    if (en < 0) {
+        const char *l = getenv("LC_ALL");
+        if (!l || !*l) l = getenv("LC_MESSAGES");
+        if (!l || !*l) l = getenv("LANG");
+        en = !(l && l[0] == 'r' && l[1] == 'u');
+    }
+    tb_lang_en_v = en;
+    return en;
+}
+TB_API const char *tb_tr(const char *s) {
+    if (!s || !tb_lang_en()) return s;
+    const unsigned char *c = (const unsigned char *)s;
+    while (*c && *c != 0xD0 && *c != 0xD1) c++;   // русских букв нет — нечего менять
+    if (!*c) return s;
+    size_t cap = strlen(s) * 2 + 64;
+    char *out = (char *)malloc(cap);
+    if (!out) return s;
+    strcpy(out, s);
+    for (int i = 0; tb_lang_tab[i]; i += 2) {
+        const char *ru = tb_lang_tab[i], *en = tb_lang_tab[i + 1];
+        char *hit = strstr(out, ru);
+        if (!hit) continue;
+        size_t rl = strlen(ru), el = strlen(en);
+        while (hit) {
+            size_t pos = (size_t)(hit - out), ol = strlen(out), need = ol - rl + el + 1;
+            if (need > cap) { cap = need * 2; char *n = (char *)realloc(out, cap); if (!n) return out; out = n; }
+            memmove(out + pos + el, out + pos + rl, ol - pos - rl + 1);
+            memcpy(out + pos, en, el);
+            hit = strstr(out + pos + el, ru);
+        }
+    }
+    return out;
+}
+#endif
+
 TB_COLD TB_API void tb_crash(int line, const char *msg) {
 #ifdef TB_BARE
     if (tb_cell_can_fall()) tb_cell_fall(msg, line);
@@ -218,8 +1129,8 @@ TB_COLD TB_API void tb_crash(int line, const char *msg) {
     // в терминале — красным (если не задан NO_COLOR)
     int color = isatty(2) && getenv("NO_COLOR") == 0;
     if (color) fputs("\033[31m", stderr);
-    if (line > 0) fprintf(stderr, "строка %d: %s", line, msg);
-    else fprintf(stderr, "%s", msg);
+    if (line > 0) fprintf(stderr, tb_tr("строка %d: %s"), line, tb_tr(msg));
+    else fprintf(stderr, "%s", tb_tr(msg));
     fputs(color ? "\033[0m\n" : "\n", stderr);
     exit(1);
 }
@@ -263,9 +1174,11 @@ TB_API void tb_on_segv(int sig, siginfo_t *si, void *u) {
     }
     const char *m;
     if (tb_main_sp && a <= tb_main_sp + 65536 && a >= tb_main_sp - lim - (1 << 20))
-        m = "стек переполнен: функция зовёт себя слишком глубоко (рекурсия без конца?)\n";
+        m = tb_lang_en_v == 1 ? "the stack is full: a function calls itself too deep (endless recursion?)\n"
+                              : "стек переполнен: функция зовёт себя слишком глубоко (рекурсия без конца?)\n";
     else
-        m = "программа упала: ошибка памяти. Это ошибка Tachbit, а не твоя: пришли, пожалуйста, эту программу\n";
+        m = tb_lang_en_v == 1 ? "the program crashed: memory error. This is a Tachbit bug, not yours: please send this program\n"
+                              : "программа упала: ошибка памяти. Это ошибка Tachbit, а не твоя: пришли, пожалуйста, эту программу\n";
     if (write(2, m, strlen(m)) < 0) _exit(1);
     _exit(1);
 }
@@ -322,7 +1235,8 @@ TB_API void tb_win_fatal(const char *m) {
     WriteFile(GetStdHandle(STD_ERROR_HANDLE), m, (DWORD)strlen(m), &w, 0);
     TerminateProcess(GetCurrentProcess(), 1);   // как _exit(1): без уборки, она может упасть ещё раз
 }
-#define TB_WIN_STACK_MSG "стек переполнен: функция зовёт себя слишком глубоко (рекурсия без конца?)\n"
+#define TB_WIN_STACK_MSG (tb_lang_en_v == 1 ? "the stack is full: a function calls itself too deep (endless recursion?)\n" \
+                                            : "стек переполнен: функция зовёт себя слишком глубоко (рекурсия без конца?)\n")
 // переполнение стека — сразу (это никогда не «нормальное» исключение)
 TB_API LONG CALLBACK tb_win_overflow(EXCEPTION_POINTERS *e) {
     if (e->ExceptionRecord->ExceptionCode == EXCEPTION_STACK_OVERFLOW) tb_win_fatal(TB_WIN_STACK_MSG);
@@ -375,6 +1289,7 @@ TB_API void tb_win_init(int *argc, char ***argv) {
 #define tb_guard_init() tb_win_init(&argc, &argv)
 #else
 TB_API void tb_guard_init(void) {
+    tb_lang_en();   // язык узнаём заранее: в обработчике падения уже нельзя читать файлы
     static char alt[65536];
     stack_t ss;
     ss.ss_sp = alt; ss.ss_size = sizeof alt; ss.ss_flags = 0;
@@ -925,7 +1840,7 @@ TB_API void tb_gc_collect(void) {
     long long cap = 2 * live > live + (512LL << 20) ? 2 * live : live + (512LL << 20);
     if (next > cap) next = cap;
     tb_gnext = next > (8LL << 20) ? next : (8LL << 20);
-    if (tb_gstats) fprintf(stderr, "[уборка %lld: нужно %lld МБ, было %lld МБ, обход %.1f мс, чистка %.1f мс]\n",
+    if (tb_gstats) fprintf(stderr, tb_tr("[уборка %lld: нужно %lld МБ, было %lld МБ, обход %.1f мс, чистка %.1f мс]\n"),
         tb_gruns, live >> 20, before >> 20, t1 - t0, tb_gnow() - t1);
 }
 // начало программы: top — адрес в кадре main, выше всех кадров программы
@@ -1353,7 +2268,7 @@ TB_API _Thread_local const char *tb_err = 0;   // у каждого ядра с�
 
 TB_COLD TB_API void tb_die(const char *msg) {
     fflush(stdout);
-    fprintf(stderr, "ошибка: %s\n", msg);
+    fprintf(stderr, tb_tr("ошибка: %s\n"), tb_tr(msg));
     exit(1);
 }
 
@@ -2397,7 +3312,7 @@ TB_API void tb_mem_report(void) {
     long long n = 0, bytes = 0; int first = 0;
     for (long long i = 0; i < tb_mem_n; i++)
         if (tb_mem_all[i].live) { if (!n) first = tb_mem_all[i].line; n++; bytes += (long long)tb_mem_all[i].n; }
-    if (n && tb_mem_check) fprintf(stderr, "TB_MEM_CHECK: не освобождено блоков %lld (%lld байт), первый из new_mem в строке %d\n", n, bytes, first);
+    if (n && tb_mem_check) fprintf(stderr, tb_tr("TB_MEM_CHECK: не освобождено блоков %lld (%lld байт), первый из new_mem в строке %d\n"), n, bytes, first);
 }
 // TB_MEM_CHECK: можно ли трогать байты [a, a + n)
 static void tb_mem_touch(uintptr_t a, uint64_t n, int line) {
@@ -2408,7 +3323,7 @@ static void tb_mem_touch(uintptr_t a, uint64_t n, int line) {
         uintptr_t lo = b->a - sizeof(tb_memh), hi = b->a + b->n + TB_MEM_GUARD;
         if (a + n <= lo || a >= hi) continue;
         if (!b->live) {
-            char buf[160];
+            char buf[400];
             snprintf(buf, sizeof buf, "эта память уже освобождена: free_mem в строке %d", b->fline);
             tb_mem_die(line, buf, b->line);
         }
@@ -2464,7 +3379,7 @@ TB_API long long tb_new_mem(long long n, int line) {
 }
 // проверить адрес для free_mem / grow_mem; вернуть заголовок блока
 static tb_memh *tb_mem_own(long long a, int line, const char *who) {
-    char buf[120];
+    char buf[400];
     if (tb_memchk()) {
         tb_mem_lock();
         tb_memb *b = tb_mem_find((uintptr_t)a);
@@ -2581,7 +3496,7 @@ TB_API long long tb_zone_new(long long n, int line) {
 static tb_zone *tb_zone_own(long long a, int line, const char *who) {
     tb_zone *z = (tb_zone *)(uintptr_t)a;
     if (!z || z->magic != TB_ZONE_LIVE) {
-        char buf[120];
+        char buf[400];
         snprintf(buf, sizeof buf, "%s: это не зона из zone_new или она уже освобождена", who);
         tb_crash(line, buf);
     }
@@ -4294,11 +5209,11 @@ TB_API int tb_gpu_want(void) {
 }
 TB_API void tb_gpu_say(const char *what) {
     const char *e = getenv("TB_GPU_INFO");
-    if ((e && e[0] == '1') || tb_gpu_check) fprintf(stderr, "окно: рисует %s\n", what);
+    if ((e && e[0] == '1') || tb_gpu_check) fprintf(stderr, tb_tr("окно: рисует %s\n"), what);
 }
 TB_API void tb_gpu_report(void) {
-    fprintf(stderr, "TB_GPU_CHECK: кадров %lld, разошлось %lld\n", tb_gpu_frames, tb_gpu_bad);
-    if (tb_gpu_shskip) fprintf(stderr, "TB_GPU_CHECK: кадров со своими шейдерами (не сверялись): %lld\n", tb_gpu_shskip);
+    fprintf(stderr, tb_tr("TB_GPU_CHECK: кадров %lld, разошлось %lld\n"), tb_gpu_frames, tb_gpu_bad);
+    if (tb_gpu_shskip) fprintf(stderr, tb_tr("TB_GPU_CHECK: кадров со своими шейдерами (не сверялись): %lld\n"), tb_gpu_shskip);
 }
 // ---- gpu func (1.3): шейдеры программы — их собрал компилятор Tachbit из gpu func ----
 // У каждого: имя, вид (0 — углы, 1 — точка), функция для процессора, SPIR-V, имена настроек по порядку.
@@ -4373,7 +5288,7 @@ TB_API void tb_gpu_compare(void) {
     if (bad) {
         tb_gpu_bad++;
         if (tb_gpu_bad <= 5)
-            fprintf(stderr, "TB_GPU_CHECK: кадр %lld: не совпало точек %lld, первая x=%lld y=%lld: видеокарта %06x, процессор %06x\n",
+            fprintf(stderr, tb_tr("TB_GPU_CHECK: кадр %lld: не совпало точек %lld, первая x=%lld y=%lld: видеокарта %06x, процессор %06x\n"),
                 tb_gpu_frames, bad, first % tb_gw, first / tb_gw, tb_gpu_back[first] & 0xFFFFFF, tb_px[first] & 0xFFFFFF);
     }
 }
@@ -6715,7 +7630,7 @@ static VkPipeline tb_vk_shpipe(int cs, int ps, int nowrite) {
     VkShaderModuleCreateInfo smv = { 16, 0, 0, tb_shaders[cs].bytes, tb_shaders[cs].spv }, smf = { 16, 0, 0, tb_shaders[ps].bytes, tb_shaders[ps].spv };
     VkShaderModule mv, mf;
     if (tbvk_CreateShaderModule(tb_vk.dev, &smv, 0, &mv) || tbvk_CreateShaderModule(tb_vk.dev, &smf, 0, &mf)) {
-        fprintf(stderr, "видеокарта не приняла шейдер %s или %s\n", tb_shaders[cs].name, tb_shaders[ps].name);
+        fprintf(stderr, tb_tr("видеокарта не приняла шейдер %s или %s\n"), tb_shaders[cs].name, tb_shaders[ps].name);
         return 0;
     }
     VkPipelineShaderStageCreateInfo st[2] = { { 18, 0, 0, 1, mv, "main", 0 }, { 18, 0, 0, 0x10, mf, "main", 0 } };
@@ -6736,7 +7651,7 @@ static VkPipeline tb_vk_shpipe(int cs, int ps, int nowrite) {
     VkGraphicsPipelineCreateInfo gci = { 28, 0, 0, 2, st, &vis, &ias, 0, &vps, &rs, &ms, &z3, &cbs, &dys, tb_vksh.pl, tb_vk.rp, 0, 0, -1 };
     VkPipeline p = 0;
     if (tbvk_CreateGraphicsPipelines(tb_vk.dev, 0, 1, &gci, 0, &p)) {
-        fprintf(stderr, "видеокарта не собрала шейдеры %s + %s\n", tb_shaders[cs].name, tb_shaders[ps].name);
+        fprintf(stderr, tb_tr("видеокарта не собрала шейдеры %s + %s\n"), tb_shaders[cs].name, tb_shaders[ps].name);
         return 0;
     }
     tb_vksh.bad[k] = 0;
@@ -6810,7 +7725,7 @@ static VkPipeline tb_vk_scrpipe(int ps) {
     tb_vkscr.bad[ps] = 1;
     VkShaderModuleCreateInfo smf = { 16, 0, 0, tb_shaders[ps].bytes, tb_shaders[ps].spv };
     VkShaderModule mf;
-    if (tbvk_CreateShaderModule(tb_vk.dev, &smf, 0, &mf)) { fprintf(stderr, "видеокарта не приняла шейдер экрана %s\n", tb_shaders[ps].name); return 0; }
+    if (tbvk_CreateShaderModule(tb_vk.dev, &smf, 0, &mf)) { fprintf(stderr, tb_tr("видеокарта не приняла шейдер экрана %s\n"), tb_shaders[ps].name); return 0; }
     VkPipelineShaderStageCreateInfo st[2] = { { 18, 0, 0, 1, tb_vkscr.vert, "main", 0 }, { 18, 0, 0, 0x10, mf, "main", 0 } };
     VkPipelineVertexInputStateCreateInfo vis = { 19, 0, 0, 0, 0, 0, 0 };
     VkPipelineInputAssemblyStateCreateInfo ias = { 20, 0, 0, 3, 0 };
@@ -6826,7 +7741,7 @@ static VkPipeline tb_vk_scrpipe(int ps) {
     VkPipelineDepthStencilStateCreateInfo z0 = { 25, 0, 0, 0, 0, 7, 0, 0, { 0 }, { 0 }, 0, 1 };   // глубину не трогает
     VkGraphicsPipelineCreateInfo gci = { 28, 0, 0, 2, st, &vis, &ias, 0, &vps, &rs, &ms, &z0, &cbs, &dys, tb_vkscr.pl, tb_vk.rp, 0, 0, -1 };
     VkPipeline p = 0;
-    if (tbvk_CreateGraphicsPipelines(tb_vk.dev, 0, 1, &gci, 0, &p)) { fprintf(stderr, "видеокарта не собрала шейдер экрана %s\n", tb_shaders[ps].name); return 0; }
+    if (tbvk_CreateGraphicsPipelines(tb_vk.dev, 0, 1, &gci, 0, &p)) { fprintf(stderr, tb_tr("видеокарта не собрала шейдер экрана %s\n"), tb_shaders[ps].name); return 0; }
     tb_vkscr.bad[ps] = 0;
     tb_vkscr.pipe[ps] = p;
     return p;
@@ -7835,7 +8750,7 @@ TB_API int tb_gpu_sh_ready(void) {
     tb_mtlsh.lib = ((id (*)(id, SEL, id, id, id *))objc_msgSend)(tb_mtl.dev, sel_getUid("newLibraryWithSource:options:error:"), tb_nsstr(tb_sh_msl), 0, &err);
     if (!tb_mtlsh.lib) {
         const char *d = err ? TB_MSG(const char *, TB_MSG(id, err, "localizedDescription"), "UTF8String") : "";
-        fprintf(stderr, "Metal: шейдеры gpu func не собрались: %s\n", d ? d : "");
+        fprintf(stderr, tb_tr("Metal: шейдеры gpu func не собрались: %s\n"), d ? d : "");
         return 0;
     }
     unsigned long sz = sizeof(float) * ((unsigned long)TB_SHR_N * TB_SHR_CAP + TB_SHB_CAP) * TB_GSLOTS;
@@ -7872,7 +8787,7 @@ static id tb_mtl_shpipe(int cs, int ps) {
     snprintf(fn, sizeof fn, "tbs_f_%s", tb_shaders[ps].name);
     id vf = TB_MSG1(id, tb_mtlsh.lib, "newFunctionWithName:", id, tb_nsstr(vn));
     id ff = TB_MSG1(id, tb_mtlsh.lib, "newFunctionWithName:", id, tb_nsstr(fn));
-    if (!vf || !ff) { fprintf(stderr, "Metal: нет шейдера %s или %s\n", vn, fn); return 0; }
+    if (!vf || !ff) { fprintf(stderr, tb_tr("Metal: нет шейдера %s или %s\n"), vn, fn); return 0; }
     id pd = TB_MSG(id, TB_MSG(id, TB_CLS("MTLRenderPipelineDescriptor"), "alloc"), "init");
     TB_MSG1(void, pd, "setVertexFunction:", id, vf);
     TB_MSG1(void, pd, "setFragmentFunction:", id, ff);
@@ -7897,7 +8812,7 @@ static id tb_mtl_shpipe(int cs, int ps) {
     id p = ((id (*)(id, SEL, id, id *))objc_msgSend)(tb_mtl.dev, sel_getUid("newRenderPipelineStateWithDescriptor:error:"), pd, &err);
     if (!p) {
         const char *d = err ? TB_MSG(const char *, TB_MSG(id, err, "localizedDescription"), "UTF8String") : "";
-        fprintf(stderr, "Metal: шейдеры %s + %s не собрались: %s\n", tb_shaders[cs].name, tb_shaders[ps].name, d ? d : "");
+        fprintf(stderr, tb_tr("Metal: шейдеры %s + %s не собрались: %s\n"), tb_shaders[cs].name, tb_shaders[ps].name, d ? d : "");
         return 0;
     }
     tb_mtlsh.bad[k] = 0;
@@ -8080,7 +8995,7 @@ static id tb_mtl_scrpipe(int ps) {
     snprintf(fn, sizeof fn, "tbs_s_%s", tb_shaders[ps].name);
     id vf = TB_MSG1(id, tb_mtlsh.lib, "newFunctionWithName:", id, tb_nsstr("tbs_sv"));
     id ff = TB_MSG1(id, tb_mtlsh.lib, "newFunctionWithName:", id, tb_nsstr(fn));
-    if (!vf || !ff) { fprintf(stderr, "Metal: нет шейдера экрана %s\n", fn); return 0; }
+    if (!vf || !ff) { fprintf(stderr, tb_tr("Metal: нет шейдера экрана %s\n"), fn); return 0; }
     id pd = TB_MSG(id, TB_MSG(id, TB_CLS("MTLRenderPipelineDescriptor"), "alloc"), "init");
     TB_MSG1(void, pd, "setVertexFunction:", id, vf);
     TB_MSG1(void, pd, "setFragmentFunction:", id, ff);
@@ -8094,7 +9009,7 @@ static id tb_mtl_scrpipe(int ps) {
     id p = ((id (*)(id, SEL, id, id *))objc_msgSend)(tb_mtl.dev, sel_getUid("newRenderPipelineStateWithDescriptor:error:"), pd, &err);
     if (!p) {
         const char *d = err ? TB_MSG(const char *, TB_MSG(id, err, "localizedDescription"), "UTF8String") : "";
-        fprintf(stderr, "Metal: шейдер экрана %s не собрался: %s\n", tb_shaders[ps].name, d ? d : "");
+        fprintf(stderr, tb_tr("Metal: шейдер экрана %s не собрался: %s\n"), tb_shaders[ps].name, d ? d : "");
         return 0;
     }
     tb_mtlscr.bad[ps] = 0;
@@ -8963,7 +9878,7 @@ TB_API void tb_gpu_blend_probe(void) {
             uint32_t w = a == 0 ? d : (c * a + 127) / 255 + (d * (255 - a) + 127) / 255;
             diff += lut[i] != w;
         }
-        fprintf(stderr, "TB_GPU_CHECK: смешивание на этой видеокарте не как округление к ближайшему: %lld из %d\n", diff, 1 << 24);
+        fprintf(stderr, tb_tr("TB_GPU_CHECK: смешивание на этой видеокарте не как округление к ближайшему: %lld из %d\n"), diff, 1 << 24);
     }
 }
 // window_sharp(): окно в настоящих точках экрана (Retina, 150% и 200% на Windows). Размер в window_open
@@ -9053,7 +9968,7 @@ TB_API long long tb_window_new(long long w, long long h, const char *title) {
     return i;
 }
 TB_API void tb_window_use(long long n) {
-    if (n < 0 || n >= tb_wn || !tb_wins[n].used) { fprintf(stderr, "ошибка: window_use(%lld): нет такого окна\n", n); exit(1); }
+    if (n < 0 || n >= tb_wn || !tb_wins[n].used) { fprintf(stderr, tb_tr("ошибка: window_use(%lld): нет такого окна\n"), n); exit(1); }
     tb_wswitch((int)n);
 }
 // закрыть окно: оно пропадает с экрана, window_shown() — false. window_close(0) — как закрыть главное окно
@@ -9153,7 +10068,7 @@ TB_API void tb_apply_resize(void) {
     free(tb_px);
     tb_px = np; tb_gw = nw; tb_gh = nh;
     tb_gfx_reimage();
-    if (tb_gpu_on && !tb_gpu_resize(ow, oh)) fprintf(stderr, "видеокарта: не получилось поменять размер кадра\n");
+    if (tb_gpu_on && !tb_gpu_resize(ow, oh)) fprintf(stderr, tb_tr("видеокарта: не получилось поменять размер кадра\n"));
 }
 TB_API long long tb_window_w(void) { if (tb_px && !tb_resizable) { tb_resizable = 1; tb_gfx_resizable(); } return tb_gw; }
 TB_API long long tb_window_h(void) { if (tb_px && !tb_resizable) { tb_resizable = 1; tb_gfx_resizable(); } return tb_gh; }
@@ -11372,7 +12287,7 @@ TB_API void tb_mesh_shader(long long id, const char *name) {
     tb_mesh *m = &tb_meshes[id];
     if (!name || !name[0]) { if (m->shp >= 0 || m->shc >= 0) tb_mesh_gdirty = 1; m->shp = m->shc = -1; return; }
     int p = tb_sh_find(name, 1), c = tb_sh_find(name, 0);
-    if (p < 0 && c < 0) { fprintf(stderr, "mesh_shader: в программе нет gpu func с именем %s (шейдера точки или углов)\n", name); return; }
+    if (p < 0 && c < 0) { fprintf(stderr, tb_tr("mesh_shader: в программе нет gpu func с именем %s (шейдера точки или углов)\n"), name); return; }
     if (p >= 0) m->shp = p;
     if (c >= 0) m->shc = c;
 }
@@ -11386,7 +12301,7 @@ TB_API void tb_shader_set(long long id, const char *name, double v) {
         for (int k = 0; k < tb_shaders[s].nsets; k++)
             if (strcmp(tb_shaders[s].sets[k], name) == 0) { m->shv[8 * st + k] = (float)v; found = 1; }
     }
-    if (!found) fprintf(stderr, "shader_set: у шейдеров этой сетки нет настройки %s\n", name);
+    if (!found) fprintf(stderr, tb_tr("shader_set: у шейдеров этой сетки нет настройки %s\n"), name);
 }
 static double tb_sh_t0 = -1;
 // углы сетки по порядку треугольников: место 3, нормаль 3, цвет 4, (u, v) 2, касательная 3 (куда растёт u), 1 пусто,
@@ -11479,8 +12394,8 @@ static void tb_sh_world(tb_mesh *m, float *r) {
 }
 TB_API void tb_shader_image(long long id, long long slot, long long img) {
     if (id < 0 || id >= tb_nmesh) return;
-    if (slot < 0 || slot > 3) { fprintf(stderr, "shader_image: слот картинки 0…3, а не %lld\n", slot); return; }
-    if (img >= tb_nimg) { fprintf(stderr, "shader_image: нет картинки %lld\n", img); return; }
+    if (slot < 0 || slot > 3) { fprintf(stderr, tb_tr("shader_image: слот картинки 0…3, а не %lld\n"), slot); return; }
+    if (img >= tb_nimg) { fprintf(stderr, tb_tr("shader_image: нет картинки %lld\n"), img); return; }
     tb_meshes[id].shimg[slot] = img < 0 ? 0 : (int)img + 1;
 }
 static void tb_sh_record(tb_mesh *m, float *r, double x, double y, double z, double R[3][3]) {
@@ -11738,7 +12653,7 @@ static void tb_scr_cpu(int ps, const float *rec) {
 TB_API void tb_screen_shader(const char *name) {
     if (!tb_px || !name || !name[0]) return;
     int ps = tb_sh_find(name, 2);
-    if (ps < 0) { fprintf(stderr, "screen_shader: в программе нет gpu func %s(s: screen ...)\n", name); return; }
+    if (ps < 0) { fprintf(stderr, tb_tr("screen_shader: в программе нет gpu func %s(s: screen ...)\n"), name); return; }
     TB_SCENE();
     float rec[TB_SHR_N];
     tb_scr_record(ps, rec);
@@ -11752,10 +12667,10 @@ TB_API void tb_screen_shader(const char *name) {
 }
 TB_API void tb_screen_set(const char *name, const char *set, double v) {
     int ps = tb_sh_find(name, 2);
-    if (ps < 0) { fprintf(stderr, "screen_set: в программе нет gpu func %s(s: screen ...)\n", name); return; }
+    if (ps < 0) { fprintf(stderr, tb_tr("screen_set: в программе нет gpu func %s(s: screen ...)\n"), name); return; }
     for (int k = 0; k < tb_shaders[ps].nsets; k++)
         if (strcmp(tb_shaders[ps].sets[k], set) == 0) { tb_shaders[ps].sv[k] = (float)v; return; }
-    fprintf(stderr, "screen_set: у шейдера %s нет настройки %s\n", name, set);
+    fprintf(stderr, tb_tr("screen_set: у шейдера %s нет настройки %s\n"), name, set);
 }
 static int tb_key_at(int k) { int d = tb_keys[k] || tb_ktap[k]; tb_ktap[k] = 0; return d; }
 TB_API int tb_key_down(const char *name) {
@@ -12485,6 +13400,7 @@ TB_API void tb_listener(double x, double y, double z, double lx, double ly, doub
 #define TB_X(r, n, p, a) r tb_x_##n p { return tb_##n a; }
 #define TB_XV(n, p, a) void tb_x_##n p { tb_##n a; }
 TB_XV(ps, (const char *s), (s))
+TB_X(const char *, tr, (const char *s), (s))
 TB_X(const char *, itos, (long long v), (v))
 TB_X(const char *, dtos, (double v), (v))
 TB_X(const char *, btos, (int v), (v))

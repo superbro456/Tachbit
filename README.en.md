@@ -13,7 +13,7 @@ Code reads almost like Python and runs like C. The compiler does the hard part (
 
 [Русская версия](README.md) · [полный справочник (рус.)](docs/guide.md)
 
-Compiler messages and error texts are in Russian for now; the keywords are English.
+Compiler and program messages come in English or Russian: Tachbit picks your system language, and `tb lang en` / `tb lang ru` switches it (or `TB_LANG=en`). The keywords are English. Translations live in `compiler/lang/en.tsv`.
 
 ## Install
 

@@ -2,6 +2,7 @@
 # Свой машинный код (tb app --own): каждый tests/ok/*.tb, который он уже умеет, собирается в .oapp,
 # ядро omnium/app_run.tb запускает его в QEMU, вывод сравнивается с .out (как у обычной сборки).
 #   ./tests/run_own.sh        проверить (что не умеет — пропускает и считает)
+export TB_LANG=ru   # эталоны сообщений — на русском
 cd "$(dirname "$0")/.." || exit 1
 command -v qemu-system-x86_64 > /dev/null || { echo "нет qemu-system-x86_64"; exit 1; }
 [ -n "$TB_NO_BUILD" ] || ./tools/build_tb.sh > /dev/null || exit 1

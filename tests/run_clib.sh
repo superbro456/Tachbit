@@ -1,5 +1,6 @@
 #!/bin/bash
 # Tachbit ↔ C: tb lib делает libmylib.a и mylib.h, программа на C зовёт функции for c.
+export TB_LANG=ru   # эталоны сообщений — на русском
 cd "$(dirname "$0")/.." || exit 1
 [ -x ./build/tb ] || ./tools/build_tb.sh > /dev/null || exit 1
 tmp=$(mktemp -d)

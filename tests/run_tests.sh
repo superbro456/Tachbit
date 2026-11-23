@@ -6,6 +6,7 @@
 # Запуск из корня репозитория:  ./tests/run_tests.sh
 # Обновить эталоны после намеренной правки:  ./tests/run_tests.sh --update
 # Тесты гоняются через компилятор на Tachbit (он собирается из семени, без стартера на C).
+export TB_LANG=ru   # эталоны сообщений — на русском
 cd "$(dirname "$0")/.." || exit 1
 export LC_ALL=C.UTF-8 2>/dev/null
 compiler="build/tb"

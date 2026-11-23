@@ -96,8 +96,8 @@ func main()
   </div>
   <div class="card">
     <h3 data-en>Native, not a prototype</h3><h3 data-ru>Настоящая программа, а не макет</h3>
-    <p data-en>Tachbit compiles to C, then clang or gcc makes a native program. The compiler is written in Tachbit and builds itself.</p>
-    <p data-ru>Tachbit переводит программу в C, а clang или gcc делают из неё настоящую программу. Компилятор написан на самом Tachbit и собирает сам себя.</p>
+    <p data-en>Tachbit compiles to C, then clang or gcc makes a native program. The compiler is written in Tachbit and builds itself. Messages in English or Russian.</p>
+    <p data-ru>Tachbit переводит программу в C, а clang или gcc делают из неё настоящую программу. Компилятор написан на самом Tachbit и собирает сам себя. Сообщения на русском или английском.</p>
   </div>
 </div>
 </div>
@@ -150,7 +150,8 @@ brew install --HEAD tachbit</pre></div>
 <pre>tb new hello        # a project with main.tb
 tb start hello      # build and run
 tb run file.tb      # run one file
-tb check file.tb    # only look for errors</pre>
+tb check file.tb    # only look for errors
+tb lang en          # messages in English (tb lang ru — in Russian)</pre>
 
 <footer>
   <span data-en>Tachbit is free and open source, MIT license.</span><span data-ru>Tachbit бесплатный и открытый, лицензия MIT.</span>

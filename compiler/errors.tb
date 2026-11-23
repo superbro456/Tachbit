@@ -1,5 +1,6 @@
 // Ошибки компилятора: тот же текст, что у версии на C.
 use types
+use lang_en
 
 // Windows: команды run() выполняет cmd.exe, а не sh
 modpub func on_windows()
@@ -11,9 +12,11 @@ modpub func error_at(c: Comp, line: int, message: text, detail: text)
     color = false
     if not on_windows()
         color = run("[ -t 1 ] && [ -z \"$NO_COLOR\" ]") == 0
+    message = tr(message)
+    detail = tr(detail)
     place = c.file_name
     if line > 0
-        place = c.file_name + ", строка " + line
+        place = c.file_name + tr(", строка ") + line
     s = place + ": " + message
     if detail != ""
         s = s + ": " + detail
@@ -24,3 +27,48 @@ modpub func error_at(c: Comp, line: int, message: text, detail: text)
             s = s + ": " + esc + "[33m" + detail + esc + "[0m"
     print(s)
     exit(1)
+
+// ---------- язык сообщений: русский или английский ----------
+// TB_LANG=en/ru, иначе файл ~/.tachbit/lang (tb lang en / tb lang ru), иначе язык системы (LANG)
+modpub func lang_home()
+    home = env("HOME")
+    if home == ""
+        home = env("USERPROFILE")
+    return home
+
+modpub func lang_en()
+    e = env("TB_LANG")
+    if e != ""
+        return not starts_with(e, "r")
+    home = lang_home()
+    if home != ""
+        p = home + "/.tachbit/lang"
+        if file_exists(p)
+            t = read_file(p) or ""
+            if starts_with(t, "r")
+                return false
+            if starts_with(t, "e")
+                return true
+    l = env("LC_ALL")
+    if l == ""
+        l = env("LC_MESSAGES")
+    if l == ""
+        l = env("LANG")
+    return not starts_with(l, "ru")
+
+// русский текст сообщения → английский (если язык английский): куски из compiler/lang/en.tsv
+modpub func tr(s: text)
+    if s == "" or not lang_en()
+        return s
+    p = en_pairs()
+    out = s
+    i = 0
+    repeat while i < len(p)
+        if find(out, p[i]) >= 0
+            out = replace(out, p[i], p[i + 1])
+        i += 2
+    return out
+
+// print для сообщений компилятора: на языке пользователя
+modpub func say(s: text)
+    print(tr(s))

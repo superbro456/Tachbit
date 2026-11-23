@@ -43,7 +43,7 @@ func load_module(c: Comp, program: Node, path: text, line_of_use: int, used_from
         c.file_name = used_from
         error_at(c, line_of_use, "нет файла для use", path)
     source = read_file(path) else err
-        print("не могу открыть файл: " + path)
+        say("не могу открыть файл: " + path)
         exit(1)
     c.file_name = path
     lex(c, source)
@@ -132,7 +132,7 @@ func windows_cc()
     return ""
 
 func say_error(message: text)
-    print(message)
+    say(message)
     exit(1)
 
 // что запускать: файл .tb и куда класть готовую программу
@@ -173,7 +173,7 @@ func project_main(arg: text) gives main_tb: text, exe: text
         main_tb = name + ".tb"
         exe = name
         return
-    print("нет проекта или файла: " + name)
+    say("нет проекта или файла: " + name)
     say_error("новый проект делается так:  tb new " + name)
 
 func new_project(name: text)
@@ -183,14 +183,14 @@ func new_project(name: text)
         say_error("уже есть папка или файл с именем " + name + " — возьми другое имя")
     make_folder(name) else err
         say_error("не могу сделать папку: " + name)
-    write_file(name + "/main.tb", "func main()\n    print(\"Привет из проекта " + name + "!\")\n") else err
+    write_file(name + "/main.tb", "func main()\n    print(\"" + tr("Привет из проекта ") + name + "!\")\n") else err
         say_error("не могу записать файл: " + name + "/main.tb")
     write_file(name + "/.gitignore", "build/\n") else err
         ignored = err
-    print("готов проект " + name + ":")
-    print("  " + name + "/main.tb   — здесь пишешь программу")
-    print("  " + name + "/build/    — сюда кладётся готовая программа\n")
-    print("запуск:  tb start " + name)
+    say("готов проект " + name + ":")
+    say("  " + name + "/main.tb   — здесь пишешь программу")
+    say("  " + name + "/build/    — сюда кладётся готовая программа\n")
+    say("запуск:  tb start " + name)
 
 // native: программа только для этого компьютера (tb run) — можно все команды его процессора
 // --llvm: спросить clang, под какой процессор он собирает (цель, -march, настройки);
@@ -298,7 +298,7 @@ func build_pure(c: Comp, program: Node, exe: text, native: bool) gives ok: bool
         cmd += " $( [ \"$(uname)\" = Darwin ] && echo '-framework Cocoa -framework CoreGraphics -framework QuartzCore -lobjc' || echo '-lX11' )"
     ok = run(cmd + " 2> " + quote(log)) == 0
     if not ok and env("TB_PURE_WHY") != ""
-        print("без clang не вышло, смотри " + log)
+        say("без clang не вышло, смотри " + log)
     each f in [bc, ofile]
         remove(f) else err
             ignored = err
@@ -315,7 +315,7 @@ func ll_default() gives r: bool
 func build(c: Comp, path: text, exe: text, native: bool)
     c_path = exe + ".c"
     if is_dir_cmd(exe)
-        print("готовую программу некуда положить: " + exe + " — это папка. Переименуй папку или файл .tb")
+        say("готовую программу некуда положить: " + exe + " — это папка. Переименуй папку или файл .tb")
         return 1
     program = load_program(c, path)
     check(c, program)
@@ -329,7 +329,7 @@ func build(c: Comp, path: text, exe: text, native: bool)
             return 0
         c.ll_pure = false
     write_file(c_path, join(c.out, "")) else err
-        print("не могу записать файл: " + c_path)
+        say("не могу записать файл: " + c_path)
         return 1
     command = "${CC:-cc} -O2 -w -o " + quote(exe) + " " + quote(c_path) + c.c_link + " -lm -lpthread"
     // без -flto: запасной путь, если линкер не умеет LTO
@@ -339,7 +339,7 @@ func build(c: Comp, path: text, exe: text, native: bool)
         ll_path = exe + ".ll"
         target, cpu = ll_probe(exe, native)
         write_file(ll_path, emit_ll(c, program, target, cpu)) else err
-            print("не могу записать файл: " + ll_path)
+            say("не могу записать файл: " + ll_path)
             return 1
         // -flto: clang видит .c и .ll вместе и встраивает функции библиотеки прямо в код из .ll
         ll_files = " -o " + quote(exe) + " " + quote(c_path) + " " + quote(ll_path) + c.c_link + " -lm -lpthread"
@@ -357,9 +357,9 @@ func build(c: Comp, path: text, exe: text, native: bool)
     if on_windows()
         cc = windows_cc()
         if cc == ""
-            print("нет компилятора C (gcc или clang). Поставь его, например:")
+            say("нет компилятора C (gcc или clang). Поставь его, например:")
             print("  winget install -e --id MartinStorsjo.LLVM-MinGW.UCRT")
-            print("и открой терминал заново. Подробнее: tools/install.ps1")
+            say("и открой терминал заново. Подробнее: tools/install.ps1")
             return 1
         // -static: программе не нужны чужие .dll; стек 8 МБ, как на Linux
         command = cc + " -O2 -w -o " + quote(exe_file(exe)) + " " + quote(c_path) + c.c_link + " -static -Wl,--stack,8388608 -lm -lpthread -lws2_32"
@@ -373,8 +373,8 @@ func build(c: Comp, path: text, exe: text, native: bool)
     if nolto != ""
         nolto += " 2> " + quote(log)
     if run(command) != 0 and (flags_native == "" or run(plain) != 0) and (nolto == "" or run(nolto) != 0)
-        print("не получилось собрать программу. Это ошибка Tachbit, а не твоя: твой код прошёл все проверки.")
-        print("подробности для разработчиков Tachbit: " + log + " (и код на C: " + c_path + ")")
+        say("не получилось собрать программу. Это ошибка Tachbit, а не твоя: твой код прошёл все проверки.")
+        say("подробности для разработчиков Tachbit: " + log + " (и код на C: " + c_path + ")")
         return 1
     remove(log) else err
         ignored = err
@@ -395,7 +395,7 @@ func build_lib(c: Comp, path: text, exe: text)
     a_path = dir + "lib" + name + ".a"
     h_path = dir + name + ".h"
     write_file(c_path, join(c.out, "")) else err
-        print("не могу записать файл: " + c_path)
+        say("не могу записать файл: " + c_path)
         return 1
     log = exe + ".cc.log"
     objs = quote(o_path)
@@ -418,12 +418,12 @@ func build_lib(c: Comp, path: text, exe: text)
             libs += " " + part
     cmd += " && rm -f " + quote(a_path) + " && ar rcs " + quote(a_path) + " " + objs
     if run(cmd + " 2> " + quote(log)) != 0
-        print("не получилось собрать библиотеку. Это ошибка Tachbit, а не твоя: твой код прошёл все проверки.")
-        print("подробности для разработчиков Tachbit: " + log + " (и код на C: " + c_path + ")")
+        say("не получилось собрать библиотеку. Это ошибка Tachbit, а не твоя: твой код прошёл все проверки.")
+        say("подробности для разработчиков Tachbit: " + log + " (и код на C: " + c_path + ")")
         return 1
     c.c_link = libs
     write_file(h_path, lib_header(c, program, name)) else err
-        print("не могу записать файл: " + h_path)
+        say("не могу записать файл: " + h_path)
         return 1
     each f in split(objs, " ")
         g = replace(f, "'", "")
@@ -433,7 +433,7 @@ func build_lib(c: Comp, path: text, exe: text)
     each f in [c_path, log]
         remove(f) else err
             ignored = err
-    print("готово: " + a_path + " и " + h_path)
+    say("готово: " + a_path + " и " + h_path)
     return 0
 
 // режим «без ОС»: файл.tb → ядро .elf, которое грузит QEMU (или GRUB) без всякой ОС
@@ -470,7 +470,7 @@ func llvm_lib_bare(bin: text, gfx: bool) gives lib: text, target: text, cpu: tex
         remove(base + ".c") else err
             ignored = err
         if not ok
-            print("библиотека ядра не собралась (это ошибка Tachbit): " + base + ".log")
+            say("библиотека ядра не собралась (это ошибка Tachbit): " + base + ".log")
             lib = ""
             return
     target, cpu = ll_probe_parse(read_file(tpath) or "")
@@ -503,20 +503,20 @@ func build_app_own(c: Comp, path: text, exe: text)
         h += digits[b / 16]
         h += digits[b % 16]
     write_file(hex_path, h) else err
-        print("не могу записать файл: " + hex_path)
+        say("не могу записать файл: " + hex_path)
         return 1
     ok = run("python3 -c \"import sys; open(sys.argv[2], 'wb').write(bytes.fromhex(open(sys.argv[1]).read()))\" " + quote(hex_path) + " " + quote(oapp)) == 0
     remove(hex_path) else err
         ignored = err
     if not ok
-        print("не могу записать файл: " + oapp + " (нужен python3)")
+        say("не могу записать файл: " + oapp + " (нужен python3)")
         return 1
-    print("готова программа для Омниума (свой машинный код): " + oapp)
+    say("готова программа для Омниума (свой машинный код): " + oapp)
     return 0
 
 func build_bare_or_app(c: Comp, path: text, exe: text, app: bool)
     if on_windows()
-        print("ядро без ОС пока собирается только на Linux и Mac")
+        say("ядро без ОС пока собирается только на Linux и Mac")
         return 1
     c.bare = true
     c.app = app
@@ -527,26 +527,26 @@ func build_bare_or_app(c: Comp, path: text, exe: text, app: bool)
     ll_pick(c, program)
     why = ll_pure_why(c, program)
     if why != ""
-        print("ядро пока не собрать (это ошибка Tachbit, а не твоя): в LLVM не переводится " + why)
+        say("ядро пока не собрать (это ошибка Tachbit, а не твоя): в LLVM не переводится " + why)
         return 1
     c.ll_pure = true
     bin = ""
     if env("TB_ONLY_CLANG") == ""
         bin = llvm_bin(exe + ".llvmbin")
     if bin == "" and run("command -v clang > /dev/null 2>&1") != 0
-        print("для ядра нужен clang (или инструменты LLVM: opt, llc, llvm-link): на Mac — xcode-select --install, на Linux — apt install clang")
+        say("для ядра нужен clang (или инструменты LLVM: opt, llc, llvm-link): на Mac — xcode-select --install, на Linux — apt install clang")
         return 1
     lib, target, cpu = llvm_lib_bare(bin, c.gfx)
     if lib == ""
         return 1
     ll_path = exe + ".ll"
     write_file(ll_path, emit_ll(c, program, target, cpu)) else err
-        print("не могу записать файл: " + ll_path)
+        say("не могу записать файл: " + ll_path)
         return 1
     // файлы, которые ядро берёт с собой (load_font / load_image с готовым именем) — в конец .ll
     pk_path = exe + ".pack.py"
     write_file(pk_path, runtime_text.packer_text()) else err
-        print("не могу записать файл: " + pk_path)
+        say("не могу записать файл: " + pk_path)
         return 1
     pk = "python3 " + quote(pk_path)
     each p in c.packs
@@ -555,7 +555,7 @@ func build_bare_or_app(c: Comp, path: text, exe: text, app: bool)
     remove(pk_path) else err
         ignored = err
     if not packed
-        print("не получилось положить файлы в ядро (нужен python3)")
+        say("не получилось положить файлы в ядро (нужен python3)")
         return 1
     bc = exe + ".bc"
     o_path = exe + ".o"
@@ -571,7 +571,7 @@ func build_bare_or_app(c: Comp, path: text, exe: text, app: bool)
         if app
             cmd = "clang --target=x86_64-unknown-none-elf -O2 -w -c -fno-pic -mno-red-zone " + quote(ll_path) + " -o " + quote(o_path)
     if run(cmd + " 2> " + quote(log)) != 0
-        print("LLVM не справился (это ошибка Tachbit, а не твоя): " + log)
+        say("LLVM не справился (это ошибка Tachbit, а не твоя): " + log)
         return 1
     if app
         // программа: готовый .o и есть файл программы — его поправки делает ядро при загрузке
@@ -581,14 +581,14 @@ func build_bare_or_app(c: Comp, path: text, exe: text, app: bool)
             remove(f) else err
                 ignored = err
         if not moved
-            print("не могу записать файл: " + oapp)
+            say("не могу записать файл: " + oapp)
             return 1
-        print("готова программа для Омниума: " + oapp)
+        say("готова программа для Омниума: " + oapp)
         return 0
     // свой компоновщик (на Python, он есть почти везде)
     py_path = exe + ".link.py"
     write_file(py_path, runtime_text.linker_text()) else err
-        print("не могу записать файл: " + py_path)
+        say("не могу записать файл: " + py_path)
         return 1
     ld_cmd = "command -v python3 >/dev/null 2>&1 || { echo 'нужен python3'; false; } && python3 " + quote(py_path) + " " + quote(o_path) + " -o " + quote(elf)
     ok = run(ld_cmd) == 0
@@ -596,27 +596,51 @@ func build_bare_or_app(c: Comp, path: text, exe: text, app: bool)
         remove(f) else err
             ignored = err
     if not ok
-        print("не получилось собрать ядро из " + path)
+        say("не получилось собрать ядро из " + path)
         return 1
-    print("готово ядро: " + elf)
-    print("запуск:  qemu-system-x86_64 -kernel " + quote(elf))
+    say("готово ядро: " + elf)
+    say("запуск:  qemu-system-x86_64 -kernel " + quote(elf))
     return 0
 
+// tb lang en / tb lang ru: язык сообщений компилятора и программ (файл ~/.tachbit/lang)
+func set_lang(a: list text)
+    if len(a) < 2 or not (a[1] == "en" or a[1] == "ru")
+        if lang_en()
+            say("язык сообщений: английский")
+        else
+            say("язык сообщений: русский")
+        say("поменять:  tb lang en  или  tb lang ru")
+        return
+    home = lang_home()
+    if home == ""
+        say("не нашёл домашнюю папку (HOME)")
+        exit(1)
+    if not file_exists(home + "/.tachbit")
+        make_folders(home + "/.tachbit")
+    write_file(home + "/.tachbit/lang", a[1] + "\n") else err
+        say("не могу записать файл: " + home + "/.tachbit/lang")
+        exit(1)
+    if a[1] == "en"
+        print("messages are in English now")
+    else
+        print("сообщения теперь на русском")
+
 func usage()
-    print("Tachbit 1.3 (компилятор на Tachbit)\n")
-    print("  tb new   имя             новый проект: папка имя/ с main.tb")
-    print("  tb start имя [слова]     собрать проект и запустить (без имени — текущая папка)\n")
-    print("  tachbit run    файл.tb [слова]   сделать программу и запустить")
-    print("  tachbit build  файл.tb   сделать программу рядом с файлом")
-    print("  tachbit bare   файл.tb   сделать ядро без ОС (файл.elf для QEMU)")
-    print("  tachbit app    файл.tb   сделать программу для Омниума (файл.oapp); --own — своим машинным кодом, без LLVM")
-    print("  tachbit lib    файл.tb   библиотека для C: libфайл.a и файл.h (функции с for c)")
-    print("  tachbit check  файл.tb   только найти ошибки")
-    print("  tachbit c      файл.tb   показать, какой C получился")
-    print("  tachbit ll     файл.tb   показать LLVM IR числовых функций (опыт)")
-    print("  --llvm / --c   к build / run: собрать через LLVM (так и есть, если есть clang) или через C")
-    print("  tachbit tree   файл.tb   показать дерево")
-    print("  tachbit tokens файл.tb   показать токены")
+    say("Tachbit 1.3 (компилятор на Tachbit)\n")
+    say("  tb new   имя             новый проект: папка имя/ с main.tb")
+    say("  tb start имя [слова]     собрать проект и запустить (без имени — текущая папка)\n")
+    say("  tachbit run    файл.tb [слова]   сделать программу и запустить")
+    say("  tachbit build  файл.tb   сделать программу рядом с файлом")
+    say("  tachbit bare   файл.tb   сделать ядро без ОС (файл.elf для QEMU)")
+    say("  tachbit app    файл.tb   сделать программу для Омниума (файл.oapp); --own — своим машинным кодом, без LLVM")
+    say("  tachbit lib    файл.tb   библиотека для C: libфайл.a и файл.h (функции с for c)")
+    say("  tachbit check  файл.tb   только найти ошибки")
+    say("  tachbit c      файл.tb   показать, какой C получился")
+    say("  tachbit ll     файл.tb   показать LLVM IR числовых функций (опыт)")
+    say("  --llvm / --c   к build / run: собрать через LLVM (так и есть, если есть clang) или через C")
+    say("  tachbit tree   файл.tb   показать дерево")
+    say("  tachbit tokens файл.tb   показать токены")
+    say("  tb lang en / tb lang ru  язык сообщений: английский или русский")
 
 func main()
     all_args = args()
@@ -647,8 +671,11 @@ func main()
     if mode == "help" or mode == "-h" or mode == "--help"
         usage()
         return
+    if mode == "lang"
+        set_lang(a)
+        return
     if mode == "version" or mode == "--version"
-        print("Tachbit 1.3 (компилятор на Tachbit)")
+        say("Tachbit 1.3 (компилятор на Tachbit)")
         return
     if mode == "start"
         mode = "run"
@@ -679,7 +706,7 @@ func main()
     if mode == "check"
         c.lib_check = true
         check(c, load_program(c, path))
-        print("ошибок нет")
+        say("ошибок нет")
         return
     if mode == "c"
         program = load_program(c, path)
