@@ -1,0 +1,599 @@
+// Кубик и человечек: маленькая 3D-игра, где всё нарисовано шейдерами (gpu func).
+//   tb run examples/apps/cube_man/main.tb        — играть
+//   tb run examples/apps/cube_man/main.tb demo   — человечек ходит сам 1500 кадров
+//
+// Стрелки или WASD — идти, пробел — прыжок, Q / E — повернуть камеру.
+// 1…6 — шейдер кубика. R / F — первая настройка больше / меньше, T / G — вторая.
+// Толкни кубик в бассейн.
+//
+// Как тут устроены шейдеры:
+//   • готовые из lib/shaders.tb (небо, вода, огонь, ветер, standard…) — включаются словом mesh_shader
+//     и подстраиваются словом shader_set, ядро языка не трогаем;
+//   • свои — ниже в этом файле: paving (плитка), lava (лава), crystal (кристалл), blob (мягкая тень).
+//     Это обычные функции Tachbit со словом gpu: компилятор сам делает из них код для видеокарты.
+use shaders
+use physics
+
+// ---------- свои шейдеры этой игры ----------
+
+// туман: 0 — рядом, 1 — совсем в дымке
+gpu func haze(dist: dec, far: dec) gives f: dec
+    if far <= 0
+        return 0
+    return clamp((dist - far * 0.35) / (far * 0.65), 0, 1)
+
+// каменная плитка со швами: каждая плитка своего оттенка, потёртости шумом, туман вдали
+gpu func paving(p: pixel, tile: dec, wear: dec, fog_far: dec)
+    t = tile
+    if t <= 0
+        t = 1
+    gz = p.wz / t
+    row = floor(gz)
+    gx = p.wx / t + row * 0.5
+    fx = fract(gx)
+    fz = fract(gz)
+    edge = min(min(fx, 1 - fx), min(fz, 1 - fz))
+    seam = smoothstep(0.012, 0.04, edge)
+    id = hash(floor(gx) * 7.13 + row * 13.71)
+    n = noise(p.wx * 4, p.wz * 4, 0) * 0.6 + noise(p.wx * 15, p.wz * 15, 3) * 0.4
+    shade = (0.8 + id * 0.3) * (1 - wear * 0.3 + n * wear * 0.45)
+    shade = mix(0.42, shade, seam)
+    k = sun_light(p.nx, p.ny, p.nz, p.sx, p.sy, p.sz, p.amb)
+    s = spec_light(p.nx, p.ny, p.nz, p.sx, p.sy, p.sz, p.wx, p.wy, p.wz, p.cx, p.cy, p.cz, 30) * 0.12 * seam * id
+    vx = p.cx - p.wx
+    vy = p.cy - p.wy
+    vz = p.cz - p.wz
+    f = haze(sqrt(vx * vx + vy * vy + vz * vz), fog_far)
+    p.r = mix(p.r * shade * k + s, 0.78, f)
+    p.g = mix(p.g * shade * k + s, 0.84, f)
+    p.b = mix(p.b * shade * k + s, 0.92, f)
+
+// лава: тёмный камень и светящиеся трещины, которые текут. ox oy oz — где сейчас кубик,
+// чтобы узор ехал вместе с ним (программа шлёт их каждый кадр через shader_set)
+gpu func lava(p: pixel, heat: dec, speed: dec, ox: dec, oy: dec, oz: dec)
+    x = p.wx - ox
+    y = p.wy - oy
+    z = p.wz - oz
+    t = p.time * speed
+    n = noise(x * 3 + 10, y * 3 + t * 0.4, z * 3)
+    crack = 1 - smoothstep(0, 0.07, abs(n - 0.5))
+    pulse = 0.75 + 0.25 * sin(t * 3 + n * 6)
+    k = sun_light(p.nx, p.ny, p.nz, p.sx, p.sy, p.sz, p.amb)
+    rock = (0.1 + noise(x * 9, y * 9, z * 9) * 0.08) * k
+    g = crack * heat * pulse
+    p.r = rock + g
+    p.g = rock * 0.9 + g * g * 0.45
+    p.b = rock * 0.8 + g * g * g * 0.1
+
+// кристалл: цвет переливается по краям (френель), блик, сквозь середину видно. hue — оттенок 0…1
+gpu func crystal(p: pixel, hue: dec, clear: dec)
+    vx = p.cx - p.wx
+    vy = p.cy - p.wy
+    vz = p.cz - p.wz
+    vl = sqrt(vx * vx + vy * vy + vz * vz) + 0.0001
+    f = pow(1 - abs(p.nx * vx + p.ny * vy + p.nz * vz) / vl, 2)
+    h = hue + f * 0.35 + p.time * 0.05
+    r = 0.5 + 0.5 * cos(6.2831853 * h)
+    g = 0.5 + 0.5 * cos(6.2831853 * (h - 0.3333))
+    b = 0.5 + 0.5 * cos(6.2831853 * (h - 0.6667))
+    s = spec_light(p.nx, p.ny, p.nz, p.sx, p.sy, p.sz, p.wx, p.wy, p.wz, p.cx, p.cy, p.cz, 90) * 2
+    p.r = r * (0.35 + 0.65 * f) + s
+    p.g = g * (0.35 + 0.65 * f) + s
+    p.b = b * (0.35 + 0.65 * f) + s
+    p.a = clamp(1 - clear * (1 - f) + s, 0, 1)
+
+// мягкая тень под ногами: середина тёмная, края тают. square 0 — круг, 1 — квадрат
+gpu func blob(p: pixel, dark: dec, square: dec)
+    du = p.u * 2 - 1
+    dv = p.v * 2 - 1
+    d = mix(sqrt(du * du + dv * dv), max(abs(du), abs(dv)), square)
+    p.r = 0
+    p.g = 0
+    p.b = 0
+    p.a = dark * (1 - smoothstep(0.3, 1, d))
+
+// ---------- игра ----------
+
+obj Look
+    name: text       // имя шейдера
+    what: text       // как его зовут на экране
+    a: text          // первая настройка: имя, значение, шаг
+    av: dec
+    ad: dec
+    b: text          // вторая
+    bv: dec
+    bd: dec
+
+func main()
+    a = args()
+    demo = len(a) > 0 and a[len(a) - 1] == "demo"
+    try window_open(960, 600, "Кубик и человечек")
+
+    // небо и земля
+    sky_dome = mesh_new()
+    sphere(sky_dome, 90, 16, rgb(120, 160, 220))
+    mesh_shader(sky_dome, "sky")
+    shader_set(sky_dome, "sun_size", 0.012)
+
+    ground = mesh_new()
+    count i from -20 to 19
+        count j from -20 to 19
+            if not (i >= -9 and i < -4 and j >= -3 and j < 3)
+                cell(ground, i, j, 1, 0, rgb(190, 180, 165))
+    mesh_shader(ground, "paving")
+    shader_set(ground, "tile", 1)
+    shader_set(ground, "wear", 0.8)
+    shader_set(ground, "fog_far", 45)
+
+    // бассейн: дно и стенки той же плиткой, вода — готовые шейдеры волн и воды
+    pool = mesh_new()
+    count i from -9 to -5
+        count j from -3 to 2
+            cell(pool, i, j, 1, -0.5, rgb(120, 170, 180))
+    mesh_shader(pool, "paving")
+    shader_set(pool, "tile", 0.5)
+    shader_set(pool, "wear", 0.4)
+    shader_set(pool, "fog_far", 45)
+    pool_side = mesh_new()
+    face(pool_side, -9, -0.5, -3, -9, 0, -3, -9, 0, 3, -9, -0.5, 3, rgb(150, 160, 160))
+    face(pool_side, -4, -0.5, 3, -4, 0, 3, -4, 0, -3, -4, -0.5, -3, rgb(150, 160, 160))
+    face(pool_side, -4, -0.5, -3, -4, 0, -3, -9, 0, -3, -9, -0.5, -3, rgb(150, 160, 160))
+    face(pool_side, -9, -0.5, 3, -9, 0, 3, -4, 0, 3, -4, -0.5, 3, rgb(150, 160, 160))
+    mesh_shader(pool_side, "standard")
+    water = mesh_new()
+    count i from 0 to 19
+        count j from 0 to 23
+            cell(water, -9 + i * 0.25, -3 + j * 0.25, 0.25, -0.14, rgb(40, 140, 190))
+    mesh_shader(water, "sea_waves")
+    mesh_shader(water, "sea_water")
+    shader_set(water, "height", 0.025)
+    shader_set(water, "speed", 1.5)
+    shader_set(water, "length", 1.6)
+    shader_set(water, "foam", 0.25)
+    shader_set(water, "clear", 0.55)
+
+    // деревья: ствол обычным материалом, крона качается на ветру
+    trunk = mesh_new()
+    box(trunk, -0.15, 0, -0.15, 0.15, 1.6, 0.15, rgb(110, 75, 45))
+    mesh_shader(trunk, "standard")
+    shader_set(trunk, "fog_near", 15)
+    shader_set(trunk, "fog_far", 45)
+    shader_set(trunk, "fog_r", 0.78)
+    shader_set(trunk, "fog_g", 0.84)
+    shader_set(trunk, "fog_b", 0.92)
+    crown = mesh_new()
+    sphere_at(crown, 0, 2.1, 0, 0.9, 10, rgb(60, 130, 55))
+    sphere_at(crown, 0.4, 2.7, 0.1, 0.6, 10, rgb(75, 150, 60))
+    sphere_at(crown, -0.35, 2.5, -0.2, 0.55, 10, rgb(55, 120, 50))
+    mesh_smooth(crown, true)
+    mesh_shader(crown, "wind")
+    mesh_shader(crown, "standard")
+    shader_set(crown, "strength", 0.025)
+    shader_set(crown, "speed", 1.3)
+    shader_set(crown, "rim", 0.25)
+    shader_set(crown, "fog_near", 15)
+    shader_set(crown, "fog_far", 45)
+    shader_set(crown, "fog_r", 0.78)
+    shader_set(crown, "fog_g", 0.84)
+    shader_set(crown, "fog_b", 0.92)
+    tree_x = [9.0, 13.0, -14.0, -12.0, 4.0, 15.0, -3.0, 11.0]
+    tree_z = [8.0, -6.0, 9.0, -10.0, 13.0, 3.0, -13.0, 14.0]
+    tree_w = list int
+    w = physics.world()
+    count i from 0 to len(tree_x) - 1
+        tree_w.add(physics.add_box(w, tree_x[i], 0.8, tree_z[i], 0.2, 0.8, 0.2, 0))
+
+    // трава кустиками
+    grass = mesh_new()
+    count k from 0 to 70
+        gx = random(-1800, 1800) / 100.0
+        gz = random(-1800, 1800) / 100.0
+        if gx > -10 and gx < -3 and gz > -4 and gz < 4
+            gx += 8
+        count b from 0 to 9
+            bx = gx + random(-30, 30) / 100.0
+            bz = gz + random(-30, 30) / 100.0
+            hgt = 0.2 + random(0, 25) / 100.0
+            mesh_add(grass, bx - 0.025, 0, bz, bx + 0.025, 0, bz, bx + 0.01, hgt, bz + 0.03, rgb(60 + random(0, 40), 130 + random(0, 40), 50))
+    mesh_shader(grass, "wind")
+    mesh_shader(grass, "standard")
+    shader_set(grass, "strength", 0.7)
+    shader_set(grass, "speed", 2.2)
+    shader_set(grass, "fog_near", 15)
+    shader_set(grass, "fog_far", 45)
+    shader_set(grass, "fog_r", 0.78)
+    shader_set(grass, "fog_g", 0.84)
+    shader_set(grass, "fog_b", 0.92)
+
+    // костёр: брёвна, камни по кругу и огонь из готовых шейдеров
+    fire_x = 5.0
+    fire_z = -5.0
+    log_m = mesh_new()
+    box(log_m, -0.5, -0.08, -0.08, 0.5, 0.08, 0.08, rgb(90, 60, 35))
+    mesh_shader(log_m, "standard")
+    stone = mesh_new()
+    sphere(stone, 0.16, 6, rgb(120, 118, 112))
+    mesh_shader(stone, "standard")
+    shader_set(stone, "shine", 0.2)
+    flame = mesh_new()
+    count k from 0 to 7
+        an = k * 0.3927
+        fx = cos_t(an) * 0.3
+        fz = sin_t(an) * 0.3
+        mesh_add(flame, -fx, 0, -fz, fx, 0, fz, 0, 1.3, 0, rgb(255, 200, 80))
+    mesh_shader(flame, "flame_shape")
+    mesh_shader(flame, "fire")
+    shader_set(flame, "sway", 0.18)
+    shader_set(flame, "speed", 1.6)
+    shader_set(flame, "power", 1.1)
+    fire_body = physics.add_box(w, fire_x, 0.2, fire_z, 0.6, 0.2, 0.6, 0)
+
+    // человечек: каждая часть — своя сетка, руки и ноги крутятся в плече и бедре
+    skin = rgb(235, 190, 150)
+    shirt = rgb(200, 60, 55)
+    pants = rgb(45, 60, 110)
+    shoe = rgb(40, 35, 35)
+    torso = mesh_new()
+    box(torso, -0.22, -0.05, -0.12, 0.22, 0.58, 0.12, shirt)
+    box(torso, -0.225, -0.08, -0.125, 0.225, 0.0, 0.125, rgb(50, 40, 35))
+    head = mesh_new()
+    sphere_at(head, 0, 0, 0, 0.17, 10, skin)
+    mesh_smooth(head, true)
+    hair = mesh_new()
+    box(hair, -0.175, 0.04, -0.18, 0.175, 0.19, 0.1, rgb(70, 45, 30))
+    box(hair, -0.02, -0.03, 0.155, 0.02, 0.03, 0.175, rgb(20, 20, 30))
+    box(hair, -0.09, 0.0, 0.14, -0.05, 0.05, 0.175, rgb(20, 20, 30))
+    box(hair, 0.05, 0.0, 0.14, 0.09, 0.05, 0.175, rgb(20, 20, 30))
+    leg = mesh_new()
+    box(leg, -0.085, -0.75, -0.09, 0.085, 0, 0.09, pants)
+    box(leg, -0.09, -0.86, -0.1, 0.09, -0.75, 0.15, shoe)
+    arm = mesh_new()
+    box(arm, -0.065, -0.42, -0.065, 0.065, 0, 0.065, shirt)
+    box(arm, -0.055, -0.6, -0.055, 0.055, -0.42, 0.055, skin)
+    parts = [torso, head, hair, leg, arm]
+    each m in parts
+        mesh_shader(m, "standard")
+        shader_set(m, "shine", 0.15)
+        shader_set(m, "power", 20)
+        shader_set(m, "rim", 0.2)
+        shader_set(m, "fog_near", 15)
+        shader_set(m, "fog_far", 45)
+        shader_set(m, "fog_r", 0.78)
+        shader_set(m, "fog_g", 0.84)
+        shader_set(m, "fog_b", 0.92)
+    shader_set(head, "shine", 0.3)
+
+    // кубик и его шейдеры: любой можно включить клавишей и подкрутить
+    cube = mesh_new()
+    box(cube, -0.5, -0.5, -0.5, 0.5, 0.5, 0.5, rgb(80, 130, 220))
+    mesh_smooth(cube, false)
+    looks = list Look
+    looks.add(Look(name: "standard", what: "металл (готовый standard)", a: "shine", av: 0.9, ad: 0.1, b: "rim", bv: 0.35, bd: 0.05))
+    looks.add(Look(name: "toon", what: "мультяшный (готовый toon)", a: "steps", av: 3, ad: 1, b: "outline", bv: 0.25, bd: 0.05))
+    looks.add(Look(name: "hologram", what: "голограмма (готовая)", a: "lines", av: 12, ad: 2, b: "speed", bv: 1, bd: 0.25))
+    looks.add(Look(name: "dissolve", what: "растворение (готовое)", a: "amount", av: 0.3, ad: 0.05, b: "edge_glow", bv: 1, bd: 0.2))
+    looks.add(Look(name: "lava", what: "лава (свой, в этом файле)", a: "heat", av: 1.2, ad: 0.1, b: "speed", bv: 1, bd: 0.2))
+    looks.add(Look(name: "crystal", what: "кристалл (свой, в этом файле)", a: "hue", av: 0.55, ad: 0.05, b: "clear", bv: 0.6, bd: 0.1))
+    pick = 0
+    use_look(cube, looks[pick])
+
+    // тени: квадрат с uv, шейдер blob делает края мягкими
+    hero_shadow = mesh_new()
+    mesh_add_uv(hero_shadow, -0.6, 0, -0.6, 0, 0, 0.6, 0, -0.6, 1, 0, 0.6, 0, 0.6, 1, 1)
+    mesh_add_uv(hero_shadow, -0.6, 0, -0.6, 0, 0, 0.6, 0, 0.6, 1, 1, -0.6, 0, 0.6, 0, 1)
+    mesh_shader(hero_shadow, "blob")
+    shader_set(hero_shadow, "dark", 0.6)
+    cube_shadow = mesh_new()
+    mesh_add_uv(cube_shadow, -0.9, 0, -0.9, 0, 0, 0.9, 0, -0.9, 1, 0, 0.9, 0, 0.9, 1, 1)
+    mesh_add_uv(cube_shadow, -0.9, 0, -0.9, 0, 0, 0.9, 0, 0.9, 1, 1, -0.9, 0, 0.9, 0, 1)
+    mesh_shader(cube_shadow, "blob")
+    shader_set(cube_shadow, "dark", 0.65)
+    shader_set(cube_shadow, "square", 0.9)
+
+    // физика: пол с ямой под бассейн, дно бассейна, человечек-капсула и кубик
+    floor_1 = physics.add_box(w, -14.5, -1, 0, 5.5, 1, 20, 0)
+    floor_2 = physics.add_box(w, 8, -1, 0, 12, 1, 20, 0)
+    floor_3 = physics.add_box(w, -6.5, -1, 11.5, 2.5, 1, 8.5, 0)
+    floor_4 = physics.add_box(w, -6.5, -1, -11.5, 2.5, 1, 8.5, 0)
+    floor_5 = physics.add_box(w, -6.5, -1.5, 0, 2.5, 1, 3, 0)
+    hero = physics.add_box(w, 0, 0.9, 4, 0.25, 0.9, 0.25, 1)
+    w.bodies[hero].friction = 0
+    box_id = physics.add_box(w, 0, 0.5, 0, 0.5, 0.5, 0.5, 2.5)
+    w.bodies[box_id].friction = 0.35
+
+    sun_x = 0.45
+    sun_y = 0.75
+    sun_z = 0.5
+    yaw = 180.0
+    cam_yaw = 0.0
+    phase = 0.0
+    frames = 0
+    keys_was = ""
+    wet = 0
+    repeat while window_alive()
+        frames += 1
+        if key_down("escape") or (demo and frames >= 1500)
+            stop
+        dt = min(frame_ms() / 1000, 0.05)
+        h = w.bodies[hero]
+        c = w.bodies[box_id]
+
+        // клавиши
+        mx = 0.0
+        mz = 0.0
+        if key_down("left") or key_down("a")
+            mx -= 1
+        if key_down("right") or key_down("d")
+            mx += 1
+        if key_down("up") or key_down("w")
+            mz += 1
+        if key_down("down") or key_down("s")
+            mz -= 1
+        if key_down("q")
+            cam_yaw -= 90 * dt
+        if key_down("e")
+            cam_yaw += 90 * dt
+        jump_now = key_down("space")
+        keys_now = ""
+        count k from 1 to 6
+            if key_down("" + k)
+                keys_now += "" + k
+        each name in ["r", "f", "t", "g"]
+            if key_down(name)
+                keys_now += name
+        if demo
+            // идёт к кубику, толкает его к бассейну, по дороге меняет шейдеры
+            // встать справа от кубика, потом толкать его влево, к бассейну
+            tx = c.x + 1.1
+            tz = c.z
+            if h.x > c.x + 0.6 and abs(h.z - c.z) < 0.3
+                tx = -12.0
+            if c.x < -4.5
+                tx = 3.0
+                tz = 3.0
+                wet += 1
+                if wet > 240
+                    // кубик утонул: вернуть его на площадь и толкать снова
+                    physics.place(w, box_id, 3, 1.5, -2)
+                    c.vx = 0
+                    c.vy = 0
+                    c.vz = 0
+                    wet = 0
+            dxx = tx - h.x
+            dzz = tz - h.z
+            l = sqrt(dxx * dxx + dzz * dzz)
+            mx = 0.0
+            mz = 0.0
+            if l > 0.2
+                fxd = sin_d(cam_yaw)
+                fzd = cos_d(cam_yaw)
+                mz = (dxx * fxd + dzz * fzd) / l
+                mx = (dxx * fzd - dzz * fxd) / l
+            cam_yaw += wrap_deg(-65 - cam_yaw) * min(1.0, dt * 0.8)
+            jump_now = frames % 400 == 300
+            keys_now = ""
+            if frames % 220 == 0
+                keys_now = "" + ((frames / 220) % 6 + 1)
+            if frames % 220 > 150 and frames % 6 == 0
+                keys_now += "r"
+        // нажатие считается один раз: сравниваем с прошлым кадром
+        count k from 1 to 6
+            if has(keys_now, "" + k) and not has(keys_was, "" + k)
+                pick = k - 1
+                use_look(cube, looks[pick])
+        lk = looks[pick]
+        if has(keys_now, "r") and not has(keys_was, "r")
+            lk.av += lk.ad
+        if has(keys_now, "f") and not has(keys_was, "f")
+            lk.av -= lk.ad
+        if has(keys_now, "t") and not has(keys_was, "t")
+            lk.bv += lk.bd
+        if has(keys_now, "g") and not has(keys_was, "g")
+            lk.bv -= lk.bd
+        keys_was = keys_now
+        shader_set(cube, lk.a, lk.av)
+        shader_set(cube, lk.b, lk.bv)
+
+        // ходьба относительно камеры
+        fx = sin_d(cam_yaw)
+        fz = cos_d(cam_yaw)
+        dx = fx * mz + fz * mx
+        dz = fz * mz - fx * mx
+        n = sqrt(dx * dx + dz * dz)
+        walking = n > 0.01
+        if walking
+            h.vx = dx / n * 3.6
+            h.vz = dz / n * 3.6
+            yaw = yaw + wrap_deg(atan_deg(dx, dz) - yaw) * min(1.0, dt * 12)
+            phase += dt * 9
+        else
+            h.vx = 0
+            h.vz = 0
+            phase = phase * 0.8
+        if jump_now and h.on_ground
+            physics.push(w, hero, 0, 6.5, 0)
+        physics.step(w, dt)
+        pushing = false
+        each hit in w.hits
+            if (hit.a == hero and hit.b == box_id) or (hit.a == box_id and hit.b == hero)
+                pushing = walking
+        h.x = max(-19.5, min(19.5, h.x))
+        h.z = max(-19.5, min(19.5, h.z))
+        c.x = max(-19.5, min(19.5, c.x))
+        c.z = max(-19.5, min(19.5, c.z))
+        if h.y < -3
+            physics.place(w, hero, 0, 1, 4)
+            h.vy = 0
+        if c.y < -3
+            physics.place(w, box_id, 0, 1, 0)
+            c.vx = 0
+            c.vy = 0
+            c.vz = 0
+        if lk.name == "lava"
+            shader_set(cube, "ox", c.x)
+            shader_set(cube, "oy", c.y)
+            shader_set(cube, "oz", c.z)
+
+        // кадр
+        clear_window(rgb(190, 210, 235))
+        sunlight(sun_x, sun_y, sun_z, 0.38)
+        cam_x = h.x - fx * 6.5
+        cam_z = h.z - fz * 6.5
+        camera(cam_x, h.y + 2.6, cam_z, h.x, h.y + 0.6, h.z)
+        draw_mesh(sky_dome, cam_x, 0, cam_z, 0)
+        draw_mesh(ground, 0, 0, 0, 0)
+        draw_mesh(pool, 0, 0, 0, 0)
+        draw_mesh(pool_side, 0, 0, 0, 0)
+        // тени лежат на том, что под телом (луч вниз), и сдвинуты от солнца
+        r = physics.ray(w, h.x, h.y, h.z, 0, -1, 0, 30, hero)
+        if r.hit
+            up = h.y - r.y
+            shader_set(hero_shadow, "dark", 0.6 / (1 + (up - 0.9) * 0.8))
+            draw_mesh(hero_shadow, h.x - 0.6 * up * sun_x / sun_y, r.y + 0.015, h.z - 0.6 * up * sun_z / sun_y, 0)
+        r = physics.ray(w, c.x, c.y, c.z, 0, -1, 0, 30, box_id)
+        if r.hit
+            up = c.y - r.y
+            draw_mesh(cube_shadow, c.x - 0.6 * up * sun_x / sun_y, r.y + 0.015, c.z - 0.6 * up * sun_z / sun_y, 0)
+        count i from 0 to len(tree_x) - 1
+            draw_mesh(trunk, tree_x[i], 0, tree_z[i], i * 40)
+            draw_mesh(crown, tree_x[i], 0, tree_z[i], i * 40)
+        draw_mesh(grass, 0, 0, 0, 0)
+        count k from 0 to 2
+            draw_mesh(log_m, fire_x, 0.08, fire_z, k * 60)
+        count k from 0 to 9
+            draw_mesh(stone, fire_x + cos_d(k * 36) * 0.7, 0.06, fire_z + sin_d(k * 36) * 0.7, k * 20)
+        draw_mesh(cube, c.x, c.y, c.z, 0)
+        draw_hero(h.x, h.y, h.z, yaw, phase, walking, h.on_ground, pushing, torso, head, hair, leg, arm)
+        draw_mesh(flame, fire_x, 0.05, fire_z, 0)
+        draw_mesh(water, 0, 0, 0, 0)
+
+        // подсказки
+        draw_rect(10, 10, 560, 78, rgba(15, 20, 35, 170))
+        draw_text(20, 18, "Кубик: " + lk.what, 2, rgb(255, 240, 200))
+        draw_text(20, 48, lk.a + " = " + nice(lk.av) + "  (R / F)      " + lk.b + " = " + nice(lk.bv) + "  (T / G)", 1, rgb(220, 230, 255))
+        draw_text(20, 66, "1 металл  2 мульт  3 голограмма  4 растворение  5 лава  6 кристалл", 1, rgb(180, 200, 230))
+        draw_text(10, window_h() - 22, "стрелки / WASD — идти, пробел — прыжок, Q / E — камера. Толкни кубик в бассейн.   " + fps() + " к/с", 1, rgb(25, 35, 60))
+
+// включить шейдер кубику и выставить его настройки
+func use_look(cube: int, lk: Look)
+    mesh_shader(cube, lk.name)
+    shader_set(cube, lk.a, lk.av)
+    shader_set(cube, lk.b, lk.bv)
+    if lk.name == "standard"
+        shader_set(cube, "power", 50)
+        shader_set(cube, "fog_near", 15)
+        shader_set(cube, "fog_far", 45)
+        shader_set(cube, "fog_r", 0.78)
+        shader_set(cube, "fog_g", 0.84)
+        shader_set(cube, "fog_b", 0.92)
+
+// человечек: туловище и голова поворачиваются с телом, руки и ноги ещё и машут
+func draw_hero(x: dec, y: dec, z: dec, yaw: dec, phase: dec, walking: bool, ground: bool, pushing: bool, torso: int, head: int, hair: int, leg: int, arm: int)
+    swing = sin_t(phase) * 35
+    bob = abs(sin_t(phase)) * 0.04
+    if not walking
+        swing = swing * 0.3
+        bob = 0.0
+    leg_l = swing
+    leg_r = -swing
+    arm_l = -swing * 0.8
+    arm_r = swing * 0.8
+    if not ground
+        leg_l = -25.0
+        leg_r = 15.0
+        arm_l = -150.0
+        arm_r = -150.0
+    else if pushing
+        arm_l = -80.0
+        arm_r = -80.0
+    cy = cos_d(yaw)
+    sy = sin_d(yaw)
+    b = y - 0.9 + bob
+    draw_mesh_rot(torso, x, b + 0.92, z, yaw, 0, 0)
+    draw_mesh_rot(head, x, b + 1.69, z, yaw, 0, 0)
+    draw_mesh_rot(hair, x, b + 1.69, z, yaw, 0, 0)
+    part(leg, x, b + 0.87, z, -0.11, cy, sy, yaw, leg_l)
+    part(leg, x, b + 0.87, z, 0.11, cy, sy, yaw, leg_r)
+    part(arm, x, b + 1.46, z, -0.29, cy, sy, yaw, arm_l)
+    part(arm, x, b + 1.46, z, 0.29, cy, sy, yaw, arm_r)
+
+// рука или нога: точка крепления сдвинута вбок на ox и повёрнута вместе с телом
+func part(m: int, x: dec, y: dec, z: dec, ox: dec, cy: dec, sy: dec, yaw: dec, pitch: dec)
+    draw_mesh_rot(m, x + cy * ox, y, z - sy * ox, yaw, pitch, 0)
+
+func nice(v: dec) gives t: text
+    t = "" + round(v * 100) / 100.0
+
+func has(s: text, bit: text) gives yes: bool
+    yes = find(s, bit) >= 0
+
+func cell(m: int, x: dec, z: dec, s: dec, y: dec, c: int)
+    mesh_add(m, x, y, z, x, y, z + s, x + s, y, z + s, c)
+    mesh_add(m, x, y, z, x + s, y, z + s, x + s, y, z, c)
+
+func box(m: int, x0: dec, y0: dec, z0: dec, x1: dec, y1: dec, z1: dec, c: int)
+    face(m, x0, y0, z0, x0, y1, z0, x1, y1, z0, x1, y0, z0, c)
+    face(m, x0, y0, z1, x1, y0, z1, x1, y1, z1, x0, y1, z1, c)
+    face(m, x0, y0, z0, x0, y0, z1, x0, y1, z1, x0, y1, z0, c)
+    face(m, x1, y0, z0, x1, y1, z0, x1, y1, z1, x1, y0, z1, c)
+    face(m, x0, y1, z0, x0, y1, z1, x1, y1, z1, x1, y1, z0, c)
+    face(m, x0, y0, z0, x1, y0, z0, x1, y0, z1, x0, y0, z1, c)
+
+func face(m: int, x1: dec, y1: dec, z1: dec, x2: dec, y2: dec, z2: dec, x3: dec, y3: dec, z3: dec, x4: dec, y4: dec, z4: dec, c: int)
+    mesh_add(m, x1, y1, z1, x2, y2, z2, x3, y3, z3, c)
+    mesh_add(m, x1, y1, z1, x3, y3, z3, x4, y4, z4, c)
+
+func sphere(m: int, r: dec, n: int, c: int)
+    sphere_at(m, 0, 0, 0, r, n, c)
+
+func sphere_at(m: int, ox: dec, oy: dec, oz: dec, r: dec, n: int, c: int)
+    count i from 0 to n - 1
+        count j from 0 to 2 * n - 1
+            a0 = 3.14159265 * i / n
+            a1 = 3.14159265 * (i + 1) / n
+            b0 = 3.14159265 * j / n
+            b1 = 3.14159265 * (j + 1) / n
+            y0 = oy + r * cos_t(a0)
+            y1 = oy + r * cos_t(a1)
+            if i > 0
+                mesh_add(m, ox + r * sin_t(a0) * cos_t(b0), y0, oz + r * sin_t(a0) * sin_t(b0), ox + r * sin_t(a0) * cos_t(b1), y0, oz + r * sin_t(a0) * sin_t(b1), ox + r * sin_t(a1) * cos_t(b1), y1, oz + r * sin_t(a1) * sin_t(b1), c)
+            if i < n - 1
+                mesh_add(m, ox + r * sin_t(a0) * cos_t(b0), y0, oz + r * sin_t(a0) * sin_t(b0), ox + r * sin_t(a1) * cos_t(b1), y1, oz + r * sin_t(a1) * sin_t(b1), ox + r * sin_t(a1) * cos_t(b0), y1, oz + r * sin_t(a1) * sin_t(b0), c)
+
+func sin_t(x: dec) gives r: dec
+    repeat while x > 3.14159265
+        x -= 6.2831853
+    repeat while x < -3.14159265
+        x += 6.2831853
+    x2 = x * x
+    r = x * (1 - x2 / 6 * (1 - x2 / 20 * (1 - x2 / 42 * (1 - x2 / 72 * (1 - x2 / 110)))))
+
+func cos_t(x: dec) gives r: dec
+    r = sin_t(x + 1.57079633)
+
+func sin_d(a: dec) gives r: dec
+    r = sin_t(a * 0.0174532925)
+
+func cos_d(a: dec) gives r: dec
+    r = cos_t(a * 0.0174532925)
+
+func atan_deg(y: dec, x: dec) gives a: dec
+    ax = abs(x)
+    ay = abs(y)
+    if ax < 0.000001 and ay < 0.000001
+        return 0.0
+    r = min(ax, ay) / max(ax, ay)
+    a = 45 * r + 15.64 * r * (1 - r)
+    if ay > ax
+        a = 90 - a
+    if x < 0
+        a = 180 - a
+    if y < 0
+        a = -a
+
+func wrap_deg(a: dec) gives r: dec
+    r = a
+    repeat while r > 180
+        r -= 360
+    repeat while r < -180
+        r += 360
