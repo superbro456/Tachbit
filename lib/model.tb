@@ -30,6 +30,7 @@ obj Part
     mesh: int
     skin_j: list int       // кости углов: по 4 на угол (12 на треугольник), -1 — нет; пусто — без костей
     skin_w: list dec       // их веса
+    lods: list int         // упрощённые копии сетки (model.lod), от ближней к дальней
 
 obj Model
     parts: list Part
@@ -183,11 +184,43 @@ modpub func paint(md: Model, c: int)
         p.color = c
         p.tri_color.clear()
 
+// даль (1.3): дальше distance вместо модели рисуется её упрощённая копия, где углов доля keep (0.3 — втрое меньше).
+// Можно звать несколько раз: model.lod(md, 0.4, 20) потом model.lod(md, 0.1, 60) — ещё проще ещё дальше
+modpub func lod(md: Model, keep: dec, distance: dec)
+    each p in md.parts
+        if p.mesh >= 0
+            last = p.mesh
+            each lm in p.lods
+                last = lm
+            simple = mesh_simplify(last, keep)
+            mesh_lod(last, simple, distance)
+            p.lods.add(simple)
+
+// дальше distance модель не рисуется совсем (0 — всегда)
+modpub func far(md: Model, distance: dec)
+    each p in md.parts
+        if p.mesh >= 0
+            mesh_far(p.mesh, distance)
+            each lm in p.lods
+                mesh_far(lm, distance)
+
+// модель больше не нужна: сетки отдают память (mesh_free); md можно собрать снова через build
+modpub func free(md: Model)
+    each p in md.parts
+        if p.mesh >= 0
+            mesh_free(p.mesh)
+            p.mesh = -1
+        each lm in p.lods
+            mesh_free(lm)
+        p.lods.clear()
+
 // свой шейдер (gpu func) всем кускам — после build; с ним кости модели считает видеокарта
 modpub func shader(md: Model, name: text)
     each p in md.parts
         if p.mesh >= 0
             mesh_shader(p.mesh, name)
+        each lm in p.lods
+            mesh_shader(lm, name)
 
 // имена анимаций в файле
 modpub func animations(md: Model) gives names: list text
@@ -286,6 +319,9 @@ modpub func play(md: Model, name: text, t: dec)
             if p.mesh >= 0 and len(p.skin_j) > 0
                 bone_quat(p.mesh, b, qx, qy, qz, qw)
                 bone_move(p.mesh, b, mv[0], mv[1], mv[2])
+                each lm in p.lods
+                    bone_quat(lm, b, qx, qy, qz, qw)
+                    bone_move(lm, b, mv[0], mv[1], mv[2])
 
 // имена костей (суставов) модели
 modpub func joints(md: Model) gives names: list text

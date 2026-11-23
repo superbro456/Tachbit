@@ -57,3 +57,4 @@ omnium/*.bc
 omnium/*.ll
 omnium/*.log
 !examples/**/models/*
+examples/apps/big_world/world/

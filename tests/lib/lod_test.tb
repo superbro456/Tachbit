@@ -1,0 +1,45 @@
+// Упрощённые копии и подгрузка (1.3): mesh_simplify, mesh_free, края на месте; stream без окна
+use stream
+
+func main()
+    m = mesh_new()
+    count i from 0 to 15
+        count j from 0 to 15
+            h = ((i * 7 + j * 3) % 5) * 0.1
+            mesh_add(m, i, h, j, i, h, j + 1, i + 1, h, j + 1, rgb(80, 140, 60))
+            mesh_add(m, i, h, j, i + 1, h, j + 1, i + 1, h, j, rgb(80, 140, 60))
+    print("полная: " + mesh_count(m))
+    s1 = mesh_simplify(m, 0.25)
+    s2 = mesh_simplify(m, 0.05)
+    s3 = mesh_simplify(m, 1)
+    print("1/4 меньше: " + (mesh_count(s1) < mesh_count(m)) + ", 1/20 ещё меньше: " + (mesh_count(s2) < mesh_count(s1)) + ", 1 — столько же: " + (mesh_count(s3) == mesh_count(m)))
+    mesh_lod(m, s1, 20)
+    mesh_lod(s1, s2, 60)
+    mesh_far(m, 100)
+    mesh_bounds(m, 8, 0, 8, 12)
+    mesh_free(s3)
+    again = mesh_new()
+    print("номер отданной сетки снова в деле: " + (again == s3))
+    mesh_free(-5)
+    mesh_free(999999)
+    print("simplify чужого номера: " + mesh_simplify(999999, 0.5))
+
+    // stream: 3 куска в файлах, ближние грузятся, дальние уходят
+    dir = "/tmp/tb_lod_test"
+    make_folder(dir) else err
+        print("нет папки")
+    count k from 0 to 2
+        write_file(dir + "/p" + k + ".obj", "v 0 0 0\nv 1 0 0\nv 0 0 1\nf 1 3 2\n") else err
+            print("не записать")
+    w = stream.new(30.0, 1000.0)
+    count k from 0 to 2
+        stream.add(w, dir + "/p" + k + ".obj", k * 50.0, 0, 0, 0)
+    stream.update(w, 0, 0)
+    a, b, c = stream.stats(w)
+    print("у 0: в памяти " + a + ", загружено " + b + ", отдано " + c)
+    stream.update(w, 100, 0)
+    a, b, c = stream.stats(w)
+    print("у 100: в памяти " + a + ", загружено " + b + ", отдано " + c)
+    stream.update(w, 50, 0)
+    a, b, c = stream.stats(w)
+    print("у 50: в памяти " + a + ", загружено " + b + ", отдано " + c)

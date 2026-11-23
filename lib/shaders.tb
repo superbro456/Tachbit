@@ -738,6 +738,9 @@ modpub func particles(n: int, kind: text) gives m: int
         col8(m, 1.0, 1.0, 1.0, 0.9, 0.95, 1.0, 0.9, 0.7)
 
 func set8(m: int, life: dec, speed: dec, spread: dec, gravity: dec, size: dec, size_end: dec, drag: dec, area: dec)
+    // шар, из которого частицы не вылетают: по нему сетку отсекает камера (mesh_bounds)
+    r = area + speed * life + 0.5 * abs(gravity) * life * life + max(size, size_end) + 0.5
+    mesh_bounds(m, 0, 0, 0, r)
     shader_set(m, "life", life)
     shader_set(m, "speed", speed)
     shader_set(m, "spread", spread)

@@ -1,0 +1,231 @@
+// Большой мир: 24 × 24 куска по 16 × 16 (384 × 384 единицы) — холмы, лес, камни. Куски лежат в файлах .obj
+// и подгружаются, когда камера подходит (lib/stream.tb), а уходят из памяти, когда она улетает.
+// Дальние куски рисуются упрощёнными копиями (mesh_simplify + mesh_lod), невидимые отсекает камера.
+//   tb run examples/apps/big_world/main.tb        — лететь самому
+//   tb run examples/apps/big_world/main.tb demo   — камера летит сама
+// Первый запуск сам делает файлы кусков в папке world рядом с программой (около секунды).
+//
+// W / S — вперёд / назад, A / D (или ← →) — поворот, R / F — выше / ниже, L — упрощённые копии вкл / выкл.
+use stream
+use shaders
+
+func main()
+    a = args()
+    demo = len(a) > 0 and a[len(a) - 1] == "demo"
+    try window_open(960, 600, "Большой мир")
+    folder = here("world")
+    n = 24
+    size = 16
+    if not file_exists(folder + "/c_0_0.obj")
+        make_folder(folder) else err
+            print("не сделать папку " + folder + ": " + err)
+            return
+        draw_text(20, 20, "делаю куски мира...", rgb(255, 255, 255), 2)
+        count i from 0 to n - 1
+            count j from 0 to n - 1
+                write_file(folder + "/c_" + i + "_" + j + ".obj", chunk(i, j, size)) else err
+                    print("не записать кусок: " + err)
+                    return
+    lod_on = true
+    w = make_world(folder, n, size, lod_on)
+
+    x = n * size * 0.5
+    z = n * size * 0.5
+    y = 14.0
+    head = 30.0
+    t = 0.0
+    prev_l = false
+    fog_c = rgb(170, 195, 225)
+    repeat while window_alive()
+        dt = frame_ms() / 1000.0
+        if dt > 0.1
+            dt = 0.1
+        t += dt
+        if demo
+            // круг радиусом 120 вокруг середины мира, смотрим по ходу
+            ang = t * 7.0
+            x = n * size * 0.5 + 120 * sin_d(ang)
+            z = n * size * 0.5 + 120 * cos_d(ang)
+            head = ang + 90
+        if key_down("a") or key_down("left")
+            head -= 70 * dt
+        if key_down("d") or key_down("right")
+            head += 70 * dt
+        sp = 0.0
+        if key_down("w") or key_down("up")
+            sp = 30.0
+        if key_down("s") or key_down("down")
+            sp = -30.0
+        x += sp * dt * sin_d(head)
+        z += sp * dt * cos_d(head)
+        if key_down("r")
+            y += 10 * dt
+        if key_down("f")
+            y = max(3.0, y - 10 * dt)
+        x = max(0.0, min(n * size * 1.0, x))
+        z = max(0.0, min(n * size * 1.0, z))
+        if key_down("l") and not prev_l
+            lod_on = not lod_on
+            w = make_world(folder, n, size, lod_on)
+        prev_l = key_down("l")
+
+        stream.update(w, x, z)
+        sunlight(0.4, 0.8, -0.3, 0.35)
+        clear_window(fog_c)
+        gy = height(x, z) + y
+        camera(x, gy, z, x + 10 * sin_d(head), gy - 3.5, z + 10 * cos_d(head))
+        stream.draw(w)
+
+        loaded, loads, frees = stream.stats(w)
+        line = "кусков в памяти: " + loaded + " из " + n * n + "   загружено: " + loads + "   отдано: " + frees + "   нарисовано сеток: " + mesh_drawn() + "   " + fps() + " к/с"
+        draw_text(13, 579, line, rgb(0, 0, 0), 2)
+        draw_text(12, 578, line, rgb(255, 255, 255), 2)
+        info = "W/S вперёд/назад  A/D поворот  R/F выше/ниже  L упрощённые копии: " + yes_no(lod_on)
+        draw_text(13, 13, info, rgb(0, 0, 0), 2)
+        draw_text(12, 12, info, rgb(255, 255, 255), 2)
+
+func make_world(folder: text, n: int, size: int, lod_on: bool) gives w: World
+    w = stream.new(110.0, 4.0)
+    stream.look(w, "standard")
+    if lod_on
+        stream.detail(w, 0.2, 45)
+    count i from 0 to n - 1
+        count j from 0 to n - 1
+            stream.add(w, folder + "/c_" + i + "_" + j + ".obj", (i + 0.5) * size, 0, (j + 0.5) * size, 0)
+
+func yes_no(b: bool) gives t: text
+    t = "нет"
+    if b
+        t = "да"
+
+// ---------- файл куска: холмы с цветом по высоте, деревья, камни ----------
+// В OBJ ось z смотрит на зрителя: пишем -z и углы в обратном порядке (model.load вернёт как было)
+obj Obj
+    s: text
+    nv: int
+
+func vert(o: Obj, x: dec, y: dec, z: dec, c: int)
+    o.s += "v " + x + " " + y + " " + (0 - z) + " " + (shift_right(c, 16) % 256) / 255.0 + " " + (shift_right(c, 8) % 256) / 255.0 + " " + (c % 256) / 255.0 + "\n"
+    o.nv += 1
+
+func tri(o: Obj, a: int, b: int, c: int)
+    o.s += "f " + a + " " + c + " " + b + "\n"
+
+func chunk(ci: int, cj: int, size: int) gives s: text
+    o = Obj()
+    x0 = ci * size
+    z0 = cj * size
+    half = size / 2.0
+    k = 8
+    step = size / (k * 1.0)
+    // холмы: (k + 1)² углов; цвет у треугольника — по высоте
+    count i from 0 to k - 1
+        count j from 0 to k - 1
+            ax = x0 + i * step
+            az = z0 + j * step
+            hs = [height(ax, az), height(ax, az + step), height(ax + step, az + step), height(ax + step, az)]
+            c = ground_color((hs[0] + hs[1] + hs[2] + hs[3]) / 4)
+            b = o.nv + 1
+            vert(o, ax - x0 - half, hs[0], az - z0 - half, c)
+            vert(o, ax - x0 - half, hs[1], az + step - z0 - half, c)
+            vert(o, ax + step - x0 - half, hs[2], az + step - z0 - half, c)
+            vert(o, ax + step - x0 - half, hs[3], az - z0 - half, c)
+            tri(o, b, b + 1, b + 2)
+            tri(o, b, b + 2, b + 3)
+    // деревья и камни: случай — от номера куска, всегда тот же
+    seed = ci * 7919 + cj * 104729 + 13
+    count q from 0 to 17
+        seed = (seed * 1103515245 + 12345) % 2147483648
+        tx = (seed % 1000) / 1000.0 * (size - 2) + 1
+        seed = (seed * 1103515245 + 12345) % 2147483648
+        tz = (seed % 1000) / 1000.0 * (size - 2) + 1
+        seed = (seed * 1103515245 + 12345) % 2147483648
+        kind = seed % 10
+        gy = height(x0 + tx, z0 + tz)
+        if gy > 9.0 or gy < 0.6
+            skip
+        if kind < 8
+            tree(o, tx - half, gy, tz - half, 1.6 + (seed % 7) * 0.25)
+        else
+            rock(o, tx - half, gy, tz - half, 0.5 + (seed % 5) * 0.15)
+    s = o.s
+
+func tree(o: Obj, x: dec, y: dec, z: dec, h: dec)
+    trunk = rgb(100, 70, 40)
+    leaf = rgb(40, 110, 50)
+    leaf2 = rgb(55, 130, 60)
+    prism(o, x, y, z, 0.18, 0.15, h * 0.4, 5, trunk)
+    cone(o, x, y + h * 0.3, z, h * 0.45, h * 0.55, 7, leaf)
+    cone(o, x, y + h * 0.65, z, h * 0.32, h * 0.45, 7, leaf2)
+
+func rock(o: Obj, x: dec, y: dec, z: dec, r: dec)
+    cone(o, x, y - r * 0.2, z, r, r * 0.9, 5, rgb(120, 118, 112))
+
+func prism(o: Obj, x: dec, y: dec, z: dec, r0: dec, r1: dec, h: dec, n: int, c: int)
+    count i from 0 to n - 1
+        a0 = i * 6.2831853 / n
+        a1 = (i + 1) * 6.2831853 / n
+        b = o.nv + 1
+        vert(o, x + r0 * cos_t(a0), y, z + r0 * sin_t(a0), c)
+        vert(o, x + r0 * cos_t(a1), y, z + r0 * sin_t(a1), c)
+        vert(o, x + r1 * cos_t(a1), y + h, z + r1 * sin_t(a1), c)
+        vert(o, x + r1 * cos_t(a0), y + h, z + r1 * sin_t(a0), c)
+        tri(o, b, b + 2, b + 1)
+        tri(o, b, b + 3, b + 2)
+
+func cone(o: Obj, x: dec, y: dec, z: dec, r: dec, h: dec, n: int, c: int)
+    count i from 0 to n - 1
+        a0 = i * 6.2831853 / n
+        a1 = (i + 1) * 6.2831853 / n
+        b = o.nv + 1
+        vert(o, x + r * cos_t(a0), y, z + r * sin_t(a0), c)
+        vert(o, x + r * cos_t(a1), y, z + r * sin_t(a1), c)
+        vert(o, x, y + h, z, c)
+        tri(o, b, b + 2, b + 1)
+
+func ground_color(h: dec) gives c: int
+    c = rgb(235, 238, 242)
+    if h < 0.5
+        c = rgb(194, 178, 128)
+    else if h < 7.0
+        c = rgb(80 + round(h * 4), 140 - round(h * 3), 60)
+    else if h < 11.0
+        c = rgb(120, 115, 105)
+
+// высота земли: холмы из синусов
+func height(x: dec, z: dec) gives h: dec
+    h = 4 + 3.5 * sin_t(x * 0.031) * cos_t(z * 0.027) + 2.2 * sin_t(x * 0.071 + z * 0.043) + 0.8 * cos_t(z * 0.13 - x * 0.05)
+    h += 4 * max(0.0, sin_t(x * 0.011 + 1.0) * sin_t(z * 0.013 + 0.5)) * max(0.0, sin_t(x * 0.011 + 1.0) * sin_t(z * 0.013 + 0.5))
+
+// папка рядом с программой (или в папке примера, если запускают из корня Tachbit)
+func here(name: text) gives path: text
+    path = name
+    if file_exists("examples/apps/big_world/main.tb")
+        path = "examples/apps/big_world/" + name
+        return
+    a = args()
+    if len(a) > 0
+        p = a[0]
+        cut_at = -1
+        count i from 0 to len(p) - 1
+            if p[i] == "/"
+                cut_at = i
+        if cut_at >= 0
+            path = cut(p, 0, cut_at) + "/" + name
+
+func sin_t(x: dec) gives r: dec
+    repeat while x > 3.14159265
+        x -= 6.2831853
+    repeat while x < -3.14159265
+        x += 6.2831853
+    x2 = x * x
+    r = x * (1 - x2 / 6 * (1 - x2 / 20 * (1 - x2 / 42 * (1 - x2 / 72 * (1 - x2 / 110)))))
+
+func cos_t(x: dec) gives r: dec
+    r = sin_t(x + 1.57079633)
+
+func sin_d(a: dec) gives r: dec
+    r = sin_t(a * 0.0174532925)
+
+func cos_d(a: dec) gives r: dec
+    r = cos_t(a * 0.0174532925)

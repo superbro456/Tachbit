@@ -1,0 +1,118 @@
+// stream — большой мир кусками (1.3): кусок грузится из файла, когда камера подходит ближе near,
+// и отдаёт память (mesh_free), когда уходит дальше keep. За кадр грузится не дольше budget мс
+// (хотя бы один кусок), поэтому мир можно делать сколь угодно большим, а кадр не застревает.
+//
+//   use stream
+//   w = stream.new(120.0, 4.0)                  // грузить ближе 120, тратить на это до 4 мс за кадр
+//   stream.add(w, "куски/3_5.obj", 48, 0, 80, 0) // файл модели (.obj, .gltf, .glb) и где он стоит в мире
+//   stream.look(w, "standard")                  // свой шейдер всем кускам (необязательно)
+//   stream.detail(w, 0.25, 50)                  // дальше 50 — упрощённая копия (mesh_simplify), углов вчетверо меньше
+//   repeat while window_alive()
+//       stream.update(w, камера_x, камера_z)
+//       stream.draw(w)
+use model
+
+obj Piece
+    path: text
+    x: dec
+    y: dec
+    z: dec
+    turn: dec
+    loaded: bool
+    failed: bool
+    md: Model
+
+obj World
+    pieces: list Piece
+    near: dec
+    keep: dec
+    budget: dec
+    shader: text
+    lod_keep: dec
+    lod_dist: dec
+    loaded: int
+    loads: int
+    frees: int
+    last_ms: dec
+
+// мир: near — грузить куски ближе этого, budget_ms — сколько мс за кадр можно тратить на подгрузку
+modpub func new(near: dec, budget_ms: dec) gives w: World
+    w = World(near: near, keep: near * 1.25 + 4, budget: budget_ms)
+
+// кусок мира: файл модели и где он стоит (поворот — вокруг вертикали, в градусах)
+modpub func add(w: World, path: text, x: dec, y: dec, z: dec, turn: dec)
+    w.pieces.add(Piece(path: path, x: x, y: y, z: z, turn: turn))
+
+// свой шейдер всем кускам (как model.shader); "" — обычные сетки
+modpub func look(w: World, shader_name: text)
+    w.shader = shader_name
+
+// упрощённые копии для дальних кусков (model.lod): доля углов keep, с расстояния distance
+modpub func detail(w: World, keep: dec, distance: dec)
+    w.lod_keep = keep
+    w.lod_dist = distance
+
+// сдвинуть границу «отдать память» (по умолчанию near × 1.25 + 4)
+modpub func keep_until(w: World, distance: dec)
+    w.keep = max(distance, w.near)
+
+// камера в (cx, cz): отдать дальние куски, загрузить ближайшие недостающие (сначала самые близкие)
+modpub func update(w: World, cx: dec, cz: dec)
+    each p in w.pieces
+        if p.loaded and dist(p, cx, cz) > w.keep
+            model.free(p.md)
+            p.loaded = false
+            w.loaded -= 1
+            w.frees += 1
+    t0 = time_ms()
+    repeat while true
+        best = -1
+        bd = w.near
+        count i from 0 to len(w.pieces) - 1
+            p = w.pieces[i]
+            if not p.loaded and not p.failed
+                d = dist(p, cx, cz)
+                if d <= bd
+                    bd = d
+                    best = i
+        if best < 0
+            stop
+        p = w.pieces[best]
+        md = model.load(p.path) else err
+            print("stream: " + err)
+            p.failed = true
+            skip
+        model.build(md)
+        if w.shader != ""
+            model.shader(md, w.shader)
+        if w.lod_keep > 0.0 and w.lod_dist > 0.0
+            model.lod(md, w.lod_keep, w.lod_dist)
+        model.far(md, w.keep)
+        p.md = md
+        p.loaded = true
+        w.loaded += 1
+        w.loads += 1
+        if time_ms() - t0 >= w.budget
+            stop
+    w.last_ms = (time_ms() - t0) * 1.0
+
+// нарисовать загруженные куски (дальние сами берут упрощённые копии, невидимые отсекает камера)
+modpub func draw(w: World)
+    each p in w.pieces
+        if p.loaded
+            model.draw(p.md, p.x, p.y, p.z, p.turn, 0, 0)
+
+// сколько кусков сейчас в памяти, сколько всего загрузок и выгрузок было
+modpub func stats(w: World) gives loaded: int, loads: int, frees: int
+    loaded = w.loaded
+    loads = w.loads
+    frees = w.frees
+
+// сколько мс подгрузка заняла в последнем update
+modpub func last_ms(w: World)
+    return w.last_ms
+
+func dist(p: Piece, cx: dec, cz: dec)
+    dx = p.x - cx
+    dz = p.z - cz
+    return sqrt(dx * dx + dz * dz)

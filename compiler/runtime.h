@@ -9202,8 +9202,10 @@ TB_INL void tb_put(long long x, long long y, long long c) {
 // на видеокарте фигуры записываются (tb_gpu_*), на процессоре — рисуются сразу в tb_px.
 // TB_GPU_CHECK=1: и то и другое, кадры сверяются
 #define TB_CPU_DRAW (!tb_gpu_on || tb_gpu_check)
+TB_API long long tb_mdrawn = 0, tb_mdrawn_last = 0;   // сколько draw_mesh дошло до рисования (не отсечено) в кадре
 TB_API void tb_clear_window(long long c) {
     TB_SCENE();
+    tb_mdrawn_last = tb_mdrawn; tb_mdrawn = 0;
     if (!tb_px) return;
     if (tb_gpu_on) { tb_gin = 0; tb_gpu_rect(0, 0, tb_gw, tb_gh, c); }   // всё прежнее закрашено
     if (TB_CPU_DRAW) for (long long i = 0; i < (long long)tb_gw * tb_gh; i++) tb_px[i] = (uint32_t)c;
@@ -9665,12 +9667,24 @@ typedef struct { double *v; long long nv, capv; uint32_t *t, *c; long long n, ca
     long long nch, *chr; double *chs, bs[4]; int chok;
     int smooth, alpha, cnok; double shine, glow; double *cn; long long cncap;   // плавный свет, прозрачность 0…255, блеск, свечение; нормали в углах
     tb_bone_t *bones; long long nb, capb; int16_t *sb; float *sw;
-    int shp, shc, shok; float shv[16]; int shimg[4]; int noshadow; float *shvd; long long shvn, shvcap, shused; void *shvb; } tb_mesh;   // gpu func: шейдер точки и углов (-1 — обычный), настройки, углы для видеокарты     // кости и у каждого угла до 4 костей с весами   // куски: chr — (первый треугольник, сколько), chs и bs — шары (центр, радиус)
+    int shp, shc, shok; float shv[16]; int shimg[4]; int noshadow; float *shvd; long long shvn, shvcap, shused; void *shvb;
+    long long lod; double lodd, far, ub[4]; int hasub; } tb_mesh;   // lod — сетка вместо этой дальше lodd; far — дальше не рисовать; ub — свой шар (mesh_bounds)   // gpu func: шейдер точки и углов (-1 — обычный), настройки, углы для видеокарты     // кости и у каждого угла до 4 костей с весами   // куски: chr — (первый треугольник, сколько), chs и bs — шары (центр, радиус)
 TB_API tb_mesh *tb_meshes = 0;
 TB_API long long tb_nmesh = 0, tb_capmesh = 0;
 TB_API double tb_cam[9] = { 0, 0, -5,  1, 0, 0,  0, 1, 0 };   // где камера, вправо, вверх
 TB_API double tb_camf[3] = { 0, 0, 1 };                      // вперёд
+TB_API long long *tb_mfree = 0, tb_nmfree = 0, tb_capmfree = 0;   // номера сеток после mesh_free: mesh_new берёт их снова
+static void tb_mesh_reset(long long i) {
+    memset(&tb_meshes[i], 0, sizeof(tb_mesh));
+    tb_meshes[i].gused = -1;
+    tb_meshes[i].tex = -1;
+    tb_meshes[i].alpha = 255;
+    tb_meshes[i].shp = tb_meshes[i].shc = -1;
+    tb_meshes[i].shused = -1;
+    tb_meshes[i].lod = -1;
+}
 TB_API long long tb_mesh_new(void) {
+    if (tb_nmfree > 0) { long long i = tb_mfree[--tb_nmfree]; tb_mesh_reset(i); return i; }
     if (tb_nmesh == tb_capmesh) {
         tb_capmesh = tb_capmesh ? tb_capmesh * 2 : 16;
         tb_meshes = (tb_mesh *)realloc(tb_meshes, sizeof(tb_mesh) * tb_capmesh);
@@ -9681,6 +9695,7 @@ TB_API long long tb_mesh_new(void) {
     tb_meshes[tb_nmesh].alpha = 255;
     tb_meshes[tb_nmesh].shp = tb_meshes[tb_nmesh].shc = -1;
     tb_meshes[tb_nmesh].shused = -1;
+    tb_meshes[tb_nmesh].lod = -1;
     return tb_nmesh++;
 }
 TB_INL uint64_t tb_vhash(const double *p) {
@@ -9736,7 +9751,7 @@ TB_API void tb_mesh_add(long long id, double x1, double y1, double z1, double x2
     tb_mesh *m = &tb_meshes[id];
     // видеокарта ещё не нарисовала эту сетку из текущей пачки: сначала отдать пачку (там старая сетка)
     if (tb_gpu_on && m->gused == tb_gbatch) tb_gpu_flush(0);
-    tb_mesh_gdirty = 1;
+    if (m->shp < 0 && m->shc < 0) tb_mesh_gdirty = 1;   // со своим шейдером — общий буфер сеток не трогаем
     m->cullok = 0;
     m->chok = 0;
     m->nrmok = 0;
@@ -10079,6 +10094,7 @@ TB_API long long tb_mesh_pack(int32_t *dst) {
     for (long long i = 0; i < tb_nmesh; i++) {
         tb_mesh *m = &tb_meshes[i];
         m->gv = at; m->gt = at + m->nv;
+        if (m->shp >= 0 || m->shc >= 0) { m->gt = at; continue; }   // сетка со своим шейдером — в своём буфере углов
         if (dst) {
             tb_mesh_normals(m);
             memcpy(dst + 4 * at, m->vi, sizeof(int32_t) * 4 * (size_t)m->nv);
@@ -10243,6 +10259,20 @@ static void tb_rot3(double yaw, double pitch, double roll, double R[3][3]) {
     for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++) R[i][j] = YP[i][0] * Q[0][j] + YP[i][1] * Q[1][j] + YP[i][2] * Q[2][j];
 }
 static void tb_draw_mesh_r(long long id, double x, double y, double z, double R[3][3]);
+static void tb_mesh_chunks(tb_mesh *m);
+// шар сетки для отсечения и дали: свой (mesh_bounds) или по углам
+static const double *tb_mesh_sphere(tb_mesh *m) {
+    if (m->hasub) return m->ub;
+    tb_mesh_chunks(m);
+    return m->bs;
+}
+// середина сетки в мире
+static void tb_mesh_center(tb_mesh *m, double x, double y, double z, double R[3][3], double *c) {
+    const double *b = tb_mesh_sphere(m);
+    c[0] = x + R[0][0] * b[0] + R[0][1] * b[1] + R[0][2] * b[2];
+    c[1] = y + R[1][0] * b[0] + R[1][1] * b[1] + R[1][2] * b[2];
+    c[2] = z + R[2][0] * b[0] + R[2][1] * b[1] + R[2][2] * b[2];
+}
 TB_INL int tb_lit_mesh(const tb_mesh *m);
 static void tb_lit_submit(long long id, double x, double y, double z, double R[3][3]);
 static void tb_sh_submit(long long id, double x, double y, double z, double R[3][3]);
@@ -10267,6 +10297,17 @@ static void tb_draw_mesh_r(long long id, double x, double y, double z, double R[
     }
     if (tb_zclr && TB_CPU_DRAW) { for (long long i = 0; i < tb_zb_n; i++) tb_zb[i] = 16777216u; }
     tb_zclr = 0;
+    // даль: mesh_far — дальше не рисовать, mesh_lod — дальше рисовать другую (попроще) сетку
+    for (int hop = 0; hop < 8; hop++) {
+        tb_mesh *q = &tb_meshes[id];
+        if (q->far <= 0 && q->lod < 0) break;
+        double c[3];
+        tb_mesh_center(q, x, y, z, R, c);
+        double dd = sqrt((c[0] - tb_cam[0]) * (c[0] - tb_cam[0]) + (c[1] - tb_cam[1]) * (c[1] - tb_cam[1]) + (c[2] - tb_cam[2]) * (c[2] - tb_cam[2]));
+        if (q->far > 0 && dd > q->far) return;
+        if (q->lod >= 0 && q->lod < tb_nmesh && q->lod != id && dd > q->lodd) { id = q->lod; continue; }
+        break;
+    }
     tb_mesh *m = &tb_meshes[id];
     if (m->n == 0) return;
     // поворот сетки и взгляд камеры — одна таблица M (3 × 3) и сдвиг T: угол p перед камерой = M p + T
@@ -10285,6 +10326,7 @@ static void tb_draw_mesh_r(long long id, double x, double y, double z, double R[
     double f = tb_gh / 2.0 / tan(30 * 3.14159265358979323846 / 180);
     int st = tb_m3_test(m->bs, M, T, f, m->big);
     if (st == 0) return;   // вся сетка за камерой или вне экрана
+    tb_mdrawn++;
     tb_m3_go go = { m, id, cull, -1, -1, 0 };
     for (int k = 0; k < 3; k++) {
         for (int j = 0; j < 3; j++) go.rec.r[4 * k + j] = (int32_t)tb_rnd(M[k][j] * 1073741824.0);   // |M| <= 1: в 2^30 влезает
@@ -10397,6 +10439,23 @@ TB_API void tb_mesh_clear(long long id) {
     m->nv = 0; m->n = 0; m->big = 0;
     m->cullok = m->chok = m->nrmok = m->cnok = m->shok = 0;
     tb_mesh_gdirty = 1;
+}
+// mesh_free: сетка больше не нужна — память отдаётся, номер достанется следующему mesh_new
+// (старый номер больше не трогай: он будет у другой сетки). Для подгрузки мира кусками
+TB_API void tb_mesh_free(long long id) {
+    if (id < 0 || id >= tb_nmesh) return;
+    for (long long i = 0; i < tb_nmfree; i++) if (tb_mfree[i] == id) return;   // уже отдана
+    tb_scene_flush();
+    tb_mesh *m = &tb_meshes[id];
+    if (tb_gpu_on && (m->gused == tb_gbatch || m->shused == tb_gbatch)) tb_gpu_flush(0);
+    if (m->shvb) tb_gpu_sh_vbuf(m->shvb, 0, 0);
+    if (m->shp < 0 && m->shc < 0) tb_mesh_gdirty = 1;
+    free(m->v); free(m->t); free(m->c); free(m->hk); free(m->vi); free(m->nrm); free(m->uv); free(m->chr); free(m->chs);
+    free(m->cn); free(m->bones); free(m->sb); free(m->sw); free(m->shvd);
+    for (long long i = 0; i < tb_nmesh; i++) if (tb_meshes[i].lod == id) tb_meshes[i].lod = -1;
+    tb_mesh_reset(id);
+    if (tb_nmfree == tb_capmfree) { tb_capmfree = tb_capmfree ? tb_capmfree * 2 : 64; tb_mfree = (long long *)realloc(tb_mfree, sizeof(long long) * (size_t)tb_capmfree); }
+    tb_mfree[tb_nmfree++] = id;
 }
 
 // ---- кости ----
@@ -10884,6 +10943,7 @@ static void tb_lit_draw(tb_srec *r) {
     }
     double f = tb_gh / 2.0 / tan(30 * 3.14159265358979323846 / 180);
     if (tb_m3_test(m->bs, M, T, f, 1) == 0) return;   // вся сетка за камерой или вне окна
+    tb_mdrawn++;
     for (long long c = 0; c < m->nch; c++) {
         if (m->nch > 1 && tb_m3_test(m->chs + 4 * c, M, T, f, 1) == 0) continue;
         for (long long t = m->chr[2 * c]; t < m->chr[2 * c] + m->chr[2 * c + 1]; t++) tb_lit_tri(r, t, cull);
@@ -10998,6 +11058,121 @@ TB_API void tb_mesh_shadow(long long id, int on) {
     if (id < 0 || id >= tb_nmesh) return;
     tb_scene_flush();
     tb_meshes[id].noshadow = !on;
+}
+// ---- даль и отсечение (1.3) ----
+// mesh_bounds(m, x, y, z, r): сетка не выходит из шара (центр в осях сетки) — по нему отсекается сетка со своим
+// шейдером углов (частицы, волны) и меряется даль; r <= 0 — снова по углам
+TB_API void tb_mesh_bounds(long long id, double x, double y, double z, double r) {
+    if (id < 0 || id >= tb_nmesh) return;
+    tb_mesh *m = &tb_meshes[id];
+    m->hasub = r > 0;
+    m->ub[0] = x; m->ub[1] = y; m->ub[2] = z; m->ub[3] = r;
+}
+// mesh_lod(m, проще, даль): дальше «дали» от камеры вместо m рисуется сетка «проще» (у неё может быть свой mesh_lod);
+// -1 — без замены
+TB_API void tb_mesh_lod(long long id, long long other, double dist) {
+    if (id < 0 || id >= tb_nmesh) return;
+    tb_meshes[id].lod = other >= 0 && other < tb_nmesh && other != id ? other : -1;
+    tb_meshes[id].lodd = dist;
+}
+// mesh_far(m, даль): дальше не рисовать совсем (0 — рисовать всегда)
+TB_API void tb_mesh_far(long long id, double dist) {
+    if (id < 0 || id >= tb_nmesh) return;
+    tb_meshes[id].far = dist > 0 ? dist : 0;
+}
+TB_API long long tb_mesh_drawn(void) { return tb_mdrawn_last; }
+// mesh_simplify(m, доля): новая сетка, где углов примерно «доля» от прежних (0.5 — вдвое меньше):
+// близкие углы сливаются в один (по клеткам), треугольники, ставшие точкой или чертой, уходят.
+// Цвет, картинка, шейдер и его настройки, кости — как у m. Для mesh_lod
+TB_API long long tb_mesh_simplify(long long id, double keep) {
+    if (id < 0 || id >= tb_nmesh) return -1;
+    tb_scene_flush();
+    long long nid = tb_mesh_new();   // tb_meshes мог переехать: указатели — после
+    tb_mesh *m = &tb_meshes[id];
+    if (m->n == 0 || m->nv == 0) return nid;
+    if (!(keep > 0)) keep = 0.01;
+    if (keep > 1) keep = 1;
+    double lo[3] = { 1e300, 1e300, 1e300 }, hi[3] = { -1e300, -1e300, -1e300 };
+    for (long long k = 0; k < m->nv; k++) for (int i = 0; i < 3; i++) { double v = m->v[3 * k + i]; if (v < lo[i]) lo[i] = v; if (v > hi[i]) hi[i] = v; }
+    double ext[3], big = 0;
+    for (int i = 0; i < 3; i++) { ext[i] = hi[i] - lo[i]; if (ext[i] > big) big = ext[i]; }
+    double target = m->nv * keep < 4 ? 4 : m->nv * keep, vol = 1;
+    int dims = 0;
+    for (int i = 0; i < 3; i++) if (ext[i] > big * 1e-3) { vol *= ext[i]; dims++; }
+    double cell = dims ? pow(vol / target, 1.0 / dims) : 1;
+    // тонкая сторона (холмы: высота мала против ширины) не делит клетки — считаем без неё
+    for (int pass = 0; pass < 2 && dims > 1; pass++) {
+        double v2 = 1; int d2 = 0;
+        for (int i = 0; i < 3; i++) if (ext[i] > big * 1e-3 && ext[i] >= cell) { v2 *= ext[i]; d2++; }
+        if (d2 == dims || d2 == 0) break;
+        dims = d2; vol = v2;
+        cell = pow(vol / target, 1.0 / dims);
+    }
+    if (!(cell > 0)) cell = 1;
+    if (keep >= 1) cell = big * 1e-9 + 1e-12;
+    // клетка каждого угла: открытая адресация по ключу (ix, iy, iz)
+    long long cap = 16;
+    while (cap < 2 * m->nv) cap *= 2;
+    long long *hkey = (long long *)malloc(sizeof(long long) * 3 * (size_t)cap), *hval = (long long *)malloc(sizeof(long long) * (size_t)cap);
+    for (long long i = 0; i < cap; i++) hval[i] = -1;
+    long long *cl = (long long *)malloc(sizeof(long long) * (size_t)m->nv), ncl = 0;
+    double *sum = (double *)calloc((size_t)m->nv * 4, sizeof(double));
+    long long *first = (long long *)malloc(sizeof(long long) * (size_t)m->nv);
+    for (long long k = 0; k < m->nv; k++) {
+        long long key[3];
+        for (int i = 0; i < 3; i++) key[i] = (long long)floor((m->v[3 * k + i] - lo[i]) / cell);
+        // угол на краю по x или z остаётся где был: соседний кусок мира (полный или упрощённый) сходится без щели
+        double eb = big * 1e-6 + 1e-12;
+        int edge = 0;
+        for (int i = 0; i < 3; i += 2) if (ext[i] > big * 1e-3 && (m->v[3 * k + i] - lo[i] < eb || hi[i] - m->v[3 * k + i] < eb)) edge = 1;
+        if (edge && keep < 1) {
+            for (int i = 0; i < 3; i++) key[i] = (long long)floor((m->v[3 * k + i] - lo[i]) / eb);
+            key[0] += (long long)1 << 52;
+        }
+        uint64_t h = ((uint64_t)key[0] * 73856093u) ^ ((uint64_t)key[1] * 19349663u) ^ ((uint64_t)key[2] * 83492791u);
+        h &= (uint64_t)(cap - 1);
+        while (hval[h] >= 0 && memcmp(hkey + 3 * h, key, sizeof key) != 0) h = (h + 1) & (uint64_t)(cap - 1);
+        if (hval[h] < 0) { hval[h] = ncl; memcpy(hkey + 3 * h, key, sizeof key); first[ncl] = k; ncl++; }
+        long long c = hval[h];
+        cl[k] = c;
+        for (int i = 0; i < 3; i++) sum[4 * c + i] += m->v[3 * k + i];
+        sum[4 * c + 3] += 1;
+    }
+    for (long long c = 0; c < ncl; c++) for (int i = 0; i < 3; i++) sum[4 * c + i] /= sum[4 * c + 3];
+    long long n = m->n;
+    for (long long t = 0; t < n; t++) {
+        m = &tb_meshes[id];
+        long long a = cl[m->t[3 * t]], b = cl[m->t[3 * t + 1]], c = cl[m->t[3 * t + 2]];
+        if (a == b || b == c || a == c) continue;
+        const double *pa = sum + 4 * a, *pb = sum + 4 * b, *pc = sum + 4 * c;
+        if (m->uv && m->uv[6 * t] == m->uv[6 * t]) {
+            const double *q = m->uv + 6 * t;
+            double qq[6];
+            memcpy(qq, q, sizeof qq);
+            tb_mesh_add_uv(nid, pa[0], pa[1], pa[2], qq[0], qq[1], pb[0], pb[1], pb[2], qq[2], qq[3], pc[0], pc[1], pc[2], qq[4], qq[5]);
+            tb_meshes[nid].c[tb_meshes[nid].n - 1] = tb_meshes[id].c[t];
+        } else tb_mesh_add(nid, pa[0], pa[1], pa[2], pb[0], pb[1], pb[2], pc[0], pc[1], pc[2], m->c[t]);
+    }
+    m = &tb_meshes[id];
+    tb_mesh *o = &tb_meshes[nid];
+    o->tex = m->tex; o->smooth = m->smooth; o->alpha = m->alpha; o->shine = m->shine; o->glow = m->glow; o->noshadow = m->noshadow;
+    o->shp = m->shp; o->shc = m->shc; memcpy(o->shv, m->shv, sizeof o->shv); memcpy(o->shimg, m->shimg, sizeof o->shimg);
+    o->hasub = m->hasub; memcpy(o->ub, m->ub, sizeof o->ub); o->far = m->far;
+    if (m->nb > 0) {   // кости: те же; угол новой сетки слушается костей первого угла своей клетки
+        o->capb = o->nb = m->nb;
+        o->bones = (tb_bone_t *)malloc(sizeof(tb_bone_t) * (size_t)m->nb);
+        memcpy(o->bones, m->bones, sizeof(tb_bone_t) * (size_t)m->nb);
+        if (m->sb) {
+            tb_skin_mem(o);
+            for (long long c = 0; c < ncl; c++) {
+                long long k = tb_mesh_find(o, sum[4 * c], sum[4 * c + 1], sum[4 * c + 2]);
+                if (k < 0) continue;
+                for (int i = 0; i < 4; i++) { o->sb[4 * k + i] = m->sb[4 * first[c] + i]; o->sw[4 * k + i] = m->sw[4 * first[c] + i]; }
+            }
+        }
+    }
+    free(hkey); free(hval); free(cl); free(sum); free(first);
+    return nid;
 }
 TB_API void tb_light_shadow(long long n, int on) {
     if (n < 0 || n > 7) return;
@@ -11195,7 +11370,7 @@ static void tb_lit_submit(long long id, double x, double y, double z, double R[3
 TB_API void tb_mesh_shader(long long id, const char *name) {
     if (id < 0 || id >= tb_nmesh) return;
     tb_mesh *m = &tb_meshes[id];
-    if (!name || !name[0]) { m->shp = m->shc = -1; return; }
+    if (!name || !name[0]) { if (m->shp >= 0 || m->shc >= 0) tb_mesh_gdirty = 1; m->shp = m->shc = -1; return; }
     int p = tb_sh_find(name, 1), c = tb_sh_find(name, 0);
     if (p < 0 && c < 0) { fprintf(stderr, "mesh_shader: в программе нет gpu func с именем %s (шейдера точки или углов)\n", name); return; }
     if (p >= 0) m->shp = p;
@@ -11458,8 +11633,27 @@ static void tb_sh_submit(long long id, double x, double y, double z, double R[3]
     }
     tb_sh_draw(id, x, y, z, R, 0);
 }
+static int tb_m3_test(const double *sp, double M[3][3], const double *T, double f, int big);
+// сетка со своим шейдером видна? Шар: свой (mesh_bounds); без шейдера углов — по углам (с костями — вдвое шире);
+// шейдер углов без mesh_bounds двигает углы как хочет — тогда рисуем всегда
+static int tb_sh_visible(tb_mesh *m, double x, double y, double z, double R[3][3]) {
+    double sp[4];
+    if (m->hasub) memcpy(sp, m->ub, sizeof sp);
+    else if (m->shc >= 0) return 1;
+    else { tb_mesh_chunks(m); memcpy(sp, m->bs, sizeof sp); if (m->nb > 0) sp[3] *= 2; }
+    double M[3][3], T[3], d[3] = { x - tb_cam[0], y - tb_cam[1], z - tb_cam[2] };
+    for (int k = 0; k < 3; k++) {
+        const double *row = k == 0 ? tb_cam + 3 : k == 1 ? tb_cam + 6 : tb_camf;
+        for (int j = 0; j < 3; j++) M[k][j] = row[0] * R[0][j] + row[1] * R[1][j] + row[2] * R[2][j];
+        T[k] = row[0] * d[0] + row[1] * d[1] + row[2] * d[2];
+    }
+    double f = tb_gh / 2.0 / tan(30 * 3.14159265358979323846 / 180);
+    return tb_m3_test(sp, M, T, f, 1) != 0;
+}
 static void tb_sh_draw(long long id, double x, double y, double z, double R[3][3], const double *bm) {
     tb_mesh *m = &tb_meshes[id];
+    if (!tb_sh_visible(m, x, y, z, R)) return;   // за камерой или вне окна (тени уже посчитаны)
+    tb_mdrawn++;
     int cs = m->shc >= 0 ? m->shc : tb_sh_find("tb_corner", 0), ps = m->shp >= 0 ? m->shp : tb_sh_find("tb_pixel", 1);
     if (cs < 0 || ps < 0) return;
     if (!m->shok) {
@@ -12609,6 +12803,12 @@ TB_BV(shader_set, (long long m, const char *name, double v, int line), tb_shader
 TB_BV(screen_shader, (const char *name, int line), tb_screen_shader(name))
 TB_BV(shader_image, (long long m, long long s, long long i, int line), tb_shader_image(m, s, i))
 TB_BV(mesh_shadow, (long long m, int on, int line), tb_mesh_shadow(m, on))
+TB_BV(mesh_bounds, (long long m, double x, double y, double z, double r, int line), tb_mesh_bounds(m, x, y, z, r))
+TB_BV(mesh_lod, (long long m, long long o, double d, int line), tb_mesh_lod(m, o, d))
+TB_BV(mesh_far, (long long m, double d, int line), tb_mesh_far(m, d))
+TB_BV(mesh_free, (long long m, int line), tb_mesh_free(m))
+TB_B(long long, mesh_simplify, (long long m, double k, int line), tb_mesh_simplify(m, k))
+TB_B(long long, mesh_drawn, (int line), tb_mesh_drawn())
 TB_BV(light_shadow, (long long n, int on, int line), tb_light_shadow(n, on))
 TB_BV(screen_set, (const char *name, const char *set, double v, int line), tb_screen_set(name, set, v))
 TB_BV(mesh_glow, (long long m, double g, int line), tb_mesh_glow(m, g))

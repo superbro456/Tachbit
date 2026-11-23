@@ -1,0 +1,34 @@
+// LOD, дальность и отсечение (1.3): mesh_lod / mesh_far / mesh_bounds, сетка за спиной камеры не рисуется,
+// mesh_drawn считает нарисованные сетки; шейдерные сетки отсекаются так же
+use shaders
+
+func main()
+    a = args()
+    hold = len(a) > 0 and a[len(a) - 1] == "hold"
+    try window_open(320, 200, "lod")
+    m = mesh_new()
+    count i from 0 to 7
+        count j from 0 to 7
+            mesh_add(m, i * 0.25 - 1, 0, j * 0.25 - 1, i * 0.25 - 1, 0.3, j * 0.25 - 0.75, i * 0.25 - 0.75, 0, j * 0.25 - 0.75, rgb(90, 160, 90))
+    s = mesh_simplify(m, 0.2)
+    mesh_lod(m, s, 6)
+    mesh_far(m, 30)
+    sh = mesh_simplify(m, 1)
+    mesh_shader(sh, "standard")
+    frames = 0
+    bad = 0
+    repeat while window_alive() and (hold or frames < 12)
+        frames += 1
+        sunlight(0.4, 0.8, -0.3, 0.3)
+        clear_window(rgb(20, 24, 34))
+        camera(0, 2, -4, 0, 0, 4)
+        draw_mesh(m, 0, 0, 0, 0)        // близко: полная
+        draw_mesh(m, 0, 0, 12, 0)       // дальше 6: упрощённая
+        draw_mesh(m, 0, 0, 60, 0)       // дальше 30: нет
+        draw_mesh(m, 0, 0, -20, 0)      // за спиной: нет
+        draw_mesh(sh, 2, 0, 2, 0)       // шейдер, видно
+        draw_mesh(sh, 0, 0, -30, 0)     // шейдер за спиной: нет
+        if frames > 2 and mesh_drawn() != 3
+            bad += 1
+            print("кадр " + frames + ": нарисовано " + mesh_drawn() + ", а надо 3")
+    print("кадров: " + frames + ", ошибок счёта: " + bad)
