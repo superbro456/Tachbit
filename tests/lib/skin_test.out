@@ -1,0 +1,15 @@
+треугольников: 192 костей: 11 кусков: 5
+кости: hips chest leg_l leg_r head arm_l arm_r shin_l shin_r fore_l fore_r
+анимации: walk wave idle
+walk секунд: 1
+wave секунд: 2
+idle секунд: 2
+размер: 0.62 1.8 0.29
+shin_l: 0.1 0.51 0.03
+fore_r: -0.26 1.16 0.03
+shin_l: 0.1 0.51 -0.19
+shin_r: -0.1 0.51 0.24
+shin_l: 0.1 0.51 -0.19
+fore_r: -0.42 1.66 0.03
+head: -0.02 1.47 0.03
+fore_r: -0.42 1.66 0.03

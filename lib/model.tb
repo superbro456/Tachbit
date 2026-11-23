@@ -9,6 +9,11 @@
 //   repeat while window_alive()
 //       model.draw(md, x, y, z, поворот, наклон, крен)
 //
+// Анимации glTF (кости, skin): model.animations(md) — имена, model.play(md, "walk", секунды) —
+// поставить позу (по кругу), потом model.draw. Один и тот же md можно рисовать много раз
+// с разными позами в одном кадре: каждый draw запоминает свою позу.
+// model.shader(md, "pbr") — свой шейдер всем кускам: тогда кости считает видеокарта.
+//
 // Оси Tachbit: x вправо, y вверх, z вперёд (от камеры). В OBJ и glTF z смотрит на зрителя,
 // поэтому при чтении z меняет знак (модель стоит так же, как в Blender, лицом к камере),
 // а у треугольников меняется порядок углов, чтобы лицевые грани остались лицевыми.
@@ -23,6 +28,8 @@ obj Part
     uv: list dec           // по 6 чисел на треугольник (пусто — без картинки)
     tri_color: list int    // свой цвет треугольника (цвета вершин в OBJ), пусто — color
     mesh: int
+    skin_j: list int       // кости углов: по 4 на угол (12 на треугольник), -1 — нет; пусто — без костей
+    skin_w: list dec       // их веса
 
 obj Model
     parts: list Part
@@ -34,6 +41,37 @@ obj Model
     max_y: dec
     max_z: dec
     folder: text
+    // кости и анимации glTF; k, ox, oy, oz — как fit и scale сдвинули модель (x → k x + o)
+    bones: int
+    bone_node: list int
+    bone_name: list text
+    pose: list dec            // суставы в последней позе play: 3 на кость (оси Tachbit, как сетки модели)
+    bone_parent: list int
+    ibm: list dec             // обратные матрицы привязки, 16 на кость (по столбцам)
+    bind: list dec            // сустав в позе привязки, 3 на кость (оси glTF)
+    nparent: list int         // родитель узла (-1)
+    norder: list int          // узлы: родители раньше детей
+    ntrs: list dec            // узел: сдвиг 3, поворот 4, масштаб 3
+    nmat: list dec            // узел: матрица 16 (если в файле matrix)
+    nhasm: list bool
+    anims: list Anim
+    k: dec
+    ox: dec
+    oy: dec
+    oz: dec
+
+// анимация: каналы (узел, что двигает: 0 сдвиг, 1 поворот, 2 масштаб) и ключи
+obj Chan
+    node: int
+    path: int
+    mode: int                 // 0 плавно, 1 ступенькой, 2 кубический сплайн (берём сами ключи)
+    keys: list dec
+    vals: list dec
+
+obj Anim
+    name: text
+    length: dec
+    chans: list Chan
 
 // ---------- общее ----------
 
@@ -77,6 +115,10 @@ modpub func fit(md: Model, size_to: dec)
             p.pos[i + 1] = (p.pos[i + 1] - base) * k
             p.pos[i + 2] = (p.pos[i + 2] - cz) * k
             i += 3
+    md.k = md.k * k
+    md.ox = (md.ox - cx) * k
+    md.oy = (md.oy - base) * k
+    md.oz = (md.oz - cz) * k
     md.min_x = (md.min_x - cx) * k
     md.max_x = (md.max_x - cx) * k
     md.min_y = 0.0
@@ -89,6 +131,10 @@ modpub func scale(md: Model, k: dec)
     each p in md.parts
         count i from 0 to len(p.pos) - 1
             p.pos[i] = p.pos[i] * k
+    md.k = md.k * k
+    md.ox = md.ox * k
+    md.oy = md.oy * k
+    md.oz = md.oz * k
     md.min_x = md.min_x * k
     md.min_y = md.min_y * k
     md.min_z = md.min_z * k
@@ -115,6 +161,15 @@ modpub func build(md: Model)
                 if len(p.tri_color) > 0
                     c = p.tri_color[t]
                 mesh_add(p.mesh, p.pos[a], p.pos[a + 1], p.pos[a + 2], p.pos[a + 3], p.pos[a + 4], p.pos[a + 5], p.pos[a + 6], p.pos[a + 7], p.pos[a + 8], c)
+        if md.bones > 0 and len(p.skin_j) > 0
+            // кости: суставы в осях Tachbit (z меняет знак, потом как fit / scale), веса углов
+            count b from 0 to md.bones - 1
+                nb = bone_add(p.mesh, md.bone_parent[b], md.k * md.bind[b * 3] + md.ox, md.k * md.bind[b * 3 + 1] + md.oy, -md.k * md.bind[b * 3 + 2] + md.oz)
+            count c from 0 to len(p.pos) / 3 - 1
+                count q from 0 to 3
+                    b = p.skin_j[c * 4 + q]
+                    if b >= 0 and p.skin_w[c * 4 + q] > 0.0
+                        bone_weight(p.mesh, b, p.pos[c * 3], p.pos[c * 3 + 1], p.pos[c * 3 + 2], p.skin_w[c * 4 + q])
 
 // нарисовать модель в точке мира, повёрнутой как draw_mesh_rot
 modpub func draw(md: Model, x: dec, y: dec, z: dec, yaw: dec, pitch: dec, roll: dec)
@@ -128,8 +183,240 @@ modpub func paint(md: Model, c: int)
         p.color = c
         p.tri_color.clear()
 
+// свой шейдер (gpu func) всем кускам — после build; с ним кости модели считает видеокарта
+modpub func shader(md: Model, name: text)
+    each p in md.parts
+        if p.mesh >= 0
+            mesh_shader(p.mesh, name)
+
+// имена анимаций в файле
+modpub func animations(md: Model) gives names: list text
+    each a in md.anims
+        names.add(a.name)
+
+// сколько секунд длится анимация (нет такой — 0)
+modpub func anim_length(md: Model, name: text) gives t: dec
+    t = 0.0
+    a = find_anim(md, name)
+    if a >= 0
+        t = md.anims[a].length
+
+// поставить модель в позу анимации name в момент t секунд (по кругу); "" — первая анимация.
+// Действует на следующие model.draw этой модели.
+modpub func play(md: Model, name: text, t: dec)
+    if md.bones == 0 or len(md.anims) == 0
+        return
+    ai = find_anim(md, name)
+    if ai < 0
+        return
+    an = md.anims[ai]
+    tt = t
+    if an.length > 0.0
+        tt = t - round(t / an.length - 0.5) * an.length
+        if tt < 0.0
+            tt += an.length
+        if tt > an.length
+            tt -= an.length
+    nn = len(md.nparent)
+    trs = list dec
+    each v in md.ntrs
+        trs.add(v)
+    moved = list bool
+    repeat nn times
+        moved.add(false)
+    each c in an.chans
+        if c.node < 0 or c.node >= nn
+            skip
+        n = 3
+        if c.path == 1
+            n = 4
+        v = sample(c, tt, n)
+        at = c.node * 10
+        if c.path == 1
+            at += 3
+        if c.path == 2
+            at += 7
+        count i from 0 to n - 1
+            trs[at + i] = v[i]
+        moved[c.node] = true
+    world = list dec
+    repeat nn * 16 times
+        world.add(0.0)
+    each nd in md.norder
+        loc = list dec
+        if md.nhasm[nd] and not moved[nd]
+            loc = cut16(md.nmat, nd * 16)
+        else
+            b = nd * 10
+            loc = trs_matrix(trs[b], trs[b + 1], trs[b + 2], trs[b + 3], trs[b + 4], trs[b + 5], trs[b + 6], trs[b + 7], trs[b + 8], trs[b + 9])
+        w = loc
+        if md.nparent[nd] >= 0
+            w = mat_mul(cut16(world, md.nparent[nd] * 16), loc)
+        count i from 0 to 15
+            world[nd * 16 + i] = w[i]
+    // кость: S = мир сустава × обратная привязка; своя часть L = S родителя⁻¹ × S
+    sk = list dec
+    count b from 0 to md.bones - 1
+        s = mat_mul(cut16(world, md.bone_node[b] * 16), cut16(md.ibm, b * 16))
+        each v in s
+            sk.add(v)
+    count b from 0 to md.bones - 1
+        l = cut16(sk, b * 16)
+        if md.bone_parent[b] >= 0
+            l = mat_mul(inv_affine(cut16(sk, md.bone_parent[b] * 16)), l)
+        // в оси Tachbit: z меняет знак (F L F), потом x → k x + o
+        f = [1.0, 1.0, -1.0]
+        r = list dec
+        count i from 0 to 2
+            count j from 0 to 2
+                r.add(l[j * 4 + i] * f[i] * f[j])
+        o = [md.ox, md.oy, md.oz]
+        tv = list dec
+        count i from 0 to 2
+            tv.add(md.k * l[12 + i] * f[i] + o[i] - (r[i * 3] * o[0] + r[i * 3 + 1] * o[1] + r[i * 3 + 2] * o[2]))
+        piv = [md.k * md.bind[b * 3] + md.ox, md.k * md.bind[b * 3 + 1] + md.oy, -md.k * md.bind[b * 3 + 2] + md.oz]
+        mv = list dec
+        count i from 0 to 2
+            mv.add(tv[i] - piv[i] + r[i * 3] * piv[0] + r[i * 3 + 1] * piv[1] + r[i * 3 + 2] * piv[2])
+        md.pose[b * 3] = md.k * world[md.bone_node[b] * 16 + 12] + md.ox
+        md.pose[b * 3 + 1] = md.k * world[md.bone_node[b] * 16 + 13] + md.oy
+        md.pose[b * 3 + 2] = -md.k * world[md.bone_node[b] * 16 + 14] + md.oz
+        qx, qy, qz, qw = quat_of(r)
+        each p in md.parts
+            if p.mesh >= 0 and len(p.skin_j) > 0
+                bone_quat(p.mesh, b, qx, qy, qz, qw)
+                bone_move(p.mesh, b, mv[0], mv[1], mv[2])
+
+// имена костей (суставов) модели
+modpub func joints(md: Model) gives names: list text
+    each n in md.bone_name
+        names.add(n)
+
+// где сустав name в последней позе model.play — в осях модели (до draw: прибавь место и поворот сам);
+// нет такого — 0, 0, 0
+modpub func joint(md: Model, name: text) gives x: dec, y: dec, z: dec
+    x = 0.0
+    y = 0.0
+    z = 0.0
+    count b from 0 to md.bones - 1
+        if md.bone_name[b] == name
+            x = md.pose[b * 3]
+            y = md.pose[b * 3 + 1]
+            z = md.pose[b * 3 + 2]
+            return
+
+func find_anim(md: Model, name: text)
+    if name == "" and len(md.anims) > 0
+        return 0
+    count i from 0 to len(md.anims) - 1
+        if md.anims[i].name == name
+            return i
+    return -1
+
+func cut16(a: list dec, at: int) gives m: list dec
+    count i from 0 to 15
+        m.add(a[at + i])
+
+// значение канала в момент t: n чисел, между ключами — по прямой (поворот — с нормировкой)
+func sample(c: Chan, t: dec, n: int) gives v: list dec
+    k = len(c.keys)
+    if k == 0
+        repeat n times
+            v.add(0.0)
+        return
+    lo = 0
+    if t >= c.keys[k - 1]
+        lo = k - 1
+    else if t > c.keys[0]
+        hi = k - 1
+        repeat while hi - lo > 1
+            mid = (lo + hi) / 2
+            if c.keys[mid] <= t
+                lo = mid
+            else
+                hi = mid
+    hi2 = min(lo + 1, k - 1)
+    s = 0.0
+    if hi2 > lo and c.mode == 0
+        s = (t - c.keys[lo]) / max(c.keys[hi2] - c.keys[lo], 0.000001)
+        s = max(0.0, min(1.0, s))
+    a = lo * n
+    b = hi2 * n
+    if c.mode == 2
+        a = (lo * 3 + 1) * n
+        b = (hi2 * 3 + 1) * n
+        if t > c.keys[lo] and hi2 > lo
+            s = max(0.0, min(1.0, (t - c.keys[lo]) / max(c.keys[hi2] - c.keys[lo], 0.000001)))
+    sign = 1.0
+    if n == 4
+        d = 0.0
+        count i from 0 to 3
+            d += c.vals[a + i] * c.vals[b + i]
+        if d < 0.0
+            sign = -1.0
+    count i from 0 to n - 1
+        v.add(c.vals[a + i] * (1 - s) + c.vals[b + i] * s * sign)
+    if n == 4
+        l = sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2] + v[3] * v[3])
+        if l > 0.0
+            count i from 0 to 3
+                v[i] = v[i] / l
+
+// матрица 4 × 4 (по столбцам) из сдвига, кватерниона и масштаба
+func trs_matrix(tx: dec, ty: dec, tz: dec, qx: dec, qy: dec, qz: dec, qw: dec, sx: dec, sy: dec, sz: dec) gives m: list dec
+    m = [(1 - 2 * (qy * qy + qz * qz)) * sx, (2 * (qx * qy + qz * qw)) * sx, (2 * (qx * qz - qy * qw)) * sx, 0.0, (2 * (qx * qy - qz * qw)) * sy, (1 - 2 * (qx * qx + qz * qz)) * sy, (2 * (qy * qz + qx * qw)) * sy, 0.0, (2 * (qx * qz + qy * qw)) * sz, (2 * (qy * qz - qx * qw)) * sz, (1 - 2 * (qx * qx + qy * qy)) * sz, 0.0, tx, ty, tz, 1.0]
+
+// обратная к матрице поворота-масштаба со сдвигом (по столбцам)
+func inv_affine(m: list dec) gives r: list dec
+    a = m[0]
+    b = m[4]
+    c = m[8]
+    d = m[1]
+    e = m[5]
+    f = m[9]
+    g = m[2]
+    h = m[6]
+    i = m[10]
+    det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)
+    if abs(det) < 0.000000000001
+        det = 0.000000000001
+    q = 1 / det
+    n = [(e * i - f * h) * q, (c * h - b * i) * q, (b * f - c * e) * q, (f * g - d * i) * q, (a * i - c * g) * q, (c * d - a * f) * q, (d * h - e * g) * q, (b * g - a * h) * q, (a * e - b * d) * q]
+    tx = m[12]
+    ty = m[13]
+    tz = m[14]
+    r = [n[0], n[3], n[6], 0.0, n[1], n[4], n[7], 0.0, n[2], n[5], n[8], 0.0, -(n[0] * tx + n[1] * ty + n[2] * tz), -(n[3] * tx + n[4] * ty + n[5] * tz), -(n[6] * tx + n[7] * ty + n[8] * tz), 1.0]
+
+// кватернион из поворота 3 × 3 (по строкам)
+func quat_of(r: list dec) gives x: dec, y: dec, z: dec, w: dec
+    tr = r[0] + r[4] + r[8]
+    if tr > 0.0
+        s = sqrt(tr + 1) * 2
+        w = s / 4
+        x = (r[7] - r[5]) / s
+        y = (r[2] - r[6]) / s
+        z = (r[3] - r[1]) / s
+    else if r[0] > r[4] and r[0] > r[8]
+        s = sqrt(max(1 + r[0] - r[4] - r[8], 0.0000001)) * 2
+        w = (r[7] - r[5]) / s
+        x = s / 4
+        y = (r[1] + r[3]) / s
+        z = (r[2] + r[6]) / s
+    else if r[4] > r[8]
+        s = sqrt(max(1 + r[4] - r[0] - r[8], 0.0000001)) * 2
+        w = (r[2] - r[6]) / s
+        x = (r[1] + r[3]) / s
+        y = s / 4
+        z = (r[5] + r[7]) / s
+    else
+        s = sqrt(max(1 + r[8] - r[0] - r[4], 0.0000001)) * 2
+        w = (r[3] - r[1]) / s
+        x = (r[2] + r[6]) / s
+        y = (r[5] + r[7]) / s
+        z = s / 4
+
 func new_model() gives md: Model
-    md = Model(min_x: 1000000000000.0, min_y: 1000000000000.0, min_z: 1000000000000.0, max_x: -1000000000000.0, max_y: -1000000000000.0, max_z: -1000000000000.0)
+    md = Model(min_x: 1000000000000.0, min_y: 1000000000000.0, min_z: 1000000000000.0, max_x: -1000000000000.0, max_y: -1000000000000.0, max_z: -1000000000000.0, k: 1.0)
 
 func new_part(name: text, c: int) gives p: Part
     p = Part(name: name, color: c, image: -1, mesh: -1)
@@ -333,7 +620,7 @@ func read_mtl(src: text, folder: text, mats: dict text Part)
 // .gltf (JSON, буферы рядом в .bin или внутри как base64) и .glb (всё в одном файле).
 // Берётся сцена по умолчанию со всеми узлами (сдвиг, поворот, масштаб, матрица),
 // треугольники, цвет материала, картинка цвета (файл или внутри .glb), цвета вершин.
-// Анимации и кости пока не читаются: модель встаёт в исходной позе.
+// Кости (skins, первый) и анимации (animations) — см. model.play.
 
 use c
     func fopen(path: text, mode: text) gives u64
@@ -350,6 +637,8 @@ obj Gltf
     pow2: list dec            // 2^(e-150) для e = 0..255: дроби из 32 бит
     md: Model
     part_of: dict int int     // номер материала → номер куска
+    skin_node: dict int int   // узел-кость → номер кости
+    skin_joint: list int      // номер в skins.0.joints → номер кости
 
 modpub func load_gltf(path: text) gives md: Model
     g = Gltf(folder: folder_of(path))
@@ -370,10 +659,11 @@ modpub func load_gltf(path: text) gives md: Model
     scene = to_int(json_get(g.j, "scene") or "0") or 0
     ident = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0]
     roots = json_count(g.j, "scenes." + scene + ".nodes")
+    try read_skin(g)
     if roots == 0
         // сцены нет — все сетки как есть
         count m from 0 to json_count(g.j, "meshes") - 1
-            try add_mesh(g, m, ident)
+            try add_mesh(g, m, ident, false)
     count i from 0 to roots - 1
         n = to_int(json_get(g.j, "scenes." + scene + ".nodes." + i) or "0") or 0
         try add_node(g, n, ident, 0)
@@ -409,7 +699,12 @@ func add_node(g: Gltf, n: int, parent: list dec, depth: int)
     local = node_matrix(g.j, base)
     world = mat_mul(parent, local)
     if (json_get(g.j, base + ".mesh") or "") != ""
-        try add_mesh(g, jint(g.j, base + ".mesh", 0), world)
+        if (json_get(g.j, base + ".skin") or "") != "" and g.md.bones > 0
+            // сетка с костями: место узла не берётся, её двигают кости
+            ident = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+            try add_mesh(g, jint(g.j, base + ".mesh", 0), ident, true)
+        else
+            try add_mesh(g, jint(g.j, base + ".mesh", 0), world, false)
     count i from 0 to json_count(g.j, base + ".children") - 1
         try add_node(g, jint(g.j, base + ".children." + i, 0), world, depth + 1)
 
@@ -439,7 +734,128 @@ func mat_mul(a: list dec, b: list dec) gives m: list dec
                 s += a[k * 4 + row] * b[col * 4 + k]
             m.add(s)
 
-func add_mesh(g: Gltf, mi: int, w: list dec)
+// узлы (родители, сдвиг/поворот/масштаб), кости первого skin и все анимации
+func read_skin(g: Gltf)
+    md = g.md
+    nn = json_count(g.j, "nodes")
+    count n from 0 to nn - 1
+        md.nparent.add(-1)
+    count n from 0 to nn - 1
+        b = "nodes." + n
+        count i from 0 to json_count(g.j, b + ".children") - 1
+            ch = jint(g.j, b + ".children." + i, -1)
+            if ch >= 0 and ch < nn
+                md.nparent[ch] = n
+        md.ntrs.add(jnum(g.j, b + ".translation.0", 0.0))
+        md.ntrs.add(jnum(g.j, b + ".translation.1", 0.0))
+        md.ntrs.add(jnum(g.j, b + ".translation.2", 0.0))
+        md.ntrs.add(jnum(g.j, b + ".rotation.0", 0.0))
+        md.ntrs.add(jnum(g.j, b + ".rotation.1", 0.0))
+        md.ntrs.add(jnum(g.j, b + ".rotation.2", 0.0))
+        md.ntrs.add(jnum(g.j, b + ".rotation.3", 1.0))
+        md.ntrs.add(jnum(g.j, b + ".scale.0", 1.0))
+        md.ntrs.add(jnum(g.j, b + ".scale.1", 1.0))
+        md.ntrs.add(jnum(g.j, b + ".scale.2", 1.0))
+        hm = json_count(g.j, b + ".matrix") == 16
+        md.nhasm.add(hm)
+        m = node_matrix(g.j, b)
+        each v in m
+            md.nmat.add(v)
+    // порядок: родители раньше детей
+    depth = list int
+    count n from 0 to nn - 1
+        d = 0
+        p = md.nparent[n]
+        repeat while p >= 0 and d <= nn
+            d += 1
+            p = md.nparent[p]
+        depth.add(d)
+    count d from 0 to nn
+        count n from 0 to nn - 1
+            if depth[n] == d
+                md.norder.add(n)
+    nj = json_count(g.j, "skins.0.joints")
+    if nj == 0
+        return
+    jl = list int
+    count i from 0 to nj - 1
+        jl.add(jint(g.j, "skins.0.joints." + i, 0))
+    ibm = list dec
+    ia = jint(g.j, "skins.0.inverseBindMatrices", -1)
+    if ia >= 0
+        ibm = try read_acc(g, ia)
+    // кости — по глубине узла: родитель раньше
+    count d from 0 to nn
+        count i from 0 to nj - 1
+            n = jl[i]
+            if n >= 0 and n < nn and depth[n] == d and not g.skin_node.has(n)
+                g.skin_node[n] = md.bones
+                md.bone_node.add(n)
+                md.bone_name.add(json_get(g.j, "nodes." + n + ".name") or ("кость " + md.bones))
+                md.bones += 1
+    count i from 0 to nj - 1
+        bi = 0
+        if g.skin_node.has(jl[i])
+            bi = g.skin_node[jl[i]]
+        g.skin_joint.add(bi)
+    count b from 0 to md.bones - 1
+        md.bone_parent.add(-1)
+        repeat 16 times
+            md.ibm.add(0.0)
+    count i from 0 to nj - 1
+        b = g.skin_joint[i]
+        count k from 0 to 15
+            v = 0.0
+            if len(ibm) >= (i + 1) * 16
+                v = ibm[i * 16 + k]
+            else if k == 0 or k == 5 or k == 10 or k == 15
+                v = 1.0
+            md.ibm[b * 16 + k] = v
+    count b from 0 to md.bones - 1
+        // родитель кости — ближайший предок-кость
+        p = md.nparent[md.bone_node[b]]
+        repeat while p >= 0 and not g.skin_node.has(p)
+            p = md.nparent[p]
+        if p >= 0
+            md.bone_parent[b] = g.skin_node[p]
+        bm = inv_affine(cut16(md.ibm, b * 16))
+        md.bind.add(bm[12])
+        md.bind.add(bm[13])
+        md.bind.add(bm[14])
+        md.pose.add(md.k * bm[12] + md.ox)
+        md.pose.add(md.k * bm[13] + md.oy)
+        md.pose.add(-md.k * bm[14] + md.oz)
+    // анимации
+    count ai from 0 to json_count(g.j, "animations") - 1
+        ab = "animations." + ai
+        an = Anim(name: json_get(g.j, ab + ".name") or ("анимация " + ai))
+        count ci from 0 to json_count(g.j, ab + ".channels") - 1
+            cb = ab + ".channels." + ci
+            path = json_get(g.j, cb + ".target.path") or ""
+            pk = -1
+            if path == "translation"
+                pk = 0
+            if path == "rotation"
+                pk = 1
+            if path == "scale"
+                pk = 2
+            if pk < 0
+                skip
+            sb = ab + ".samplers." + jint(g.j, cb + ".sampler", 0)
+            c = Chan(node: jint(g.j, cb + ".target.node", -1), path: pk)
+            ip = json_get(g.j, sb + ".interpolation") or "LINEAR"
+            if ip == "STEP"
+                c.mode = 1
+            if ip == "CUBICSPLINE"
+                c.mode = 2
+            c.keys = try read_acc(g, jint(g.j, sb + ".input", 0))
+            c.vals = try read_acc(g, jint(g.j, sb + ".output", 0))
+            if len(c.keys) > 0
+                an.length = max(an.length, c.keys[len(c.keys) - 1])
+            an.chans.add(c)
+        md.anims.add(an)
+
+func add_mesh(g: Gltf, mi: int, w: list dec, skinned: bool)
     det = w[0] * (w[5] * w[10] - w[9] * w[6]) - w[4] * (w[1] * w[10] - w[9] * w[2]) + w[8] * (w[1] * w[6] - w[5] * w[2])
     base = "meshes." + mi + ".primitives"
     count pi from 0 to json_count(g.j, base) - 1
@@ -473,6 +889,22 @@ func add_mesh(g: Gltf, mi: int, w: list dec)
                 idx.add(i)
         mat = jint(g.j, pb + ".material", -1)
         p = part_for(g, mat)
+        sj = list dec
+        sw = list dec
+        if skinned
+            ja = jint(g.j, pb + ".attributes.JOINTS_0", -1)
+            wa = jint(g.j, pb + ".attributes.WEIGHTS_0", -1)
+            if ja >= 0 and wa >= 0
+                sj = try read_acc(g, ja)
+                sw = try read_acc(g, wa)
+            if len(sj) < nv * 4 or len(sw) < nv * 4
+                sj.clear()
+                sw.clear()
+            if len(sj) > 0 and len(p.skin_j) < len(p.pos) / 3 * 4
+                // у куска уже были треугольники без костей
+                repeat len(p.pos) / 3 * 4 - len(p.skin_j) times
+                    p.skin_j.add(-1)
+                    p.skin_w.add(0.0)
         // вершины в мир: матрица узла, потом z меняет знак
         px = list dec
         py = list dec
@@ -500,6 +932,18 @@ func add_mesh(g: Gltf, mi: int, w: list dec)
                 p.pos.add(py[v])
                 p.pos.add(pz[v])
                 grow_box(g.md, px[v], py[v], pz[v])
+                if len(sj) > 0
+                    count q from 0 to 3
+                        jn = round(sj[v * 4 + q])
+                        bn = -1
+                        if jn >= 0 and jn < len(g.skin_joint)
+                            bn = g.skin_joint[jn]
+                        p.skin_j.add(bn)
+                        p.skin_w.add(sw[v * 4 + q])
+                else if len(p.skin_j) > 0
+                    repeat 4 times
+                        p.skin_j.add(-1)
+                        p.skin_w.add(0.0)
             if len(uv) >= nv * 2 and p.image_file != ""
                 each v in [a, b, c]
                     p.uv.add(uv[v * 2])

@@ -1,0 +1,145 @@
+// Толпа: человечек из walker.glb (кости и три анимации: walk, wave, idle) ходит по кругу.
+// Кости считает видеокарта: model.shader(md, "pbr"), а позу ставит model.play перед каждым model.draw.
+//   tb run examples/apps/walker/main.tb        — смотреть
+//   tb run examples/apps/walker/main.tb demo   — толпа растёт сама
+//
+// 1 / 2 / 3 — все идут / машут / стоят, + / - — больше / меньше человечков (до 200),
+// Q / E — облететь, T — тени вкл / выкл, пробел — пауза.
+// walker.glb сделан скриптом make_walker.py (Python) — так же грузится любой .glb с костями из Blender.
+use model
+use shaders
+
+func main()
+    a = args()
+    demo = len(a) > 0 and a[len(a) - 1] == "demo"
+    try window_open(960, 600, "Толпа")
+    md = try model.load(here("walker.glb"))
+    model.fit(md, 1.8)
+    model.build(md)
+    model.shader(md, "pbr")
+    names = model.animations(md)
+
+    floor = mesh_new()
+    count i from -10 to 9
+        count j from -10 to 9
+            c = rgb(70, 78, 90)
+            if (i + j) % 2 == 0
+                c = rgb(95, 104, 118)
+            mesh_add(floor, i, 0, j, i, 0, j + 1, i + 1, 0, j + 1, c)
+            mesh_add(floor, i, 0, j, i + 1, 0, j + 1, i + 1, 0, j, c)
+    mesh_shader(floor, "pbr")
+    shader_set(floor, "rough", 0.7)
+    mesh_shadow(floor, false)
+
+    people = 12
+    mode = "walk"
+    angle = -15.0
+    shade = true
+    pause = false
+    t = 0.0
+    last = time_ms()
+    prev = ""
+    frame = 0
+    repeat while window_alive()
+        frame += 1
+        now = time_ms()
+        if not pause
+            t += (now - last) / 1000.0
+        last = now
+        keys = ""
+        each k in ["1", "2", "3", "=", "-", "t", "space"]
+            if key_down(k)
+                keys += k + ","
+        tap = ""
+        each k in split(keys, ",")
+            if k != "" and find(prev, k + ",") < 0
+                tap += k + ","
+        prev = keys
+        if demo and frame % 120 == 0 and people < 200
+            tap += "=,"
+        if find(tap, "1,") >= 0
+            mode = "walk"
+        if find(tap, "2,") >= 0
+            mode = "wave"
+        if find(tap, "3,") >= 0
+            mode = "idle"
+        if find(tap, "=,") >= 0
+            people = min(200, people + 12)
+        if find(tap, "-,") >= 0
+            people = max(1, people - 12)
+        if find(tap, "t,") >= 0
+            shade = not shade
+        if find(tap, "space,") >= 0
+            pause = not pause
+        if key_down("q") or key_down("left")
+            angle -= 1.2
+        if key_down("e") or key_down("right")
+            angle += 1.2
+        if shade
+            shadows(24)
+        else
+            shadows(0)
+
+        sunlight(0.5, 0.8, -0.35, 0.3)
+        clear_window(rgb(150, 180, 220))
+        camera(11 * sin_d(angle), 5.5, -11 * cos_d(angle), 0, 0.8, 0)
+        draw_mesh(floor, 0, 0, 0, 0)
+        // человечки по кольцам: каждый со своим временем, поэтому шагают не в ногу
+        count i from 0 to people - 1
+            ring = i / 24
+            on_ring = min(24, people - ring * 24)
+            r = 2.5 + ring * 1.3
+            k = i % 24
+            go = 0.0
+            if mode == "walk"
+                go = t * 0.9 / r
+            ang = k * 6.2831853 / on_ring + go
+            x = r * cos_t(ang)
+            z = r * sin_t(ang)
+            yaw = 180 - ang * 57.29578       // лицом по ходу
+            if mode != "walk"
+                yaw = -90 - ang * 57.29578   // лицом наружу
+            model.play(md, mode, t + i * 0.37)
+            model.draw(md, x, 0, z, yaw, 0, 0)
+
+        info = "1 идут  2 машут  3 стоят   + / - толпа   Q/E облететь   T тени   пробел пауза"
+        draw_text(13, 13, info, rgb(0, 0, 0), 2)
+        draw_text(12, 12, info, rgb(255, 255, 255), 2)
+        state = "человечков: " + people + "   анимация: " + mode + " (" + join(names, ", ") + ")   " + fps() + " к/с"
+        draw_text(13, 579, state, rgb(0, 0, 0), 2)
+        draw_text(12, 578, state, rgb(255, 255, 255), 2)
+
+// файл рядом с программой (или из папки примера, если запускают из корня Tachbit)
+func here(name: text) gives path: text
+    path = name
+    if file_exists(name)
+        return
+    path = "examples/apps/walker/" + name
+    if file_exists(path)
+        return
+    a = args()
+    if len(a) > 0
+        p = a[0]
+        cut_at = -1
+        count i from 0 to len(p) - 1
+            if p[i] == "/"
+                cut_at = i
+        if cut_at >= 0
+            path = cut(p, 0, cut_at) + "/" + name
+
+func sin_t(x: dec) gives r: dec
+    repeat while x > 3.14159265
+        x -= 6.2831853
+    repeat while x < -3.14159265
+        x += 6.2831853
+    x2 = x * x
+    r = x * (1 - x2 / 6 * (1 - x2 / 20 * (1 - x2 / 42 * (1 - x2 / 72 * (1 - x2 / 110)))))
+
+func cos_t(x: dec) gives r: dec
+    r = sin_t(x + 1.57079633)
+
+func sin_d(a: dec) gives r: dec
+    r = sin_t(a * 0.0174532925)
+
+func cos_d(a: dec) gives r: dec
+    r = cos_t(a * 0.0174532925)

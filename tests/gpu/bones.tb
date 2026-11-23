@@ -1,0 +1,58 @@
+// Кости на видеокарте (1.3): сетка со своим шейдером и костями (bone_quat, bone_turn) — углы считает
+// вершинный шейдер; рядом та же сетка без шейдера (кости на процессоре). Модель с анимацией из .glb.
+// Кадры со своими шейдерами TB_GPU_CHECK не сверяет — тест ловит падения и ошибки видеокарты
+use shaders
+use model
+
+func main()
+    a = args()
+    hold = len(a) > 0 and a[len(a) - 1] == "hold"
+    try window_open(320, 200, "кости на видеокарте")
+    arms = list int
+    count k from 0 to 1
+        m = mesh_new()
+        count i from 0 to 7
+            box(m, -0.2, i * 0.25, -0.2, 0.2, i * 0.25 + 0.25, 0.2, rgb(200, 120 + i * 15, 60))
+        b0 = bone_add(m, -1, 0, 0, 0)
+        b1 = bone_add(m, b0, 0, 1, 0)
+        bone_box(m, b0, -1, -0.1, -1, 1, 1.0, 1)
+        bone_box(m, b1, -1, 1.0, -1, 1, 3, 1)
+        bone_weight(m, b0, 0.2, 1.0, 0.2, 0.5)
+        if k == 0
+            mesh_shader(m, "standard")
+        arms.add(m)
+    md = try model.load("tests/lib/models/walker.glb")
+    model.fit(md, 1.5)
+    model.build(md)
+    model.shader(md, "pbr")
+    frames = 0
+    repeat while window_alive() and (hold or frames < 30)
+        frames += 1
+        if frames % 3 == 0
+            shadows(10)
+        else
+            shadows(0)
+        sunlight(0.4, 0.8, -0.3, 0.3)
+        clear_window(rgb(30, 40, 60))
+        camera(0, 1.5, -5, 0, 1, 0)
+        each m in arms
+            bone_turn(m, 0, frames * 3, 0, 20)
+            bone_quat(m, 1, 0, 0, 0.5, 0.866)
+        draw_mesh(arms[0], -2, 0, 0, 0)
+        draw_mesh(arms[1], -1, 0, 0, 0)
+        count i from 0 to 2
+            model.play(md, "walk", frames * 0.05 + i * 0.3)
+            model.draw(md, 0.5 + i, 0, 0, 180, 0, 0)
+    print("кадров: " + frames)
+
+func box(m: int, x0: dec, y0: dec, z0: dec, x1: dec, y1: dec, z1: dec, c: int)
+    face(m, x0, y0, z0, x0, y1, z0, x1, y1, z0, x1, y0, z0, c)
+    face(m, x0, y0, z1, x1, y0, z1, x1, y1, z1, x0, y1, z1, c)
+    face(m, x0, y0, z0, x0, y0, z1, x0, y1, z1, x0, y1, z0, c)
+    face(m, x1, y0, z0, x1, y1, z0, x1, y1, z1, x1, y0, z1, c)
+    face(m, x0, y1, z0, x0, y1, z1, x1, y1, z1, x1, y1, z0, c)
+    face(m, x0, y0, z0, x1, y0, z0, x1, y0, z1, x0, y0, z1, c)
+
+func face(m: int, x1: dec, y1: dec, z1: dec, x2: dec, y2: dec, z2: dec, x3: dec, y3: dec, z3: dec, x4: dec, y4: dec, z4: dec, c: int)
+    mesh_add(m, x1, y1, z1, x2, y2, z2, x3, y3, z3, c)
+    mesh_add(m, x1, y1, z1, x3, y3, z3, x4, y4, z4, c)

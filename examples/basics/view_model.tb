@@ -2,6 +2,7 @@
 //   tb run examples/basics/view_model.tb                       — пример: кубы из glb
 //   tb run examples/basics/view_model.tb ~/Desktop/машина.glb  — своя модель
 // Стрелки ← → — крутить, ↑ ↓ — наклон, колёсико — ближе и дальше, Esc — выход.
+// Есть в файле анимации — играет первую, пробел — следующая.
 use model
 
 func main()
@@ -21,6 +22,10 @@ func main()
     turn = 0.0
     tilt = 0.0
     far = 7.0
+    anims = model.animations(md)
+    which = 0
+    t = 0.0
+    was_space = false
     sunlight(0.4, 1, -0.6, 0.35)
     repeat while window_alive()
         if key_down("escape")
@@ -38,5 +43,15 @@ func main()
         camera(0, far * 0.45, -far, 0, 1.2, 0)
         clear_window(rgb(28, 32, 46))
         model.draw(floor, 0, 0, 0, 0, 0, 0)
+        t += dt
+        if key_down("space") and not was_space and len(anims) > 0
+            which = (which + 1) % len(anims)
+            t = 0.0
+        was_space = key_down("space")
+        if len(anims) > 0
+            model.play(md, anims[which], t)
         model.draw(md, 0, 0, 0, turn, tilt, 0)
-        draw_text(10, 10, path + "   треугольников: " + model.triangles(md) + "   кадров в секунду: " + fps(), 1, rgb(235, 235, 240))
+        line = path + "   треугольников: " + model.triangles(md) + "   кадров в секунду: " + fps()
+        if len(anims) > 0
+            line += "   анимация: " + anims[which] + " (пробел — следующая)"
+        draw_text(10, 10, line, 1, rgb(235, 235, 240))
