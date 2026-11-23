@@ -1,0 +1,5 @@
+func show(x: int)
+    print(x)
+
+func main()
+    show(1)

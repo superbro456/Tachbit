@@ -1930,6 +1930,20 @@ TB_API long long tb_maxi(long long a, long long b) { return a > b ? a : b; }
 TB_API double tb_mind(double a, double b) { return a < b ? a : b; }
 TB_API double tb_maxd(double a, double b) { return a > b ? a : b; }
 TB_API double tb_sqrt(double x, int line) { if (x < 0) tb_crash(line, "sqrt: корень из отрицательного числа"); return sqrt(x); }
+// углы в радианах
+TB_API double tb_pi(void) { return 3.14159265358979323846; }
+TB_API double tb_m_sin(double x, int line) { (void)line; return sin(x); }
+TB_API double tb_m_cos(double x, int line) { (void)line; return cos(x); }
+TB_API double tb_m_tan(double x, int line) { (void)line; return tan(x); }
+TB_API double tb_m_asin(double x, int line) { if (x < -1 || x > 1) tb_crash(line, "asin: число должно быть от -1 до 1"); return asin(x); }
+TB_API double tb_m_acos(double x, int line) { if (x < -1 || x > 1) tb_crash(line, "acos: число должно быть от -1 до 1"); return acos(x); }
+TB_API double tb_m_atan(double x, int line) { (void)line; return atan(x); }
+TB_API double tb_m_atan2(double y, double x, int line) { (void)line; return atan2(y, x); }
+TB_API double tb_m_exp(double x, int line) { (void)line; return exp(x); }
+TB_API double tb_m_log(double x, int line) { if (!(x > 0)) tb_crash(line, "log: логарифм только от числа больше 0"); return log(x); }
+TB_API double tb_m_pow(double a, double b, int line) { (void)line; return pow(a, b); }
+TB_API double tb_m_floor(double x, int line) { (void)line; return floor(x); }
+TB_API double tb_m_ceil(double x, int line) { (void)line; return ceil(x); }
 
 // ---------- sort ----------
 TB_API int tb_cmp_int(const void *a, const void *b) { long long x = *(const long long *)a, y = *(const long long *)b; return (x > y) - (x < y); }
@@ -12671,6 +12685,19 @@ TB_BV(sort_int, (tb_list *l, int line), tb_sort_list(l, tb_cmp_int))
 TB_BV(sort_dec, (tb_list *l, int line), tb_sort_list(l, tb_cmp_dec))
 TB_BV(sort_text, (tb_list *l, int line), tb_sort_list(l, tb_cmp_text))
 TB_B(double, sqrt, (double x, int line), tb_sqrt(x, line))
+TB_B(double, sin, (double x, int line), tb_m_sin(x, line))
+TB_B(double, cos, (double x, int line), tb_m_cos(x, line))
+TB_B(double, tan, (double x, int line), tb_m_tan(x, line))
+TB_B(double, asin, (double x, int line), tb_m_asin(x, line))
+TB_B(double, acos, (double x, int line), tb_m_acos(x, line))
+TB_B(double, atan, (double x, int line), tb_m_atan(x, line))
+TB_B(double, exp, (double x, int line), tb_m_exp(x, line))
+TB_B(double, log, (double x, int line), tb_m_log(x, line))
+TB_B(double, floor, (double x, int line), tb_m_floor(x, line))
+TB_B(double, ceil, (double x, int line), tb_m_ceil(x, line))
+TB_B(double, atan2, (double y, double x, int line), tb_m_atan2(y, x, line))
+TB_B(double, pow, (double a, double b, int line), tb_m_pow(a, b, line))
+TB_B(double, pi, (int line), tb_pi())
 TB_B(long long, read8, (long long a, int line), tb_rd8(a, line))
 TB_BV(write8, (long long a, long long v, int line), tb_wr8(a, v, line))
 TB_B(long long, read16, (long long a, int line), tb_rd16(a, line))

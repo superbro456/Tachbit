@@ -456,20 +456,43 @@ func parse_linkdecl(c: Comp) gives result: Node
     return n
 
 // q, r = divide(a: 17, b: 5)
+// слева можно и ячейки, и качества: xs[k], p.y = f() — тогда ответы сначала ложатся во временные
+// имена, а следующими строками (c.after) — на свои места
 func parse_multi(c: Comp) gives result: Node
-    n = new_node("multi", line_now(c))
+    targets = list Node
     repeat while true
-        name = new_node("name", line_now(c))
-        name.name = expect_name(c)
-        add_kid(n, name)
+        t = parse_primary(c)
+        if t.kind != "name" and t.kind != "index" and t.kind != "field"
+            error_at(c, t.line, "слева от = через запятую пишутся имена, ячейки xs[i] или качества u.age", "")
+        targets.add(t)
         if not is_sign(c, ",")
             stop
         next(c)
+    result = parse_multi_rest(c, targets)
+
+func parse_multi_rest(c: Comp, targets: list Node) gives result: Node
+    n = new_node("multi", line_now(c))
+    line = line_now(c)
     expect_sign(c, "=")
     value = parse_value(c)
+    count i from 0 to len(targets) - 1
+        t = targets[i]
+        name = new_node("name", t.line)
+        name.name = t.name
+        if t.kind != "name"
+            // временное имя, которое не напишет человек: tb__m<строка>_<номер>
+            name.name = "tb__m" + line + "_" + i
+            st = new_node("set", t.line)
+            st.value = "="
+            add_kid(st, t)
+            nv = new_node("name", t.line)
+            nv.name = name.name
+            add_kid(st, nv)
+            c.after.add(st)
+        add_kid(n, name)
     add_kid(n, value)
     end_statement(c, value)
-    return n
+    result = n
 
 // строка, которая начинается с имени
 func parse_name_statement(c: Comp) gives result: Node
@@ -481,6 +504,15 @@ func parse_name_statement(c: Comp) gives result: Node
     if ahead_is_sign(c, ",")
         return parse_multi(c)
     target = parse_primary(c)
+    if is_sign(c, ",") and (target.kind == "index" or target.kind == "field")
+        targets = [target]
+        repeat while is_sign(c, ",")
+            next(c)
+            t = parse_primary(c)
+            if t.kind != "name" and t.kind != "index" and t.kind != "field"
+                error_at(c, t.line, "слева от = через запятую пишутся имена, ячейки xs[i] или качества u.age", "")
+            targets.add(t)
+        return parse_multi_rest(c, targets)
     if is_change_sign(c)
         k = target.kind
         if k != "name" and k != "index" and k != "field"
@@ -515,6 +547,8 @@ func later_command(c: Comp)
 
 func parse_statement(c: Comp) gives result: Node
     line = line_now(c)
+    if now(c).kind == "command" and (ahead_is_sign(c, "=") or ahead_is_sign(c, "+=") or ahead_is_sign(c, "-="))
+        error_at(c, line, "это слово занято языком, возьми другое имя", now(c).word)
     if is_cmd(c, "if")
         return parse_if(c)
     if is_cmd(c, "each")
@@ -628,6 +662,9 @@ func parse_block(c: Comp) gives result: Node
         if now(c).kind == "indent"
             error_at(c, line_now(c), "лишний отступ", "")
         add_kid(block, parse_statement(c))
+        each st in c.after
+            add_kid(block, st)
+        c.after.clear()
     next(c)
     return block
 
@@ -868,7 +905,43 @@ func parse_match(c: Comp) gives result: Node
     next(c)
     return n
 
+// Мягкие слова языка (times, from, to, in, by ...) можно брать именами: по соседям видно, где имя.
+// Имя — если перед словом func, each, count, const, shared, точка или знак (кроме ")" и "]"),
+// или после него = += -= *= /= : , ) . , или перед ним слово, после которого ждут значение (from, to, in, if ...);
+// иначе это команда языка, как раньше
+func soft_word(w: text)
+    each s in ["times", "from", "to", "in", "by", "gives", "while", "temp", "together", "lock", "unlock", "skip", "stop", "match", "danger"]
+        if s == w
+            return true
+    return false
+
+func soften(c: Comp)
+    n = len(c.tokens)
+    count i from 0 to n - 1
+        t = c.tokens[i]
+        if t.kind != "command" or not soft_word(t.word)
+            skip
+        name = false
+        if i > 0
+            p = c.tokens[i - 1]
+            if p.kind == "sign" and p.word != ")" and p.word != "]"
+                name = true
+            if p.kind == "command" and (p.word == "func" or p.word == "each" or p.word == "count" or p.word == "const" or p.word == "shared")
+                name = true
+            // после слова, за которым ждут значение: count i from from to to, repeat times times
+            if p.kind == "command" and (p.word == "from" or p.word == "to" or p.word == "in" or p.word == "if" or p.word == "return" or p.word == "match" or p.word == "and" or p.word == "or" or p.word == "not" or p.word == "while")
+                name = true
+            if p.kind == "command" and p.word == "repeat" and t.word != "while"
+                name = true
+        if i + 1 < n
+            q = c.tokens[i + 1]
+            if q.kind == "sign" and (q.word == "=" or q.word == "+=" or q.word == "-=" or q.word == "*=" or q.word == "/=" or q.word == ":" or q.word == "," or q.word == ")" or q.word == ".")
+                name = true
+        if name
+            t.kind = "name"
+
 modpub func parse(c: Comp)
+    soften(c)
     c.pos = 0
     program = new_node("program", 1)
     repeat while now(c).kind != "end"

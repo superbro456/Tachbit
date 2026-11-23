@@ -1,0 +1,3 @@
+func main()
+    x = asin(2.0)
+    print(x)

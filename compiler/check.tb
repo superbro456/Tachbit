@@ -133,7 +133,7 @@ func fits(want: int, got: int)
 // ---------- функции и obj ----------
 
 func is_builtin(name: text)
-    each b in ["print", "show", "len", "round", "code", "char", "byte_len", "byte_at", "byte_char", "cut", "to_int", "to_dec", "read_file", "write_file", "input", "args", "split", "join", "find", "replace", "upper", "lower", "trim", "starts_with", "ends_with", "sort", "abs", "min", "max", "sqrt", "run", "exit", "file_exists", "list_dir", "is_folder", "make_folder", "move", "remove", "env", "file_size", "window_open", "window_new", "window_use", "window_close", "window_shown", "window_fullscreen", "mouse_lock", "mouse_dx", "mouse_dy", "window_alive", "clear_window", "draw_pixel", "draw_rect", "draw_circle", "draw_round", "blur_rect", "draw_shadow", "draw_triangle", "mesh_new", "mesh_add", "draw_mesh", "draw_mesh_rot", "camera", "sunlight", "mesh_image", "mesh_add_uv", "point_light", "spot_light", "light_off", "light_shadow", "mesh_shadow", "mesh_bounds", "mesh_lod", "mesh_far", "mesh_simplify", "mesh_drawn", "mesh_free", "fog", "shadows", "mesh_smooth", "mesh_shine", "mesh_glow", "mesh_alpha", "mesh_clear", "mesh_count", "bone_add", "bone_weight", "bone_box", "bone_turn", "bone_move", "bone_quat", "mesh_shader", "shader_set", "shader_image", "screen_shader", "screen_set", "draw_line", "draw_text", "key_down", "mouse_x", "mouse_y", "mouse_down", "mouse_wheel", "typed_text", "mouse_back", "mouse_forward", "pad_count", "pad_down", "pad_axis", "clipboard_get", "clipboard_set", "set_cursor", "window_sharp", "window_scale", "frame_ms", "fps", "set_fps", "window_w", "window_h", "load_image", "image_from_mem", "image_scaled", "draw_image", "draw_image_alpha", "image_w", "image_h", "screen_image", "load_font", "draw_font", "text_width", "rgb", "rgba", "random", "time_ms", "http_get", "json_get", "json_text", "net_listen", "net_port", "net_accept", "net_connect", "net_send", "net_receive", "net_close", "date_now", "unix_time", "load_sound", "play_sound", "loop_sound", "play_sound_at", "loop_sound_at", "play_tone", "stop_sound", "sound_playing", "sound_volume", "sound_pitch", "move_sound", "master_volume", "listener"]
+    each b in ["print", "show", "len", "round", "code", "char", "byte_len", "byte_at", "byte_char", "cut", "to_int", "to_dec", "read_file", "write_file", "input", "args", "split", "join", "find", "replace", "upper", "lower", "trim", "starts_with", "ends_with", "sort", "abs", "min", "max", "sqrt", "sin", "cos", "tan", "asin", "acos", "atan", "exp", "log", "floor", "ceil", "atan2", "pow", "pi", "run", "exit", "file_exists", "list_dir", "is_folder", "make_folder", "move", "remove", "env", "file_size", "window_open", "window_new", "window_use", "window_close", "window_shown", "window_fullscreen", "mouse_lock", "mouse_dx", "mouse_dy", "window_alive", "clear_window", "draw_pixel", "draw_rect", "draw_circle", "draw_round", "blur_rect", "draw_shadow", "draw_triangle", "mesh_new", "mesh_add", "draw_mesh", "draw_mesh_rot", "camera", "sunlight", "mesh_image", "mesh_add_uv", "point_light", "spot_light", "light_off", "light_shadow", "mesh_shadow", "mesh_bounds", "mesh_lod", "mesh_far", "mesh_simplify", "mesh_drawn", "mesh_free", "fog", "shadows", "mesh_smooth", "mesh_shine", "mesh_glow", "mesh_alpha", "mesh_clear", "mesh_count", "bone_add", "bone_weight", "bone_box", "bone_turn", "bone_move", "bone_quat", "mesh_shader", "shader_set", "shader_image", "screen_shader", "screen_set", "draw_line", "draw_text", "key_down", "mouse_x", "mouse_y", "mouse_down", "mouse_wheel", "typed_text", "mouse_back", "mouse_forward", "pad_count", "pad_down", "pad_axis", "clipboard_get", "clipboard_set", "set_cursor", "window_sharp", "window_scale", "frame_ms", "fps", "set_fps", "window_w", "window_h", "load_image", "image_from_mem", "image_scaled", "draw_image", "draw_image_alpha", "image_w", "image_h", "screen_image", "load_font", "draw_font", "text_width", "rgb", "rgba", "random", "time_ms", "http_get", "json_get", "json_text", "net_listen", "net_port", "net_accept", "net_connect", "net_send", "net_receive", "net_close", "date_now", "unix_time", "load_sound", "play_sound", "loop_sound", "play_sound_at", "loop_sound_at", "play_tone", "stop_sound", "sound_playing", "sound_volume", "sound_pitch", "move_sound", "master_volume", "listener"]
         if b == name
             return true
     each b in kernel_builtins()
@@ -1301,6 +1301,20 @@ func check_builtin(c: Comp, n: Node) gives r: int
         return n.kids[0].ty
     if name == "sqrt"
         builtin_args(c, n, "n", "sqrt(число)")
+        return 2
+    // углы в радианах: sin(pi() / 6) = 0.5
+    each w in ["sin", "cos", "tan", "asin", "acos", "atan", "exp", "log", "floor", "ceil"]
+        if name == w
+            builtin_args(c, n, "n", w + "(число)")
+            return 2
+    if name == "atan2"
+        builtin_args(c, n, "nn", "atan2(y, x)  →  угол точки (x, y) в радианах, от -pi() до pi()")
+        return 2
+    if name == "pow"
+        builtin_args(c, n, "nn", "pow(число, степень)")
+        return 2
+    if name == "pi"
+        builtin_args(c, n, "", "pi()  →  3.14159...")
         return 2
     // min и max
     builtin_args(c, n, "nn", "min(a, b)")
@@ -2844,7 +2858,9 @@ func register_obj(c: Comp, o: Node)
     c.objs.add(o)
 
 func register_func(c: Comp, fn: Node)
-    if find_func_in(c, fn.name, fn.mod) >= 0 or find_obj(c, fn.name) >= 0 or is_builtin(fn.name)
+    if is_builtin(fn.name)
+        error_at(c, fn.line, "так называется встроенная функция языка, возьми для своей другое имя", fn.name)
+    if find_func_in(c, fn.name, fn.mod) >= 0 or find_obj(c, fn.name) >= 0
         error_at(c, fn.line, "это имя уже занято", fn.name)
     if len(c.funcs) == 1000
         error_at(c, fn.line, "слишком много функций", "")

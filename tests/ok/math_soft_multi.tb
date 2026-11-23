@@ -1,0 +1,38 @@
+obj P
+    x: dec
+    y: dec
+    times: int
+
+func two(a: dec) gives s: dec, c: dec
+    s = sin(a)
+    c = cos(a)
+
+func main()
+    print(sin(pi() / 6))
+    print(cos(0.0))
+    print(tan(pi() / 4))
+    print(round(atan2(1.0, 1.0) * 4 * 10000))
+    print(pow(2, 10))
+    print(floor(2.7) + ceil(2.2))
+    print(exp(log(5.0)))
+    print(round(asin(1.0) * 2 * 10000))
+    xs = [0.0, 0.0]
+    p = P(x: 0.0, y: 0.0, times: 0)
+    k = 1
+    xs[k], p.y = two(pi() / 2)
+    print(xs[1])
+    print(p.y < 0.0001)
+    p.x, sv = two(0.0)
+    print(p.x)
+    times = 3
+    from = 1
+    to = 5
+    in = 0
+    count i from from to to
+        in += i
+    repeat times times
+        p.times += 1
+    print(in + p.times)
+    by = [1, 2]
+    each b in by
+        print(b)
