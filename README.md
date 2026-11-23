@@ -25,7 +25,8 @@ func main()
 - **основа:** функции, `int`, `dec`, `bool`, текст, списки, `dict`, `obj`, `enum` и `match`, ярлыки `link`, несколько ответов `gives`, ошибки `fail`, `try`, `or`, `else err`, модули `use`;
 - **скорость одним словом:** `on all cores` и `shared` (все ядра), `background` и `.wait`, каналы `channel`, `move`, `by columns`, `by vec` (SIMD), `temp`, `together`;
 - **защита:** компилятор сам ловит гонки между ядрами, вечные замки и ярлыки в пустоту; ненужная память убирается сама;
-- **окна и игры:** окно, мышь, клавиши, картинки, шрифты TTF, 2D и 3D на видеокарте (Metal на Mac, Vulkan на Linux и Windows); буфер обмена, курсор мыши, резкость на Retina; библиотека окон `lib/ui.tb` (раскладка `ui.hbox` / `ui.vbox` без координат, темы, поля с выделением, списки, меню, вкладки, ползунки, подсказки, перетаскивание, окна внутри программы) и файловый менеджер `examples/apps/files`;
+- **3D как в больших движках (1.3):** модели и анимации из Blender (`.glb`) с материалами PBR, свои шейдеры на самом Tachbit (`gpu func`), лампы и тени, частицы, свечение и сглаживание на весь экран, большие миры с подгрузкой; подробнее — раздел «3D и игры» ниже;
+- **окна и игры:** окно, мышь, клавиши, картинки, шрифты TTF, 2D и 3D на видеокарте (Metal на Mac, Vulkan на Linux и Windows), несколько настоящих окон, полный экран и мышь для шутера; буфер обмена, курсор мыши, резкость на Retina; библиотека окон `lib/ui.tb` (раскладка `ui.hbox` / `ui.vbox` без координат, темы, поля с выделением, списки, меню, вкладки, ползунки, подсказки, перетаскивание, окна внутри программы) и файловый менеджер `examples/apps/files`;
 - **своё ядро ОС:** `tb bare` делает 64-битное ядро без ОС (вся программа через LLVM, без C); `danger` для адресов, портов, `asm`, прерываний и памяти руками (`new_mem`, `free_mem`, `grow_mem`, `copy_mem`, `fill_mem`); `shape` — раскладка байтов для регистров и пакетов (`u8`…`u64`, `i8`…`i64`, `bits N`, `bytes N`, `big`);
 - **системный уровень:** звать C (`use c "библиотека"`) и быть библиотекой для C (`func … for c`, `tb lib`), области памяти `zone_*`, `syscall`, `shared x += 1` без замка.
 
@@ -168,16 +169,53 @@ func add(a: int, b: int) for c
 
 **Окна.** `try window_open(800, 600, "Игра")`, потом цикл `repeat while window_alive()`; кнопки и поля — `use ui`.
 
+## 3D и игры (1.3)
+
+Модели, персонажей и уровни делают в Blender и сохраняют в `.glb` (File → Export → glTF 2.0). Tachbit сам берёт оттуда сетки, кости, анимации и материалы, а сама игра пишется на Tachbit:
+
+```
+use model
+
+func main()
+    try window_open(1280, 720, "Игра")
+    hero = try model.load("hero.glb")     // материалы Blender приходят сами
+    model.fit(hero, 1.8)
+    model.build(hero)
+    t = 0.0
+    repeat while window_alive()
+        t += frame_ms() / 1000.0
+        sunlight(0.5, 0.8, -0.4, 0.3)
+        shadows(16)
+        clear_window(rgb(30, 34, 44))
+        camera(0, 2, -5, 0, 1, 0)
+        model.play(hero, "run", t)
+        model.draw(hero, 0, 0, 0, 0, 0, 0)
+        screen_shader("glow")
+```
+
+| Что | Слова | Пример |
+|---|---|---|
+| модели и анимации | `model.load` (OBJ, glTF, GLB), `model.build`, `model.draw`, `model.play`, `model.joint` | `examples/apps/walker` |
+| материалы как в Blender | металл, шероховатость, карты нормалей и металла, свечение, прозрачность — из файла сами; `model.materials` | `examples/apps/blender_look` |
+| свет и тени | `sunlight`, `point_light`, `spot_light`, `shadows`, `light_shadow`, `fog` | `examples/apps/pbr_room` |
+| свои шейдеры | `gpu func` (точка `pixel`, угол `corner`, экран `screen`), `mesh_shader`, `shader_set`, `shader_image`; готовые в `lib/shaders.tb`: `pbr`, `standard`, `toon`, вода, огонь, небо, ветер, голограмма, растворение | `examples/basics/shader_scene.tb`, `examples/apps/cube_man` |
+| эффекты на весь кадр | `screen_shader`, `screen_set`: свечение (bloom), сглаживание (FXAA), туман по глубине, цвет, виньетка, контур, размытие | `examples/apps/pbr_room` (клавиша X) |
+| частицы | `shaders.particles(n, "fire")`: огонь, дым, искры, фонтан, снег; десятки тысяч, считает видеокарта | `examples/apps/campfire` |
+| большие миры | `mesh_simplify`, `mesh_lod`, `mesh_far` (дальнее проще или не рисуется), отсечение невидимого само, `mesh_free`; подгрузка кусков `use stream` | `examples/apps/big_world` |
+| окна и управление | `window_new`, `window_fullscreen`, `mouse_lock`, `mouse_dx`, `mouse_dy`, геймпад `pad_*`, звук в 3D `play_sound_at` | `examples/basics/look_around.tb` |
+
+Шейдеры пишутся на Tachbit, а компилятор сам делает из них код для видеокарты: SPIR-V для Vulkan, MSL для Metal и C для рисования на процессоре. Свет из сцены Blender не переносится, лампы ставятся в коде.
+
 ## Тесты и замеры
 
 | Команда | Что проверяет | Сейчас |
 |---|---|---|
-| `./tests/run_tests.sh` | программы через C: `tests/ok` (вывод), `tests/err` (ошибки), `tests/mod` (модули) | 219 из 219 |
-| `./tests/run_tests_llvm.sh` | те же программы через LLVM | 219 из 219 |
+| `./tests/run_tests.sh` | программы через C: `tests/ok` (вывод), `tests/err` (ошибки), `tests/mod` (модули) | 231 из 231 |
+| `./tests/run_tests_llvm.sh` | те же программы через LLVM | 231 из 231 |
 | `./tests/run_bare.sh` | ядра без ОС в QEMU | 72 из 72 |
-| `./tests/run_gpu.sh` | видеокарта рисует точка в точку как процессор | 22 из 22 (на Mac с AMD было 18 из 18 до тестов раскладки и элементов) |
+| `./tests/run_gpu.sh` | видеокарта рисует точка в точку как процессор | 44 из 46 на Linux (Vulkan, llvmpipe); 2 — давнее расхождение в 15 точках в `tests/gpu/shapes.tb`; шейдеры 1.3 на Mac (Metal) ещё не проверены |
 | `./tests/run_sound.sh` | звук в файл: длина, частота, лево/право в 3D, не трещит (LLVM и C) | 2 из 2 |
-| `./tests/run_lib.sh` | библиотеки `lib/physics.tb`, `lib/anim.tb`, `lib/model.tb` (LLVM и C) | 8 из 8 |
+| `./tests/run_lib.sh` | библиотеки `lib/physics.tb`, `lib/anim.tb`, `lib/model.tb` (модели, кости, материалы), `lib/stream.tb` (LLVM и C) | 12 из 12 |
 | `./tests/run_clib.sh` | `tb lib`: программа на C зовёт функции Tachbit | 1 из 1 |
 
 После намеренной правки эталоны обновляются флагом `--update`.
@@ -212,7 +250,7 @@ func add(a: int, b: int) for c
 
 | Версия | Что появилось |
 |---|---|
-| 1.3 | полное 3D: лампы `point_light`, фонарь `spot_light`, `light_off`, туман `fog`, тени от солнца `shadows` и от ламп `light_shadow`, `mesh_shadow`, плавный свет и блики `mesh_smooth`, `mesh_shine`, свечение `mesh_glow`, стекло и вода `mesh_alpha`, `mesh_clear`, `mesh_count`, кости `bone_add`, `bone_weight`, `bone_box`, `bone_turn`, `bone_move`, `bone_quat` (у сеток со своим шейдером кости считает видеокарта), анимации из `.glb` (`model.play`) и материалы как в Blender (металл, шероховатость, карты нормалей, свечение, прозрачность — сами из файла); частицы на видеокарте `shaders.particles` (огонь, дым, искры, фонтан, снег); большие миры: упрощённые копии `mesh_simplify`, `mesh_lod`, `mesh_far`, отсечение невидимого, `mesh_free`, подгрузка кусков `lib/stream.tb`; свои шейдеры на Tachbit: `gpu func` (точка `pixel`, угол `corner`, помощники), `mesh_shader`, `shader_set`, эффекты на весь кадр `screen_shader`, `screen_set` (свечение, сглаживание, туман по глубине, цвет), лампы и картинки в шейдерах (`lamp_k`, `tex_r`, `shader_image`), PBR (металл, шероховатость, рельеф по карте нормалей, отражения), готовые в `lib/shaders.tb`; несколько настоящих окон: `window_new`, `window_use`, `window_close`, `window_shown`; полный экран `window_fullscreen` и мышь для шутера `mouse_lock`, `mouse_dx`, `mouse_dy`; библиотека `lib/model.tb` |
+| 1.3 | полное 3D (раздел «3D и игры»): лампы и тени, туман, стекло, кости и анимации из `.glb`, материалы как в Blender, свои шейдеры `gpu func`, эффекты на весь кадр, частицы, большие миры с упрощёнными копиями и подгрузкой (`lib/stream.tb`); несколько настоящих окон `window_new`, полный экран `window_fullscreen`, мышь для шутера `mouse_lock` |
 | 1.2 (ядро заморожено) | сеть `net_*`; текст по буквам (`len`, `s[i]`, `cut`, `find`, `each`) и слова для байтов `byte_len`, `byte_at`, `byte_char`; переполнение `int` — ошибка; геймпад `pad_*`; 3D: `draw_mesh_rot`, `sunlight`, `mesh_image`, `mesh_add_uv`;  системный уровень: `use c` (звать C), `for c` и `tb lib` (библиотека для C), `zone_*`, `syscall`, `shared x += 1` без замка; `shape` — раскладка байтов для драйверов (`u8`…`i64`, `bits N`, `bytes N`, `big`, `Packet at адрес`); память руками в `danger`: `new_mem`, `free_mem`, `grow_mem`, `copy_mem`, `fill_mem` и `TB_MEM_CHECK=1`; шрифты TTF, горячие клавиши, колесо и боковые кнопки мыши, буфер обмена (`clipboard_get`, `clipboard_set`), курсор (`set_cursor`), Retina (`window_sharp`, `window_scale`), библиотека окон `lib/ui.tb`, «Файлы»; видеокарта = процессор и на AMD; звук (`load_sound`, `play_sound`, `play_sound_at`, `listener` ...: микшер, 3D с задержкой между ушами и Доплером, ограничитель), библиотеки `lib/physics.tb` (тела, столкновения, лучи) и `lib/anim.tb` (плавность, ключи, кости, переходы), `lib/model.tb` (готовые модели OBJ, glTF, GLB), пример «Площадка» |
 | 1.1 | уборка памяти; весь язык через LLVM; окна, картинки, 2D и 3D на видеокарте |
 | 1.0 | каналы, `move`, `enum` и `match`, JSON, `http_get`, время, понятные ошибки сборки, MIT |

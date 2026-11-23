@@ -77,7 +77,45 @@ Programs start at `func main()`. Blocks are indentation, like Python. Types are 
 | speed | `on all cores`, `shared`, `by vec` (SIMD), `obj ... by columns`, `temp`, `each piece in data by N`, `together` |
 | threads | `background f(...)` + `.wait`, `channel T` (`.send`, `.receive`, `.close`, `each x in ch`), `move`, `lock` / `unlock` |
 | no OS | `tb bare file.tb` makes a bootable 64-bit (x86-64) kernel, built fully through LLVM with no C; `danger` blocks for memory, ports, `asm`, interrupts; manual memory `new_mem`, `free_mem`, `grow_mem`, `copy_mem`, `fill_mem` (`TB_MEM_CHECK=1` catches use after free, overruns, double free, leaks) |
+| 3D and games | models and animations from Blender (`.glb`) with PBR materials, shaders written in Tachbit (`gpu func`), lights and shadows, particles, bloom and FXAA, big streamed worlds, several OS windows, fullscreen, mouse look — see «3D and games» below |
 | library | text (`split`, `join`, `find`, `replace`, ...), files and folders, `input`, `args`, `sort`, math, `random`, `time_ms`, `date_now`, `unix_time`, `http_get`, `json_get`, `json_text`, windows and drawing for games |
+
+## 3D and games (1.3)
+
+Make models, characters and levels in Blender and export them as `.glb` (File → Export → glTF 2.0). Tachbit reads meshes, bones, animations and materials from the file by itself; the game itself is written in Tachbit:
+
+```
+use model
+
+func main()
+    try window_open(1280, 720, "Game")
+    hero = try model.load("hero.glb")     // Blender materials come along
+    model.fit(hero, 1.8)
+    model.build(hero)
+    t = 0.0
+    repeat while window_alive()
+        t += frame_ms() / 1000.0
+        sunlight(0.5, 0.8, -0.4, 0.3)
+        shadows(16)
+        clear_window(rgb(30, 34, 44))
+        camera(0, 2, -5, 0, 1, 0)
+        model.play(hero, "run", t)
+        model.draw(hero, 0, 0, 0, 0, 0, 0)
+        screen_shader("glow")
+```
+
+| What | Words | Example |
+|---|---|---|
+| models and animation | `model.load` (OBJ, glTF, GLB), `model.build`, `model.draw`, `model.play`, `model.joint` | `examples/apps/walker` |
+| Blender materials | metallic, roughness, normal and metal/roughness maps, emission, alpha — read from the file; `model.materials` | `examples/apps/blender_look` |
+| light and shadow | `sunlight`, `point_light`, `spot_light`, `shadows`, `light_shadow`, `fog` | `examples/apps/pbr_room` |
+| your own shaders | `gpu func` (`pixel`, `corner`, `screen`), `mesh_shader`, `shader_set`, `shader_image`; ready ones in `lib/shaders.tb`: `pbr`, `standard`, `toon`, water, fire, sky, wind, hologram, dissolve | `examples/basics/shader_scene.tb`, `examples/apps/cube_man` |
+| full-screen effects | `screen_shader`, `screen_set`: bloom, FXAA, depth fog, color, vignette, outline, blur | `examples/apps/pbr_room` (key X) |
+| particles | `shaders.particles(n, "fire")`: fire, smoke, sparks, fountain, snow; tens of thousands, computed on the GPU | `examples/apps/campfire` |
+| big worlds | `mesh_simplify`, `mesh_lod`, `mesh_far` (simpler or hidden far away), automatic culling, `mesh_free`; chunk streaming with `use stream` | `examples/apps/big_world` |
+| windows and input | `window_new`, `window_fullscreen`, `mouse_lock`, `mouse_dx`, `mouse_dy`, gamepad `pad_*`, 3D sound `play_sound_at` | `examples/basics/look_around.tb` |
+
+Shaders are written in Tachbit; the compiler turns them into SPIR-V for Vulkan, MSL for Metal and C for CPU drawing. Lights from a Blender scene are not imported; place lamps in code. The 1.3 shaders are tested on Linux (Vulkan); Metal on Mac is not checked yet.
 
 ## Safety
 
@@ -117,9 +155,9 @@ On the authors' Mac (Intel i9) Tachbit is as fast as plain C or faster on all 18
 |---|---|
 | `compiler/` | the compiler, written in Tachbit (`lexer`, `parser`, `check`, `emit`, `runtime.h`) |
 | `compiler/seed/tb.c` | the compiler's own C output, used to build the first `tb` on a new machine |
-| `tests/` | `./tests/run_tests.sh` and `./tests/run_bare.sh` |
-| `lib/` | shared libraries in Tachbit (`lib/ui.tb`: buttons, lists, dialogs) |
-| `examples/` | tutorial (`learn/`), small examples (`basics/`), apps (`apps/`: file manager, games), modules (`shop/`), a kernel (`kernel/`) |
+| `tests/` | `./tests/run_tests.sh`, `run_tests_llvm.sh`, `run_gpu.sh`, `run_lib.sh`, `run_bare.sh`, `run_sound.sh` |
+| `lib/` | shared libraries in Tachbit: `ui.tb` (buttons, lists, dialogs), `model.tb` (OBJ/glTF/GLB, bones, animation, materials), `shaders.tb` (ready shaders, effects, particles), `stream.tb` (big worlds), `physics.tb`, `anim.tb` |
+| `examples/` | tutorial (`learn/`), small examples (`basics/`), apps (`apps/`: file manager, games, 3D demos), modules (`shop/`), a kernel (`kernel/`) |
 | `tests/bench/` | benchmarks against C and Python |
 | `tools/` | install and build scripts, VS Code extension (`tools/vscode/`), Windows installer |
 
