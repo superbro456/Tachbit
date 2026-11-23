@@ -17,7 +17,15 @@ Compiler messages and error texts are in Russian for now; the keywords are Engli
 
 ## Install
 
-You need `cc` (on a Mac: `xcode-select --install`) and `git`.
+Mac and Linux, one command (you need `cc`; on a Mac: `xcode-select --install`):
+
+```
+curl -fsSL https://raw.githubusercontent.com/superbro456/Tachbit/main/tools/get.sh | sh
+```
+
+Homebrew: `brew tap superbro456/tachbit https://github.com/superbro456/Tachbit && brew install --HEAD tachbit`.
+
+From a clone (you need `cc` and `git`):
 
 ```
 git clone https://github.com/superbro456/Tachbit
