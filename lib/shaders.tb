@@ -8,6 +8,7 @@
 // В любой gpu func: lamp_k(i, x, y, z) — сколько света лампы i (0…7) доходит до точки, lamp_x/y/z(i), lamp_r/g/b(i);
 // tex_r/g/b/a(слот, u, v) — цвет картинки слота 0…3 (shader_image), tex_on(слот) — есть ли там картинка.
 // sun_shadow(x, y, z, nx, ny, nz) — 1 на солнце, 0 в тени (shadows); lamp_shadow(i, ...) — то же для лампы i (light_shadow).
+// camera_right(k), camera_up(k) — куда вправо и вверх от камеры (k = 0, 1, 2 — x, y, z), mesh_turn(i, k) — поворот draw_mesh.
 // Угол v: x y z (в сетке), nx ny nz, u v, r g b a, time, i (номер угла).
 
 // ---------- общие помощники ----------
@@ -623,3 +624,135 @@ gpu func underwater(s: screen, wave: dec, tint: dec)
     s.r = screen_soft_r(x, y) * (1 - tint * 0.6)
     s.g = screen_soft_g(x, y) * (1 - tint * 0.2)
     s.b = mix(screen_soft_b(x, y), 0.8, tint * 0.4)
+
+// ========== частицы на видеокарте: огонь, дым, искры, фонтан, снег ==========
+// Каждая частица живёт life секунд и рождается заново со своим случаем: где она сейчас, считает
+// вершинный шейдер по времени — процессор частицы не трогает, так что их могут быть десятки тысяч.
+//   fire = shaders.particles(3000, "fire")      // готовая сетка: "fire", "smoke", "sparks", "fountain", "snow"
+//   shader_set(fire, "speed", 2)                 // настройки как у любого шейдера
+//   draw_mesh(fire, x, y, z, 0)                  // где источник; рисовать после остальных сеток
+// Частицы летят из точки сетки вверх (+y); draw_mesh_rot поворачивает струю.
+// Свой вид: mesh_shader(m, "spray") (движение) и mesh_shader(m, "spray_color") (цвет) или свой pixel-шейдер:
+// в нём p.r — сколько жизни прошло (0…1), p.g — случайное число частицы, p.u p.v — место на кружке.
+
+// углы: life — сколько живёт (с), speed — скорость, spread — разлёт (0 — струя вверх, 1 — во все стороны),
+// gravity — тяга вниз (минус — вверх, как у дыма), size → size_end — размер в начале и в конце,
+// drag — торможение воздухом, area — радиус круга, где рождаются
+gpu func spray(v: corner, life: dec, speed: dec, spread: dec, gravity: dec, size: dec, size_end: dec, drag: dec, area: dec)
+    lf = life
+    if lf <= 0
+        lf = 1
+    id = v.x
+    cn = v.y
+    tt = v.time + hash(id * 0.1371 + 0.5) * lf
+    cyc = floor(tt / lf)
+    age = tt - cyc * lf
+    k = age / lf
+    sd = id * 0.731 + cyc * 7.13
+    a1 = hash(sd + 1.1) * 6.2831853
+    c = 1 - hash(sd + 2.3) * spread * 2
+    sn = sqrt(max(0, 1 - c * c))
+    sp = speed * (0.6 + 0.8 * hash(sd + 3.7))
+    dist = sp * age
+    if drag > 0
+        dist = sp * (1 - exp(-drag * age)) / drag
+    ra = area * sqrt(hash(sd + 4.9))
+    a2 = hash(sd + 5.3) * 6.2831853
+    x = ra * cos(a2) + sn * cos(a1) * dist
+    y = c * dist - 0.5 * gravity * age * age
+    z = ra * sin(a2) + sn * sin(a1) * dist
+    s0 = size
+    if s0 <= 0
+        s0 = 0.1
+    s1 = size_end
+    if s1 <= 0
+        s1 = s0
+    s = mix(s0, s1, k) * 0.5
+    cu = 1.0
+    if cn < 0.5 or cn > 2.5
+        cu = -1.0
+    cv = -1.0
+    if cn > 1.5
+        cv = 1.0
+    // кружок всегда лицом к камере: сдвиг в мире → в оси сетки
+    ox = (camera_right(0) * cu + camera_up(0) * cv) * s
+    oy = (camera_right(1) * cu + camera_up(1) * cv) * s
+    oz = (camera_right(2) * cu + camera_up(2) * cv) * s
+    v.x = x + mesh_turn(0, 0) * ox + mesh_turn(1, 0) * oy + mesh_turn(2, 0) * oz
+    v.y = y + mesh_turn(0, 1) * ox + mesh_turn(1, 1) * oy + mesh_turn(2, 1) * oz
+    v.z = z + mesh_turn(0, 2) * ox + mesh_turn(1, 2) * oy + mesh_turn(2, 2) * oz
+    v.u = cu * 0.5 + 0.5
+    v.v = cv * 0.5 + 0.5
+    v.r = k
+    v.g = hash(sd + 6.1)
+    v.b = 0
+
+// точки: цвет от (r0, g0, b0) в начале жизни к (r1, g1, b1) в конце, opacity — плотность (0 — как 1),
+// soft — мягкость края кружка (0 — как 1; больше — мягче)
+gpu func spray_color(p: pixel, r0: dec, g0: dec, b0: dec, r1: dec, g1: dec, b1: dec, opacity: dec, soft: dec)
+    k = p.r
+    du = p.u * 2 - 1
+    dv = p.v * 2 - 1
+    d = du * du + dv * dv
+    if d >= 1
+        p.a = 0
+    else
+        sf = soft
+        if sf <= 0
+            sf = 1
+        op = opacity
+        if op <= 0
+            op = 1
+        a = pow(1 - d, sf) * op * min(1, k * 12) * (1 - k * k)
+        j = 0.85 + 0.3 * p.g
+        p.r = mix(r0, r1, k) * j
+        p.g = mix(g0, g1, k) * j
+        p.b = mix(b0, b1, k) * j
+        p.a = a
+
+// сетка из n частиц с готовым видом kind: "fire", "smoke", "sparks", "fountain", "snow" ("" — без настроек)
+modpub func particles(n: int, kind: text) gives m: int
+    m = mesh_new()
+    // частица i — четыре угла: x — номер частицы, y — номер угла (0…3); место считает шейдер spray
+    count i from 0 to n - 1
+        mesh_add_uv(m, i, 0, 0, 0, 0, i, 2, 0, 1, 1, i, 1, 0, 1, 0)
+        mesh_add_uv(m, i, 0, 0, 0, 0, i, 3, 0, 0, 1, i, 2, 0, 1, 1)
+    mesh_shader(m, "spray")
+    mesh_shader(m, "spray_color")
+    mesh_shadow(m, false)
+    mesh_alpha(m, 0.99)
+    if kind == "fire"
+        set8(m, 1.0, 1.4, 0.1, -2.5, 0.45, 0.08, 1.2, 0.3)
+        col8(m, 1.0, 0.85, 0.3, 0.8, 0.1, 0.0, 0.9, 1.5)
+    if kind == "smoke"
+        set8(m, 4.0, 0.5, 0.15, -0.3, 0.4, 1.6, 0.8, 0.2)
+        col8(m, 0.22, 0.22, 0.24, 0.45, 0.45, 0.48, 0.22, 2.0)
+    if kind == "sparks"
+        set8(m, 0.8, 4.5, 0.3, 9.8, 0.05, 0.02, 0.3, 0.1)
+        col8(m, 1.0, 0.9, 0.5, 1.0, 0.3, 0.0, 1.0, 0.5)
+    if kind == "fountain"
+        set8(m, 2.2, 6.0, 0.025, 9.8, 0.08, 0.05, 0.1, 0.04)
+        col8(m, 0.7, 0.85, 1.0, 0.3, 0.5, 0.9, 0.7, 1.0)
+    if kind == "snow"
+        set8(m, 9.0, 0.3, 1.0, 0.2, 0.07, 0.07, 0.0, 10.0)
+        col8(m, 1.0, 1.0, 1.0, 0.9, 0.95, 1.0, 0.9, 0.7)
+
+func set8(m: int, life: dec, speed: dec, spread: dec, gravity: dec, size: dec, size_end: dec, drag: dec, area: dec)
+    shader_set(m, "life", life)
+    shader_set(m, "speed", speed)
+    shader_set(m, "spread", spread)
+    shader_set(m, "gravity", gravity)
+    shader_set(m, "size", size)
+    shader_set(m, "size_end", size_end)
+    shader_set(m, "drag", drag)
+    shader_set(m, "area", area)
+
+func col8(m: int, r0: dec, g0: dec, b0: dec, r1: dec, g1: dec, b1: dec, opacity: dec, soft: dec)
+    shader_set(m, "r0", r0)
+    shader_set(m, "g0", g0)
+    shader_set(m, "b0", b0)
+    shader_set(m, "r1", r1)
+    shader_set(m, "g1", g1)
+    shader_set(m, "b1", b1)
+    shader_set(m, "opacity", opacity)
+    shader_set(m, "soft", soft)

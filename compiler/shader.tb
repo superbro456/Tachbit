@@ -244,6 +244,13 @@ modpub func sh_prelude() gives s: text
     s += "        count q from -1 to 1\n"
     s += "            k = k + tb_lamp_tap(base, px + q, py + j, d)\n"
     s += "    return k / 9\n"
+    // камера и поворот сетки: вправо и вверх от камеры (k = 0, 1, 2 — x, y, z), строка i столбец k поворота draw_mesh
+    s += "gpu func camera_right(k: int) gives r: dec\n"
+    s += "    return tb_record(15 + k)\n"
+    s += "gpu func camera_up(k: int) gives r: dec\n"
+    s += "    return tb_record(18 + k)\n"
+    s += "gpu func mesh_turn(i: int, k: int) gives r: dec\n"
+    s += "    return tb_record(3 * i + k)\n"
     s += "gpu func tb_corner(v: corner)\n"
     s += "    v.x = v.x\n"
     s += "\n"

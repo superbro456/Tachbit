@@ -1,0 +1,173 @@
+// Костёр: частицы на видеокарте из lib/shaders.tb — огонь, дым, искры, фонтан и снег.
+// Где каждая частица, считает вершинный шейдер spray по времени; процессор только говорит, где источник.
+//   tb run examples/apps/campfire/main.tb
+//
+// 1 огонь  2 дым  3 искры  4 фонтан  5 снег — вкл / выкл, + / - — частиц больше / меньше,
+// Q / E — облететь, X — свечение на весь экран, пробел — костёр по кругу.
+use shaders
+
+func main()
+    try window_open(960, 600, "Костёр")
+    kinds = ["fire", "smoke", "sparks", "fountain", "snow"]
+    names = ["огонь", "дым", "искры", "фонтан", "снег"]
+    base = [3000, 1500, 800, 4000, 6000]
+    on = [true, true, true, true, false]
+    scale = 1
+    systems = make(kinds, base, scale)
+
+    ground = mesh_new()
+    count i from -12 to 11
+        count j from -12 to 11
+            c = rgb(46, 58, 44)
+            if (i * 7 + j * 3) % 5 == 0
+                c = rgb(52, 64, 48)
+            mesh_add(ground, i, 0, j, i, 0, j + 1, i + 1, 0, j + 1, c)
+            mesh_add(ground, i, 0, j, i + 1, 0, j + 1, i + 1, 0, j, c)
+    mesh_shader(ground, "standard")
+    logs = mesh_new()
+    count k from 0 to 4
+        a = k * 1.2566
+        log_box(logs, a, rgb(90, 55, 30))
+    mesh_shader(logs, "standard")
+    // чаша фонтана
+    bowl = mesh_new()
+    count k from 0 to 23
+        a0 = k * 0.2618
+        a1 = (k + 1) * 0.2618
+        quad(bowl, 1.1 * cos_t(a0), 1.1 * sin_t(a0), 1.1 * cos_t(a1), 1.1 * sin_t(a1), 0.0, 0.35, rgb(150, 150, 160))
+        quad(bowl, 0.9 * cos_t(a1), 0.9 * sin_t(a1), 0.9 * cos_t(a0), 0.9 * sin_t(a0), 0.0, 0.35, rgb(130, 130, 140))
+    mesh_shader(bowl, "standard")
+
+    angle = 0.0
+    glow_on = true
+    move = false
+    t = 0.0
+    prev = ""
+    screen_set("glow", "power", 0.9)
+    screen_set("glow", "threshold", 0.6)
+    screen_set("glow", "size", 14)
+    repeat while window_alive()
+        t += frame_ms() / 1000.0
+        keys = ""
+        each k in ["1", "2", "3", "4", "5", "=", "-", "x", "space"]
+            if key_down(k)
+                keys += k + ","
+        tap = ""
+        each k in split(keys, ",")
+            if k != "" and find(prev, k + ",") < 0
+                tap += k + ","
+        prev = keys
+        count i from 0 to 4
+            if find(tap, "" + (i + 1) + ",") >= 0
+                on[i] = not on[i]
+        if find(tap, "=,") >= 0 and scale < 8
+            scale = scale * 2
+            systems = make(kinds, base, scale)
+        if find(tap, "-,") >= 0 and scale > 1
+            scale = scale / 2
+            systems = make(kinds, base, scale)
+        if find(tap, "x,") >= 0
+            glow_on = not glow_on
+        if find(tap, "space,") >= 0
+            move = not move
+        if key_down("q") or key_down("left")
+            angle -= 1.2
+        if key_down("e") or key_down("right")
+            angle += 1.2
+
+        sunlight(0.3, 0.6, -0.5, 0.12)
+        point_light(0, fx(move, t), 0.8, fz(move, t), rgb(255, 150, 60), 6)
+        clear_window(rgb(12, 14, 26))
+        camera(9 * sin_d(angle), 3.5, -9 * cos_d(angle), 0, 1.2, 0)
+        draw_mesh(ground, 0, 0, 0, 0)
+        draw_mesh(logs, fx(move, t), 0, fz(move, t), 0)
+        draw_mesh(bowl, 3.2, 0, 1.5, 0)
+        // частицы — после остальных сеток: прозрачные, глубину не пишут
+        if on[4]
+            draw_mesh(systems[4], 0, 7, 0, 0)
+        if on[3]
+            draw_mesh(systems[3], 3.2, 0.3, 1.5, 0)
+        if on[1]
+            draw_mesh(systems[1], fx(move, t), 0.9, fz(move, t), 0)
+        if on[0]
+            draw_mesh(systems[0], fx(move, t), 0.1, fz(move, t), 0)
+        if on[2]
+            draw_mesh(systems[2], fx(move, t), 0.2, fz(move, t), 0)
+        if glow_on
+            screen_shader("glow")
+
+        total = 0
+        state = ""
+        count i from 0 to 4
+            mark = "-"
+            if on[i]
+                mark = "+"
+                total += base[i] * scale
+            state += mark + names[i] + "  "
+        info = "1-5 вкл/выкл   + / - частиц   Q/E облететь   X свечение   пробел костёр по кругу"
+        draw_text(13, 13, info, rgb(0, 0, 0), 2)
+        draw_text(12, 12, info, rgb(255, 255, 255), 2)
+        line = state + "  частиц: " + total + "   " + fps() + " к/с"
+        draw_text(13, 579, line, rgb(0, 0, 0), 2)
+        draw_text(12, 578, line, rgb(255, 255, 255), 2)
+
+func make(kinds: list text, base: list int, scale: int) gives ms: list int
+    count i from 0 to len(kinds) - 1
+        ms.add(shaders.particles(base[i] * scale, kinds[i]))
+
+// где костёр: на месте или по кругу
+func fx(move: bool, t: dec) gives x: dec
+    x = -1.5
+    if move
+        x = -1.5 + 2 * cos_t(t * 0.7)
+
+func fz(move: bool, t: dec) gives z: dec
+    z = 0.0
+    if move
+        z = 2 * sin_t(t * 0.7)
+
+// полено: брусок от центра наружу под углом a, лежит наклонно
+func log_box(m: int, a: dec, c: int)
+    ca = cos_t(a)
+    sa = sin_t(a)
+    count s from 0 to 3
+        b0 = s * 1.5708
+        b1 = (s + 1) * 1.5708
+        r = 0.09
+        y0 = 0.12 + r * sin_t(b0)
+        y1 = 0.12 + r * sin_t(b1)
+        w0 = r * cos_t(b0)
+        w1 = r * cos_t(b1)
+        // от точки 0.1 до 0.75 вдоль (ca, sa), поперёк (-sa, ca)
+        ax = 0.1 * ca - w0 * sa
+        az = 0.1 * sa + w0 * ca
+        bx = 0.75 * ca - w0 * sa
+        bz = 0.75 * sa + w0 * ca
+        cx = 0.75 * ca - w1 * sa
+        cz = 0.75 * sa + w1 * ca
+        dx = 0.1 * ca - w1 * sa
+        dz = 0.1 * sa + w1 * ca
+        mesh_add(m, ax, y0 + 0.1, az, bx, y0, bz, cx, y1, cz, c)
+        mesh_add(m, ax, y0 + 0.1, az, cx, y1, cz, dx, y1 + 0.1, dz, c)
+
+// стенка чаши: от (x0, z0) до (x1, z1), высота y0…y1
+func quad(m: int, x0: dec, z0: dec, x1: dec, z1: dec, y0: dec, y1: dec, c: int)
+    mesh_add(m, x0, y0, z0, x0, y1, z0, x1, y1, z1, c)
+    mesh_add(m, x0, y0, z0, x1, y1, z1, x1, y0, z1, c)
+
+func sin_t(x: dec) gives r: dec
+    repeat while x > 3.14159265
+        x -= 6.2831853
+    repeat while x < -3.14159265
+        x += 6.2831853
+    x2 = x * x
+    r = x * (1 - x2 / 6 * (1 - x2 / 20 * (1 - x2 / 42 * (1 - x2 / 72 * (1 - x2 / 110)))))
+
+func cos_t(x: dec) gives r: dec
+    r = sin_t(x + 1.57079633)
+
+func sin_d(a: dec) gives r: dec
+    r = sin_t(a * 0.0174532925)
+
+func cos_d(a: dec) gives r: dec
+    r = cos_t(a * 0.0174532925)

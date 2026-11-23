@@ -4345,7 +4345,7 @@ TB_API int tb_sh_find(const char *name, int stage) {
 // свои у каждой системы: готова ли видеокарта; углы сетки в её буфер (старый отдаётся); фигура m = 7 в пачку
 TB_API int tb_gpu_sh_ready(void);
 TB_API void *tb_gpu_sh_vbuf(void *old, const float *v, long long nfloats);
-TB_API void tb_gpu_sh_add(void *vb, int cs, int ps, long long nverts);
+TB_API void tb_gpu_sh_add(void *vb, int cs, int ps, long long nverts, int nowrite);   // nowrite: глубину не писать (прозрачная сетка)
 TB_API int tb_gpu_scr_ready(void);
 // ---- тени для gpu func: карта солнца (1024 × 1024) и кубы ламп (6 × 256 × 256, до 4 ламп) по 16 бит —
 // две глубины в слове; у каждого набора видеокарты свои (прошлые кадры ещё рисуются). Начало — число 207 записи
@@ -6639,7 +6639,7 @@ TB_API int tb_vk_buffer_m(VkDeviceSize size, VkFlags usage, VkBuffer *buf, void 
 }
 // ---- gpu func (1.3) на Vulkan: свой набор (буфер записей), конвейер на каждую пару «углы + точка» ----
 TB_API struct { int tried, ok; VkDescriptorSetLayout dsl; VkPipelineLayout pl; VkDescriptorSet ds; VkBuffer rbuf, sbuf; float *rmap; uint32_t *smap;
-    VkPipeline pipe[TB_SH_MAX * TB_SH_MAX]; char bad[TB_SH_MAX * TB_SH_MAX]; VkBuffer vb[TB_GSLOTS][TB_SHR_CAP]; } tb_vksh;
+    VkPipeline pipe[2 * TB_SH_MAX * TB_SH_MAX]; char bad[2 * TB_SH_MAX * TB_SH_MAX]; VkBuffer vb[TB_GSLOTS][TB_SHR_CAP]; } tb_vksh;
 typedef struct { VkBuffer b; VkDeviceMemory m; } tb_vkbm;
 TB_API int tb_vk_images(void);
 // точки картинок для шейдеров (binding 1): после каждой новой памяти картинок
@@ -6703,13 +6703,13 @@ TB_API void *tb_gpu_sh_vbuf(void *old, const float *v, long long nfloats) {
     memcpy(map, v, sizeof(float) * (size_t)nfloats);
     return b;
 }
-TB_API void tb_gpu_sh_add(void *vb, int cs, int ps, long long nverts) {
+TB_API void tb_gpu_sh_add(void *vb, int cs, int ps, long long nverts, int nowrite) {
     tb_vksh.vb[tb_gslot][tb_shrn] = ((tb_vkbm *)vb)->b;
-    tb_gpu_add(tb_shrn, cs, ps, nverts, 0, 0, 0, 7u);
+    tb_gpu_add(tb_shrn, cs, ps, nverts, nowrite, 0, 0, 7u);
     tb_shrn++;
 }
-static VkPipeline tb_vk_shpipe(int cs, int ps) {
-    int k = cs * TB_SH_MAX + ps;
+static VkPipeline tb_vk_shpipe(int cs, int ps, int nowrite) {
+    int k = (nowrite ? TB_SH_MAX * TB_SH_MAX : 0) + cs * TB_SH_MAX + ps;
     if (tb_vksh.pipe[k] || tb_vksh.bad[k]) return tb_vksh.pipe[k];
     tb_vksh.bad[k] = 1;
     VkShaderModuleCreateInfo smv = { 16, 0, 0, tb_shaders[cs].bytes, tb_shaders[cs].spv }, smf = { 16, 0, 0, tb_shaders[ps].bytes, tb_shaders[ps].spv };
@@ -6732,7 +6732,7 @@ static VkPipeline tb_vk_shpipe(int cs, int ps) {
     VkPipelineMultisampleStateCreateInfo ms = { 24, 0, 0, 1, 0, 0, 0, 0, 0 };
     VkPipelineColorBlendAttachmentState cba = { 1, 1, 7, 0, 1, 0, 0, 0xF };
     VkPipelineColorBlendStateCreateInfo cbs = { 26, 0, 0, 0, 0, 1, &cba, { 0, 0, 0, 0 } };
-    VkPipelineDepthStencilStateCreateInfo z3 = { 25, 0, 0, 1, 1, 1, 0, 0, { 0 }, { 0 }, 0, 1 };
+    VkPipelineDepthStencilStateCreateInfo z3 = { 25, 0, 0, 1, nowrite ? 0 : 1, 1, 0, 0, { 0 }, { 0 }, 0, 1 };
     VkGraphicsPipelineCreateInfo gci = { 28, 0, 0, 2, st, &vis, &ias, 0, &vps, &rs, &ms, &z3, &cbs, &dys, tb_vksh.pl, tb_vk.rp, 0, 0, -1 };
     VkPipeline p = 0;
     if (tbvk_CreateGraphicsPipelines(tb_vk.dev, 0, 1, &gci, 0, &p)) {
@@ -7227,7 +7227,7 @@ TB_API void tb_gpu_flush(int present) {
         while (i < tb_gin) {
             if (tb_gi[i].m == 7u) {   // сетка со своими шейдерами (gpu func)
                 const tb_ginst *g = &tb_gi[i];
-                VkPipeline sp = tb_vk_shpipe(g->y0, g->x1);
+                VkPipeline sp = tb_vk_shpipe(g->y0, g->x1, g->ox);
                 if (sp) {
                     tbvk_CmdBindPipeline(cb, 0, sp);
                     tbvk_CmdBindDescriptorSets(cb, 0, tb_vksh.pl, 0, 1, &tb_vksh.ds, 0, 0);
@@ -7392,7 +7392,7 @@ TB_API int tb_gpu_resize(int ow, int oh) {
 //@include omnium/kernel/screen.h
 TB_API int tb_gpu_sh_ready(void) { return 0; }
 TB_API void *tb_gpu_sh_vbuf(void *old, const float *v, long long nfloats) { (void)old; (void)v; (void)nfloats; return 0; }
-TB_API void tb_gpu_sh_add(void *vb, int cs, int ps, long long nverts) { (void)vb; (void)cs; (void)ps; (void)nverts; }
+TB_API void tb_gpu_sh_add(void *vb, int cs, int ps, long long nverts, int nowrite) { (void)vb; (void)cs; (void)ps; (void)nverts; (void)nowrite; }
 TB_API int tb_gpu_scr_ready(void) { return 0; }
 TB_API void tb_gpu_scr_add(int ps) { (void)ps; }
 TB_API uint32_t *tb_gpu_shm(void) { return 0; }
@@ -7858,9 +7858,9 @@ TB_API void *tb_gpu_sh_vbuf(void *old, const float *v, long long nfloats) {
         v, sizeof(float) * (unsigned long)nfloats, 0);
     return (void *)b;
 }
-TB_API void tb_gpu_sh_add(void *vb, int cs, int ps, long long nverts) {
+TB_API void tb_gpu_sh_add(void *vb, int cs, int ps, long long nverts, int nowrite) {
     tb_mtlsh.vb[tb_gslot][tb_shrn] = (id)vb;
-    tb_gpu_add(tb_shrn, cs, ps, nverts, 0, 0, 0, 7u);
+    tb_gpu_add(tb_shrn, cs, ps, nverts, nowrite, 0, 0, 7u);
     tb_shrn++;
 }
 static id tb_mtl_shpipe(int cs, int ps) {
@@ -8133,7 +8133,7 @@ TB_API void tb_gpu_flush(int present) {
                     if (sp) {
                         uint32_t ro = (uint32_t)(((size_t)tb_gslot * TB_SHR_CAP + (size_t)g->x0) * TB_SHR_N);
                         TB_MSG1(void, enc, "setRenderPipelineState:", id, sp);
-                        TB_MSG1(void, enc, "setDepthStencilState:", id, tb_mtl.zs3);
+                        TB_MSG1(void, enc, "setDepthStencilState:", id, g->ox && tb_mtl.zsa ? tb_mtl.zsa : tb_mtl.zs3);
                         ((void (*)(id, SEL, id, unsigned long, unsigned long))objc_msgSend)(enc, sel_getUid("setVertexBuffer:offset:atIndex:"), tb_mtlsh.vb[tb_gslot][g->x0], 0, 0);
                         ((void (*)(id, SEL, id, unsigned long, unsigned long))objc_msgSend)(enc, sel_getUid("setVertexBuffer:offset:atIndex:"), tb_mtlsh.rbuf, 0, 10);
                         ((void (*)(id, SEL, id, unsigned long, unsigned long))objc_msgSend)(enc, sel_getUid("setFragmentBuffer:offset:atIndex:"), tb_mtlsh.rbuf, 0, 10);
@@ -11323,7 +11323,8 @@ static void tb_sh_record(tb_mesh *m, float *r, double x, double y, double z, dou
     tb_sh_world(m, r);
 }
 // ---- процессор: те же шейдеры (функции C от компилятора), треугольники дробными числами ----
-typedef struct { double c[3]; float a[15]; } tb_shc_t;   // угол перед камерой: место у камеры; мир 3, нормаль 3, цвет 4, uv 2, касательная 3
+typedef struct { double c[3]; float a[15]; } tb_shc_t;
+static int tb_sh_nowrite = 0;   // прозрачная сетка (mesh_alpha < 1): глубину не пишет   // угол перед камерой: место у камеры; мир 3, нормаль 3, цвет 4, uv 2, касательная 3
 static void tb_sh_px(const tb_shc_t *q, int ps, const float *rec) {
     double f = tb_gh / 2.0 / tan(30 * 3.14159265358979323846 / 180), hw = tb_gw / 2.0, hh = tb_gh / 2.0, zn = 205.0 / 4096;
     double sx[3], sy[3], iz[3];
@@ -11378,7 +11379,7 @@ static void tb_sh_px(const tb_shc_t *q, int ps, const float *rec) {
             out |= (uint32_t)(int)(o + 0.5f) << sh;
         }
         tb_px[at] = out;
-        tb_zb[at] = d;
+        if (!tb_sh_nowrite) tb_zb[at] = d;
     }
 }
 static void tb_sh_cpu(tb_mesh *m, const float *rec, int cs, int ps, const float *bones) {
@@ -11480,7 +11481,9 @@ static void tb_sh_draw(long long id, double x, double y, double z, double R[3][3
         free(own);
         rec[209] = (float)nb;
     }
+    tb_sh_nowrite = m->alpha < 255;
     if (TB_CPU_DRAW) tb_sh_cpu(m, rec, cs, ps, bf);
+    tb_sh_nowrite = 0;
     if (tb_gpu_on && m->shvb && tb_gpu_sh_ready() && 12 * nb <= TB_SHB_CAP) {
         if (tb_shrn == TB_SHR_CAP || tb_gin == TB_GI_CAP || tb_shbn + 12 * nb > TB_SHB_CAP) tb_gpu_flush(0);
         if (nb > 0) {
@@ -11490,7 +11493,7 @@ static void tb_sh_draw(long long id, double x, double y, double z, double R[3][3
             tb_shbn += 12 * nb;
         }
         memcpy(tb_shrecs + (size_t)tb_shrn * TB_SHR_N, rec, sizeof rec);
-        tb_gpu_sh_add(m->shvb, cs, ps, 3 * m->n);
+        tb_gpu_sh_add(m->shvb, cs, ps, 3 * m->n, m->alpha < 255);
         m->shused = tb_gbatch;
     }
     free(bf);
