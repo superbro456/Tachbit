@@ -1,0 +1,36 @@
+// шейдер экрана (screen_shader, 1.3): весь кадр через gpu func с s: screen. Свой эффект (сдвиг цвета по глубине)
+// и готовые из lib/shaders.tb; надпись после эффекта эффект не трогает. Кадры со своими шейдерами
+// TB_GPU_CHECK не сверяет (дробные числа), каждый пятый кадр — без них, его сверяет точка в точку.
+use shaders
+
+gpu func tint(s: screen, far: dec)
+    d = clamp(screen_depth(s.x, s.y) / far, 0, 1)
+    s.r = mix(s.r, screen_r(s.x - 3, s.y), 0.5)
+    s.b = s.b * (1 - d * 0.3)
+    s.a = 0.9
+
+func main()
+    try window_open(320, 200, "шейдер экрана")
+    tri = mesh_new()
+    mesh_add(tri, -1, -1, 0, 1, -1, 0, 0, 1, 0, rgb(200, 220, 60))
+    mesh_add(tri, -3, -1, 3, 3, -1, 3, 0, 2, 3, rgb(90, 140, 230))
+    screen_set("tint", "far", 10)
+    screen_set("glow", "threshold", 0.6)
+    screen_set("depth_fog", "near", 3)
+    screen_set("depth_fog", "far", 9)
+    effects = ["tint", "glow", "fxaa", "depth_fog", "color", "vignette", "outline", "blur", "pixelate", "underwater"]
+    frame = 0
+    repeat while window_alive()
+        frame += 1
+        if frame > 30
+            stop
+        clear_window(rgb(40, 60, 90))
+        sunlight(0.3, 0.8, 0.5, 0.4)
+        camera(0.3, 0.2, -4, 0, 0, 0)
+        draw_mesh(tri, 0, 0, 0, frame)
+        draw_rect(220, 20, 50, 30, rgb(255, 255, 240))
+        if frame % 5 != 0
+            screen_shader(effects[frame % len(effects)])
+            screen_shader("tint")
+        draw_text(4, 4, "кадр " + frame, 1, rgb(255, 255, 0))
+    print("кадров:", frame)

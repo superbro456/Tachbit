@@ -4290,7 +4290,10 @@ TB_API void tb_gpu_report(void) {
 // дробными числами (не точка в точку с процессором): в пачке это фигура m = 7 — x0 номер записи,
 // y0 шейдер углов, x1 шейдер точки, y1 сколько углов; углы сетки лежат в своём буфере видеокарты
 typedef void (*tb_shfn)(float *io);
-typedef struct { const char *name; int stage; tb_shfn fn; const uint32_t *spv; size_t bytes; int nsets; char sets[8][32]; } tb_shader_t;
+// Вид 2 — шейдер экрана (screen_shader): функция (io, кадр, глубина), в пачке фигура m = 8 — x0 номер записи, x1 шейдер;
+// вид 3 — вершины для экрана (один треугольник на всё окно). sv — настройки шейдера экрана (screen_set)
+typedef void (*tb_scrfn)(float *io, const uint32_t *scr, const float *scz);
+typedef struct { const char *name; int stage; tb_shfn fn; const uint32_t *spv; size_t bytes; int nsets; char sets[8][32]; float sv[8]; } tb_shader_t;
 enum { TB_SH_MAX = 64, TB_SHR_CAP = 4096, TB_SHR_N = 48 };
 TB_API tb_shader_t tb_shaders[TB_SH_MAX];
 TB_API int tb_nshaders = 0;
@@ -4323,6 +4326,8 @@ TB_API int tb_sh_find(const char *name, int stage) {
 TB_API int tb_gpu_sh_ready(void);
 TB_API void *tb_gpu_sh_vbuf(void *old, const float *v, long long nfloats);
 TB_API void tb_gpu_sh_add(void *vb, int cs, int ps, long long nverts);
+TB_API int tb_gpu_scr_ready(void);
+TB_API void tb_gpu_scr_add(int ps);
 // сверить кадр видеокарты с кадром процессора (видны только младшие 24 бита цвета)
 // TB_GPU_CHECK: как видеокарта смешивает букву с фоном — таблица из пробы (tb_gpu_blend_probe)
 TB_API int tb_blend_cal = 0;
@@ -4643,6 +4648,7 @@ typedef struct { VkRect2D rect; uint32_t baseArrayLayer, layerCount; } VkClearRe
     X(CmdPipelineBarrier, void, (VkCommandBuffer, VkFlags, VkFlags, VkFlags, uint32_t, const void *, uint32_t, const void *, uint32_t, const VkImageMemoryBarrier *)) \
     X(CmdBlitImage, void, (VkCommandBuffer, VkImage, uint32_t, VkImage, uint32_t, uint32_t, const VkImageBlit *, uint32_t)) \
     X(CmdCopyImageToBuffer, void, (VkCommandBuffer, VkImage, uint32_t, VkBuffer, uint32_t, const VkBufferImageCopy *)) \
+    X(CmdFillBuffer, void, (VkCommandBuffer, VkBuffer, VkDeviceSize, VkDeviceSize, uint32_t)) \
     X(CmdClearColorImage, void, (VkCommandBuffer, VkImage, uint32_t, const VkClearColorValue *, uint32_t, const VkImageSubresourceRange *)) \
     X(QueueSubmit, VkResult, (VkQueue, uint32_t, const VkSubmitInfo *, VkFence))
 #define TBVK_DECL(n, r, p) TB_API r (TBVK_CALL *tbvk_##n) p = 0;
@@ -6687,6 +6693,129 @@ static VkPipeline tb_vk_shpipe(int cs, int ps) {
     tb_vksh.pipe[k] = p;
     return p;
 }
+// ---- шейдер экрана на Vulkan: кадр и глубина копируются в буферы (binding 1, 2), потом треугольник на всё окно ----
+TB_API struct { int tried, ok; VkDescriptorSetLayout dsl; VkPipelineLayout pl; VkDescriptorSet ds; VkShaderModule vert;
+    VkBuffer cb, zb; VkDeviceMemory cm, zm; long long n; VkPipeline pipe[TB_SH_MAX]; char bad[TB_SH_MAX]; } tb_vkscr;
+typedef struct { int sType; const void *next; VkFlags src, dst; } tb_vkmb;   // VkMemoryBarrier
+static VkImageMemoryBarrier tb_vk_sbar(VkImage img, VkFlags sa, VkFlags da, uint32_t ol, uint32_t nl) {
+    VkImageMemoryBarrier b = { 45, 0, sa, da, ol, nl, 0xFFFFFFFFu, 0xFFFFFFFFu, img, { 1, 0, 1, 0, 1 } };
+    return b;
+}
+static int tb_vk_dbuf(VkDeviceSize size, VkFlags usage, VkBuffer *buf, VkDeviceMemory *mem) {
+    VkBufferCreateInfo bi = { 12, 0, 0, size, usage, 0, 0, 0 };
+    if (tbvk_CreateBuffer(tb_vk.dev, &bi, 0, buf)) return 0;
+    VkMemoryRequirements mr; tbvk_GetBufferMemoryRequirements(tb_vk.dev, *buf, &mr);
+    int t = tb_vk_memtype(mr.memoryTypeBits, 1);   // DEVICE_LOCAL
+    if (t < 0) t = tb_vk_memtype(mr.memoryTypeBits, 0);
+    VkMemoryAllocateInfo ai = { 5, 0, mr.size, (uint32_t)t };
+    return t >= 0 && tbvk_AllocateMemory(tb_vk.dev, &ai, 0, mem) == 0 && tbvk_BindBufferMemory(tb_vk.dev, *buf, *mem, 0) == 0;
+}
+TB_API int tb_gpu_scr_ready(void) {
+    if (!tb_vkscr.tried) {
+        tb_vkscr.tried = 1;
+        int vs = tb_sh_find("tb_screen_vert", 3);
+        if (vs < 0) return 0;
+        VkDescriptorSetLayoutBinding lb[3] = { { 0, 7, 1, 0x10, 0 }, { 1, 7, 1, 0x10, 0 }, { 2, 7, 1, 0x10, 0 } };
+        VkDescriptorSetLayoutCreateInfo lci = { 32, 0, 0, 3, lb };
+        if (tbvk_CreateDescriptorSetLayout(tb_vk.dev, &lci, 0, &tb_vkscr.dsl)) return 0;
+        VkDescriptorPoolSize ps = { 7, 3 };
+        VkDescriptorPoolCreateInfo pci = { 33, 0, 0, 1, 1, &ps };
+        VkDescriptorPool dp;
+        if (tbvk_CreateDescriptorPool(tb_vk.dev, &pci, 0, &dp)) return 0;
+        VkDescriptorSetAllocateInfo dai = { 34, 0, dp, 1, &tb_vkscr.dsl };
+        if (tbvk_AllocateDescriptorSets(tb_vk.dev, &dai, &tb_vkscr.ds)) return 0;
+        VkPushConstantRange pcr = { 0x10, 0, 4 };
+        VkPipelineLayoutCreateInfo plci = { 30, 0, 0, 1, &tb_vkscr.dsl, 1, &pcr };
+        if (tbvk_CreatePipelineLayout(tb_vk.dev, &plci, 0, &tb_vkscr.pl)) return 0;
+        VkShaderModuleCreateInfo smv = { 16, 0, 0, tb_shaders[vs].bytes, tb_shaders[vs].spv };
+        if (tbvk_CreateShaderModule(tb_vk.dev, &smv, 0, &tb_vkscr.vert)) return 0;
+        tb_vkscr.ok = 1;
+    }
+    if (!tb_vkscr.ok) return 0;
+    long long n = (long long)tb_gw * tb_gh;
+    if (tb_vkscr.n != n) {   // размер окна поменялся: новые буферы кадра и глубины
+        if (tb_vkscr.n) {
+            tbvk_DeviceWaitIdle(tb_vk.dev);
+            tbvk_DestroyBuffer(tb_vk.dev, tb_vkscr.cb, 0); tbvk_FreeMemory(tb_vk.dev, tb_vkscr.cm, 0);
+            tbvk_DestroyBuffer(tb_vk.dev, tb_vkscr.zb, 0); tbvk_FreeMemory(tb_vk.dev, tb_vkscr.zm, 0);
+        }
+        tb_vkscr.n = 0;
+        if (n <= 0 || !tb_vk_dbuf((VkDeviceSize)n * 4, 0x20 | 2, &tb_vkscr.cb, &tb_vkscr.cm)
+            || !tb_vk_dbuf((VkDeviceSize)n * 4, 0x20 | 2, &tb_vkscr.zb, &tb_vkscr.zm)) { tb_vkscr.ok = 0; return 0; }
+        tb_vkscr.n = n;
+        VkDescriptorBufferInfo bi[3] = { { tb_vksh.rbuf, 0, sizeof(float) * TB_SHR_N * TB_SHR_CAP * TB_GSLOTS },
+            { tb_vkscr.cb, 0, (VkDeviceSize)n * 4 }, { tb_vkscr.zb, 0, (VkDeviceSize)n * 4 } };
+        VkWriteDescriptorSet w[3];
+        for (int k = 0; k < 3; k++) { VkWriteDescriptorSet x = { 35, 0, tb_vkscr.ds, (uint32_t)k, 0, 1, 7, 0, &bi[k], 0 }; w[k] = x; }
+        tbvk_UpdateDescriptorSets(tb_vk.dev, 3, w, 0, 0);
+    }
+    return 1;
+}
+TB_API void tb_gpu_scr_add(int ps) {
+    tb_gpu_add(tb_shrn, 0, ps, 0, 0, 0, 0, 8u);
+    tb_shrn++;
+}
+static VkPipeline tb_vk_scrpipe(int ps) {
+    if (tb_vkscr.pipe[ps] || tb_vkscr.bad[ps]) return tb_vkscr.pipe[ps];
+    tb_vkscr.bad[ps] = 1;
+    VkShaderModuleCreateInfo smf = { 16, 0, 0, tb_shaders[ps].bytes, tb_shaders[ps].spv };
+    VkShaderModule mf;
+    if (tbvk_CreateShaderModule(tb_vk.dev, &smf, 0, &mf)) { fprintf(stderr, "видеокарта не приняла шейдер экрана %s\n", tb_shaders[ps].name); return 0; }
+    VkPipelineShaderStageCreateInfo st[2] = { { 18, 0, 0, 1, tb_vkscr.vert, "main", 0 }, { 18, 0, 0, 0x10, mf, "main", 0 } };
+    VkPipelineVertexInputStateCreateInfo vis = { 19, 0, 0, 0, 0, 0, 0 };
+    VkPipelineInputAssemblyStateCreateInfo ias = { 20, 0, 0, 3, 0 };
+    VkViewport vp = { 0, 0, (float)tb_gw, (float)tb_gh, 0, 1 };
+    uint32_t dyn[2] = { 0, 1 };
+    VkPipelineDynamicStateCreateInfo dys = { 27, 0, 0, 2, dyn };
+    VkRect2D sci = { { 0, 0 }, { (uint32_t)tb_gw, (uint32_t)tb_gh } };
+    VkPipelineViewportStateCreateInfo vps = { 22, 0, 0, 1, &vp, 1, &sci };
+    VkPipelineRasterizationStateCreateInfo rs = { 23, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0f };
+    VkPipelineMultisampleStateCreateInfo ms = { 24, 0, 0, 1, 0, 0, 0, 0, 0 };
+    VkPipelineColorBlendAttachmentState cba = { 1, 1, 7, 0, 1, 0, 0, 0xF };
+    VkPipelineColorBlendStateCreateInfo cbs = { 26, 0, 0, 0, 0, 1, &cba, { 0, 0, 0, 0 } };
+    VkPipelineDepthStencilStateCreateInfo z0 = { 25, 0, 0, 0, 0, 7, 0, 0, { 0 }, { 0 }, 0, 1 };   // глубину не трогает
+    VkGraphicsPipelineCreateInfo gci = { 28, 0, 0, 2, st, &vis, &ias, 0, &vps, &rs, &ms, &z0, &cbs, &dys, tb_vkscr.pl, tb_vk.rp, 0, 0, -1 };
+    VkPipeline p = 0;
+    if (tbvk_CreateGraphicsPipelines(tb_vk.dev, 0, 1, &gci, 0, &p)) { fprintf(stderr, "видеокарта не собрала шейдер экрана %s\n", tb_shaders[ps].name); return 0; }
+    tb_vkscr.bad[ps] = 0;
+    tb_vkscr.pipe[ps] = p;
+    return p;
+}
+// в середине пачки: закончить проход, кадр и глубину — в буферы, проход снова, треугольник на всё окно
+static void tb_vk_scrpass(VkCommandBuffer cb, int s, const tb_ginst *g) {
+    VkPipeline sp = tb_vk_scrpipe(g->x1);
+    if (!sp || tb_vkscr.n != (long long)tb_gw * tb_gh) return;
+    tbvk_CmdEndRenderPass(cb);
+    VkImageMemoryBarrier b = tb_vk_sbar(tb_vk.img, 0x100, 0x800, 2, 6);
+    tb_vkmb mb = { 46, 0, 0x20, 0x1000 };   // прошлый шейдер экрана дочитал буферы → пишем
+    tbvk_CmdPipelineBarrier(cb, 0x400 | 0x80, 0x1000, 0, 1, &mb, 0, 0, 1, &b);
+    VkBufferImageCopy cp = { 0, 0, 0, { 1, 0, 0, 1 }, { 0, 0, 0 }, { (uint32_t)tb_gw, (uint32_t)tb_gh, 1 } };
+    tbvk_CmdCopyImageToBuffer(cb, tb_vk.img, 6, tb_vkscr.cb, 1, &cp);
+    if (!tb_vk.zfresh) {
+        VkImageMemoryBarrier zb = { 45, 0, 0x400, 0x800, 3, 6, 0xFFFFFFFFu, 0xFFFFFFFFu, tb_vk.zimg, { 2, 0, 1, 0, 1 } };
+        tbvk_CmdPipelineBarrier(cb, 0x100 | 0x200, 0x1000, 0, 0, 0, 0, 0, 1, &zb);
+        VkBufferImageCopy zc = { 0, 0, 0, { 2, 0, 0, 1 }, { 0, 0, 0 }, { (uint32_t)tb_gw, (uint32_t)tb_gh, 1 } };
+        tbvk_CmdCopyImageToBuffer(cb, tb_vk.zimg, 6, tb_vkscr.zb, 1, &zc);
+        VkImageMemoryBarrier zb2 = { 45, 0, 0x800, 0x200 | 0x400, 6, 3, 0xFFFFFFFFu, 0xFFFFFFFFu, tb_vk.zimg, { 2, 0, 1, 0, 1 } };
+        tbvk_CmdPipelineBarrier(cb, 0x1000, 0x100 | 0x200, 0, 0, 0, 0, 0, 1, &zb2);
+    } else {
+        tbvk_CmdFillBuffer(cb, tb_vkscr.zb, 0, (VkDeviceSize)tb_vkscr.n * 4, 0x3F800000u);   // 1.0 — «далеко»
+    }
+    b = tb_vk_sbar(tb_vk.img, 0x800, 0x80 | 0x100, 6, 2);
+    tb_vkmb mb2 = { 46, 0, 0x1000, 0x20 };
+    tbvk_CmdPipelineBarrier(cb, 0x1000, 0x400 | 0x80, 0, 1, &mb2, 0, 0, 1, &b);
+    VkRenderPassBeginInfo rb = { 43, 0, tb_vk.rp, tb_vk.fb, { { 0, 0 }, { (uint32_t)tb_gw, (uint32_t)tb_gh } }, 0, 0 };
+    tbvk_CmdBeginRenderPass(cb, &rb, 0);
+    VkViewport vp = { 0, 0, (float)tb_gw, (float)tb_gh, 0, 1 };
+    VkRect2D sc = { { 0, 0 }, { (uint32_t)tb_gw, (uint32_t)tb_gh } };
+    tbvk_CmdSetViewport(cb, 0, 1, &vp);
+    tbvk_CmdSetScissor(cb, 0, 1, &sc);
+    tbvk_CmdBindPipeline(cb, 0, sp);
+    tbvk_CmdBindDescriptorSets(cb, 0, tb_vkscr.pl, 0, 1, &tb_vkscr.ds, 0, 0);
+    uint32_t ro = (uint32_t)(((size_t)s * TB_SHR_CAP + (size_t)g->x0) * TB_SHR_N);
+    tbvk_CmdPushConstants(cb, tb_vkscr.pl, 0x10, 0, 4, &ro);
+    tbvk_CmdDraw(cb, 3, 1, 0, 0);
+}
 // картинки поменялись (load_image): все точки — в новый буфер видеокарты
 TB_API int tb_vk_images(void) {
     if (tb_vk.pbuf) {
@@ -6784,7 +6913,7 @@ TB_API int tb_vk_target(void) {
     VkImageViewCreateInfo vci = { 15, 0, 0, tb_vk.img, 1, 44, { 0, 0, 0, 0 }, { 1, 0, 1, 0, 1 } };
     if (tbvk_CreateImageView(tb_vk.dev, &vci, 0, &tb_vk.view)) return 0;
     // глубина для 3D: D32_SFLOAT, только на видеокарте
-    VkImageCreateInfo zi = { 14, 0, 0, 1, 126, { (uint32_t)tb_gw, (uint32_t)tb_gh, 1 }, 1, 1, 1, 0, 0x20, 0, 0, 0, 0 };   // DEPTH_STENCIL_ATTACHMENT
+    VkImageCreateInfo zi = { 14, 0, 0, 1, 126, { (uint32_t)tb_gw, (uint32_t)tb_gh, 1 }, 1, 1, 1, 0, 0x20 | 1, 0, 0, 0, 0 };   // DEPTH_STENCIL_ATTACHMENT, TRANSFER_SRC (шейдер экрана)
     if (tbvk_CreateImage(tb_vk.dev, &zi, 0, &tb_vk.zimg)) return 0;
     tbvk_GetImageMemoryRequirements(tb_vk.dev, tb_vk.zimg, &mr);
     mt = tb_vk_memtype(mr.memoryTypeBits, 1);
@@ -7063,6 +7192,16 @@ TB_API void tb_gpu_flush(int present) {
                 i++;
                 continue;
             }
+            if (tb_gi[i].m == 8u) {   // шейдер экрана
+                tb_vk_scrpass(cb, s, &tb_gi[i]);
+                VkDeviceSize o0 = 0;
+                tbvk_CmdBindPipeline(cb, 0, tb_vk.pipe);
+                tbvk_CmdBindDescriptorSets(cb, 0, tb_vk.pl, 0, 1, &tb_vk.ds, 0, 0);
+                tbvk_CmdBindVertexBuffers(cb, 0, 1, &tb_vk.ibuf[s], &o0);
+                tbvk_CmdPushConstants(cb, tb_vk.pl, 1, 0, 8, size);
+                i++;
+                continue;
+            }
             if (tb_gi[i].m == 3u) {
                 tb_gpc pc;
                 tb_mesh_gpc(&tb_gi[i], s, &pc);
@@ -7074,7 +7213,7 @@ TB_API void tb_gpu_flush(int present) {
                 continue;
             }
             int is3 = tb_gkind(tb_gi[i].m), j = i + 1;
-            while (j < tb_gin && tb_gi[j].m != 3u && tb_gi[j].m != 7u && tb_gkind(tb_gi[j].m) == is3) j++;
+            while (j < tb_gin && tb_gi[j].m != 3u && tb_gi[j].m != 7u && tb_gi[j].m != 8u && tb_gkind(tb_gi[j].m) == is3) j++;
             tbvk_CmdBindPipeline(cb, 0, is3 == 4 ? tb_vk.pipela : is3 == 3 ? tb_vk.pipel : is3 == 2 ? tb_vk.pipet : is3 ? tb_vk.pipe3 : tb_vk.pipe);
             tbvk_CmdDraw(cb, 4, (uint32_t)(j - i), 0, (uint32_t)i);
             i = j;
@@ -7203,6 +7342,8 @@ TB_API int tb_gpu_resize(int ow, int oh) {
 TB_API int tb_gpu_sh_ready(void) { return 0; }
 TB_API void *tb_gpu_sh_vbuf(void *old, const float *v, long long nfloats) { (void)old; (void)v; (void)nfloats; return 0; }
 TB_API void tb_gpu_sh_add(void *vb, int cs, int ps, long long nverts) { (void)vb; (void)cs; (void)ps; (void)nverts; }
+TB_API int tb_gpu_scr_ready(void) { return 0; }
+TB_API void tb_gpu_scr_add(int ps) { (void)ps; }
 #elif defined(__APPLE__)
 #include <objc/message.h>
 #include <objc/runtime.h>
@@ -7818,6 +7959,104 @@ TB_API int tb_mtl_init(id view) {
     return 1;
 }
 // нарисовать накопленные фигуры; present — ещё и показать кадр в окне
+static id tb_mtl_begin(id cb) {
+    id rpd = TB_MSG(id, TB_CLS("MTLRenderPassDescriptor"), "renderPassDescriptor");
+    id ca = TB_MSG1(id, TB_MSG(id, rpd, "colorAttachments"), "objectAtIndexedSubscript:", unsigned long, 0);
+    TB_MSG1(void, ca, "setTexture:", id, tb_mtl.tex);
+    // первый кадр: чёрный, как calloc у tb_px; дальше старый кадр сохраняется (Load)
+    TB_MSG1(void, ca, "setLoadAction:", unsigned long, tb_gpu_first ? 2 : 1);
+    if (tb_gpu_first) { tb_mtl_color z = { 0, 0, 0, 0 }; TB_MSG1(void, ca, "setClearColor:", tb_mtl_color, z); }
+    TB_MSG1(void, ca, "setStoreAction:", unsigned long, 1);
+    tb_gpu_first = 0;
+    // глубина 3D: в начале кадра стирается («далеко»), дальше сохраняется между проходами
+    id za = TB_MSG(id, rpd, "depthAttachment");
+    TB_MSG1(void, za, "setTexture:", id, tb_mtl.ztex);
+    TB_MSG1(void, za, "setLoadAction:", unsigned long, tb_gzclr ? 2 : 1);
+    TB_MSG1(void, za, "setClearDepth:", double, 1.0);
+    TB_MSG1(void, za, "setStoreAction:", unsigned long, 1);
+    tb_gzclr = 0;
+    id enc = TB_MSG1(id, cb, "renderCommandEncoderWithDescriptor:", id, rpd);
+    if (tb_gin) {
+        float size[2] = { (float)tb_gw, (float)tb_gh };
+        TB_MSG1(void, enc, "setRenderPipelineState:", id, tb_mtl.pso);
+        ((void (*)(id, SEL, id, unsigned long, unsigned long))objc_msgSend)(enc, sel_getUid("setVertexBuffer:offset:atIndex:"), tb_mtl.ibuf[tb_gslot], 0, 0);
+        ((void (*)(id, SEL, const void *, unsigned long, unsigned long))objc_msgSend)(enc, sel_getUid("setVertexBytes:length:atIndex:"), size, 8, 1);
+        ((void (*)(id, SEL, id, unsigned long, unsigned long))objc_msgSend)(enc, sel_getUid("setFragmentBuffer:offset:atIndex:"), tb_mtl.fbuf, 0, 0);
+        ((void (*)(id, SEL, id, unsigned long, unsigned long))objc_msgSend)(enc, sel_getUid("setFragmentBuffer:offset:atIndex:"), tb_mtl.pbuf, 0, 1);
+        ((void (*)(id, SEL, id, unsigned long, unsigned long))objc_msgSend)(enc, sel_getUid("setFragmentBuffer:offset:atIndex:"), tb_mtl.gpbuf, 0, 2);
+        if (tb_gpu_tex)
+            ((void (*)(id, SEL, id, unsigned long, unsigned long))objc_msgSend)(enc, sel_getUid("setFragmentBuffer:offset:atIndex:"), tb_mtl.gtbuf, 0, 5);
+        if (tb_mtl.glbuf)
+            ((void (*)(id, SEL, id, unsigned long, unsigned long))objc_msgSend)(enc, sel_getUid("setFragmentBuffer:offset:atIndex:"), tb_mtl.glbuf, 0, 6);
+        if (tb_mtl.smbuf)
+            ((void (*)(id, SEL, id, unsigned long, unsigned long))objc_msgSend)(enc, sel_getUid("setFragmentBuffer:offset:atIndex:"), tb_mtl.smbuf, 0, 7);
+        if (tb_gpu_mesh) {
+            ((void (*)(id, SEL, id, unsigned long, unsigned long))objc_msgSend)(enc, sel_getUid("setVertexBuffer:offset:atIndex:"), tb_mtl.mbuf, 0, 3);
+            ((void (*)(id, SEL, id, unsigned long, unsigned long))objc_msgSend)(enc, sel_getUid("setVertexBuffer:offset:atIndex:"), tb_mtl.grbuf, 0, 4);
+        }
+    }
+    return enc;
+}
+// ---- шейдер экрана на Metal: кадр и глубина копируются в буферы 12 и 13, потом треугольник на всё окно ----
+TB_API struct { long long n; id cbuf, zbuf; id pso[TB_SH_MAX]; char bad[TB_SH_MAX]; } tb_mtlscr;
+TB_API int tb_gpu_scr_ready(void) {
+    if (!tb_mtlsh.ok) return 0;
+    long long n = (long long)tb_gw * tb_gh;
+    if (tb_mtlscr.n != n) {
+        if (tb_mtlscr.n) { tb_mtl_idle(); TB_MSG(void, tb_mtlscr.cbuf, "release"); TB_MSG(void, tb_mtlscr.zbuf, "release"); }
+        tb_mtlscr.n = 0;
+        if (n <= 0) return 0;
+        tb_mtlscr.cbuf = ((id (*)(id, SEL, unsigned long, unsigned long))objc_msgSend)(tb_mtl.dev, sel_getUid("newBufferWithLength:options:"), (unsigned long)n * 4, 32);
+        tb_mtlscr.zbuf = ((id (*)(id, SEL, unsigned long, unsigned long))objc_msgSend)(tb_mtl.dev, sel_getUid("newBufferWithLength:options:"), (unsigned long)n * 4, 32);
+        if (!tb_mtlscr.cbuf || !tb_mtlscr.zbuf) return 0;
+        tb_mtlscr.n = n;
+    }
+    return 1;
+}
+TB_API void tb_gpu_scr_add(int ps) {
+    tb_gpu_add(tb_shrn, 0, ps, 0, 0, 0, 0, 8u);
+    tb_shrn++;
+}
+static id tb_mtl_scrpipe(int ps) {
+    if (tb_mtlscr.pso[ps] || tb_mtlscr.bad[ps]) return tb_mtlscr.pso[ps];
+    tb_mtlscr.bad[ps] = 1;
+    char fn[80];
+    snprintf(fn, sizeof fn, "tbs_s_%s", tb_shaders[ps].name);
+    id vf = TB_MSG1(id, tb_mtlsh.lib, "newFunctionWithName:", id, tb_nsstr("tbs_sv"));
+    id ff = TB_MSG1(id, tb_mtlsh.lib, "newFunctionWithName:", id, tb_nsstr(fn));
+    if (!vf || !ff) { fprintf(stderr, "Metal: нет шейдера экрана %s\n", fn); return 0; }
+    id pd = TB_MSG(id, TB_MSG(id, TB_CLS("MTLRenderPipelineDescriptor"), "alloc"), "init");
+    TB_MSG1(void, pd, "setVertexFunction:", id, vf);
+    TB_MSG1(void, pd, "setFragmentFunction:", id, ff);
+    id ca = TB_MSG1(id, TB_MSG(id, pd, "colorAttachments"), "objectAtIndexedSubscript:", unsigned long, 0);
+    TB_MSG1(void, ca, "setPixelFormat:", unsigned long, 80);
+    TB_MSG1(void, ca, "setBlendingEnabled:", BOOL, YES);
+    TB_MSG1(void, ca, "setSourceRGBBlendFactor:", unsigned long, 1);
+    TB_MSG1(void, ca, "setDestinationRGBBlendFactor:", unsigned long, 5);
+    TB_MSG1(void, pd, "setDepthAttachmentPixelFormat:", unsigned long, 252);
+    id err = 0;
+    id p = ((id (*)(id, SEL, id, id *))objc_msgSend)(tb_mtl.dev, sel_getUid("newRenderPipelineStateWithDescriptor:error:"), pd, &err);
+    if (!p) {
+        const char *d = err ? TB_MSG(const char *, TB_MSG(id, err, "localizedDescription"), "UTF8String") : "";
+        fprintf(stderr, "Metal: шейдер экрана %s не собрался: %s\n", tb_shaders[ps].name, d ? d : "");
+        return 0;
+    }
+    tb_mtlscr.bad[ps] = 0;
+    tb_mtlscr.pso[ps] = p;
+    return p;
+}
+// кадр и глубина → буферы (blit); глубины ещё не было — буфер глубины не трогаем
+static void tb_mtl_scrcopy(id cb) {
+    tb_mtl3 o = { 0, 0, 0 }, sz = { (unsigned long)tb_gw, (unsigned long)tb_gh, 1 };
+    id bl = TB_MSG(id, cb, "blitCommandEncoder");
+    ((void (*)(id, SEL, id, unsigned long, unsigned long, tb_mtl3, tb_mtl3, id, unsigned long, unsigned long, unsigned long))objc_msgSend)(bl,
+        sel_getUid("copyFromTexture:sourceSlice:sourceLevel:sourceOrigin:sourceSize:toBuffer:destinationOffset:destinationBytesPerRow:destinationBytesPerImage:"),
+        tb_mtl.tex, 0, 0, o, sz, tb_mtlscr.cbuf, 0, (unsigned long)tb_gw * 4, (unsigned long)tb_gw * tb_gh * 4);
+    ((void (*)(id, SEL, id, unsigned long, unsigned long, tb_mtl3, tb_mtl3, id, unsigned long, unsigned long, unsigned long))objc_msgSend)(bl,
+        sel_getUid("copyFromTexture:sourceSlice:sourceLevel:sourceOrigin:sourceSize:toBuffer:destinationOffset:destinationBytesPerRow:destinationBytesPerImage:"),
+        tb_mtl.ztex, 0, 0, o, sz, tb_mtlscr.zbuf, 0, (unsigned long)tb_gw * 4, (unsigned long)tb_gw * tb_gh * 4);
+    TB_MSG(void, bl, "endEncoding");
+}
 TB_API void tb_gpu_flush(int present) {
     if (!tb_gin && !present && !tb_gpu_first) return;
     if (tb_img_dirty) tb_mtl_images();
@@ -7825,40 +8064,9 @@ TB_API void tb_gpu_flush(int present) {
     void *pool = objc_autoreleasePoolPush();
     id cb = TB_MSG(id, tb_mtl.queue, "commandBuffer");
     if (tb_gin || tb_gpu_first) {
-        id rpd = TB_MSG(id, TB_CLS("MTLRenderPassDescriptor"), "renderPassDescriptor");
-        id ca = TB_MSG1(id, TB_MSG(id, rpd, "colorAttachments"), "objectAtIndexedSubscript:", unsigned long, 0);
-        TB_MSG1(void, ca, "setTexture:", id, tb_mtl.tex);
-        // первый кадр: чёрный, как calloc у tb_px; дальше старый кадр сохраняется (Load)
-        TB_MSG1(void, ca, "setLoadAction:", unsigned long, tb_gpu_first ? 2 : 1);
-        if (tb_gpu_first) { tb_mtl_color z = { 0, 0, 0, 0 }; TB_MSG1(void, ca, "setClearColor:", tb_mtl_color, z); }
-        TB_MSG1(void, ca, "setStoreAction:", unsigned long, 1);
-        tb_gpu_first = 0;
-        // глубина 3D: в начале кадра стирается («далеко»), дальше сохраняется между проходами
-        id za = TB_MSG(id, rpd, "depthAttachment");
-        TB_MSG1(void, za, "setTexture:", id, tb_mtl.ztex);
-        TB_MSG1(void, za, "setLoadAction:", unsigned long, tb_gzclr ? 2 : 1);
-        TB_MSG1(void, za, "setClearDepth:", double, 1.0);
-        TB_MSG1(void, za, "setStoreAction:", unsigned long, 1);
-        tb_gzclr = 0;
-        id enc = TB_MSG1(id, cb, "renderCommandEncoderWithDescriptor:", id, rpd);
+        id enc = tb_mtl_begin(cb);
         if (tb_gin) {
             float size[2] = { (float)tb_gw, (float)tb_gh };
-            TB_MSG1(void, enc, "setRenderPipelineState:", id, tb_mtl.pso);
-            ((void (*)(id, SEL, id, unsigned long, unsigned long))objc_msgSend)(enc, sel_getUid("setVertexBuffer:offset:atIndex:"), tb_mtl.ibuf[tb_gslot], 0, 0);
-            ((void (*)(id, SEL, const void *, unsigned long, unsigned long))objc_msgSend)(enc, sel_getUid("setVertexBytes:length:atIndex:"), size, 8, 1);
-            ((void (*)(id, SEL, id, unsigned long, unsigned long))objc_msgSend)(enc, sel_getUid("setFragmentBuffer:offset:atIndex:"), tb_mtl.fbuf, 0, 0);
-            ((void (*)(id, SEL, id, unsigned long, unsigned long))objc_msgSend)(enc, sel_getUid("setFragmentBuffer:offset:atIndex:"), tb_mtl.pbuf, 0, 1);
-            ((void (*)(id, SEL, id, unsigned long, unsigned long))objc_msgSend)(enc, sel_getUid("setFragmentBuffer:offset:atIndex:"), tb_mtl.gpbuf, 0, 2);
-            if (tb_gpu_tex)
-                ((void (*)(id, SEL, id, unsigned long, unsigned long))objc_msgSend)(enc, sel_getUid("setFragmentBuffer:offset:atIndex:"), tb_mtl.gtbuf, 0, 5);
-            if (tb_mtl.glbuf)
-                ((void (*)(id, SEL, id, unsigned long, unsigned long))objc_msgSend)(enc, sel_getUid("setFragmentBuffer:offset:atIndex:"), tb_mtl.glbuf, 0, 6);
-            if (tb_mtl.smbuf)
-                ((void (*)(id, SEL, id, unsigned long, unsigned long))objc_msgSend)(enc, sel_getUid("setFragmentBuffer:offset:atIndex:"), tb_mtl.smbuf, 0, 7);
-            if (tb_gpu_mesh) {
-                ((void (*)(id, SEL, id, unsigned long, unsigned long))objc_msgSend)(enc, sel_getUid("setVertexBuffer:offset:atIndex:"), tb_mtl.mbuf, 0, 3);
-                ((void (*)(id, SEL, id, unsigned long, unsigned long))objc_msgSend)(enc, sel_getUid("setVertexBuffer:offset:atIndex:"), tb_mtl.grbuf, 0, 4);
-            }
             // подряд идущие фигуры одного вида — одним вызовом: 2D или 3D (своё правило глубины);
             // m = 3 — сетка на видеокарте: треугольников × записей, свой конвейер и постоянные
             int i = 0;
@@ -7881,6 +8089,24 @@ TB_API void tb_gpu_flush(int present) {
                     i++;
                     continue;
                 }
+                if (tb_gi[i].m == 8u) {   // шейдер экрана: проход закончить, кадр — в буферы, новый проход
+                    id sp = tb_mtl_scrpipe(tb_gi[i].x1);
+                    if (sp && tb_mtlscr.n == (long long)tb_gw * tb_gh) {
+                        TB_MSG(void, enc, "endEncoding");
+                        tb_mtl_scrcopy(cb);
+                        enc = tb_mtl_begin(cb);
+                        uint32_t ro = (uint32_t)(((size_t)tb_gslot * TB_SHR_CAP + (size_t)tb_gi[i].x0) * TB_SHR_N);
+                        TB_MSG1(void, enc, "setRenderPipelineState:", id, sp);
+                        TB_MSG1(void, enc, "setDepthStencilState:", id, tb_mtl.zs2);
+                        ((void (*)(id, SEL, id, unsigned long, unsigned long))objc_msgSend)(enc, sel_getUid("setFragmentBuffer:offset:atIndex:"), tb_mtlsh.rbuf, 0, 10);
+                        ((void (*)(id, SEL, const void *, unsigned long, unsigned long))objc_msgSend)(enc, sel_getUid("setFragmentBytes:length:atIndex:"), &ro, 4, 11);
+                        ((void (*)(id, SEL, id, unsigned long, unsigned long))objc_msgSend)(enc, sel_getUid("setFragmentBuffer:offset:atIndex:"), tb_mtlscr.cbuf, 0, 12);
+                        ((void (*)(id, SEL, id, unsigned long, unsigned long))objc_msgSend)(enc, sel_getUid("setFragmentBuffer:offset:atIndex:"), tb_mtlscr.zbuf, 0, 13);
+                        ((void (*)(id, SEL, unsigned long, unsigned long, unsigned long))objc_msgSend)(enc, sel_getUid("drawPrimitives:vertexStart:vertexCount:"), 3, 0, 3);
+                    }
+                    i++;
+                    continue;
+                }
                 if (tb_gi[i].m == 3u) {
                     tb_gpc pc;
                     tb_mesh_gpc(&tb_gi[i], tb_gslot, &pc);
@@ -7895,7 +8121,7 @@ TB_API void tb_gpu_flush(int present) {
                     continue;
                 }
                 int is3 = tb_gkind(tb_gi[i].m), j = i + 1;
-                while (j < tb_gin && tb_gi[j].m != 3u && tb_gi[j].m != 7u && tb_gkind(tb_gi[j].m) == is3) j++;
+                while (j < tb_gin && tb_gi[j].m != 3u && tb_gi[j].m != 7u && tb_gi[j].m != 8u && tb_gkind(tb_gi[j].m) == is3) j++;
                 TB_MSG1(void, enc, "setRenderPipelineState:", id, is3 >= 3 ? tb_mtl.psol : is3 == 2 ? tb_mtl.psot : tb_mtl.pso);
                 TB_MSG1(void, enc, "setDepthStencilState:", id, is3 == 4 ? tb_mtl.zsa : is3 ? tb_mtl.zs3 : tb_mtl.zs2);
                 ((void (*)(id, SEL, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long))objc_msgSend)(enc,
@@ -10812,6 +11038,71 @@ static void tb_sh_submit(long long id, double x, double y, double z, double R[3]
         m->shused = tb_gbatch;
     }
 }
+// ---- шейдер экрана (1.3): screen_shader("glow") — сейчас же пропустить весь кадр через gpu func (s: screen) ----
+// Что нарисовано после (подсказки, меню), эффект не трогает. Запись: ширина 0, высота 1, время 2, настройки 8..15
+static void tb_scr_record(int ps, float *r) {
+    memset(r, 0, sizeof(float) * TB_SHR_N);
+    r[0] = (float)tb_gw; r[1] = (float)tb_gh;
+    if (tb_sh_t0 < 0) tb_sh_t0 = (double)tb_time_ms();
+    r[2] = (float)(((double)tb_time_ms() - tb_sh_t0) / 1000.0);
+    for (int k = 0; k < 8; k++) r[8 + k] = tb_shaders[ps].sv[k];
+}
+// процессор: копия кадра и глубины (0…1, как у видеокарты), потом каждая точка через функцию шейдера
+static void tb_scr_cpu(int ps, const float *rec) {
+    long long n = (long long)tb_gw * tb_gh;
+    if (n <= 0) return;
+    uint32_t *src = (uint32_t *)malloc(sizeof(uint32_t) * (size_t)n);
+    float *z = (float *)malloc(sizeof(float) * (size_t)n);
+    if (!src || !z) { free(src); free(z); return; }
+    memcpy(src, tb_px, sizeof(uint32_t) * (size_t)n);
+    int zok = tb_zb && tb_zb_n == n && !tb_zclr;
+    for (long long i = 0; i < n; i++) z[i] = zok ? (float)(tb_zb[i] / 16777216.0) : 1.0f;
+    tb_scrfn fn = (tb_scrfn)tb_shaders[ps].fn;
+    float io[32];
+    for (long long y = 0; y < tb_gh; y++) for (long long x = 0; x < tb_gw; x++) {
+        long long at = y * tb_gw + x;
+        uint32_t c = src[at];
+        memset(io, 0, sizeof io);
+        io[0] = (float)x; io[1] = (float)y; io[2] = rec[0]; io[3] = rec[1];
+        io[4] = ((c >> 16) & 255) / 255.0f; io[5] = ((c >> 8) & 255) / 255.0f; io[6] = (c & 255) / 255.0f; io[7] = 1; io[8] = rec[2];
+        for (int k = 0; k < 8; k++) io[9 + k] = rec[8 + k];
+        fn(io, src, z);
+        float a = io[7] < 0 ? 0 : io[7] > 1 ? 1 : io[7];
+        if (a <= 0) continue;
+        uint32_t o = 0;
+        for (int k = 0; k < 3; k++) {
+            float v = io[4 + k] < 0 ? 0 : io[4 + k] > 1 ? 1 : io[4 + k];
+            float old = ((c >> (16 - 8 * k)) & 255) / 255.0f;
+            int b = (int)((v * a + old * (1 - a)) * 255.0f + 0.5f);
+            o |= (uint32_t)(b < 0 ? 0 : b > 255 ? 255 : b) << (16 - 8 * k);
+        }
+        tb_px[at] = (c & 0xFF000000u) | o;
+    }
+    free(src);
+    free(z);
+}
+TB_API void tb_screen_shader(const char *name) {
+    if (!tb_px || !name || !name[0]) return;
+    int ps = tb_sh_find(name, 2);
+    if (ps < 0) { fprintf(stderr, "screen_shader: в программе нет gpu func %s(s: screen ...)\n", name); return; }
+    TB_SCENE();
+    float rec[TB_SHR_N];
+    tb_scr_record(ps, rec);
+    tb_sh_frame = 1;
+    if (TB_CPU_DRAW) tb_scr_cpu(ps, rec);
+    if (tb_gpu_on && tb_gpu_sh_ready() && tb_gpu_scr_ready()) {
+        if (tb_shrn == TB_SHR_CAP || tb_gin == TB_GI_CAP) tb_gpu_flush(0);
+        memcpy(tb_shrecs + (size_t)tb_shrn * TB_SHR_N, rec, sizeof rec);
+        tb_gpu_scr_add(ps);
+    }
+}
+TB_API void tb_screen_set(const char *name, const char *set, double v) {
+    int ps = tb_sh_find(name, 2);
+    if (ps < 0) { fprintf(stderr, "screen_set: в программе нет gpu func %s(s: screen ...)\n", name); return; }
+    for (int k = 0; k < tb_shaders[ps].nsets; k++)
+        if (strcmp(tb_shaders[ps].sets[k], set) == 0) { tb_shaders[ps].sv[k] = (float)v; return; }
+    fprintf(stderr, "screen_set: у шейдера %s нет настройки %s\n", name, set);
+}
 static int tb_key_at(int k) { int d = tb_keys[k] || tb_ktap[k]; tb_ktap[k] = 0; return d; }
 TB_API int tb_key_down(const char *name) {
     static const struct { const char *n; int k; } names[] = {
@@ -11851,6 +12142,8 @@ TB_BV(mesh_smooth, (long long m, _Bool on, int line), tb_mesh_smooth(m, on))
 TB_BV(mesh_shine, (long long m, double s, int line), tb_mesh_shine(m, s))
 TB_BV(mesh_shader, (long long m, const char *name, int line), tb_mesh_shader(m, name))
 TB_BV(shader_set, (long long m, const char *name, double v, int line), tb_shader_set(m, name, v))
+TB_BV(screen_shader, (const char *name, int line), tb_screen_shader(name))
+TB_BV(screen_set, (const char *name, const char *set, double v, int line), tb_screen_set(name, set, v))
 TB_BV(mesh_glow, (long long m, double g, int line), tb_mesh_glow(m, g))
 TB_BV(mesh_alpha, (long long m, double a, int line), tb_mesh_alpha(m, a))
 TB_BV(mesh_clear, (long long m, int line), tb_mesh_clear(m))

@@ -4,6 +4,7 @@
 //
 // Стрелки или WASD — идти, пробел — прыжок, Q / E — повернуть камеру.
 // 1…6 — шейдер кубика. R / F — первая настройка больше / меньше, T / G — вторая.
+// X — эффекты на весь экран (свечение, сглаживание, цвет, виньетка) включить / выключить.
 // Толкни кубик в бассейн.
 //
 // Как тут устроены шейдеры:
@@ -11,6 +12,7 @@
 //     и подстраиваются словом shader_set, ядро языка не трогаем;
 //   • свои — ниже в этом файле: paving (плитка), lava (лава), crystal (кристалл), blob (мягкая тень).
 //     Это обычные функции Tachbit со словом gpu: компилятор сам делает из них код для видеокарты.
+//   • эффекты на весь кадр — шейдеры экрана из lib/shaders.tb: screen_shader("glow") и screen_set.
 use shaders
 use physics
 
@@ -304,6 +306,16 @@ func main()
     sun_x = 0.45
     sun_y = 0.75
     sun_z = 0.5
+    // эффекты на весь экран: настройки один раз, включаются в каждом кадре после 3D
+    effects = true
+    screen_set("glow", "power", 0.7)
+    screen_set("glow", "threshold", 0.72)
+    screen_set("glow", "size", 14)
+    screen_set("color", "contrast", 1.08)
+    screen_set("color", "saturation", 1.12)
+    screen_set("color", "warmth", 0.25)
+    screen_set("vignette", "power", 0.35)
+    screen_set("vignette", "size", 0.55)
     yaw = 180.0
     cam_yaw = 0.0
     phase = 0.0
@@ -338,7 +350,7 @@ func main()
         count k from 1 to 6
             if key_down("" + k)
                 keys_now += "" + k
-        each name in ["r", "f", "t", "g"]
+        each name in ["r", "f", "t", "g", "x"]
             if key_down(name)
                 keys_now += name
         if demo
@@ -382,6 +394,8 @@ func main()
                 pick = k - 1
                 use_look(cube, looks[pick])
         lk = looks[pick]
+        if has(keys_now, "x") and not has(keys_was, "x")
+            effects = not effects
         if has(keys_now, "r") and not has(keys_was, "r")
             lk.av += lk.ad
         if has(keys_now, "f") and not has(keys_was, "f")
@@ -466,13 +480,19 @@ func main()
         draw_hero(h.x, h.y, h.z, yaw, phase, walking, h.on_ground, pushing, torso, head, hair, leg, arm)
         draw_mesh(flame, fire_x, 0.05, fire_z, 0)
         draw_mesh(water, 0, 0, 0, 0)
+        // весь кадр через эффекты; подсказки рисуются после — их эффекты не трогают
+        if effects
+            screen_shader("glow")
+            screen_shader("fxaa")
+            screen_shader("color")
+            screen_shader("vignette")
 
         // подсказки
         draw_rect(10, 10, 560, 78, rgba(15, 20, 35, 170))
         draw_text(20, 18, "Кубик: " + lk.what, 2, rgb(255, 240, 200))
         draw_text(20, 48, lk.a + " = " + nice(lk.av) + "  (R / F)      " + lk.b + " = " + nice(lk.bv) + "  (T / G)", 1, rgb(220, 230, 255))
         draw_text(20, 66, "1 металл  2 мульт  3 голограмма  4 растворение  5 лава  6 кристалл", 1, rgb(180, 200, 230))
-        draw_text(10, window_h() - 22, "стрелки / WASD — идти, пробел — прыжок, Q / E — камера. Толкни кубик в бассейн.   " + fps() + " к/с", 1, rgb(25, 35, 60))
+        draw_text(10, window_h() - 22, "стрелки / WASD — идти, пробел — прыжок, Q / E — камера, X — эффекты. Толкни кубик в бассейн.   " + fps() + " к/с", 1, rgb(25, 35, 60))
 
 // включить шейдер кубику и выставить его настройки
 func use_look(cube: int, lk: Look)

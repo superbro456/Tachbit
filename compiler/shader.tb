@@ -1,6 +1,7 @@
 // Tachbit 1.3 — gpu func: шейдеры на самом Tachbit, их собирает компилятор.
 //   gpu func water(p: pixel, wave: dec)  — шейдер точки: меняет p.r, p.g, p.b, p.a
 //   gpu func sway(v: corner, wind: dec)  — шейдер углов: двигает v.x, v.y, v.z
+//   gpu func glow(s: screen, power: dec) — шейдер экрана: весь кадр, screen_r(x, y) читает любую точку
 //   gpu func hash(n: dec) gives r: dec   — помощник: зовут из шейдеров
 // Параметры после p и v (wave, wind) — настройки: программа меняет их словом shader_set(m, "wave", 0.3).
 // Внутри только числа int, dec (на видеокарте — 32-битные дробные) и bool, if, count, repeat, return.
@@ -30,7 +31,17 @@ modpub func sh_fields(stage: text) gives f: list text
         f = ["x", "y", "z", "wx", "wy", "wz", "nx", "ny", "nz", "u", "v", "r", "g", "b", "a", "time", "sx", "sy", "sz", "amb", "cx", "cy", "cz", "p0", "p1", "p2", "p3", "p4", "p5", "p6", "p7"]
     else if stage == "corner"
         f = ["x", "y", "z", "nx", "ny", "nz", "u", "v", "r", "g", "b", "a", "time", "i", "p0", "p1", "p2", "p3", "p4", "p5", "p6", "p7"]
+    else if stage == "screen"
+        f = ["x", "y", "w", "h", "r", "g", "b", "a", "time", "p0", "p1", "p2", "p3", "p4", "p5", "p6", "p7"]
     return f
+
+// чтение кадра в шейдере экрана: screen_r/g/b(x, y) — цвет точки 0…1, screen_soft_r/g/b — между точками
+// смесь четырёх соседей (мягче, но вчетверо дороже), screen_depth(x, y) — даль от камеры
+modpub func sh_screen_read(name: text)
+    each w in ["screen_r", "screen_g", "screen_b", "screen_soft_r", "screen_soft_g", "screen_soft_b", "screen_depth"]
+        if w == name
+            return true
+    return false
 
 modpub func sh_field_at(stage: text, name: text)
     fs = sh_fields(stage)
@@ -145,7 +156,7 @@ func sh_expr(c: Comp, fns: list ShFn, f: ShFn, n: Node) gives t: int
     else if k == "field"
         base = n.kids[0]
         if f.pname == "" or base.kind != "name" or base.name != f.pname
-            sh_err(c, n, "в gpu func поля есть только у точки или угла шейдера", n.name)
+            sh_err(c, n, "в gpu func поля есть только у точки, угла или экрана шейдера", n.name)
         if sh_field_at(f.stage, n.name) < 0
             sh_err(c, n, "у " + f.stage + " нет такого поля (есть " + join(sh_fields(f.stage), ", ") + ")", n.name)
         t = 2
@@ -184,7 +195,13 @@ func sh_expr(c: Comp, fns: list ShFn, f: ShFn, n: Node) gives t: int
                 sh_err(c, arg, "в gpu func аргументы пишутся по порядку, без имён", arg.name)
             args.add(sh_expr(c, fns, f, arg.kids[0]))
         m = sh_math(n.name)
-        if m > 0
+        if sh_screen_read(n.name)
+            if f.stage != "screen"
+                sh_err(c, n, n.name + " читает кадр только в самом шейдере экрана (s: screen), не в помощнике", n.name)
+            if len(args) != 2 or not sh_is_num(args[0]) or not sh_is_num(args[1])
+                sh_err(c, n, n.name + "(x, y) ждёт два числа: точку экрана", "")
+            t = 2
+        else if m > 0
             if len(args) != m
                 sh_err(c, n, n.name + " ждёт чисел: " + m, "")
             all_int = true
@@ -202,7 +219,7 @@ func sh_expr(c: Comp, fns: list ShFn, f: ShFn, n: Node) gives t: int
                 sh_err(c, n, "в gpu func можно звать только встроенные числовые функции (sin, cos, mix, noise ...) и другие gpu func", n.name)
             g = fns[h]
             if g.stage != ""
-                sh_err(c, n, "шейдер точки или угла сам не зовут: его ставит на сетку mesh_shader", n.name)
+                sh_err(c, n, "шейдер точки, угла или экрана сам не зовут: его ставят mesh_shader и screen_shader", n.name)
             if len(args) != g.npar
                 sh_err(c, n, n.name + " ждёт чисел: " + g.npar, "")
             count i from 0 to len(args) - 1
@@ -330,7 +347,7 @@ modpub func shader_fns(c: Comp, program: Node) gives fns: list ShFn
         first = ""
         if len(params.kids) > 0 and params.kids[0].has_tsyn
             first = params.kids[0].tsyn.name
-        if first == "pixel" or first == "corner"
+        if first == "pixel" or first == "corner" or first == "screen"
             f.stage = first
             f.pname = params.kids[0].name
             if len(outs.kids) != 0
@@ -347,7 +364,7 @@ modpub func shader_fns(c: Comp, program: Node) gives fns: list ShFn
         else
             each p in params.kids
                 if p.is_link or not p.has_tsyn or sh_type_word(p.tsyn.name) == 0
-                    error_at(c, p.line, "у gpu func параметры int, dec, bool, а первым может быть p: pixel (точка) или v: corner (угол)", p.name)
+                    error_at(c, p.line, "у gpu func параметры int, dec, bool, а первым может быть p: pixel (точка), v: corner (угол) или s: screen (экран)", p.name)
                 sh_new_var(f, p.name, sh_type_word(p.tsyn.name))
             f.npar = len(f.vnames)
             if len(outs.kids) != 1 or not outs.kids[0].has_tsyn or sh_type_word(outs.kids[0].tsyn.name) == 0
@@ -438,6 +455,18 @@ func sh_ctext(f: ShFn, n: Node) gives r: text
             return "tbs_idiv(" + sh_ce(f, a, 1) + ", " + sh_ce(f, b, 1) + ")"
         return "(" + sh_ce(f, a, w) + " " + op + " " + sh_ce(f, b, w) + ")"
     if k == "call"
+        if sh_screen_read(n.name)
+            xy = sh_ce(f, n.kids[0].kids[0], 2) + ", " + sh_ce(f, n.kids[1].kids[0], 2)
+            if n.name == "screen_depth"
+                return "tbs_scrz(scz, io, " + xy + ")"
+            sh = "16"
+            if ends_with(n.name, "_g")
+                sh = "8"
+            else if ends_with(n.name, "_b")
+                sh = "0"
+            if starts_with(n.name, "screen_soft_")
+                return "tbs_scr(scr, io, " + xy + ", " + sh + ")"
+            return "tbs_scr1(scr, io, " + xy + ", " + sh + ")"
         m = sh_math(n.name)
         s = "tbs_" + n.name + "("
         if m > 0
@@ -541,6 +570,11 @@ func sh_chead(f: ShFn, msl: bool)
             s += "thread float *io"
         else
             s += "float *io"
+        if f.stage == "screen"
+            if msl
+                s += ", device const uint *scr, device const float *scz"
+            else
+                s += ", const uint32_t *scr, const float *scz"
     else
         count i from 0 to f.npar - 1
             if i > 0
@@ -607,6 +641,20 @@ func sh_preamble(msl: bool, out: list text)
     out.add(st + "int tbs_iclamp(int x, int a, int b) { return tbs_imin(tbs_imax(x, a), b); }\n")
     out.add(st + "int tbs_idiv(int a, int b) { return b == 0 ? 0 : a / b; }\n")
     out.add(st + "int tbs_imod(int a, int b) { return b == 0 ? 0 : a % b; }\n")
+    // кадр для шейдера экрана: io[2], io[3] — ширина и высота; за краем берётся ближняя точка
+    pu = "const uint32_t *p, const float *io"
+    pz = "const float *p, const float *io"
+    if msl
+        pu = "device const uint *p, thread float *io"
+        pz = "device const float *p, thread float *io"
+    ti = "const float *io"
+    if msl
+        ti = "thread float *io"
+    out.add(st + "int tbs_scri(" + ti + ", float x, float y) { int w = (int)io[2], h = (int)io[3]; int ix = (int)tbs_floor(x), iy = (int)tbs_floor(y); ix = tbs_iclamp(ix, 0, w - 1); iy = tbs_iclamp(iy, 0, h - 1); return iy * w + ix; }\n")
+    out.add(st + "float tbs_scr1(" + pu + ", float x, float y, int sh) { return (float)((p[tbs_scri(io, x, y)] >> sh) & 255u) / 255.0f; }\n")
+    // между точками — смесь четырёх соседей (размытие, свечение и сглаживание выходят мягче)
+    out.add(st + "float tbs_scr(" + pu + ", float x, float y, int sh) { float x0 = tbs_floor(x), y0 = tbs_floor(y), fx = x - x0, fy = y - y0; float a = tbs_mix(tbs_scr1(p, io, x0, y0, sh), tbs_scr1(p, io, x0 + 1.0f, y0, sh), fx); float b = tbs_mix(tbs_scr1(p, io, x0, y0 + 1.0f, sh), tbs_scr1(p, io, x0 + 1.0f, y0 + 1.0f, sh), fx); return tbs_mix(a, b, fy); }\n")
+    out.add(st + "float tbs_scrz(" + pz + ", float x, float y) { float d = p[tbs_scri(io, x, y)]; return d >= 1.0f ? 1000000.0f : 0.050048828125f / (1.0f - d); }\n")
 
 func sh_ftext(fns: list ShFn, msl: bool, out: list text)
     sh_preamble(msl, out)
@@ -645,6 +693,26 @@ func sh_msl_wrappers(fns: list ShFn, out: list text)
             out.add("    tbs_" + f.name + "(io);\n")
             out.add("    float a = metal::clamp(io[14], 0.0f, 1.0f);\n    if (a <= 0.0f) discard_fragment();\n")
             out.add("    return float4(metal::clamp(io[11], 0.0f, 1.0f) * a, metal::clamp(io[12], 0.0f, 1.0f) * a, metal::clamp(io[13], 0.0f, 1.0f) * a, a);\n}\n")
+    // экран: один треугольник на всё окно, кадр — в буферах 12 (цвет) и 13 (глубина)
+    has_screen = false
+    each f in fns
+        if f.stage == "screen"
+            has_screen = true
+    if not has_screen
+        return
+    out.add("struct TbsSout { float4 pos [[position]]; };\n")
+    out.add("vertex TbsSout tbs_sv(uint vid [[vertex_id]]) {\n    TbsSout o;\n    o.pos = float4(vid == 1 ? 3.0f : -1.0f, vid == 2 ? -3.0f : 1.0f, 0.0f, 1.0f);\n    return o;\n}\n")
+    each f in fns
+        if f.stage == "screen"
+            out.add("fragment float4 tbs_s_" + f.name + "(TbsSout in [[stage_in]], device const float *rec [[buffer(10)]], constant uint &off [[buffer(11)]], device const uint *scr [[buffer(12)]], device const float *scz [[buffer(13)]]) {\n")
+            out.add("    device const float *R = rec + off;\n    float io[32];\n    for (int k = 0; k < 32; k++) io[k] = 0;\n")
+            out.add("    io[0] = in.pos.x - 0.5f; io[1] = in.pos.y - 0.5f; io[2] = R[0]; io[3] = R[1];\n")
+            out.add("    uint c = scr[tbs_scri(io, io[0], io[1])];\n")
+            out.add("    io[4] = (float)((c >> 16) & 255u) / 255.0f; io[5] = (float)((c >> 8) & 255u) / 255.0f; io[6] = (float)(c & 255u) / 255.0f; io[7] = 1.0f; io[8] = R[2];\n")
+            out.add("    for (int k = 0; k < 8; k++) io[9 + k] = R[8 + k];\n")
+            out.add("    tbs_" + f.name + "(io, scr, scz);\n")
+            out.add("    float a = metal::clamp(io[7], 0.0f, 1.0f);\n    if (a <= 0.0f) discard_fragment();\n")
+            out.add("    return float4(metal::clamp(io[4], 0.0f, 1.0f) * a, metal::clamp(io[5], 0.0f, 1.0f) * a, metal::clamp(io[6], 0.0f, 1.0f) * a, a);\n}\n")
 
 // ---------- SPIR-V ----------
 
@@ -665,6 +733,8 @@ obj Spv
     brk: list int
     cont: list int
     fnids: list int
+    scr: int
+    scz: int
 
 func sv_none() gives r: list int
     return r
@@ -935,6 +1005,19 @@ func sv_expr(s: Spv, fns: list ShFn, f: ShFn, n: Node) gives r: int
                 return sv_op(s, code, ty, [x, y])
         return x
     if k == "call"
+        if sh_screen_read(n.name)
+            x = sv_e(s, fns, f, n.kids[0].kids[0], 2)
+            y = sv_e(s, fns, f, n.kids[1].kids[0], 2)
+            if n.name == "screen_depth"
+                return sv_scr_depth(s, x, y)
+            sh = 16
+            if ends_with(n.name, "_g")
+                sh = 8
+            else if ends_with(n.name, "_b")
+                sh = 0
+            if starts_with(n.name, "screen_soft_")
+                return sv_scr_bil(s, x, y, sh)
+            return sv_scr_chan(s, sv_scr_word(s, x, y), sh)
         m = sh_math(n.name)
         if m > 0
             name = n.name
@@ -970,6 +1053,95 @@ func sv_expr(s: Spv, fns: list ShFn, f: ShFn, n: Node) gives r: int
             args.add(sv_e(s, fns, f, n.kids[i].kids[0], g.vtypes[i]))
         return sv_op(s, 57, sv_ty(s, g.ret), args)
     return sv_zero(s, 2)
+
+// номер точки кадра (x, y) в буфере: ширина и высота — io[2], io[3]; за краем — ближняя точка
+func sv_scr_idx(s: Spv, x: int, y: int)
+    it = sv_int(s)
+    w = sv_op(s, 110, it, [sv_get_io(s, 2)])
+    h = sv_op(s, 110, it, [sv_get_io(s, 3)])
+    ix = sv_op(s, 110, it, [sv_ext(s, sv_float(s), 8, [x])])
+    iy = sv_op(s, 110, it, [sv_ext(s, sv_float(s), 8, [y])])
+    one = sv_cint(s, 1)
+    ix = sv_ext(s, it, 45, [ix, sv_cint(s, 0), sv_op(s, 130, it, [w, one])])
+    iy = sv_ext(s, it, 45, [iy, sv_cint(s, 0), sv_op(s, 130, it, [h, one])])
+    return sv_op(s, 128, it, [sv_op(s, 132, it, [iy, w]), ix])
+
+func sv_scr_word(s: Spv, x: int, y: int)
+    u = sv_uint(s)
+    p = sv_op(s, 65, sv_ptr(s, 2, u), [s.scr, sv_cint(s, 0), sv_scr_idx(s, x, y)])
+    return sv_load(s, u, p)
+
+func sv_scr_chan(s: Spv, word: int, sh: int)
+    u = sv_uint(s)
+    v = word
+    if sh > 0
+        v = sv_op(s, 194, u, [v, sv_cuint(s, sh)])
+    v = sv_op(s, 199, u, [v, sv_cuint(s, 255)])
+    return sv_fmul(s, sv_op(s, 112, sv_float(s), [v]), sv_cflt(s, 1.0 / 255.0))
+
+// цвет между точками: смесь четырёх соседей
+func sv_scr_bil(s: Spv, x: int, y: int, sh: int)
+    fl = sv_float(s)
+    x0 = sv_ext(s, fl, 8, [x])
+    y0 = sv_ext(s, fl, 8, [y])
+    fx = sv_fsub(s, x, x0)
+    fy = sv_fsub(s, y, y0)
+    one = sv_cflt(s, 1.0)
+    x1 = sv_fadd(s, x0, one)
+    y1 = sv_fadd(s, y0, one)
+    a = sv_ext(s, fl, 46, [sv_scr_chan(s, sv_scr_word(s, x0, y0), sh), sv_scr_chan(s, sv_scr_word(s, x1, y0), sh), fx])
+    b = sv_ext(s, fl, 46, [sv_scr_chan(s, sv_scr_word(s, x0, y1), sh), sv_scr_chan(s, sv_scr_word(s, x1, y1), sh), fx])
+    return sv_ext(s, fl, 46, [a, b, fy])
+
+func sv_scr_depth(s: Spv, x: int, y: int)
+    fl = sv_float(s)
+    p = sv_op(s, 65, sv_ptr(s, 2, fl), [s.scz, sv_cint(s, 0), sv_scr_idx(s, x, y)])
+    d = sv_load(s, fl, p)
+    one = sv_cflt(s, 1.0)
+    far = sv_op(s, 190, sv_bool(s), [d, one])
+    near = sv_op(s, 136, fl, [sv_cflt(s, 0.050048828125), sv_fsub(s, one, d)])
+    return sv_op(s, 169, fl, [far, sv_cflt(s, 1000000.0), near])
+
+// вершины шейдера экрана: один большой треугольник на всё окно (номер угла 0, 1, 2)
+modpub func shader_spirv_screen_vert() gives words: list int
+    s = Spv()
+    main_id = sv_id(s)
+    it = sv_int(s)
+    fl = sv_float(s)
+    v4 = sv_vec(s, 4)
+    vid = sv_var(s, it, 1)
+    sv_decor(s, vid, [11, 42])
+    gp = sv_var(s, v4, 3)
+    sv_decor(s, gp, [11, 0])
+    vt = sv_void(s)
+    sv_ins(s.code, 54, [vt, main_id, 0, sv_fnty(s, vt, sv_none())])
+    sv_label(s, sv_id(s))
+    i = sv_load(s, it, vid)
+    big = sv_cflt(s, 3.0)
+    low = sv_cflt(s, -1.0)
+    x = sv_op(s, 169, fl, [sv_op(s, 170, sv_bool(s), [i, sv_cint(s, 1)]), big, low])
+    y = sv_op(s, 169, fl, [sv_op(s, 170, sv_bool(s), [i, sv_cint(s, 2)]), big, low])
+    sv_store(s, gp, sv_op(s, 80, v4, [x, y, sv_cflt(s, 0.0), sv_cflt(s, 1.0)]))
+    sv_ins(s.code, 253, sv_none())
+    sv_ins(s.code, 56, sv_none())
+    head = list int
+    sv_ins(head, 17, [1])
+    sv_ins(head, 14, [0, 1])
+    ep = [0, main_id]
+    sv_str(ep, "main")
+    ep.add(vid)
+    ep.add(gp)
+    sv_ins(head, 15, ep)
+    words = [119734787, 65536, 0, s.bound + 1, 0]
+    each x2 in head
+        words.add(x2)
+    each x2 in s.ann
+        words.add(x2)
+    each x2 in s.glob
+        words.add(x2)
+    each x2 in s.code
+        words.add(x2)
+    return words
 
 func sv_block(s: Spv, fns: list ShFn, f: ShFn, b: Node)
     each st in b.kids
@@ -1236,7 +1408,26 @@ modpub func shader_spirv(fns: list ShFn, f: ShFn) gives words: list int
     iface = list int
     ins = list int
     outs = list int
-    if f.stage == "corner"
+    if f.stage == "screen"
+        // кадр: buffer { uint px[]; } (binding 1), глубина: buffer { float z[]; } (binding 2)
+        u = sv_uint(s)
+        ura = sv_simple(s, "rtuarr", 29, [u])
+        sv_decor(s, ura, [6, 4])
+        ust = sv_simple(s, "scrst", 30, [ura])
+        sv_decor(s, ust, [3])
+        sv_ins(s.ann, 72, [ust, 0, 35, 0])
+        sv_ins(s.ann, 72, [ust, 0, 24])
+        s.scr = sv_var(s, ust, 2)
+        sv_decor(s, s.scr, [34, 0])
+        sv_decor(s, s.scr, [33, 1])
+        s.scz = sv_var(s, rst, 2)
+        sv_decor(s, s.scz, [34, 0])
+        sv_decor(s, s.scz, [33, 2])
+        fc = sv_var(s, v4, 1)
+        sv_decor(s, fc, [11, 15])
+        ins.add(fc)
+        outs = [sv_out(s, v4, 0)]
+    else if f.stage == "corner"
         ins = [sv_in(s, v3, 0), sv_in(s, v3, 1), sv_in(s, v4, 2), sv_in(s, v2, 3)]
         vid = sv_var(s, sv_int(s), 1)
         sv_decor(s, vid, [11, 42])
@@ -1303,6 +1494,37 @@ modpub func shader_spirv(fns: list ShFn, f: ShFn) gives words: list int
         sv_store(s, outs[2], sv_op(s, 80, v3, [n[0], n[1], n[2]]))
         sv_store(s, outs[3], sv_op(s, 80, v4, [sv_get_io(s, 8), sv_get_io(s, 9), sv_get_io(s, 10), sv_get_io(s, 11)]))
         sv_store(s, outs[4], sv_op(s, 80, v2, [sv_get_io(s, 6), sv_get_io(s, 7)]))
+    else if f.stage == "screen"
+        fcv = sv_parts(s, sv_load(s, v4, ins[0]), 2)
+        half = sv_cflt(s, 0.5)
+        sv_set_io(s, 0, sv_fsub(s, fcv[0], half))
+        sv_set_io(s, 1, sv_fsub(s, fcv[1], half))
+        sv_set_io(s, 2, sv_rec(s, rec, off, 0))
+        sv_set_io(s, 3, sv_rec(s, rec, off, 1))
+        word = sv_scr_word(s, sv_get_io(s, 0), sv_get_io(s, 1))
+        sv_set_io(s, 4, sv_scr_chan(s, word, 16))
+        sv_set_io(s, 5, sv_scr_chan(s, word, 8))
+        sv_set_io(s, 6, sv_scr_chan(s, word, 0))
+        sv_set_io(s, 7, sv_cflt(s, 1.0))
+        sv_set_io(s, 8, sv_rec(s, rec, off, 2))
+        count k from 0 to 7
+            sv_set_io(s, 9 + k, sv_rec(s, rec, off, 8 + k))
+        done_call = sv_op(s, 57, vt, [s.fnids[me], io])
+        zero = sv_cflt(s, 0.0)
+        one = sv_cflt(s, 1.0)
+        a = sv_ext(s, fl, 43, [sv_get_io(s, 7), zero, one])
+        gone = sv_op(s, 188, sv_bool(s), [a, zero])
+        kill = sv_id(s)
+        keep = sv_id(s)
+        sv_ins(s.code, 247, [keep, 0])
+        sv_ins(s.code, 250, [gone, kill, keep])
+        sv_label(s, kill)
+        sv_ins(s.code, 252, sv_none())
+        sv_label(s, keep)
+        rgb = list int
+        count k from 0 to 2
+            rgb.add(sv_fmul(s, sv_ext(s, fl, 43, [sv_get_io(s, 4 + k), zero, one]), a))
+        sv_store(s, outs[0], sv_op(s, 80, v4, [rgb[0], rgb[1], rgb[2], a]))
     else
         fcv = sv_parts(s, sv_load(s, v4, ins[4]), 3)
         wv = sv_parts(s, sv_load(s, v3, ins[0]), 3)
@@ -1368,7 +1590,7 @@ modpub func shader_spirv(fns: list ShFn, f: ShFn) gives words: list int
     each x in iface
         ep.add(x)
     sv_ins(head, 15, ep)
-    if f.stage == "pixel"
+    if f.stage == "pixel" or f.stage == "screen"
         sv_ins(head, 16, [main_id, 7])
     words = [119734787, 65536, 0, s.bound + 1, 0]
     each x in head
@@ -1423,19 +1645,37 @@ modpub func shader_c(c: Comp, program: Node, out: list text)
     out.add("static const char tbs_msl[] =\n")
     sh_c_string(msl, out)
     out.add("    \"\";\n")
+    has_screen = false
+    each f in fns
+        if f.stage == "screen"
+            has_screen = true
+    if has_screen
+        words = shader_spirv_screen_vert()
+        out.add("static const uint32_t tbs_spv_screen_vert[" + len(words) + "] = {")
+        count i from 0 to len(words) - 1
+            if i % 8 == 0
+                out.add("\n   ")
+            out.add(" " + sh_hex(words[i]) + ",")
+        out.add("\n};\n")
     out.add("static void tbs_register(void) {\n    tb_sh_lib(tbs_msl);\n")
+    if has_screen
+        out.add("    tb_sh_reg(\"tb_screen_vert\", 3, 0, tbs_spv_screen_vert, sizeof tbs_spv_screen_vert, \"\");\n")
     each f in fns
         if f.stage == ""
             skip
         st = "1"
         if f.stage == "corner"
             st = "0"
-        out.add("    tb_sh_reg(\"" + f.name + "\", " + st + ", tbs_" + f.name + ", tbs_spv_" + f.name + ", sizeof tbs_spv_" + f.name + ", \"" + join(f.sets, ",") + "\");\n")
+        else if f.stage == "screen"
+            st = "2"
+        out.add("    tb_sh_reg(\"" + f.name + "\", " + st + ", (tb_shfn)tbs_" + f.name + ", tbs_spv_" + f.name + ", sizeof tbs_spv_" + f.name + ", \"" + join(f.sets, ",") + "\");\n")
     out.add("}\n#endif\n")
 
 // для проверки: SPIR-V одного шейдера (tachbit spirv файл.tb имя)
 modpub func shader_words(c: Comp, program: Node, name: text) gives words: list int
     fns = shader_fns(c, program)
+    if name == "tb_screen_vert"
+        return shader_spirv_screen_vert()
     each f in fns
         if f.name == name and f.stage != ""
             words = shader_spirv(fns, f)

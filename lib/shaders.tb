@@ -225,3 +225,194 @@ gpu func dissolve(p: pixel, amount: dec, edge_glow: dec)
     else if n < amount + 0.05
         p.r += edge_glow
         p.g += edge_glow * 0.5
+
+// ========== эффекты на весь экран (s: screen) ==========
+// Ставятся словом screen_shader("glow") после 3D и до подсказок: всё, что нарисовано раньше, проходит через эффект.
+//   screen_set("glow", "power", 0.8)   // настройки — как у сеток
+// Точка экрана s: x, y (место), w, h (размер окна), r g b a (её цвет; a < 1 — эффект смешивается с кадром),
+// time; screen_r(x, y), screen_g, screen_b — цвет любой точки кадра; screen_soft_r/g/b — между точками
+// мягкая смесь четырёх соседей (вчетверо дороже — для сглаживания и плавных сдвигов),
+// screen_depth(x, y) — даль от камеры в единицах мира (нет 3D — 1000000).
+
+// яркость точки (как видит глаз)
+gpu func luma(r: dec, g: dec, b: dec) gives l: dec
+    return r * 0.299 + g * 0.587 + b * 0.114
+
+// свечение (bloom): яркие места расплываются светом вокруг. power — сила, threshold — с какой яркости (0…1), size — ширина в точках
+gpu func glow(s: screen, power: dec, threshold: dec, size: dec)
+    th = threshold
+    if th <= 0
+        th = 0.7
+    sz = size
+    if sz <= 0
+        sz = 12
+    ar = 0.0
+    ag = 0.0
+    ab = 0.0
+    count ring from 1 to 2
+        rad = sz * ring / 2
+        count k from 0 to 7
+            an = k * 0.7853982 + ring * 0.4
+            x = s.x + cos(an) * rad
+            y = s.y + sin(an) * rad
+            r = screen_r(x, y)
+            g = screen_g(x, y)
+            b = screen_b(x, y)
+            e = max(luma(r, g, b) - th, 0) / (1 - th + 0.001)
+            wgt = e / ring
+            ar += r * wgt
+            ag += g * wgt
+            ab += b * wgt
+    p = power
+    if p <= 0
+        p = 0.8
+    s.r += ar * p / 8
+    s.g += ag * p / 8
+    s.b += ab * p / 8
+
+// размытие: radius — на сколько точек (для меню паузы, расфокуса)
+gpu func blur(s: screen, radius: dec)
+    rd = radius
+    if rd <= 0
+        rd = 4
+    ar = 0.0
+    ag = 0.0
+    ab = 0.0
+    count i from -2 to 2
+        count j from -2 to 2
+            x = s.x + i * rd / 2
+            y = s.y + j * rd / 2
+            ar += screen_r(x, y)
+            ag += screen_g(x, y)
+            ab += screen_b(x, y)
+    s.r = ar / 25
+    s.g = ag / 25
+    s.b = ab / 25
+
+// сглаживание (FXAA): убирает «лесенку» на краях. strength 0…1 (0 — 1)
+gpu func fxaa(s: screen, strength: dec)
+    lm = luma(s.r, s.g, s.b)
+    lnw = luma(screen_r(s.x - 1, s.y - 1), screen_g(s.x - 1, s.y - 1), screen_b(s.x - 1, s.y - 1))
+    lne = luma(screen_r(s.x + 1, s.y - 1), screen_g(s.x + 1, s.y - 1), screen_b(s.x + 1, s.y - 1))
+    lsw = luma(screen_r(s.x - 1, s.y + 1), screen_g(s.x - 1, s.y + 1), screen_b(s.x - 1, s.y + 1))
+    lse = luma(screen_r(s.x + 1, s.y + 1), screen_g(s.x + 1, s.y + 1), screen_b(s.x + 1, s.y + 1))
+    lo = min(lm, min(min(lnw, lne), min(lsw, lse)))
+    hi = max(lm, max(max(lnw, lne), max(lsw, lse)))
+    if hi - lo < max(0.04, hi * 0.15)
+        return
+    dx = -((lnw + lne) - (lsw + lse))
+    dy = (lnw + lsw) - (lne + lse)
+    k = 1 / (min(abs(dx), abs(dy)) + max((lnw + lne + lsw + lse) * 0.03125, 0.0078))
+    dx = clamp(dx * k, -8, 8)
+    dy = clamp(dy * k, -8, 8)
+    r = (screen_soft_r(s.x - dx / 6, s.y - dy / 6) + screen_soft_r(s.x + dx / 6, s.y + dy / 6)) * 0.5
+    g = (screen_soft_g(s.x - dx / 6, s.y - dy / 6) + screen_soft_g(s.x + dx / 6, s.y + dy / 6)) * 0.5
+    b = (screen_soft_b(s.x - dx / 6, s.y - dy / 6) + screen_soft_b(s.x + dx / 6, s.y + dy / 6)) * 0.5
+    r2 = r * 0.5 + (screen_soft_r(s.x - dx / 2, s.y - dy / 2) + screen_soft_r(s.x + dx / 2, s.y + dy / 2)) * 0.25
+    g2 = g * 0.5 + (screen_soft_g(s.x - dx / 2, s.y - dy / 2) + screen_soft_g(s.x + dx / 2, s.y + dy / 2)) * 0.25
+    b2 = b * 0.5 + (screen_soft_b(s.x - dx / 2, s.y - dy / 2) + screen_soft_b(s.x + dx / 2, s.y + dy / 2)) * 0.25
+    l2 = luma(r2, g2, b2)
+    if l2 >= lo and l2 <= hi
+        r = r2
+        g = g2
+        b = b2
+    st = strength
+    if st <= 0
+        st = 1
+    s.r = mix(s.r, r, st)
+    s.g = mix(s.g, g, st)
+    s.b = mix(s.b, b, st)
+
+// туман по глубине: чем дальше от камеры, тем больше цвета fog_r g b. near, far — где начинается и где густой
+gpu func depth_fog(s: screen, near: dec, far: dec, fog_r: dec, fog_g: dec, fog_b: dec)
+    d = screen_depth(s.x, s.y)
+    if d > 100000
+        return
+    fr = far
+    if fr <= near
+        fr = near + 30
+    f = clamp((d - near) / (fr - near), 0, 1)
+    f = f * f * (3 - 2 * f)
+    cr = fog_r
+    cg = fog_g
+    cb = fog_b
+    if cr + cg + cb == 0
+        cr = 0.75
+        cg = 0.82
+        cb = 0.9
+    s.r = mix(s.r, cr, f)
+    s.g = mix(s.g, cg, f)
+    s.b = mix(s.b, cb, f)
+
+// цвет кадра: contrast (1 — как есть), saturation (1 — как есть, 0 — чёрно-белый),
+// warmth (−1 холоднее … 1 теплее), bright (0 — как есть)
+gpu func color(s: screen, contrast: dec, saturation: dec, warmth: dec, bright: dec)
+    c = contrast
+    if c <= 0
+        c = 1
+    sa = saturation
+    if sa < 0
+        sa = 0
+    l = luma(s.r, s.g, s.b)
+    r = mix(l, s.r, sa)
+    g = mix(l, s.g, sa)
+    b = mix(l, s.b, sa)
+    r = (r - 0.5) * c + 0.5 + bright + warmth * 0.06
+    g = (g - 0.5) * c + 0.5 + bright + warmth * 0.01
+    b = (b - 0.5) * c + 0.5 + bright - warmth * 0.06
+    s.r = r
+    s.g = g
+    s.b = b
+
+// виньетка: края кадра темнее, взгляд в центр. power 0…1, size — где начинается (0.5 — середина пути до края)
+gpu func vignette(s: screen, power: dec, size: dec)
+    sz = size
+    if sz <= 0
+        sz = 0.5
+    dx = (s.x / s.w - 0.5) * 2
+    dy = (s.y / s.h - 0.5) * 2
+    d = sqrt(dx * dx + dy * dy) / 1.4142
+    k = 1 - power * smoothstep(sz, 1, d)
+    s.r = s.r * k
+    s.g = s.g * k
+    s.b = s.b * k
+
+// контур по глубине: тёмные линии там, где резко меняется даль (мультяшный вид). thick — толщина, dark — насколько тёмные (0…1)
+gpu func outline(s: screen, thick: dec, dark: dec)
+    t = thick
+    if t <= 0
+        t = 1
+    d = screen_depth(s.x, s.y)
+    e = 0.0
+    e = max(e, abs(screen_depth(s.x + t, s.y) - d))
+    e = max(e, abs(screen_depth(s.x - t, s.y) - d))
+    e = max(e, abs(screen_depth(s.x, s.y + t) - d))
+    e = max(e, abs(screen_depth(s.x, s.y - t) - d))
+    dk = dark
+    if dk <= 0
+        dk = 0.85
+    if e > 0.08 * min(d, 1000)
+        k = 1 - dk
+        s.r = s.r * k
+        s.g = s.g * k
+        s.b = s.b * k
+
+// крупные квадраты, как в старых играх: size — размер квадрата в точках
+gpu func pixelate(s: screen, size: dec)
+    sz = max(size, 1)
+    x = floor(s.x / sz) * sz + sz * 0.5
+    y = floor(s.y / sz) * sz + sz * 0.5
+    s.r = screen_r(x, y)
+    s.g = screen_g(x, y)
+    s.b = screen_b(x, y)
+
+// под водой: кадр колышется и уходит в синеву. wave — сила волн в точках
+gpu func underwater(s: screen, wave: dec, tint: dec)
+    wv = wave
+    if wv <= 0
+        wv = 3
+    x = s.x + sin(s.y * 0.05 + s.time * 2) * wv
+    y = s.y + cos(s.x * 0.04 + s.time * 1.6) * wv * 0.6
+    s.r = screen_soft_r(x, y) * (1 - tint * 0.6)
+    s.g = screen_soft_g(x, y) * (1 - tint * 0.2)
+    s.b = mix(screen_soft_b(x, y), 0.8, tint * 0.4)

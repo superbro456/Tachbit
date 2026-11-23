@@ -1,0 +1,5 @@
+gpu func edge(x: dec, y: dec) gives r: dec
+    return screen_r(x, y)
+
+func main()
+    print("ok")
