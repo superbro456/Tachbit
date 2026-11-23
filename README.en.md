@@ -79,14 +79,15 @@ Programs start at `func main()`. Blocks are indentation, like Python. Types are 
 |---|---|
 | basics | `int`, `dec`, `bool`, `text`, `list T`, `dict K V`, `obj`, `enum`, `const`, `link` (reference to a place) |
 | control | `if` / `else`, `each x in xs`, `count i from 1 to 10`, `repeat N times`, `repeat while`, `skip`, `stop`, `match` |
-| functions | `func f(a: int) gives r: int`, named arguments, several outputs (`q, r = divide(a: 17, b: 5)`) |
+| functions | `func f(a: int) gives r: int`, named arguments, several outputs (`q, r = divide(a: 17, b: 5)`, also straight into list cells and fields: `xs[k], p.y = f()`) |
+| soft keywords | `times`, `from`, `to`, `in`, `by`, `gives`, `while`, `temp`, `together`, `lock`, `unlock`, `skip`, `stop`, `match`, `danger` can be variable and field names; the compiler tells by the neighbours (`repeat times times`) |
 | errors | `fail "text"`, `try f()`, `f() or fallback`, `f() else err` — a call that can fail cannot be ignored |
 | modules | `use money`, `modpub`, `modpri` |
 | speed | `on all cores`, `shared`, `by vec` (SIMD), `obj ... by columns`, `temp`, `each piece in data by N`, `together` |
 | threads | `background f(...)` + `.wait`, `channel T` (`.send`, `.receive`, `.close`, `each x in ch`), `move`, `lock` / `unlock` |
 | no OS | `tb bare file.tb` makes a bootable 64-bit (x86-64) kernel, built fully through LLVM with no C; `danger` blocks for memory, ports, `asm`, interrupts; manual memory `new_mem`, `free_mem`, `grow_mem`, `copy_mem`, `fill_mem` (`TB_MEM_CHECK=1` catches use after free, overruns, double free, leaks) |
 | 3D and games | models and animations from Blender (`.glb`) with PBR materials, shaders written in Tachbit (`gpu func`), lights and shadows, particles, bloom and FXAA, big streamed worlds, several OS windows, fullscreen, mouse look — see «3D and games» below |
-| library | text (`split`, `join`, `find`, `replace`, ...), files and folders, `input`, `args`, `sort`, math, `random`, `time_ms`, `date_now`, `unix_time`, `http_get`, `json_get`, `json_text`, windows and drawing for games |
+| library | text (`split`, `join`, `find`, `replace`, ...), files and folders, `input`, `args`, `sort`, math (`sqrt`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `pow`, `exp`, `log`, `floor`, `ceil`, `pi()`), `random`, `time_ms`, `date_now`, `unix_time`, `http_get`, `json_get`, `json_text`, windows and drawing for games |
 
 ## 3D and games (1.3)
 

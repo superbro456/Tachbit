@@ -495,6 +495,8 @@ TB_API double atan2(double y, double x) {
     if (x < 0) return y >= 0 ? atan(y / x) + pi : atan(y / x) - pi;
     return y > 0 ? pi / 2 : y < 0 ? -pi / 2 : 0;
 }
+TB_API double asin(double x) { return atan2(x, sqrt(1 - x * x)); }
+TB_API double acos(double x) { return atan2(sqrt(1 - x * x), x); }
 TB_API double exp(double x) {
     if (x > 709) return 1e308;
     if (x < -745) return 0;

@@ -120,6 +120,7 @@ obj Comp
     tokens: list Token
     // парсер
     pos: int
+    after: list Node        // строки, которые парсер добавляет после текущей (xs[k], p.y = f() → временные + присваивания)
     // проверка
     types: list Type
     funcs: list Func

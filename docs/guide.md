@@ -776,6 +776,8 @@ func main()
 | ярлык | `hp: link u.age`, потом `hp += 5` меняет `u.age` |
 | ярлык в функцию | `func hit(link hp, damage: int)` и вызов `hit(u.age, 3)` |
 | несколько выходов | `func divide(a: int, b: int) gives result: int, rest: int` и `q, r = divide(a: 17, b: 5)` |
+| несколько выходов на места (1.3) | слева можно и ячейки, и качества: `xs[k], p.y = divide(17, 5)`, `p.x, rest = f()` |
+| слова языка именами (1.3) | `times`, `from`, `to`, `in`, `by`, `gives`, `while`, `temp`, `together`, `lock`, `unlock`, `skip`, `stop`, `match`, `danger` можно брать именами переменных и качеств: компилятор видит по соседям, где имя (`times = 3`, `repeat times times`, `count i from from to to`, `p.by`). Остальные слова (`if`, `each`, `int`, `list` ...) заняты всегда. Встроенные функции (`show`, `len` ...) можно брать именами переменных, но не своих функций |
 | изменить | `x += 1`, `-=`, `*=`, `/=` |
 | условие | `if` / `else if` / `else`, `and`, `or`, `not` |
 | по списку / по буквам | `each n in nums`, `each c in word` |
@@ -796,6 +798,7 @@ func main()
 | вызов из модуля | `money.total(price)` или просто `total(price)` |
 | вывод | `print(a, b, u, nums)` — через пробел, списки и объекты тоже печатаются |
 | числа | `round(2.6)` → `3`, `abs(-7)`, `min(a, b)`, `max(a, b)`, `sqrt(16)`, `to_dec("2.5")` |
+| углы и степени (1.3) | `sin(x)`, `cos(x)`, `tan(x)` — угол в радианах (`sin(pi() / 6)` → `0.5`; из градусов: `g * pi() / 180`), обратные `asin`, `acos`, `atan`, `atan2(y, x)` — угол точки (x, y); `pi()`, `pow(2, 10)` → `1024`, `exp`, `log` (натуральный), `floor(2.7)` → `2`, `ceil(2.2)` → `3`. Все дают `dec`; `asin` и `acos` от числа вне -1…1 и `log` от 0 и меньше останавливают программу с понятной ошибкой |
 | текст | `split(s, ",")`, `join(list, ", ")`, `find(s, "x")` (номер или -1), `replace(s, "a", "b")`, `upper`, `lower` (русские буквы тоже), `trim`, `starts_with`, `ends_with` |
 | списки | `sort(nums)` — числа или текст по порядку |
 | файлы | `read_file("a.txt")`, `write_file("a.txt", текст)` |

@@ -313,6 +313,7 @@ static const char *const tb_lang_tab[] = {
     "screen_shader(\"glow\") — пропустить весь кадр через gpu func с s: screen", "screen_shader(\"glow\") — pass the whole frame through a gpu func with s: screen",
     "внутри by vec нельзя менять переменную снаружи: копи её через += или -=", "inside by vec you cannot change an outside variable: accumulate it with += or -=",
     "не получилось скачать (нет сети, нет curl или сервер ответил ошибкой): ", "could not download (no network, no curl or the server answered with an error): ",
+    "слева от = через запятую пишутся имена, ячейки xs[i] или качества u.age", "left of = come names, cells xs[i] or fields u.age, separated by commas",
     "draw_mesh_rot(сетка, x, y, z, поворот, наклон, крен) — углы в градусах", "draw_mesh_rot(mesh, x, y, z, turn, tilt, roll) — angles in degrees",
     "pad_axis(0, \"lx\")  →  от -1 до 1: lx ly rx ry; курки l2 r2 — от 0 до 1", "pad_axis(0, \"lx\")  →  from -1 to 1: lx ly rx ry; triggers l2 r2 — from 0 to 1",
     " читает кадр только в самом шейдере экрана (s: screen), не в помощнике", " reads the frame only in the screen shader itself (s: screen), not in a helper",
@@ -329,6 +330,7 @@ static const char *const tb_lang_tab[] = {
     "each ходит по списку, по ключам dict, по каналу или по буквам текста", "each goes over a list, over dict keys, over a channel or over the letters of a text",
     "у match ниже с отступом пишутся варианты: paid  или  1, 2  или  else", "match has its variants below, indented: paid  or  1, 2  or  else",
     "on all cores в gpu func не бывает: шейдер и так идёт на тысячах ядер", "there is no on all cores in gpu func: a shader already runs on thousands of cores",
+    "так называется встроенная функция языка, возьми для своей другое имя", "a built-in function of the language has this name, pick another name for yours",
     "enum к тексту пока не приписывается: print(s) печатает имя варианта", "an enum cannot be added to text yet: print(s) prints the variant name",
     "set_fps(кадров_в_секунду)  — 0: сколько успеет, без ожидания экрана", "set_fps(frames_per_second)  — 0: as fast as possible, no waiting for the screen",
     "listener(x, y, z, куда x, куда y, куда z)  — где уши и куда смотрят", "listener(x, y, z, look x, look y, look z)  — where the ears are and where they look",
@@ -370,6 +372,7 @@ static const char *const tb_lang_tab[] = {
     "номер прерывания железа: от 32 (таймер) до 47; 33 — клавиатура", "hardware interrupt number: from 32 (timer) to 47; 33 — keyboard",
     "gpu func пока только в обычной программе (tachbit build / run)", "gpu func is only in a normal program for now (tachbit build / run)",
     "byte_char: байт должен быть от 1 до 255 (байт 0 кончает текст)", "byte_char: the byte must be from 1 to 255 (byte 0 ends a text)",
+    "atan2(y, x)  →  угол точки (x, y) в радианах, от -pi() до pi()", "atan2(y, x)  →  the angle of point (x, y) in radians, from -pi() to pi()",
     "эта функция спрятана в своём модуле: поставь перед ней modpub", "this function is hidden in its module: put modpub before it",
     "window_fullscreen(true)  —  на весь экран; false — снова окно", "window_fullscreen(true)  —  full screen; false — a window again",
     " — его адрес, а писать в него — copy_mem, fill_mem или write8", " is its address, and you write into it with copy_mem, fill_mem or write8",
@@ -601,6 +604,7 @@ static const char *const tb_lang_tab[] = {
     "OGG пока не умею: сохрани звук как WAV", "OGG is not supported yet: save the sound as WAV",
     "размер куска в by должен быть больше 0", "the piece size in by must be more than 0",
     "поменять:  tb lang en  или  tb lang ru", "to change:  tb lang en  or  tb lang ru",
+    "log: логарифм только от числа больше 0", "log: logarithm only of a number greater than 0",
     "draw_rect(x, y, ширина, высота, цвет)", "draw_rect(x, y, width, height, color)",
     "точка с качеством бывает только у obj", "a dot with a field is only for obj",
     "раньше эта функция вернула другой тип", "earlier this function returned another type",
@@ -649,6 +653,8 @@ static const char *const tb_lang_tab[] = {
     "byte_at: номер за пределами текста", "byte_at: number outside the text",
     "не получилось запустить background", "could not start background",
     "syscall есть только на Linux и Mac", "syscall exists only on Linux and Mac",
+    "asin: число должно быть от -1 до 1", "asin: the number must be from -1 to 1",
+    "acos: число должно быть от -1 до 1", "acos: the number must be from -1 to 1",
     "такое имя уже есть, возьми другое", "this name is already taken, pick another",
     "light_off(номер) — погасить лампу", "light_off(number) — turn off a lamp",
     "так уже называется модуль Tachbit", "a Tachbit module already has this name",
@@ -869,6 +875,7 @@ static const char *const tb_lang_tab[] = {
     "нет функций шейдера", "no shader functions",
     "видеокарта (Metal, ", "GPU (Metal, ",
     "ошибка: window_use(", "error: window_use(",
+    "pow(число, степень)", "pow(number, power)",
     "номерок background", "background ticket",
     "address_of(список)", "address_of(list)",
     "window_close(окно)", "window_close(window)",
@@ -2845,6 +2852,20 @@ TB_API long long tb_maxi(long long a, long long b) { return a > b ? a : b; }
 TB_API double tb_mind(double a, double b) { return a < b ? a : b; }
 TB_API double tb_maxd(double a, double b) { return a > b ? a : b; }
 TB_API double tb_sqrt(double x, int line) { if (x < 0) tb_crash(line, "sqrt: корень из отрицательного числа"); return sqrt(x); }
+// углы в радианах
+TB_API double tb_pi(void) { return 3.14159265358979323846; }
+TB_API double tb_m_sin(double x, int line) { (void)line; return sin(x); }
+TB_API double tb_m_cos(double x, int line) { (void)line; return cos(x); }
+TB_API double tb_m_tan(double x, int line) { (void)line; return tan(x); }
+TB_API double tb_m_asin(double x, int line) { if (x < -1 || x > 1) tb_crash(line, "asin: число должно быть от -1 до 1"); return asin(x); }
+TB_API double tb_m_acos(double x, int line) { if (x < -1 || x > 1) tb_crash(line, "acos: число должно быть от -1 до 1"); return acos(x); }
+TB_API double tb_m_atan(double x, int line) { (void)line; return atan(x); }
+TB_API double tb_m_atan2(double y, double x, int line) { (void)line; return atan2(y, x); }
+TB_API double tb_m_exp(double x, int line) { (void)line; return exp(x); }
+TB_API double tb_m_log(double x, int line) { if (!(x > 0)) tb_crash(line, "log: логарифм только от числа больше 0"); return log(x); }
+TB_API double tb_m_pow(double a, double b, int line) { (void)line; return pow(a, b); }
+TB_API double tb_m_floor(double x, int line) { (void)line; return floor(x); }
+TB_API double tb_m_ceil(double x, int line) { (void)line; return ceil(x); }
 
 // ---------- sort ----------
 TB_API int tb_cmp_int(const void *a, const void *b) { long long x = *(const long long *)a, y = *(const long long *)b; return (x > y) - (x < y); }
@@ -13587,6 +13608,19 @@ TB_BV(sort_int, (tb_list *l, int line), tb_sort_list(l, tb_cmp_int))
 TB_BV(sort_dec, (tb_list *l, int line), tb_sort_list(l, tb_cmp_dec))
 TB_BV(sort_text, (tb_list *l, int line), tb_sort_list(l, tb_cmp_text))
 TB_B(double, sqrt, (double x, int line), tb_sqrt(x, line))
+TB_B(double, sin, (double x, int line), tb_m_sin(x, line))
+TB_B(double, cos, (double x, int line), tb_m_cos(x, line))
+TB_B(double, tan, (double x, int line), tb_m_tan(x, line))
+TB_B(double, asin, (double x, int line), tb_m_asin(x, line))
+TB_B(double, acos, (double x, int line), tb_m_acos(x, line))
+TB_B(double, atan, (double x, int line), tb_m_atan(x, line))
+TB_B(double, exp, (double x, int line), tb_m_exp(x, line))
+TB_B(double, log, (double x, int line), tb_m_log(x, line))
+TB_B(double, floor, (double x, int line), tb_m_floor(x, line))
+TB_B(double, ceil, (double x, int line), tb_m_ceil(x, line))
+TB_B(double, atan2, (double y, double x, int line), tb_m_atan2(y, x, line))
+TB_B(double, pow, (double a, double b, int line), tb_m_pow(a, b, line))
+TB_B(double, pi, (int line), tb_pi())
 TB_B(long long, read8, (long long a, int line), tb_rd8(a, line))
 TB_BV(write8, (long long a, long long v, int line), tb_wr8(a, v, line))
 TB_B(long long, read16, (long long a, int line), tb_rd16(a, line))
