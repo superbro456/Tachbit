@@ -1,9 +1,29 @@
 {
   "name": "tachbit",
   "displayName": "Tachbit",
-  "description": "Язык Tachbit: цвета, темы Tachbit Dark/Light, запуск по F5 и ошибки прямо в коде",
+  "description": "Tachbit language: colors, Tachbit Dark/Light themes, run with one button (F5, ▶, Touch Bar) and errors right in the code",
   "version": "0.9.4",
   "publisher": "tachbit",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/superbro456/Tachbit"
+  },
+  "homepage": "https://superbro456.github.io/Tachbit/",
+  "bugs": {
+    "url": "https://github.com/superbro456/Tachbit/issues"
+  },
+  "keywords": [
+    "tachbit",
+    "language",
+    "compiler",
+    "games",
+    "systems"
+  ],
+  "galleryBanner": {
+    "color": "#14161a",
+    "theme": "dark"
+  },
   "engines": {
     "vscode": "^1.75.0"
   },

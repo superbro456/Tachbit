@@ -34,7 +34,16 @@ func main()
 
 ## Команды
 
-Установка, один раз и после каждого `git pull`:
+Установка одной командой (Mac и Linux, нужен `cc`; на Mac: `xcode-select --install`):
+
+```
+curl -fsSL https://raw.githubusercontent.com/superbro456/Tachbit/main/tools/get.sh | sh
+```
+
+Через Homebrew: `brew tap superbro456/tachbit https://github.com/superbro456/Tachbit && brew install --HEAD tachbit`.
+Сайт: https://superbro456.github.io/Tachbit/ (исходник `docs/index.html`). Как выпустить язык: `docs/publish.md`.
+
+Из клона репозитория, один раз и после каждого `git pull`:
 
 ```
 ./tools/install.sh                 # Mac и Linux: команда tb в PATH
