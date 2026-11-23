@@ -7,6 +7,7 @@
 // time (секунды), sx sy sz (куда светит солнце), amb (фон), cx cy cz (камера), tx ty tz (касательная: куда растёт u).
 // В любой gpu func: lamp_k(i, x, y, z) — сколько света лампы i (0…7) доходит до точки, lamp_x/y/z(i), lamp_r/g/b(i);
 // tex_r/g/b/a(слот, u, v) — цвет картинки слота 0…3 (shader_image), tex_on(слот) — есть ли там картинка.
+// sun_shadow(x, y, z, nx, ny, nz) — 1 на солнце, 0 в тени (shadows); lamp_shadow(i, ...) — то же для лампы i (light_shadow).
 // Угол v: x y z (в сетке), nx ny nz, u v, r g b a, time, i (номер угла).
 
 // ---------- общие помощники ----------
@@ -40,11 +41,12 @@ gpu func ripple(x: dec, y: dec, z: dec) gives r: dec
 // ---------- обычный материал: свет, блик, кайма, туман ----------
 // shine — сила блика, power — острота, rim — светлая кайма по краю, fog_near / fog_far — туман (0 — без), fog_r g b — его цвет
 gpu func standard(p: pixel, shine: dec, power: dec, rim: dec, fog_near: dec, fog_far: dec, fog_r: dec, fog_g: dec, fog_b: dec)
-    k = sun_light(p.nx, p.ny, p.nz, p.sx, p.sy, p.sz, p.amb)
+    sh = sun_shadow(p.wx, p.wy, p.wz, p.nx, p.ny, p.nz)
+    k = p.amb + (sun_light(p.nx, p.ny, p.nz, p.sx, p.sy, p.sz, p.amb) - p.amb) * sh
     pw = power
     if pw <= 0
         pw = 32
-    s = shine * spec_light(p.nx, p.ny, p.nz, p.sx, p.sy, p.sz, p.wx, p.wy, p.wz, p.cx, p.cy, p.cz, pw)
+    s = sh * shine * spec_light(p.nx, p.ny, p.nz, p.sx, p.sy, p.sz, p.wx, p.wy, p.wz, p.cx, p.cy, p.cz, pw)
     vx = p.cx - p.wx
     vy = p.cy - p.wy
     vz = p.cz - p.wz
@@ -79,7 +81,7 @@ gpu func lamps_light(ch: int, nx: dec, ny: dec, nz: dec, wx: dec, wy: dec, wz: d
                     c = lamp_g(i)
                 else if ch == 2
                     c = lamp_b(i)
-                s = s + c * k * nl
+                s = s + c * k * nl * lamp_shadow(i, wx, wy, wz, nx, ny, nz)
     return s
 
 // ---------- PBR: металл и шероховатость, рельеф, все лампы, отражение неба ----------
@@ -202,7 +204,7 @@ gpu func pbr(p: pixel, metal: dec, rough: dec, bump: dec, tile: dec, reflect: de
         if nl > 0
             s = pbr_spec(nx, ny, nz, vx, vy, vz, lx, ly, lz, rough)
             c = pbr_vh(vx, vy, vz, lx, ly, lz)
-            sun = (1 - p.amb) * 1.6
+            sun = (1 - p.amb) * 1.6 * sun_shadow(p.wx, p.wy, p.wz, p.nx, p.ny, p.nz)
             f = fresnel(fr, c)
             cr = cr + ((1 - f) * kd * ar * nl + f * s) * sun
             f = fresnel(fg, c)
@@ -224,7 +226,7 @@ gpu func pbr(p: pixel, metal: dec, rough: dec, bump: dec, tile: dec, reflect: de
             if nl > 0
                 s = pbr_spec(nx, ny, nz, vx, vy, vz, lx, ly, lz, rough)
                 c = pbr_vh(vx, vy, vz, lx, ly, lz)
-                k = k * 1.6
+                k = k * 1.6 * lamp_shadow(i, p.wx, p.wy, p.wz, p.nx, p.ny, p.nz)
                 f = fresnel(fr, c)
                 cr = cr + ((1 - f) * kd * ar * nl + f * s) * k * lamp_r(i)
                 f = fresnel(fg, c)

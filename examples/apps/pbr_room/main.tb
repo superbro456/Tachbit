@@ -4,7 +4,8 @@
 //   tb run examples/apps/pbr_room/main.tb demo   — камера летает сама, ночь включается сама
 //
 // Q / E — облететь, W / S — ближе / дальше, N — ночь / день, M — рельеф вкл / выкл,
-// L — лампы вкл / выкл, X — свечение и сглаживание на весь экран.
+// L — лампы вкл / выкл, T — тени вкл / выкл, X — свечение и сглаживание на весь экран.
+// Тени: shadows(20) — от солнца, light_shadow(n, true) — от лампы n (до 4 ламп).
 //
 // Верхний ряд шаров — металл (metal 1), нижний — пластик (metal 0); слева гладкие, справа шершавые.
 // Пол и стена — картинка цвета в слоте 0 и карта нормалей в слоте 1:
@@ -24,6 +25,7 @@ func main()
     sky_dome = mesh_new()
     sphere_at(sky_dome, 0, 0, 0, 90, 16, rgb(120, 160, 220))
     mesh_shader(sky_dome, "sky")
+    mesh_shadow(sky_dome, false)
     shader_set(sky_dome, "sun_size", 0.01)
 
     // пол 12 × 12: каждая клетка 1 × 1, картинка (4 × 4 плитки) — на 3 × 3 клетки
@@ -78,12 +80,14 @@ func main()
         b = mesh_new()
         sphere_at(b, 0, 0, 0, 0.08, 8, colors[i])
         mesh_glow(b, 1)
+        mesh_shadow(b, false)
         bulbs.add(b)
 
     glow_on = false
     night = false
     bumps = true
     lamps = true
+    shade = true
     angle = -20.0
     dist = 7.5
     frame = 0
@@ -95,11 +99,11 @@ func main()
         frame += 1
         // клавиши: по нажатию, не пока держишь
         now = ""
-        each k in ["n", "m", "l", "x"]
+        each k in ["n", "m", "l", "x", "t"]
             if key_down(k)
                 now += k
         tap = ""
-        each k in ["n", "m", "l", "x"]
+        each k in ["n", "m", "l", "x", "t"]
             if find(now, k) >= 0 and find(prev, k) < 0
                 tap += k
         prev = now
@@ -123,6 +127,14 @@ func main()
             lamps = not lamps
         if find(tap, "x") >= 0
             glow_on = not glow_on
+        if find(tap, "t") >= 0
+            shade = not shade
+        if shade
+            shadows(16)
+        else
+            shadows(0)
+        count i from 0 to 2
+            light_shadow(i, shade)
         if key_down("q") or key_down("left")
             angle = max(-75.0, angle - 1.2)
         if key_down("e") or key_down("right")
@@ -164,10 +176,10 @@ func main()
             screen_shader("glow")
             screen_shader("fxaa")
 
-        hint = "Q/E облететь  W/S ближе  N ночь  M рельеф  L лампы  X свечение"
+        hint = "Q/E облететь  W/S ближе  N ночь  M рельеф  L лампы  T тени  X свечение"
         draw_text(13, 13, hint, rgb(0, 0, 0), 2)
         draw_text(12, 12, hint, rgb(255, 255, 255), 2)
-        state = "ночь: " + yes_no(night) + "   рельеф: " + yes_no(bumps) + "   лампы: " + yes_no(lamps) + "   свечение: " + yes_no(glow_on) + "   " + fps() + " к/с"
+        state = "ночь: " + yes_no(night) + "   рельеф: " + yes_no(bumps) + "   лампы: " + yes_no(lamps) + "   тени: " + yes_no(shade) + "   свечение: " + yes_no(glow_on) + "   " + fps() + " к/с"
         draw_text(13, 579, state, rgb(0, 0, 0), 2)
         draw_text(12, 578, state, rgb(230, 230, 230), 2)
 

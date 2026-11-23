@@ -1,5 +1,5 @@
 // Свет в шейдерах (1.3): pbr из lib/shaders.tb — картинка и рельеф в слотах (shader_image), лампы (lamp_k ...),
-// металл и пластик; свой шейдер с tex_r и lamp_k. Кадры со своими шейдерами TB_GPU_CHECK не сверяет —
+// металл и пластик; свой шейдер с tex_r и lamp_k; тени от солнца и ламп (shadows, light_shadow, mesh_shadow). Кадры со своими шейдерами TB_GPU_CHECK не сверяет —
 // тест ловит падения и ошибки видеокарты; картинку сверяет tests/run_gpu.sh по снимку (держи окно: hold)
 use shaders
 
@@ -46,6 +46,7 @@ func main()
     lit = mesh_new()
     box(lit, -0.3, 0, -0.3, 0.3, 0.6, 0.3, rgb(180, 180, 180))
     mesh_shader(lit, "standard")
+    mesh_shadow(floor, false)
     frames = 0
     repeat while window_alive() and (hold or frames < 30)
         frames += 1
@@ -54,6 +55,9 @@ func main()
         else
             sunlight(0, 0, 0, 0.05)
         point_light(0, -1, 1, -1, rgb(255, 160, 80), 4)
+        shadows(16 * (frames % 3))
+        light_shadow(0, frames % 2 == 0)
+        light_shadow(1, frames % 4 < 2)
         spot_light(1, 1.5, 2, -1, -0.5, -1, 0.5, 50, rgb(80, 160, 255), 6)
         clear_window(rgb(10, 12, 20))
         camera(0, 2.2, -4.2, 0, 0.4, 0)
