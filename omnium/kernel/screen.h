@@ -194,6 +194,8 @@ TB_API int tb_gfx_open2(const char *title) { (void)title; return 0; }
 TB_API void tb_gfx_show(void) {}
 TB_API void tb_gfx_close2(void) {}
 TB_API void tb_gfx_poll(void) {}
+TB_API void tb_gfx_fullscreen(int on) { (void)on; }   // экран без ОС и так целиком
+TB_API void tb_gfx_lock(int on) { (void)on; }
 TB_API int tb_gfx_open(const char *title) {
     (void)title;
     uint64_t lfb = tb_bga_find();

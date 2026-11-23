@@ -4266,6 +4266,22 @@ TB_API uintptr_t tb_whand[TB_WMAX];
 TB_API int tb_wfind(uintptr_t h);
 TB_API void tb_wswitch(int i);
 TB_API void tb_wmark_closed(int i);
+// полный экран и мышь для шутера (1.3): сдвиг мыши с прошлого mouse_dx/mouse_dy, мышь захвачена
+TB_API double tb_mdx = 0, tb_mdy = 0;
+TB_API int tb_mlock = 0, tb_mseen = 0, tb_mwarp = 0, tb_cursor_prog = 0;
+TB_API void tb_gfx_fullscreen(int on);   // свои у каждой системы
+TB_API void tb_gfx_lock(int on);
+// мышь в точке (x, y) окна: копим сдвиг. Захвачена — меряем от середины окна, мышь потом вернётся туда
+TB_API void tb_mouse_at(int x, int y) {
+    if (tb_mlock) {
+        int cx = tb_gw / 2, cy = tb_gh / 2;
+        if (x == cx && y == cy) return;
+        tb_mdx += x - cx; tb_mdy += y - cy; tb_mwarp = 1;
+        return;
+    }
+    if (tb_mseen) { tb_mdx += x - tb_mx; tb_mdy += y - tb_my; }
+    tb_mseen = 1; tb_mx = x; tb_my = y;
+}
 TB_API int tb_sharp = 0;       // window_sharp(): окно в настоящих точках экрана
 TB_API double tb_sc = 1;        // во сколько раз точек больше (Retina — 2)
 TB_API void tb_gfx_resizable(void);   // свои у каждой системы
@@ -8016,6 +8032,17 @@ TB_API void tb_gfx_close2(void) {
     for (int i = 0; i < 3; i++) { free(tb_pres[i]); tb_pres[i] = 0; }
     tb_wnd = 0; tb_layer = 0;
 }
+// полный экран Mac: своё пространство на весь экран (как зелёная кнопка окна)
+TB_API void tb_gfx_fullscreen(int on) {
+    TB_MSG1(void, tb_wnd, "setCollectionBehavior:", unsigned long, 1UL << 7);
+    int now = (TB_MSG(unsigned long, tb_wnd, "styleMask") & (1UL << 14)) != 0;
+    if (now != (on != 0)) TB_MSG1(void, tb_wnd, "toggleFullScreen:", id, 0);
+}
+// захват мыши: курсор спрятан и стоит на месте, а сдвиг приходит в событиях (deltaX, deltaY)
+TB_API void tb_gfx_lock(int on) {
+    CGAssociateMouseAndMouseCursorPosition(on ? 0 : 1);
+    tb_gfx_cursor(on ? 7 : tb_cursor_prog);
+}
 // окно без клавиатуры (выбрали другое) — его клавиши отпущены
 TB_API void tb_gfx_poll(void) {
     if (!TB_MSG(BOOL, tb_wnd, "isKeyWindow")) memset(tb_keys, 0, sizeof tb_keys);
@@ -8085,9 +8112,13 @@ TB_API void tb_gfx_events(void) {
         unsigned long t = TB_MSG(unsigned long, ev, "type");
         if (t == 1) tb_mdown = tb_mtap = 1;
         else if (t == 2) tb_mdown = 0;
-        if (t == 1 || t == 2 || t == 5 || t == 6) {
+        if ((t == 1 || t == 2 || t == 5 || t == 6) && !tb_mlock) {
             CGPoint p = TB_MSG(CGPoint, ev, "locationInWindow");
             tb_mx = (int)(p.x * tb_sc); tb_my = (int)(tb_gh - p.y * tb_sc);
+        }
+        if (t == 5 || t == 6 || t == 7 || t == 27) {   // сдвиг мыши (и когда курсор заперт)
+            tb_mdx += TB_MSG(double, ev, "deltaX") * tb_sc;
+            tb_mdy += TB_MSG(double, ev, "deltaY") * tb_sc;
         }
         if (t == 10 || t == 11) {
             unsigned short k = TB_MSG(unsigned short, ev, "keyCode");
@@ -8171,7 +8202,16 @@ static LRESULT tb_win_proc_in(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         if (wp != VK_F4) return 0;   // Alt+F4 пусть закрывает окно
         break;
     }
-    case WM_MOUSEMOVE: tb_mx = (short)LOWORD(lp); tb_my = (short)HIWORD(lp); return 0;
+    case WM_MOUSEMOVE: if (!tb_mlock) tb_mouse_at((short)LOWORD(lp), (short)HIWORD(lp)); return 0;
+    case WM_INPUT: {   // захваченная мышь: сдвиг прямо от мыши (без ускорения Windows)
+        RAWINPUT ri;
+        UINT sz = sizeof ri;
+        if (tb_mlock && GetRawInputData((HRAWINPUT)lp, RID_INPUT, &ri, &sz, sizeof(RAWINPUTHEADER)) != (UINT)-1
+            && ri.header.dwType == RIM_TYPEMOUSE && !(ri.data.mouse.usFlags & MOUSE_MOVE_ABSOLUTE)) {
+            tb_mdx += ri.data.mouse.lLastX; tb_mdy += ri.data.mouse.lLastY;
+        }
+        break;
+    }
     case WM_MOUSEWHEEL: tb_wheel_add((short)HIWORD(wp) / 120.0); return 0;
     case WM_XBUTTONDOWN: case WM_XBUTTONUP: tb_side(HIWORD(wp) == 2, msg == WM_XBUTTONDOWN); return TRUE;
     case WM_CHAR: {   // буква из TranslateMessage, в UTF-16: русские тоже, пары для смайликов
@@ -8265,6 +8305,42 @@ TB_API int tb_gfx_open2(const char *title) {
 TB_API void tb_gfx_show(void) { HDC dc = GetDC(tb_hwnd); if (dc) { tb_win_blit(dc); ReleaseDC(tb_hwnd, dc); } }
 TB_API void tb_gfx_close2(void) { DestroyWindow(tb_hwnd); tb_hwnd = 0; }
 TB_API void tb_gfx_poll(void) {}
+// полный экран: окно без рамки размером с монитор; назад — прежние рамка и место
+TB_API void tb_gfx_fullscreen(int on) {
+    static WINDOWPLACEMENT wp;
+    static LONG_PTR old = 0;
+    LONG_PTR st = GetWindowLongPtrW(tb_hwnd, GWL_STYLE);
+    if (on && !old) {
+        MONITORINFO mi;
+        mi.cbSize = sizeof mi;
+        wp.length = sizeof wp;
+        if (!GetWindowPlacement(tb_hwnd, &wp) || !GetMonitorInfoW(MonitorFromWindow(tb_hwnd, MONITOR_DEFAULTTOPRIMARY), &mi)) return;
+        old = st;
+        SetWindowLongPtrW(tb_hwnd, GWL_STYLE, (st & ~(LONG_PTR)WS_OVERLAPPEDWINDOW) | WS_POPUP);
+        SetWindowPos(tb_hwnd, HWND_TOP, mi.rcMonitor.left, mi.rcMonitor.top, mi.rcMonitor.right - mi.rcMonitor.left,
+            mi.rcMonitor.bottom - mi.rcMonitor.top, SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+    } else if (!on && old) {
+        SetWindowLongPtrW(tb_hwnd, GWL_STYLE, old);
+        SetWindowPlacement(tb_hwnd, &wp);
+        SetWindowPos(tb_hwnd, 0, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+        old = 0;
+    }
+}
+// захват мыши: сдвиг через Raw Input, курсор спрятан и заперт в окне (ClipCursor)
+TB_API void tb_win_clip(void) {
+    RECT r;
+    GetClientRect(tb_hwnd, &r);
+    MapWindowPoints(tb_hwnd, 0, (POINT *)&r, 2);
+    ClipCursor(&r);
+}
+TB_API void tb_gfx_lock(int on) {
+    RAWINPUTDEVICE rid;
+    rid.usUsagePage = 1; rid.usUsage = 2;
+    rid.dwFlags = on ? 0 : RIDEV_REMOVE; rid.hwndTarget = on ? tb_hwnd : 0;
+    RegisterRawInputDevices(&rid, 1, sizeof rid);
+    if (on) { tb_gfx_cursor(7); tb_win_clip(); }
+    else { ClipCursor(0); tb_gfx_cursor(tb_cursor_prog); }
+}
 // буфер обмена Windows: текст в UTF-16
 TB_API char *tb_gfx_clip_get(void) {
     if (!OpenClipboard(tb_hwnd)) return 0;
@@ -8301,6 +8377,7 @@ TB_API void tb_gfx_cursor(int k) {
 TB_API void tb_gfx_events(void) {
     if (tb_gpu_on) tb_gpu_flush(1);
     else { HDC dc = GetDC(tb_hwnd); if (dc) { tb_win_blit(dc); ReleaseDC(tb_hwnd, dc); } }
+    if (tb_mlock && GetForegroundWindow() == tb_hwnd) tb_win_clip();   // окно вернули из другой программы: запереть снова
     MSG m;
     while (PeekMessageW(&m, 0, 0, 0, PM_REMOVE)) { TranslateMessage(&m); DispatchMessageW(&m); }
 }
@@ -8395,6 +8472,44 @@ TB_API void tb_gfx_close2(void) {
     XFlush(tb_dpy);
 }
 TB_API void tb_gfx_poll(void) {}
+// полный экран: просим менеджер окон (_NET_WM_STATE_FULLSCREEN); без менеджера (голый X) — растягиваем сами
+TB_API void tb_gfx_fullscreen(int on) {
+    static int saved_w = 0, saved_h = 0;
+    Window root = DefaultRootWindow(tb_dpy);
+    Atom chk = XInternAtom(tb_dpy, "_NET_SUPPORTING_WM_CHECK", False), type; int fmt; unsigned long n = 0, rest; unsigned char *data = 0;
+    int wm = XGetWindowProperty(tb_dpy, root, chk, 0, 1, False, AnyPropertyType, &type, &fmt, &n, &rest, &data) == Success && n > 0;
+    if (data) XFree(data);
+    if (wm) {
+        XEvent e;
+        memset(&e, 0, sizeof e);
+        e.xclient.type = ClientMessage; e.xclient.window = tb_xw; e.xclient.format = 32;
+        e.xclient.message_type = XInternAtom(tb_dpy, "_NET_WM_STATE", False);
+        e.xclient.data.l[0] = on ? 1 : 0;
+        e.xclient.data.l[1] = (long)XInternAtom(tb_dpy, "_NET_WM_STATE_FULLSCREEN", False);
+        e.xclient.data.l[3] = 1;
+        XSendEvent(tb_dpy, root, False, SubstructureRedirectMask | SubstructureNotifyMask, &e);
+    } else if (on) {
+        if (!saved_w) { saved_w = tb_gw; saved_h = tb_gh; }
+        int scr = DefaultScreen(tb_dpy);
+        XMoveResizeWindow(tb_dpy, tb_xw, 0, 0, (unsigned)DisplayWidth(tb_dpy, scr), (unsigned)DisplayHeight(tb_dpy, scr));
+    } else if (saved_w) {
+        XResizeWindow(tb_dpy, tb_xw, (unsigned)saved_w, (unsigned)saved_h);
+        saved_w = saved_h = 0;
+    }
+    XFlush(tb_dpy);
+}
+// захват мыши: курсор спрятан и заперт в окне, после каждого кадра возвращается в середину
+TB_API void tb_gfx_lock(int on) {
+    if (on) {
+        tb_gfx_cursor(7);
+        XGrabPointer(tb_dpy, tb_xw, True, PointerMotionMask | ButtonPressMask | ButtonReleaseMask, GrabModeAsync, GrabModeAsync, tb_xw, None, CurrentTime);
+        XWarpPointer(tb_dpy, None, tb_xw, 0, 0, 0, 0, tb_gw / 2, tb_gh / 2);
+    } else {
+        XUngrabPointer(tb_dpy, CurrentTime);
+        tb_gfx_cursor(tb_cursor_prog);
+    }
+    XFlush(tb_dpy);
+}
 // знак клавиши → буква Unicode (русская раскладка в X11 — свои старые номера 0x6c0..0x6ff)
 TB_API unsigned tb_x_uni(KeySym s) {
     static const unsigned short cyr[64] = { 0x44e, 0x430, 0x431, 0x446, 0x434, 0x435, 0x444, 0x433, 0x445, 0x438, 0x439, 0x43a, 0x43b, 0x43c, 0x43d, 0x43e, 0x43f, 0x44f, 0x440, 0x441, 0x442, 0x443, 0x436, 0x432, 0x44c, 0x44b, 0x437, 0x448, 0x44d, 0x449, 0x447, 0x44a, 0x42e, 0x410, 0x411, 0x426, 0x414, 0x415, 0x424, 0x413, 0x425, 0x418, 0x419, 0x41a, 0x41b, 0x41c, 0x41d, 0x41e, 0x41f, 0x42f, 0x420, 0x421, 0x422, 0x423, 0x416, 0x412, 0x42c, 0x42b, 0x417, 0x428, 0x42d, 0x429, 0x427, 0x42a };
@@ -8516,12 +8631,13 @@ TB_API void tb_gfx_events(void) {
             if (e.type == ButtonPress && e.xbutton.button == 4) tb_wheel_add(1);
             if (e.type == ButtonPress && e.xbutton.button == 5) tb_wheel_add(-1);
             tb_mx = e.xbutton.x; tb_my = e.xbutton.y;
-        } else if (e.type == MotionNotify) { tb_mx = e.xmotion.x; tb_my = e.xmotion.y; }
+        } else if (e.type == MotionNotify) tb_mouse_at(e.xmotion.x, e.xmotion.y);
         else if (e.type == ConfigureNotify && (e.xconfigure.width != tb_gw || e.xconfigure.height != tb_gh)) {
             tb_new_w = e.xconfigure.width; tb_new_h = e.xconfigure.height;
         }
     }
     if (tb_wcur != was) tb_wswitch(was);
+    if (tb_mlock && tb_mwarp) { XWarpPointer(tb_dpy, None, tb_xw, 0, 0, 0, 0, tb_gw / 2, tb_gh / 2); tb_mwarp = 0; }
     XFlush(tb_dpy);
 }
 #endif
@@ -8691,6 +8807,23 @@ TB_API int tb_window_shown(long long n) {
     return n >= 0 && n < tb_wn && tb_wins[n].used && tb_wins[n].px && !tb_wins[n].gclosed;
 }
 TB_API void tb_apply_resize(void);
+// полный экран (true) и снова окно (false). Размер кадра меняется: смотри window_w(), window_h()
+TB_API void tb_window_fullscreen(int on) {
+    if (!tb_px) return;
+    if (!tb_resizable) { tb_resizable = 1; tb_gfx_resizable(); }
+    tb_gfx_fullscreen(on);
+}
+// захват мыши для игр от первого лица: курсора не видно, он не упирается в край, поворот — mouse_dx/mouse_dy
+TB_API void tb_mouse_lock(int on) {
+    if (!tb_px || (on != 0) == tb_mlock) return;
+    tb_mlock = on != 0;
+    tb_mdx = tb_mdy = 0;
+    if (tb_mlock) { tb_mx = tb_gw / 2; tb_my = tb_gh / 2; }
+    tb_gfx_lock(tb_mlock);
+}
+// на сколько точек сдвинули мышь с прошлого раза: вправо и вниз — плюс
+TB_API double tb_mouse_dx(void) { double d = tb_mdx; tb_mdx = 0; return d; }
+TB_API double tb_mouse_dy(void) { double d = tb_mdy; tb_mdy = 0; return d; }
 // window_alive: кадры других окон — на экран; потом снова рисуем в главное окно
 static void tb_windows_show(void) {
     tb_wswitch(0);
@@ -11016,7 +11149,7 @@ TB_API void tb_clipboard_set(const char *s) { tb_gfx_clip_set(s ? s : ""); }
 TB_API void tb_set_cursor(const char *name, int line) {
     static const char *names[] = { "arrow", "hand", "text", "move", "resize_x", "resize_y", "wait", "none" };
     for (int i = 0; i < 8; i++)
-        if (strcmp(name, names[i]) == 0) { if (tb_px) tb_gfx_cursor(i); else tb_cursor_want = i; return; }
+        if (strcmp(name, names[i]) == 0) { tb_cursor_prog = i; if (tb_px) { if (!tb_mlock) tb_gfx_cursor(i); } else tb_cursor_want = i; return; }
     char buf[200];
     snprintf(buf, sizeof buf, "set_cursor: нет курсора «%s»; есть arrow, hand, text, move, resize_x, resize_y, wait, none", name);
     tb_crash(line, buf);
@@ -11798,6 +11931,10 @@ TB_B(long long, window_new, (long long w, long long h, const char *t, int line),
 TB_BV(window_use, (long long n, int line), tb_window_use(n))
 TB_BV(window_close, (long long n, int line), tb_window_close(n))
 TB_B(_Bool, window_shown, (long long n, int line), tb_window_shown(n))
+TB_BV(window_fullscreen, (_Bool on, int line), tb_window_fullscreen(on))
+TB_BV(mouse_lock, (_Bool on, int line), tb_mouse_lock(on))
+TB_B(double, mouse_dx, (int line), tb_mouse_dx())
+TB_B(double, mouse_dy, (int line), tb_mouse_dy())
 TB_B(_Bool, window_alive, (int line), tb_window_alive())
 TB_BV(clear_window, (long long c, int line), tb_clear_window(c))
 TB_BV(draw_pixel, (long long x, long long y, long long c, int line), tb_draw_pixel(x, y, c))
