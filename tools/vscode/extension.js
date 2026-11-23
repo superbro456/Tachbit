@@ -84,6 +84,7 @@ function activate(context) {
     context.subscriptions.push(
         diags,
         vscode.commands.registerCommand('tachbit.run', () => runInTerminal('run')),
+        vscode.commands.registerCommand('tachbit.runBar', () => runInTerminal('run')),
         vscode.commands.registerCommand('tachbit.check', () => {
             const ed = vscode.window.activeTextEditor;
             if (ed) ed.document.save().then(() => check(ed.document));
