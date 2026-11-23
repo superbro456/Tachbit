@@ -28,7 +28,7 @@ obj ShFn
 // поля точки и угла: место в общем массиве io (одинаково в SPIR-V, Metal и C)
 modpub func sh_fields(stage: text) gives f: list text
     if stage == "pixel"
-        f = ["x", "y", "z", "wx", "wy", "wz", "nx", "ny", "nz", "u", "v", "r", "g", "b", "a", "time", "sx", "sy", "sz", "amb", "cx", "cy", "cz", "p0", "p1", "p2", "p3", "p4", "p5", "p6", "p7"]
+        f = ["x", "y", "z", "wx", "wy", "wz", "nx", "ny", "nz", "u", "v", "r", "g", "b", "a", "time", "sx", "sy", "sz", "amb", "cx", "cy", "cz", "tx", "ty", "tz", "p0", "p1", "p2", "p3", "p4", "p5", "p6", "p7"]
     else if stage == "corner"
         f = ["x", "y", "z", "nx", "ny", "nz", "u", "v", "r", "g", "b", "a", "time", "i", "p0", "p1", "p2", "p3", "p4", "p5", "p6", "p7"]
     else if stage == "screen"
@@ -42,6 +42,11 @@ modpub func sh_screen_read(name: text)
         if w == name
             return true
     return false
+
+// мир для шейдеров точки и углов (и их помощников): tb_record(k) — число k записи draw_mesh
+// (лампы 64.., картинки 48..), tb_texel(слот, x, y, сдвиг) — канал точки картинки слота (по кругу)
+modpub func sh_world(name: text)
+    return name == "tb_record" or name == "tb_texel"
 
 modpub func sh_field_at(stage: text, name: text)
     fs = sh_fields(stage)
@@ -70,6 +75,78 @@ modpub func sh_prelude() gives s: text
     s += "    d = mix(hash(n + 170), hash(n + 171), fx)\n"
     s += "    return mix(mix(a, b, fy), mix(c, d, fy), fz)\n"
     s += "\n"
+    s += "gpu func lamp_on(i: int) gives r: bool\n"
+    s += "    return tb_record(64 + 16 * i) > 0.5\n"
+    s += "\n"
+    s += "gpu func lamp_x(i: int) gives r: dec\n"
+    s += "    return tb_record(66 + 16 * i)\n"
+    s += "\n"
+    s += "gpu func lamp_y(i: int) gives r: dec\n"
+    s += "    return tb_record(67 + 16 * i)\n"
+    s += "\n"
+    s += "gpu func lamp_z(i: int) gives r: dec\n"
+    s += "    return tb_record(68 + 16 * i)\n"
+    s += "\n"
+    s += "gpu func lamp_r(i: int) gives r: dec\n"
+    s += "    return tb_record(75 + 16 * i)\n"
+    s += "\n"
+    s += "gpu func lamp_g(i: int) gives r: dec\n"
+    s += "    return tb_record(76 + 16 * i)\n"
+    s += "\n"
+    s += "gpu func lamp_b(i: int) gives r: dec\n"
+    s += "    return tb_record(77 + 16 * i)\n"
+    s += "\n"
+    s += "gpu func lamp_k(i: int, x: dec, y: dec, z: dec) gives k: dec\n"
+    s += "    b = 64 + 16 * i\n"
+    s += "    if tb_record(b) < 0.5\n"
+    s += "        return 0.0\n"
+    s += "    lx = tb_record(b + 2) - x\n"
+    s += "    ly = tb_record(b + 3) - y\n"
+    s += "    lz = tb_record(b + 4) - z\n"
+    s += "    d = sqrt(lx * lx + ly * ly + lz * lz)\n"
+    s += "    range = tb_record(b + 10)\n"
+    s += "    if d >= range or d < 0.000001\n"
+    s += "        return 0.0\n"
+    s += "    k = 1 - d / range\n"
+    s += "    k = k * k\n"
+    s += "    if tb_record(b + 1) > 0.5\n"
+    s += "        cd = -(lx * tb_record(b + 5) + ly * tb_record(b + 6) + lz * tb_record(b + 7)) / d\n"
+    s += "        c0 = tb_record(b + 8)\n"
+    s += "        c1 = tb_record(b + 9)\n"
+    s += "        if cd <= c1\n"
+    s += "            return 0.0\n"
+    s += "        if cd < c0\n"
+    s += "            t = (cd - c1) / (c0 - c1)\n"
+    s += "            k = k * t * t * (3 - 2 * t)\n"
+    s += "    return k\n"
+    s += "\n"
+    s += "gpu func tex_on(slot: int) gives r: bool\n"
+    s += "    return tb_record(49 + 3 * slot) > 0.5\n"
+    s += "\n"
+    s += "gpu func tex_chan(slot: int, u: dec, v: dec, sh: int) gives r: dec\n"
+    s += "    x = u * tb_record(49 + 3 * slot) - 0.5\n"
+    s += "    y = v * tb_record(50 + 3 * slot) - 0.5\n"
+    s += "    x0 = floor(x)\n"
+    s += "    y0 = floor(y)\n"
+    s += "    fx = x - x0\n"
+    s += "    fy = y - y0\n"
+    s += "    ix = to_int(x0)\n"
+    s += "    iy = to_int(y0)\n"
+    s += "    a = mix(tb_texel(slot, ix, iy, sh), tb_texel(slot, ix + 1, iy, sh), fx)\n"
+    s += "    b = mix(tb_texel(slot, ix, iy + 1, sh), tb_texel(slot, ix + 1, iy + 1, sh), fx)\n"
+    s += "    return mix(a, b, fy)\n"
+    s += "\n"
+    s += "gpu func tex_r(slot: int, u: dec, v: dec) gives r: dec\n"
+    s += "    return tex_chan(slot, u, v, 16)\n"
+    s += "\n"
+    s += "gpu func tex_g(slot: int, u: dec, v: dec) gives r: dec\n"
+    s += "    return tex_chan(slot, u, v, 8)\n"
+    s += "\n"
+    s += "gpu func tex_b(slot: int, u: dec, v: dec) gives r: dec\n"
+    s += "    return tex_chan(slot, u, v, 0)\n"
+    s += "\n"
+    s += "gpu func tex_a(slot: int, u: dec, v: dec) gives r: dec\n"
+    s += "    return tex_chan(slot, u, v, 24)\n"
     s += "gpu func tb_corner(v: corner)\n"
     s += "    v.x = v.x\n"
     s += "\n"
@@ -195,7 +272,17 @@ func sh_expr(c: Comp, fns: list ShFn, f: ShFn, n: Node) gives t: int
                 sh_err(c, arg, "в gpu func аргументы пишутся по порядку, без имён", arg.name)
             args.add(sh_expr(c, fns, f, arg.kids[0]))
         m = sh_math(n.name)
-        if sh_screen_read(n.name)
+        if sh_world(n.name)
+            want = 1
+            if n.name == "tb_texel"
+                want = 4
+            if len(args) != want
+                sh_err(c, n, n.name + " ждёт целых чисел: " + want, "")
+            each a in args
+                if a != 1
+                    sh_err(c, n, n.name + " ждёт целые числа", "")
+            t = 2
+        else if sh_screen_read(n.name)
             if f.stage != "screen"
                 sh_err(c, n, n.name + " читает кадр только в самом шейдере экрана (s: screen), не в помощнике", n.name)
             if len(args) != 2 or not sh_is_num(args[0]) or not sh_is_num(args[1])
@@ -455,6 +542,10 @@ func sh_ctext(f: ShFn, n: Node) gives r: text
             return "tbs_idiv(" + sh_ce(f, a, 1) + ", " + sh_ce(f, b, 1) + ")"
         return "(" + sh_ce(f, a, w) + " " + op + " " + sh_ce(f, b, w) + ")"
     if k == "call"
+        if n.name == "tb_record"
+            return "tbs_rec(R, " + sh_ce(f, n.kids[0].kids[0], 1) + ")"
+        if n.name == "tb_texel"
+            return "tbs_texel(R, T, " + sh_ce(f, n.kids[0].kids[0], 1) + ", " + sh_ce(f, n.kids[1].kids[0], 1) + ", " + sh_ce(f, n.kids[2].kids[0], 1) + ", " + sh_ce(f, n.kids[3].kids[0], 1) + ")"
         if sh_screen_read(n.name)
             xy = sh_ce(f, n.kids[0].kids[0], 2) + ", " + sh_ce(f, n.kids[1].kids[0], 2)
             if n.name == "screen_depth"
@@ -482,7 +573,9 @@ func sh_ctext(f: ShFn, n: Node) gives r: text
                     s += ", "
                 s += sh_ce(f, n.kids[i].kids[0], want)
             return s + ")"
-        return s + sh_cargs(f, n) + ")"
+        if len(n.kids) == 0
+            return s + "R, T)"
+        return s + "R, T, " + sh_cargs(f, n) + ")"
     return "0"
 
 // аргументы помощника: типы подставит C (int → float сам), bool — как есть
@@ -565,11 +658,15 @@ func sh_cstmt(f: ShFn, s: Node, d: int, out: list text, hid: list int)
 
 func sh_chead(f: ShFn, msl: bool)
     s = "static " + sh_ctype(f.ret, msl) + " tbs_" + f.name + "("
+    if msl
+        s += "device const float *R, device const uint *T"
+    else
+        s += "const float *R, const uint32_t *T"
     if f.stage != ""
         if msl
-            s += "thread float *io"
+            s += ", thread float *io"
         else
-            s += "float *io"
+            s += ", float *io"
         if f.stage == "screen"
             if msl
                 s += ", device const uint *scr, device const float *scz"
@@ -577,12 +674,7 @@ func sh_chead(f: ShFn, msl: bool)
                 s += ", const uint32_t *scr, const float *scz"
     else
         count i from 0 to f.npar - 1
-            if i > 0
-                s += ", "
-            s += sh_ctype(f.vtypes[i], msl) + " v_" + f.vnames[i]
-        if f.npar == 0
-            if not msl
-                s += "void"
+            s += ", " + sh_ctype(f.vtypes[i], msl) + " v_" + f.vnames[i]
     return s + ")"
 
 func sh_cfunc(f: ShFn, msl: bool, out: list text)
@@ -650,6 +742,13 @@ func sh_preamble(msl: bool, out: list text)
     ti = "const float *io"
     if msl
         ti = "thread float *io"
+    // запись draw_mesh и картинки: слот s — R[48 + 3s] (начало в общем буфере, биты uint), ширина, высота
+    if msl
+        out.add(st + "float tbs_rec(device const float *R, int k) { return k >= 0 && k < 192 ? R[k] : 0.0f; }\n")
+        out.add(st + "float tbs_texel(device const float *R, device const uint *T, int s, int x, int y, int sh) { if (s < 0 || s > 3) return 0.0f; int w = (int)R[49 + 3 * s], h = (int)R[50 + 3 * s]; if (w <= 0 || h <= 0) return 0.0f; uint off = as_type<uint>(R[48 + 3 * s]); x %= w; if (x < 0) x += w; y %= h; if (y < 0) y += h; return (float)((T[off + (uint)(y * w + x)] >> sh) & 255u) / 255.0f; }\n")
+    else
+        out.add(st + "float tbs_rec(const float *R, int k) { return k >= 0 && k < 192 ? R[k] : 0.0f; }\n")
+        out.add(st + "float tbs_texel(const float *R, const uint32_t *T, int s, int x, int y, int sh) { if (s < 0 || s > 3 || !T) return 0.0f; int w = (int)R[49 + 3 * s], h = (int)R[50 + 3 * s]; if (w <= 0 || h <= 0) return 0.0f; uint32_t off; memcpy(&off, &R[48 + 3 * s], 4); x %= w; if (x < 0) x += w; y %= h; if (y < 0) y += h; return (float)((T[off + (uint32_t)(y * w + x)] >> sh) & 255u) / 255.0f; }\n")
     out.add(st + "int tbs_scri(" + ti + ", float x, float y) { int w = (int)io[2], h = (int)io[3]; int ix = (int)tbs_floor(x), iy = (int)tbs_floor(y); ix = tbs_iclamp(ix, 0, w - 1); iy = tbs_iclamp(iy, 0, h - 1); return iy * w + ix; }\n")
     out.add(st + "float tbs_scr1(" + pu + ", float x, float y, int sh) { return (float)((p[tbs_scri(io, x, y)] >> sh) & 255u) / 255.0f; }\n")
     // между точками — смесь четырёх соседей (размытие, свечение и сглаживание выходят мягче)
@@ -665,32 +764,34 @@ func sh_ftext(fns: list ShFn, msl: bool, out: list text)
 
 // Metal: входы и выходы шейдеров (у каждого шейдера углов — вершинная функция, у точки — функция точки)
 func sh_msl_wrappers(fns: list ShFn, out: list text)
-    out.add("struct TbsVin { float3 pos [[attribute(0)]]; float3 nrm [[attribute(1)]]; float4 col [[attribute(2)]]; float2 uv [[attribute(3)]]; };\n")
-    out.add("struct TbsVout { float4 pos [[position]]; float3 w; float3 n; float4 c; float2 uv; };\n")
+    out.add("struct TbsVin { float3 pos [[attribute(0)]]; float3 nrm [[attribute(1)]]; float4 col [[attribute(2)]]; float2 uv [[attribute(3)]]; float3 tan [[attribute(4)]]; };\n")
+    out.add("struct TbsVout { float4 pos [[position]]; float3 w; float3 n; float4 c; float2 uv; float3 t; };\n")
     each f in fns
         if f.stage == "corner"
-            out.add("vertex TbsVout tbs_v_" + f.name + "(TbsVin in [[stage_in]], uint vid [[vertex_id]], device const float *rec [[buffer(10)]], constant uint &off [[buffer(11)]]) {\n")
-            out.add("    device const float *R = rec + off;\n    float io[32];\n    for (int k = 0; k < 32; k++) io[k] = 0;\n")
+            out.add("vertex TbsVout tbs_v_" + f.name + "(TbsVin in [[stage_in]], uint vid [[vertex_id]], device const float *rec [[buffer(10)]], constant uint &off [[buffer(11)]], device const uint *T [[buffer(12)]]) {\n")
+            out.add("    device const float *R = rec + off;\n    float io[48];\n    for (int k = 0; k < 48; k++) io[k] = 0;\n")
             out.add("    io[0] = in.pos.x; io[1] = in.pos.y; io[2] = in.pos.z; io[3] = in.nrm.x; io[4] = in.nrm.y; io[5] = in.nrm.z;\n")
             out.add("    io[6] = in.uv.x; io[7] = in.uv.y; io[8] = in.col.x; io[9] = in.col.y; io[10] = in.col.z; io[11] = in.col.w;\n")
             out.add("    io[12] = R[27]; io[13] = float(vid);\n    for (int k = 0; k < 8; k++) io[14 + k] = R[40 + k];\n")
-            out.add("    tbs_" + f.name + "(io);\n")
+            out.add("    tbs_" + f.name + "(R, T, io);\n")
             out.add("    float3 w = float3(R[0] * io[0] + R[1] * io[1] + R[2] * io[2] + R[9], R[3] * io[0] + R[4] * io[1] + R[5] * io[2] + R[10], R[6] * io[0] + R[7] * io[1] + R[8] * io[2] + R[11]);\n")
             out.add("    float3 n = float3(R[0] * io[3] + R[1] * io[4] + R[2] * io[5], R[3] * io[3] + R[4] * io[4] + R[5] * io[5], R[6] * io[3] + R[7] * io[4] + R[8] * io[5]);\n")
             out.add("    float3 d = w - float3(R[12], R[13], R[14]);\n")
             out.add("    float cx = d.x * R[15] + d.y * R[16] + d.z * R[17], cy = d.x * R[18] + d.y * R[19] + d.z * R[20], cz = d.x * R[21] + d.y * R[22] + d.z * R[23];\n")
             out.add("    TbsVout o;\n    o.pos = float4(cx * R[24], cy * R[25], cz - R[26], cz);\n")
-            out.add("    o.w = w; o.n = n; o.c = float4(io[8], io[9], io[10], io[11]); o.uv = float2(io[6], io[7]);\n    return o;\n}\n")
+            out.add("    o.w = w; o.n = n; o.c = float4(io[8], io[9], io[10], io[11]); o.uv = float2(io[6], io[7]);\n")
+            out.add("    o.t = float3(R[0] * in.tan.x + R[1] * in.tan.y + R[2] * in.tan.z, R[3] * in.tan.x + R[4] * in.tan.y + R[5] * in.tan.z, R[6] * in.tan.x + R[7] * in.tan.y + R[8] * in.tan.z);\n    return o;\n}\n")
         else if f.stage == "pixel"
-            out.add("fragment float4 tbs_f_" + f.name + "(TbsVout in [[stage_in]], device const float *rec [[buffer(10)]], constant uint &off [[buffer(11)]]) {\n")
-            out.add("    device const float *R = rec + off;\n    float io[32];\n    for (int k = 0; k < 32; k++) io[k] = 0;\n")
+            out.add("fragment float4 tbs_f_" + f.name + "(TbsVout in [[stage_in]], device const float *rec [[buffer(10)]], constant uint &off [[buffer(11)]], device const uint *T [[buffer(12)]]) {\n")
+            out.add("    device const float *R = rec + off;\n    float io[48];\n    for (int k = 0; k < 48; k++) io[k] = 0;\n")
             out.add("    float3 n = metal::normalize(in.n);\n")
             out.add("    io[0] = in.pos.x - 0.5f; io[1] = in.pos.y - 0.5f; io[2] = in.pos.z; io[3] = in.w.x; io[4] = in.w.y; io[5] = in.w.z;\n")
             out.add("    io[6] = n.x; io[7] = n.y; io[8] = n.z; io[9] = in.uv.x; io[10] = in.uv.y;\n")
             out.add("    io[11] = in.c.x; io[12] = in.c.y; io[13] = in.c.z; io[14] = in.c.w; io[15] = R[27];\n")
             out.add("    io[16] = R[28]; io[17] = R[29]; io[18] = R[30]; io[19] = R[31]; io[20] = R[12]; io[21] = R[13]; io[22] = R[14];\n")
-            out.add("    for (int k = 0; k < 8; k++) io[23 + k] = R[32 + k];\n")
-            out.add("    tbs_" + f.name + "(io);\n")
+            out.add("    io[23] = in.t.x; io[24] = in.t.y; io[25] = in.t.z;\n")
+            out.add("    for (int k = 0; k < 8; k++) io[26 + k] = R[32 + k];\n")
+            out.add("    tbs_" + f.name + "(R, T, io);\n")
             out.add("    float a = metal::clamp(io[14], 0.0f, 1.0f);\n    if (a <= 0.0f) discard_fragment();\n")
             out.add("    return float4(metal::clamp(io[11], 0.0f, 1.0f) * a, metal::clamp(io[12], 0.0f, 1.0f) * a, metal::clamp(io[13], 0.0f, 1.0f) * a, a);\n}\n")
     // экран: один треугольник на всё окно, кадр — в буферах 12 (цвет) и 13 (глубина)
@@ -705,12 +806,12 @@ func sh_msl_wrappers(fns: list ShFn, out: list text)
     each f in fns
         if f.stage == "screen"
             out.add("fragment float4 tbs_s_" + f.name + "(TbsSout in [[stage_in]], device const float *rec [[buffer(10)]], constant uint &off [[buffer(11)]], device const uint *scr [[buffer(12)]], device const float *scz [[buffer(13)]]) {\n")
-            out.add("    device const float *R = rec + off;\n    float io[32];\n    for (int k = 0; k < 32; k++) io[k] = 0;\n")
+            out.add("    device const float *R = rec + off;\n    float io[48];\n    for (int k = 0; k < 48; k++) io[k] = 0;\n")
             out.add("    io[0] = in.pos.x - 0.5f; io[1] = in.pos.y - 0.5f; io[2] = R[0]; io[3] = R[1];\n")
             out.add("    uint c = scr[tbs_scri(io, io[0], io[1])];\n")
             out.add("    io[4] = (float)((c >> 16) & 255u) / 255.0f; io[5] = (float)((c >> 8) & 255u) / 255.0f; io[6] = (float)(c & 255u) / 255.0f; io[7] = 1.0f; io[8] = R[2];\n")
             out.add("    for (int k = 0; k < 8; k++) io[9 + k] = R[8 + k];\n")
-            out.add("    tbs_" + f.name + "(io, scr, scz);\n")
+            out.add("    tbs_" + f.name + "(R, scr, io, scr, scz);\n")
             out.add("    float a = metal::clamp(io[7], 0.0f, 1.0f);\n    if (a <= 0.0f) discard_fragment();\n")
             out.add("    return float4(metal::clamp(io[4], 0.0f, 1.0f) * a, metal::clamp(io[5], 0.0f, 1.0f) * a, metal::clamp(io[6], 0.0f, 1.0f) * a, a);\n}\n")
 
@@ -735,6 +836,10 @@ obj Spv
     fnids: list int
     scr: int
     scz: int
+    // мир: буфер записей (binding 0), номер своей записи (Private), точки картинок (binding 1)
+    rec: int
+    offv: int
+    tex: int
 
 func sv_none() gives r: list int
     return r
@@ -864,11 +969,20 @@ func sv_cflt(s: Spv, x: dec)
     b = f32_bits(x)
     return sv_const(s, t, "cf" + b, b)
 
+// у констант сначала тип, потом номер (у sv_simple — наоборот)
 func sv_cbool(s: Spv, v: bool)
     t = sv_bool(s)
+    key = "false"
+    op = 42
     if v
-        return sv_simple(s, "true", 41, [t])
-    return sv_simple(s, "false", 42, [t])
+        key = "true"
+        op = 41
+    id = sv_get(s, key)
+    if id != 0
+        return id
+    id = sv_id(s)
+    sv_ins(s.glob, op, [t, id])
+    return sv_keep(s, key, id)
 
 func sv_zero(s: Spv, t: int)
     if t == 1
@@ -888,7 +1002,7 @@ func sv_fnty(s: Spv, ret: int, ps: list int)
 
 func sv_arr32(s: Spv)
     f = sv_float(s)
-    n = sv_cint(s, 32)
+    n = sv_cint(s, 48)
     return sv_simple(s, "arr32", 28, [f, n])
 
 // одна команда в теле функции с результатом
@@ -1005,6 +1119,13 @@ func sv_expr(s: Spv, fns: list ShFn, f: ShFn, n: Node) gives r: int
                 return sv_op(s, code, ty, [x, y])
         return x
     if k == "call"
+        if n.name == "tb_record"
+            return sv_world_rec(s, sv_e(s, fns, f, n.kids[0].kids[0], 1))
+        if n.name == "tb_texel"
+            a = list int
+            count i from 0 to 3
+                a.add(sv_e(s, fns, f, n.kids[i].kids[0], 1))
+            return sv_texel(s, a[0], a[1], a[2], a[3])
         if sh_screen_read(n.name)
             x = sv_e(s, fns, f, n.kids[0].kids[0], 2)
             y = sv_e(s, fns, f, n.kids[1].kids[0], 2)
@@ -1053,6 +1174,44 @@ func sv_expr(s: Spv, fns: list ShFn, f: ShFn, n: Node) gives r: int
             args.add(sv_e(s, fns, f, n.kids[i].kids[0], g.vtypes[i]))
         return sv_op(s, 57, sv_ty(s, g.ret), args)
     return sv_zero(s, 2)
+
+// число k своей записи (0, если k за краем записи)
+func sv_world_rec(s: Spv, k: int)
+    it = sv_int(s)
+    u = sv_uint(s)
+    fl = sv_float(s)
+    kk = sv_ext(s, it, 45, [k, sv_cint(s, 0), sv_cint(s, 191)])
+    ok = sv_op(s, 170, sv_bool(s), [k, kk])
+    idx = sv_op(s, 128, u, [sv_load(s, u, s.offv), sv_op(s, 124, u, [kk])])
+    v = sv_load(s, fl, sv_op(s, 65, sv_ptr(s, 2, fl), [s.rec, sv_cint(s, 0), idx]))
+    return sv_op(s, 169, fl, [ok, v, sv_cflt(s, 0.0)])
+
+// канал точки (x, y) картинки слота sl (по кругу); нет картинки — 0
+func sv_texel(s: Spv, sl: int, x: int, y: int, sh: int)
+    it = sv_int(s)
+    u = sv_uint(s)
+    fl = sv_float(s)
+    bt = sv_bool(s)
+    sc = sv_ext(s, it, 45, [sl, sv_cint(s, 0), sv_cint(s, 3)])
+    slot_ok = sv_op(s, 170, bt, [sl, sc])
+    base = sv_op(s, 128, it, [sv_cint(s, 48), sv_op(s, 132, it, [sv_cint(s, 3), sc])])
+    offf = sv_world_rec(s, base)
+    w = sv_op(s, 110, it, [sv_world_rec(s, sv_op(s, 128, it, [base, sv_cint(s, 1)]))])
+    h = sv_op(s, 110, it, [sv_world_rec(s, sv_op(s, 128, it, [base, sv_cint(s, 2)]))])
+    zero = sv_cint(s, 0)
+    ok = sv_op(s, 167, bt, [slot_ok, sv_op(s, 167, bt, [sv_op(s, 173, bt, [w, zero]), sv_op(s, 173, bt, [h, zero])])])
+    one = sv_cint(s, 1)
+    w1 = sv_ext(s, it, 42, [w, one])
+    h1 = sv_ext(s, it, 42, [h, one])
+    ix = sv_op(s, 139, it, [x, w1])
+    iy = sv_op(s, 139, it, [y, h1])
+    at = sv_op(s, 124, u, [sv_op(s, 128, it, [sv_op(s, 132, it, [iy, w1]), ix])])
+    idx = sv_op(s, 128, u, [sv_op(s, 124, u, [offf]), at])
+    idx = sv_op(s, 169, u, [ok, idx, sv_cuint(s, 0)])
+    word = sv_load(s, u, sv_op(s, 65, sv_ptr(s, 2, u), [s.tex, sv_cint(s, 0), idx]))
+    v = sv_op(s, 199, u, [sv_op(s, 194, u, [word, sv_op(s, 124, u, [sh])]), sv_cuint(s, 255)])
+    c = sv_fmul(s, sv_op(s, 112, fl, [v]), sv_cflt(s, 1.0 / 255.0))
+    return sv_op(s, 169, fl, [ok, c, sv_cflt(s, 0.0)])
 
 // номер точки кадра (x, y) в буфере: ширина и высота — io[2], io[3]; за краем — ближняя точка
 func sv_scr_idx(s: Spv, x: int, y: int)
@@ -1405,6 +1564,8 @@ modpub func shader_spirv(fns: list ShFn, f: ShFn) gives words: list int
     sv_decor(s, pst, [2])
     sv_ins(s.ann, 72, [pst, 0, 35, 0])
     pc = sv_var(s, pst, 9)
+    s.rec = rec
+    s.offv = sv_var(s, sv_uint(s), 6)
     iface = list int
     ins = list int
     outs = list int
@@ -1427,6 +1588,21 @@ modpub func shader_spirv(fns: list ShFn, f: ShFn) gives words: list int
         sv_decor(s, fc, [11, 15])
         ins.add(fc)
         outs = [sv_out(s, v4, 0)]
+        s.tex = s.scr
+    else
+        // точки всех картинок: buffer { uint px[]; } (binding 1)
+        u = sv_uint(s)
+        ura = sv_simple(s, "rtuarr", 29, [u])
+        sv_decor(s, ura, [6, 4])
+        ust = sv_simple(s, "scrst", 30, [ura])
+        sv_decor(s, ust, [3])
+        sv_ins(s.ann, 72, [ust, 0, 35, 0])
+        sv_ins(s.ann, 72, [ust, 0, 24])
+        s.tex = sv_var(s, ust, 2)
+        sv_decor(s, s.tex, [34, 0])
+        sv_decor(s, s.tex, [33, 1])
+    if f.stage == "screen"
+        s.tex = s.scr
     else if f.stage == "corner"
         ins = [sv_in(s, v3, 0), sv_in(s, v3, 1), sv_in(s, v4, 2), sv_in(s, v2, 3)]
         vid = sv_var(s, sv_int(s), 1)
@@ -1434,12 +1610,14 @@ modpub func shader_spirv(fns: list ShFn, f: ShFn) gives words: list int
         ins.add(vid)
         gp = sv_var(s, v4, 3)
         sv_decor(s, gp, [11, 0])
-        outs = [gp, sv_out(s, v3, 0), sv_out(s, v3, 1), sv_out(s, v4, 2), sv_out(s, v2, 3)]
+        outs = [gp, sv_out(s, v3, 0), sv_out(s, v3, 1), sv_out(s, v4, 2), sv_out(s, v2, 3), sv_out(s, v3, 4)]
+        ins.add(sv_in(s, v3, 4))
     else
         ins = [sv_in(s, v3, 0), sv_in(s, v3, 1), sv_in(s, v4, 2), sv_in(s, v2, 3)]
         fc = sv_var(s, v4, 1)
         sv_decor(s, fc, [11, 15])
         ins.add(fc)
+        ins.add(sv_in(s, v3, 4))
         outs = [sv_out(s, v4, 0)]
     each x in ins
         iface.add(x)
@@ -1453,7 +1631,8 @@ modpub func shader_spirv(fns: list ShFn, f: ShFn) gives words: list int
     sv_ins(s.code, 59, [sv_ptr(s, 7, sv_arr32(s)), io, 7])
     s.io = io
     off = sv_load(s, sv_uint(s), sv_op(s, 65, sv_ptr(s, 9, sv_uint(s)), [pc, sv_cint(s, 0)]))
-    count k from 0 to 31
+    sv_store(s, s.offv, off)
+    count k from 0 to 47
         sv_set_io(s, k, sv_cflt(s, 0.0))
     me = sh_find(fns, f.name)
     if f.stage == "corner"
@@ -1494,6 +1673,11 @@ modpub func shader_spirv(fns: list ShFn, f: ShFn) gives words: list int
         sv_store(s, outs[2], sv_op(s, 80, v3, [n[0], n[1], n[2]]))
         sv_store(s, outs[3], sv_op(s, 80, v4, [sv_get_io(s, 8), sv_get_io(s, 9), sv_get_io(s, 10), sv_get_io(s, 11)]))
         sv_store(s, outs[4], sv_op(s, 80, v2, [sv_get_io(s, 6), sv_get_io(s, 7)]))
+        tg = sv_parts(s, sv_load(s, v3, ins[5]), 3)
+        tw = list int
+        count r from 0 to 2
+            tw.add(sv_dot3(s, [sv_rec(s, rec, off, 3 * r), sv_rec(s, rec, off, 3 * r + 1), sv_rec(s, rec, off, 3 * r + 2)], tg))
+        sv_store(s, outs[5], sv_op(s, 80, v3, [tw[0], tw[1], tw[2]]))
     else if f.stage == "screen"
         fcv = sv_parts(s, sv_load(s, v4, ins[0]), 2)
         half = sv_cflt(s, 0.5)
@@ -1547,8 +1731,11 @@ modpub func shader_spirv(fns: list ShFn, f: ShFn) gives words: list int
             sv_set_io(s, 16 + k, sv_rec(s, rec, off, 28 + k))
         count k from 0 to 2
             sv_set_io(s, 20 + k, sv_rec(s, rec, off, 12 + k))
+        tg = sv_parts(s, sv_load(s, v3, ins[5]), 3)
+        count k from 0 to 2
+            sv_set_io(s, 23 + k, tg[k])
         count k from 0 to 7
-            sv_set_io(s, 23 + k, sv_rec(s, rec, off, 32 + k))
+            sv_set_io(s, 26 + k, sv_rec(s, rec, off, 32 + k))
         done_call = sv_op(s, 57, vt, [s.fnids[me], io])
         zero = sv_cflt(s, 0.0)
         one = sv_cflt(s, 1.0)

@@ -1,0 +1,226 @@
+// Металл и фонари: сцена на шейдере pbr из lib/shaders.tb — металл и шероховатость, рельеф (карты нормалей),
+// блики и отражение неба, восемь цветных ламп в шейдере.
+//   tb run examples/apps/pbr_room/main.tb        — смотреть и крутить
+//   tb run examples/apps/pbr_room/main.tb demo   — камера летает сама, ночь включается сама
+//
+// Q / E — облететь, W / S — ближе / дальше, N — ночь / день, M — рельеф вкл / выкл,
+// L — лампы вкл / выкл, X — свечение и сглаживание на весь экран.
+//
+// Верхний ряд шаров — металл (metal 1), нижний — пластик (metal 0); слева гладкие, справа шершавые.
+// Пол и стена — картинка цвета в слоте 0 и карта нормалей в слоте 1:
+//   shader_image(пол, 0, камень)  shader_image(пол, 1, камень_рельеф)
+use shaders
+
+func main()
+    a = args()
+    demo = len(a) > 0 and a[len(a) - 1] == "demo"
+    try window_open(960, 600, "Металл и фонари")
+
+    stone = picture("stone.png")
+    stone_n = picture("stone_normal.png")
+    bricks = picture("bricks.png")
+    bricks_n = picture("bricks_normal.png")
+
+    sky_dome = mesh_new()
+    sphere_at(sky_dome, 0, 0, 0, 90, 16, rgb(120, 160, 220))
+    mesh_shader(sky_dome, "sky")
+    shader_set(sky_dome, "sun_size", 0.01)
+
+    // пол 12 × 12: каждая клетка 1 × 1, картинка (4 × 4 плитки) — на 3 × 3 клетки
+    floor = mesh_new()
+    count i from -6 to 5
+        count j from -6 to 5
+            u0 = (i + 6) / 3.0
+            v0 = (j + 6) / 3.0
+            q = 1 / 3.0
+            mesh_add_uv(floor, i, 0, j, u0, v0, i, 0, j + 1, u0, v0 + q, i + 1, 0, j + 1, u0 + q, v0 + q)
+            mesh_add_uv(floor, i, 0, j, u0, v0, i + 1, 0, j + 1, u0 + q, v0 + q, i + 1, 0, j, u0 + q, v0)
+    mesh_shader(floor, "pbr")
+    shader_image(floor, 0, stone)
+    shader_image(floor, 1, stone_n)
+    shader_set(floor, "rough", 0.55)
+    shader_set(floor, "reflect", 0.6)
+    shader_set(floor, "fog_far", 60)
+
+    // стена из кирпича позади шаров
+    wall = mesh_new()
+    count i from -6 to 5
+        count k from 0 to 3
+            u0 = (i + 6) * 0.5
+            v0 = (3 - k) * 0.5
+            mesh_add_uv(wall, i, k, 3, u0, v0 + 0.5, i + 1, k, 3, u0 + 0.5, v0 + 0.5, i + 1, k + 1, 3, u0 + 0.5, v0)
+            mesh_add_uv(wall, i, k, 3, u0, v0 + 0.5, i + 1, k + 1, 3, u0 + 0.5, v0, i, k + 1, 3, u0, v0)
+    mesh_shader(wall, "pbr")
+    shader_image(wall, 0, bricks)
+    shader_image(wall, 1, bricks_n)
+    shader_set(wall, "rough", 0.85)
+    shader_set(wall, "bump", 1.3)
+
+    // шары: металл сверху, пластик снизу; шероховатость растёт слева направо
+    balls = list int
+    count r from 0 to 1
+        count k from 0 to 4
+            m = mesh_new()
+            c = rgb(235, 190, 110)
+            if r == 1
+                c = rgb(200, 40, 45)
+            sphere_at(m, 0, 0, 0, 0.42, 18, c)
+            mesh_smooth(m, true)
+            mesh_shader(m, "pbr")
+            shader_set(m, "metal", 1 - r)
+            shader_set(m, "rough", 0.08 + k * 0.22)
+            balls.add(m)
+
+    // лампочки: светятся сами, без шейдера
+    bulbs = list int
+    colors = [rgb(255, 150, 60), rgb(70, 140, 255), rgb(90, 255, 140)]
+    count i from 0 to 2
+        b = mesh_new()
+        sphere_at(b, 0, 0, 0, 0.08, 8, colors[i])
+        mesh_glow(b, 1)
+        bulbs.add(b)
+
+    glow_on = false
+    night = false
+    bumps = true
+    lamps = true
+    angle = -20.0
+    dist = 7.5
+    frame = 0
+    prev = ""
+    screen_set("glow", "power", 0.8)
+    screen_set("glow", "threshold", 0.7)
+    screen_set("glow", "size", 12)
+    repeat while window_alive()
+        frame += 1
+        // клавиши: по нажатию, не пока держишь
+        now = ""
+        each k in ["n", "m", "l", "x"]
+            if key_down(k)
+                now += k
+        tap = ""
+        each k in ["n", "m", "l", "x"]
+            if find(now, k) >= 0 and find(prev, k) < 0
+                tap += k
+        prev = now
+        if demo
+            angle = 55 * sin_t(frame * 0.006)
+            if frame % 400 == 200
+                tap += "n"
+            if frame % 400 == 300
+                tap += "x"
+        if find(tap, "n") >= 0
+            night = not night
+        if find(tap, "m") >= 0
+            bumps = not bumps
+            if bumps
+                shader_image(floor, 1, stone_n)
+                shader_image(wall, 1, bricks_n)
+            else
+                shader_image(floor, 1, -1)
+                shader_image(wall, 1, -1)
+        if find(tap, "l") >= 0
+            lamps = not lamps
+        if find(tap, "x") >= 0
+            glow_on = not glow_on
+        if key_down("q") or key_down("left")
+            angle = max(-75.0, angle - 1.2)
+        if key_down("e") or key_down("right")
+            angle = min(75.0, angle + 1.2)
+        if key_down("w") or key_down("up")
+            dist = max(3.0, dist - 0.08)
+        if key_down("s") or key_down("down")
+            dist = min(14.0, dist + 0.08)
+
+        if night
+            sunlight(0, 0, 0, 0.06)
+        else
+            sunlight(0.5, 0.8, -0.4, 0.3)
+        t = frame * 0.02
+        count i from 0 to 2
+            if lamps
+                lx = 3.2 * cos_t(t + i * 2.094)
+                lz = 0.6 + 1.6 * sin_t(t + i * 2.094)
+                ly = 1.2 + 0.5 * sin_t(t * 1.7 + i)
+                point_light(i, lx, ly, lz, colors[i], 5)
+            else
+                light_off(i)
+
+        clear_window(rgb(8, 10, 20))
+        cx = dist * sin_d(angle)
+        cz = -dist * cos_d(angle)
+        camera(cx, 2.6, cz, 0, 0.8, 0.5)
+        if not night
+            draw_mesh(sky_dome, cx, 0, cz, 0)
+        draw_mesh(floor, 0, 0, 0, 0)
+        draw_mesh(wall, 0, 0, 0, 0)
+        count r from 0 to 1
+            count k from 0 to 4
+                draw_mesh(balls[r * 5 + k], -2.4 + k * 1.2, 1.55 - r * 1.0, 1.2, 0)
+        if lamps
+            count i from 0 to 2
+                draw_mesh(bulbs[i], 3.2 * cos_t(t + i * 2.094), 1.2 + 0.5 * sin_t(t * 1.7 + i), 0.6 + 1.6 * sin_t(t + i * 2.094), 0)
+        if glow_on
+            screen_shader("glow")
+            screen_shader("fxaa")
+
+        hint = "Q/E облететь  W/S ближе  N ночь  M рельеф  L лампы  X свечение"
+        draw_text(13, 13, hint, rgb(0, 0, 0), 2)
+        draw_text(12, 12, hint, rgb(255, 255, 255), 2)
+        state = "ночь: " + yes_no(night) + "   рельеф: " + yes_no(bumps) + "   лампы: " + yes_no(lamps) + "   свечение: " + yes_no(glow_on) + "   " + fps() + " к/с"
+        draw_text(13, 579, state, rgb(0, 0, 0), 2)
+        draw_text(12, 578, state, rgb(230, 230, 230), 2)
+
+func yes_no(b: bool) gives t: text
+    t = "нет"
+    if b
+        t = "да"
+
+// картинка рядом с программой (или из папки примера, если запускают из корня Tachbit)
+func picture(name: text) gives img: int
+    img = -1
+    a = args()
+    each place in ["", "examples/apps/pbr_room/"]
+        path = place + name
+        if file_exists(path)
+            img = load_image(path) or -1
+            return
+    if len(a) > 0
+        p = a[0]
+        cut_at = -1
+        count i from 0 to len(p) - 1
+            if p[i] == "/"
+                cut_at = i
+        if cut_at >= 0
+            img = load_image(cut(p, 0, cut_at) + "/" + name) or -1
+
+func sphere_at(m: int, ox: dec, oy: dec, oz: dec, r: dec, n: int, c: int)
+    count i from 0 to n - 1
+        count j from 0 to 2 * n - 1
+            a0 = 3.14159265 * i / n
+            a1 = 3.14159265 * (i + 1) / n
+            b0 = 3.14159265 * j / n
+            b1 = 3.14159265 * (j + 1) / n
+            y0 = oy + r * cos_t(a0)
+            y1 = oy + r * cos_t(a1)
+            if i > 0
+                mesh_add(m, ox + r * sin_t(a0) * cos_t(b0), y0, oz + r * sin_t(a0) * sin_t(b0), ox + r * sin_t(a0) * cos_t(b1), y0, oz + r * sin_t(a0) * sin_t(b1), ox + r * sin_t(a1) * cos_t(b1), y1, oz + r * sin_t(a1) * sin_t(b1), c)
+            if i < n - 1
+                mesh_add(m, ox + r * sin_t(a0) * cos_t(b0), y0, oz + r * sin_t(a0) * sin_t(b0), ox + r * sin_t(a1) * cos_t(b1), y1, oz + r * sin_t(a1) * sin_t(b1), ox + r * sin_t(a1) * cos_t(b0), y1, oz + r * sin_t(a1) * sin_t(b0), c)
+
+func sin_t(x: dec) gives r: dec
+    repeat while x > 3.14159265
+        x -= 6.2831853
+    repeat while x < -3.14159265
+        x += 6.2831853
+    x2 = x * x
+    r = x * (1 - x2 / 6 * (1 - x2 / 20 * (1 - x2 / 42 * (1 - x2 / 72 * (1 - x2 / 110)))))
+
+func cos_t(x: dec) gives r: dec
+    r = sin_t(x + 1.57079633)
+
+func sin_d(a: dec) gives r: dec
+    r = sin_t(a * 0.0174532925)
+
+func cos_d(a: dec) gives r: dec
+    r = cos_t(a * 0.0174532925)

@@ -1,1 +1,1 @@
-gpu_field.tb, строка 2: у pixel нет такого поля (есть x, y, z, wx, wy, wz, nx, ny, nz, u, v, r, g, b, a, time, sx, sy, sz, amb, cx, cy, cz, p0, p1, p2, p3, p4, p5, p6, p7): red
+gpu_field.tb, строка 2: у pixel нет такого поля (есть x, y, z, wx, wy, wz, nx, ny, nz, u, v, r, g, b, a, time, sx, sy, sz, amb, cx, cy, cz, tx, ty, tz, p0, p1, p2, p3, p4, p5, p6, p7): red

@@ -4305,12 +4305,13 @@ TB_API void tb_gpu_report(void) {
 // Metal берёт все шейдеры из одного текста tb_sh_msl. Сетка со своим шейдером рисуется обычными
 // дробными числами (не точка в точку с процессором): в пачке это фигура m = 7 — x0 номер записи,
 // y0 шейдер углов, x1 шейдер точки, y1 сколько углов; углы сетки лежат в своём буфере видеокарты
-typedef void (*tb_shfn)(float *io);
+// R — своя запись draw_mesh (лампы, картинки), T — точки всех картинок (tb_imgpx)
+typedef void (*tb_shfn)(const float *R, const uint32_t *T, float *io);
 // Вид 2 — шейдер экрана (screen_shader): функция (io, кадр, глубина), в пачке фигура m = 8 — x0 номер записи, x1 шейдер;
 // вид 3 — вершины для экрана (один треугольник на всё окно). sv — настройки шейдера экрана (screen_set)
-typedef void (*tb_scrfn)(float *io, const uint32_t *scr, const float *scz);
+typedef void (*tb_scrfn)(const float *R, const uint32_t *T, float *io, const uint32_t *scr, const float *scz);
 typedef struct { const char *name; int stage; tb_shfn fn; const uint32_t *spv; size_t bytes; int nsets; char sets[8][32]; float sv[8]; } tb_shader_t;
-enum { TB_SH_MAX = 64, TB_SHR_CAP = 4096, TB_SHR_N = 48 };
+enum { TB_SH_MAX = 64, TB_SHR_CAP = 4096, TB_SHR_N = 192 };
 TB_API tb_shader_t tb_shaders[TB_SH_MAX];
 TB_API int tb_nshaders = 0;
 TB_API const char *tb_sh_msl = 0;
@@ -6627,13 +6628,22 @@ TB_API int tb_vk_buffer_m(VkDeviceSize size, VkFlags usage, VkBuffer *buf, void 
 TB_API struct { int tried, ok; VkDescriptorSetLayout dsl; VkPipelineLayout pl; VkDescriptorSet ds; VkBuffer rbuf; float *rmap;
     VkPipeline pipe[TB_SH_MAX * TB_SH_MAX]; char bad[TB_SH_MAX * TB_SH_MAX]; VkBuffer vb[TB_GSLOTS][TB_SHR_CAP]; } tb_vksh;
 typedef struct { VkBuffer b; VkDeviceMemory m; } tb_vkbm;
+TB_API int tb_vk_images(void);
+// точки картинок для шейдеров (binding 1): после каждой новой памяти картинок
+static void tb_vk_sh_images(void) {
+    if (!tb_vksh.ds || !tb_vk.pbuf) return;
+    VkDeviceSize sz = tb_imgpx_n * 4 > 16 ? tb_imgpx_n * 4 : 16;
+    VkDescriptorBufferInfo bi = { tb_vk.pbuf, 0, sz };
+    VkWriteDescriptorSet w = { 35, 0, tb_vksh.ds, 1, 0, 1, 7, 0, &bi, 0 };
+    tbvk_UpdateDescriptorSets(tb_vk.dev, 1, &w, 0, 0);
+}
 TB_API int tb_gpu_sh_ready(void) {
     if (tb_vksh.tried) return tb_vksh.ok;
     tb_vksh.tried = 1;
-    VkDescriptorSetLayoutBinding lb = { 0, 7, 1, 0x11, 0 };   // STORAGE_BUFFER: VERTEX и FRAGMENT
-    VkDescriptorSetLayoutCreateInfo lci = { 32, 0, 0, 1, &lb };
+    VkDescriptorSetLayoutBinding lb[2] = { { 0, 7, 1, 0x11, 0 }, { 1, 7, 1, 0x11, 0 } };   // STORAGE_BUFFER: записи и точки картинок
+    VkDescriptorSetLayoutCreateInfo lci = { 32, 0, 0, 2, lb };
     if (tbvk_CreateDescriptorSetLayout(tb_vk.dev, &lci, 0, &tb_vksh.dsl)) return 0;
-    VkDescriptorPoolSize ps = { 7, 1 };
+    VkDescriptorPoolSize ps = { 7, 2 };
     VkDescriptorPoolCreateInfo pci = { 33, 0, 0, 1, 1, &ps };
     VkDescriptorPool dp;
     if (tbvk_CreateDescriptorPool(tb_vk.dev, &pci, 0, &dp)) return 0;
@@ -6646,6 +6656,8 @@ TB_API int tb_gpu_sh_ready(void) {
     VkDescriptorBufferInfo bi = { tb_vksh.rbuf, 0, rsz };
     VkWriteDescriptorSet w = { 35, 0, tb_vksh.ds, 0, 0, 1, 7, 0, &bi, 0 };
     tbvk_UpdateDescriptorSets(tb_vk.dev, 1, &w, 0, 0);
+    if (!tb_vk.pbuf && !tb_vk_images()) return 0;
+    tb_vk_sh_images();
     VkPushConstantRange pcr = { 0x11, 0, 4 };   // номер первой записи (в числах)
     VkPipelineLayoutCreateInfo plci = { 30, 0, 0, 1, &tb_vksh.dsl, 1, &pcr };
     if (tbvk_CreatePipelineLayout(tb_vk.dev, &plci, 0, &tb_vksh.pl)) return 0;
@@ -6685,9 +6697,9 @@ static VkPipeline tb_vk_shpipe(int cs, int ps) {
         return 0;
     }
     VkPipelineShaderStageCreateInfo st[2] = { { 18, 0, 0, 1, mv, "main", 0 }, { 18, 0, 0, 0x10, mf, "main", 0 } };
-    VkVertexInputBindingDescription vb = { 0, 48, 0 };   // VERTEX: 12 чисел на угол
-    VkVertexInputAttributeDescription va[4] = { { 0, 0, 106, 0 }, { 1, 0, 106, 12 }, { 2, 0, 109, 24 }, { 3, 0, 103, 40 } };   // R32G32B32, RGBA32, RG32 _SFLOAT
-    VkPipelineVertexInputStateCreateInfo vis = { 19, 0, 0, 1, &vb, 4, va };
+    VkVertexInputBindingDescription vb = { 0, 64, 0 };   // VERTEX: 16 чисел на угол
+    VkVertexInputAttributeDescription va[5] = { { 0, 0, 106, 0 }, { 1, 0, 106, 12 }, { 2, 0, 109, 24 }, { 3, 0, 103, 40 }, { 4, 0, 106, 48 } };   // R32G32B32, RGBA32, RG32 _SFLOAT
+    VkPipelineVertexInputStateCreateInfo vis = { 19, 0, 0, 1, &vb, 5, va };
     VkPipelineInputAssemblyStateCreateInfo ias = { 20, 0, 0, 3, 0 };   // TRIANGLE_LIST
     VkViewport vp = { 0, 0, (float)tb_gw, (float)tb_gh, 0, 1 };
     uint32_t dyn[2] = { 0, 1 };
@@ -6847,6 +6859,7 @@ TB_API int tb_vk_images(void) {
     VkDescriptorBufferInfo dbi = { tb_vk.pbuf, 0, sz };
     VkWriteDescriptorSet wds = { 35, 0, tb_vk.ds, 1, 0, 1, 7, 0, &dbi, 0 };
     tbvk_UpdateDescriptorSets(tb_vk.dev, 1, &wds, 0, 0);
+    tb_vk_sh_images();
     tb_img_dirty = 0;
     return 1;
 }
@@ -7837,15 +7850,15 @@ static id tb_mtl_shpipe(int cs, int ps) {
     TB_MSG1(void, pd, "setVertexFunction:", id, vf);
     TB_MSG1(void, pd, "setFragmentFunction:", id, ff);
     id vd = TB_MSG(id, TB_CLS("MTLVertexDescriptor"), "vertexDescriptor");
-    unsigned long fmt[4] = { 30, 30, 31, 29 }, off[4] = { 0, 12, 24, 40 };   // Float3, Float3, Float4, Float2
-    for (unsigned long i = 0; i < 4; i++) {
+    unsigned long fmt[5] = { 30, 30, 31, 29, 30 }, off[5] = { 0, 12, 24, 40, 48 };   // Float3, Float3, Float4, Float2, Float3
+    for (unsigned long i = 0; i < 5; i++) {
         id at = TB_MSG1(id, TB_MSG(id, vd, "attributes"), "objectAtIndexedSubscript:", unsigned long, i);
         TB_MSG1(void, at, "setFormat:", unsigned long, fmt[i]);
         TB_MSG1(void, at, "setOffset:", unsigned long, off[i]);
         TB_MSG1(void, at, "setBufferIndex:", unsigned long, 0);
     }
     id lay = TB_MSG1(id, TB_MSG(id, vd, "layouts"), "objectAtIndexedSubscript:", unsigned long, 0);
-    TB_MSG1(void, lay, "setStride:", unsigned long, 48);
+    TB_MSG1(void, lay, "setStride:", unsigned long, 64);
     TB_MSG1(void, pd, "setVertexDescriptor:", id, vd);
     id ca = TB_MSG1(id, TB_MSG(id, pd, "colorAttachments"), "objectAtIndexedSubscript:", unsigned long, 0);
     TB_MSG1(void, ca, "setPixelFormat:", unsigned long, 80);
@@ -8097,6 +8110,8 @@ TB_API void tb_gpu_flush(int present) {
                         ((void (*)(id, SEL, id, unsigned long, unsigned long))objc_msgSend)(enc, sel_getUid("setVertexBuffer:offset:atIndex:"), tb_mtlsh.vb[tb_gslot][g->x0], 0, 0);
                         ((void (*)(id, SEL, id, unsigned long, unsigned long))objc_msgSend)(enc, sel_getUid("setVertexBuffer:offset:atIndex:"), tb_mtlsh.rbuf, 0, 10);
                         ((void (*)(id, SEL, id, unsigned long, unsigned long))objc_msgSend)(enc, sel_getUid("setFragmentBuffer:offset:atIndex:"), tb_mtlsh.rbuf, 0, 10);
+                        ((void (*)(id, SEL, id, unsigned long, unsigned long))objc_msgSend)(enc, sel_getUid("setVertexBuffer:offset:atIndex:"), tb_mtl.pbuf, 0, 12);
+                        ((void (*)(id, SEL, id, unsigned long, unsigned long))objc_msgSend)(enc, sel_getUid("setFragmentBuffer:offset:atIndex:"), tb_mtl.pbuf, 0, 12);
                         ((void (*)(id, SEL, const void *, unsigned long, unsigned long))objc_msgSend)(enc, sel_getUid("setVertexBytes:length:atIndex:"), &ro, 4, 11);
                         ((void (*)(id, SEL, const void *, unsigned long, unsigned long))objc_msgSend)(enc, sel_getUid("setFragmentBytes:length:atIndex:"), &ro, 4, 11);
                         ((void (*)(id, SEL, unsigned long, unsigned long, unsigned long))objc_msgSend)(enc, sel_getUid("drawPrimitives:vertexStart:vertexCount:"), 3, 0, (unsigned long)g->y1);
@@ -9621,7 +9636,7 @@ typedef struct { double *v; long long nv, capv; uint32_t *t, *c; long long n, ca
     long long nch, *chr; double *chs, bs[4]; int chok;
     int smooth, alpha, cnok; double shine, glow; double *cn; long long cncap;   // плавный свет, прозрачность 0…255, блеск, свечение; нормали в углах
     tb_bone_t *bones; long long nb, capb; int16_t *sb; float *sw;
-    int shp, shc, shok; float shv[16]; float *shvd; long long shvn, shvcap, shused; void *shvb; } tb_mesh;   // gpu func: шейдер точки и углов (-1 — обычный), настройки, углы для видеокарты     // кости и у каждого угла до 4 костей с весами   // куски: chr — (первый треугольник, сколько), chs и bs — шары (центр, радиус)
+    int shp, shc, shok; float shv[16]; int shimg[4]; float *shvd; long long shvn, shvcap, shused; void *shvb; } tb_mesh;   // gpu func: шейдер точки и углов (-1 — обычный), настройки, углы для видеокарты     // кости и у каждого угла до 4 костей с весами   // куски: chr — (первый треугольник, сколько), chs и bs — шары (центр, радиус)
 TB_API tb_mesh *tb_meshes = 0;
 TB_API long long tb_nmesh = 0, tb_capmesh = 0;
 TB_API double tb_cam[9] = { 0, 0, -5,  1, 0, 0,  0, 1, 0 };   // где камера, вправо, вверх
@@ -11015,24 +11030,77 @@ TB_API void tb_shader_set(long long id, const char *name, double v) {
     if (!found) fprintf(stderr, "shader_set: у шейдеров этой сетки нет настройки %s\n", name);
 }
 static double tb_sh_t0 = -1;
-// углы сетки по порядку треугольников: место 3, нормаль 3, цвет 4, (u, v) 2 — 12 чисел на угол
+// углы сетки по порядку треугольников: место 3, нормаль 3, цвет 4, (u, v) 2, касательная 3 (куда растёт u), 1 пусто — 16 чисел
 static void tb_sh_build(tb_mesh *m) {
     tb_mesh_cnormals(m);
-    long long nf = m->n * 36;
+    long long nf = m->n * 48;
     if (m->shvcap < nf) { m->shvcap = nf; m->shvd = (float *)realloc(m->shvd, sizeof(float) * (size_t)(nf ? nf : 1)); }
     for (long long t = 0; t < m->n; t++) {
         uint32_t c = m->c[t];
         for (int i = 0; i < 3; i++) {
-            float *o = m->shvd + 36 * t + 12 * i;
+            float *o = m->shvd + 48 * t + 16 * i;
             const double *p = m->v + 3 * m->t[3 * t + i], *n = m->cn + 9 * t + 3 * i;
             for (int k = 0; k < 3; k++) { o[k] = (float)p[k]; o[3 + k] = (float)n[k]; }
             o[6] = ((c >> 16) & 255) / 255.0f; o[7] = ((c >> 8) & 255) / 255.0f; o[8] = (c & 255) / 255.0f; o[9] = m->alpha / 255.0f;
             o[10] = o[11] = 0;
             if (m->uv && m->uv[6 * t] == m->uv[6 * t]) { o[10] = (float)m->uv[6 * t + 2 * i]; o[11] = (float)m->uv[6 * t + 2 * i + 1]; }
         }
+        // касательная треугольника: по (u, v) углов; нет (u, v) — любая поперёк нормали
+        const double *p0 = m->v + 3 * m->t[3 * t], *p1 = m->v + 3 * m->t[3 * t + 1], *p2 = m->v + 3 * m->t[3 * t + 2];
+        double e1[3], e2[3], T[3] = { 0, 0, 0 };
+        for (int k = 0; k < 3; k++) { e1[k] = p1[k] - p0[k]; e2[k] = p2[k] - p0[k]; }
+        int got = 0;
+        if (m->uv && m->uv[6 * t] == m->uv[6 * t]) {
+            const double *q = m->uv + 6 * t;
+            double du1 = q[2] - q[0], dv1 = q[3] - q[1], du2 = q[4] - q[0], dv2 = q[5] - q[1], r = du1 * dv2 - du2 * dv1;
+            if (fabs(r) > 1e-12) {
+                for (int k = 0; k < 3; k++) T[k] = (e1[k] * dv2 - e2[k] * dv1) / r;
+                got = sqrt(T[0] * T[0] + T[1] * T[1] + T[2] * T[2]) > 1e-12;
+            }
+        }
+        if (!got) {
+            double N[3] = { e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0] };
+            double a[3] = { 0, 1, 0 };
+            if (fabs(N[1]) > 0.9 * sqrt(N[0] * N[0] + N[1] * N[1] + N[2] * N[2])) { a[1] = 0; a[0] = 1; }
+            T[0] = a[1] * N[2] - a[2] * N[1]; T[1] = a[2] * N[0] - a[0] * N[2]; T[2] = a[0] * N[1] - a[1] * N[0];
+        }
+        double tl = sqrt(T[0] * T[0] + T[1] * T[1] + T[2] * T[2]);
+        if (tl > 1e-12) for (int k = 0; k < 3; k++) T[k] /= tl;
+        for (int i = 0; i < 3; i++) {
+            float *o = m->shvd + 48 * t + 16 * i;
+            for (int k = 0; k < 3; k++) o[12 + k] = (float)T[k];
+            o[15] = 0;
+        }
     }
     m->shvn = nf;
     m->shok = 1;
+}
+// мир записи: картинки слотов 48..59 (начало в tb_imgpx — биты uint, ширина, высота), 60..63 пусто,
+// лампы 64..191 — по 16 чисел: горит, фонарь, место 3, направление 3, конус c0 c1, дальность, цвет 3
+static void tb_sh_world(tb_mesh *m, float *r) {
+    for (int k = 48; k < TB_SHR_N; k++) r[k] = 0;
+    for (int sl = 0; sl < 4; sl++) {
+        int im = m->shimg[sl] - 1;
+        if (im < 0 && sl == 0) im = (int)m->tex;
+        if (im < 0 || im >= tb_nimg || tb_imgs[im].w <= 0) continue;
+        uint32_t off = tb_imgs[im].off;
+        memcpy(&r[48 + 3 * sl], &off, 4);
+        r[49 + 3 * sl] = (float)tb_imgs[im].w; r[50 + 3 * sl] = (float)tb_imgs[im].h;
+    }
+    for (int i = 0; i < 8; i++) {
+        const tb_lamp_t *l = &tb_lamps[i];
+        float *o = r + 64 + 16 * i;
+        if (!l->on) continue;
+        o[0] = 1; o[1] = (float)l->spot;
+        for (int k = 0; k < 3; k++) { o[2 + k] = (float)l->p[k]; o[5 + k] = (float)l->d[k]; o[11 + k] = (float)l->col[k]; }
+        o[8] = (float)l->c0; o[9] = (float)l->c1; o[10] = (float)l->range;
+    }
+}
+TB_API void tb_shader_image(long long id, long long slot, long long img) {
+    if (id < 0 || id >= tb_nmesh) return;
+    if (slot < 0 || slot > 3) { fprintf(stderr, "shader_image: слот картинки 0…3, а не %lld\n", slot); return; }
+    if (img >= tb_nimg) { fprintf(stderr, "shader_image: нет картинки %lld\n", img); return; }
+    tb_meshes[id].shimg[slot] = img < 0 ? 0 : (int)img + 1;
 }
 static void tb_sh_record(tb_mesh *m, float *r, double x, double y, double z, double R[3][3]) {
     double f = tb_gh / 2.0 / tan(30 * 3.14159265358979323846 / 180);
@@ -11043,12 +11111,13 @@ static void tb_sh_record(tb_mesh *m, float *r, double x, double y, double z, dou
     r[24] = (float)(f / (tb_gw / 2.0)); r[25] = (float)(f / (tb_gh / 2.0)); r[26] = (float)(205.0 / 4096);
     if (tb_sh_t0 < 0) tb_sh_t0 = (double)tb_time_ms();
     r[27] = (float)(((double)tb_time_ms() - tb_sh_t0) / 1000.0);
-    if (tb_lamb < 0) { r[28] = r[29] = r[30] = 0; r[31] = 1; }
+    if (tb_lamb < 0) { r[28] = r[29] = r[30] = 0; r[31] = tb_nlamps > 0 ? (float)tb_amb0 : 1; }   // солнца нет: с лампами — фон ночи, без ламп — цвета как есть
     else { for (int k = 0; k < 3; k++) r[28 + k] = (float)tb_lt[k]; r[31] = tb_lamb / 256.0f; }
     for (int k = 0; k < 16; k++) r[32 + k] = m->shv[k];
+    tb_sh_world(m, r);
 }
 // ---- процессор: те же шейдеры (функции C от компилятора), треугольники дробными числами ----
-typedef struct { double c[3]; float a[12]; } tb_shc_t;   // угол перед камерой: место у камеры; мир 3, нормаль 3, цвет 4, uv 2
+typedef struct { double c[3]; float a[15]; } tb_shc_t;   // угол перед камерой: место у камеры; мир 3, нормаль 3, цвет 4, uv 2, касательная 3
 static void tb_sh_px(const tb_shc_t *q, int ps, const float *rec) {
     double f = tb_gh / 2.0 / tan(30 * 3.14159265358979323846 / 180), hw = tb_gw / 2.0, hh = tb_gh / 2.0, zn = 205.0 / 4096;
     double sx[3], sy[3], iz[3];
@@ -11063,7 +11132,7 @@ static void tb_sh_px(const tb_shc_t *q, int ps, const float *rec) {
     if (px1 > tb_gw - 1) px1 = tb_gw - 1;
     if (py1 > tb_gh - 1) py1 = tb_gh - 1;
     tb_shfn pf = tb_shaders[ps].fn;
-    float io[32];
+    float io[48];
     for (long long py = py0; py <= py1; py++) for (long long px = px0; px <= px1; px++) {
         double X = px + 0.5, Y = py + 0.5, w[3];
         for (int i = 0; i < 3; i++) {
@@ -11078,8 +11147,8 @@ static void tb_sh_px(const tb_shc_t *q, int ps, const float *rec) {
         long long at = py * tb_gw + px;
         if (d >= tb_zb[at]) continue;
         double l[3] = { w[0] * iz[0] / s, w[1] * iz[1] / s, w[2] * iz[2] / s };
-        float A[12];
-        for (int k = 0; k < 12; k++) A[k] = (float)(l[0] * q[0].a[k] + l[1] * q[1].a[k] + l[2] * q[2].a[k]);
+        float A[15];
+        for (int k = 0; k < 15; k++) A[k] = (float)(l[0] * q[0].a[k] + l[1] * q[1].a[k] + l[2] * q[2].a[k]);
         float nl = sqrtf(A[3] * A[3] + A[4] * A[4] + A[5] * A[5]);
         if (nl > 0) { A[3] /= nl; A[4] /= nl; A[5] /= nl; }
         memset(io, 0, sizeof io);
@@ -11090,8 +11159,9 @@ static void tb_sh_px(const tb_shc_t *q, int ps, const float *rec) {
         io[15] = rec[27];
         for (int k = 0; k < 4; k++) io[16 + k] = rec[28 + k];
         for (int k = 0; k < 3; k++) io[20 + k] = rec[12 + k];
-        for (int k = 0; k < 8; k++) io[23 + k] = rec[32 + k];
-        pf(io);
+        for (int k = 0; k < 3; k++) io[23 + k] = A[12 + k];
+        for (int k = 0; k < 8; k++) io[26 + k] = rec[32 + k];
+        pf(rec, tb_imgpx, io);
         float al = io[14] > 0 ? (io[14] < 1 ? io[14] : 1) : 0;
         if (al <= 0) continue;   // p.a = 0: точки нет
         uint32_t old = tb_px[at], out = 0;
@@ -11108,18 +11178,18 @@ static void tb_sh_px(const tb_shc_t *q, int ps, const float *rec) {
 static void tb_sh_cpu(tb_mesh *m, const float *rec, int cs, int ps) {
     double zn = 205.0 / 4096;
     tb_shfn cf = tb_shaders[cs].fn;
-    float io[32];
+    float io[48];
     for (long long t = 0; t < m->n; t++) {
         tb_shc_t q[3], poly[4], tmp[3];
         for (int i = 0; i < 3; i++) {
-            const float *v = m->shvd + 36 * t + 12 * i;
+            const float *v = m->shvd + 48 * t + 16 * i;
             memset(io, 0, sizeof io);
             for (int k = 0; k < 6; k++) io[k] = v[k];
             io[6] = v[10]; io[7] = v[11];
             for (int k = 0; k < 4; k++) io[8 + k] = v[6 + k];
             io[12] = rec[27]; io[13] = (float)(3 * t + i);
             for (int k = 0; k < 8; k++) io[14 + k] = rec[40 + k];
-            cf(io);
+            cf(rec, tb_imgpx, io);
             double w[3], n[3], d[3];
             for (int r = 0; r < 3; r++) {
                 w[r] = rec[3 * r] * io[0] + rec[3 * r + 1] * io[1] + rec[3 * r + 2] * io[2] + rec[9 + r];
@@ -11130,6 +11200,7 @@ static void tb_sh_cpu(tb_mesh *m, const float *rec, int cs, int ps) {
             for (int k = 0; k < 3; k++) { q[i].a[k] = (float)w[k]; q[i].a[3 + k] = (float)n[k]; }
             for (int k = 0; k < 4; k++) q[i].a[6 + k] = io[8 + k];
             q[i].a[10] = io[6]; q[i].a[11] = io[7];
+            for (int r = 0; r < 3; r++) q[i].a[12 + r] = (float)(rec[3 * r] * v[12] + rec[3 * r + 1] * v[13] + rec[3 * r + 2] * v[14]);
         }
         // обрезка у камеры: cz >= zn
         int np = 0;
@@ -11142,7 +11213,7 @@ static void tb_sh_cpu(tb_mesh *m, const float *rec, int cs, int ps) {
                 tb_shc_t *o = &poly[np++];
                 for (int k = 0; k < 3; k++) o->c[k] = a->c[k] + (b->c[k] - a->c[k]) * s;
                 o->c[2] = zn;
-                for (int k = 0; k < 12; k++) o->a[k] = (float)(a->a[k] + (b->a[k] - a->a[k]) * s);
+                for (int k = 0; k < 15; k++) o->a[k] = (float)(a->a[k] + (b->a[k] - a->a[k]) * s);
             }
         }
         for (int k = 1; k + 1 < np; k++) {
@@ -11191,7 +11262,7 @@ static void tb_scr_cpu(int ps, const float *rec) {
     int zok = tb_zb && tb_zb_n == n && !tb_zclr;
     for (long long i = 0; i < n; i++) z[i] = zok ? (float)(tb_zb[i] / 16777216.0) : 1.0f;
     tb_scrfn fn = (tb_scrfn)tb_shaders[ps].fn;
-    float io[32];
+    float io[48];
     for (long long y = 0; y < tb_gh; y++) for (long long x = 0; x < tb_gw; x++) {
         long long at = y * tb_gw + x;
         uint32_t c = src[at];
@@ -11199,7 +11270,7 @@ static void tb_scr_cpu(int ps, const float *rec) {
         io[0] = (float)x; io[1] = (float)y; io[2] = rec[0]; io[3] = rec[1];
         io[4] = ((c >> 16) & 255) / 255.0f; io[5] = ((c >> 8) & 255) / 255.0f; io[6] = (c & 255) / 255.0f; io[7] = 1; io[8] = rec[2];
         for (int k = 0; k < 8; k++) io[9 + k] = rec[8 + k];
-        fn(io, src, z);
+        fn(rec, src, io, src, z);
         float a = io[7] < 0 ? 0 : io[7] > 1 ? 1 : io[7];
         if (a <= 0) continue;
         uint32_t o = 0;
@@ -12280,6 +12351,7 @@ TB_BV(mesh_shine, (long long m, double s, int line), tb_mesh_shine(m, s))
 TB_BV(mesh_shader, (long long m, const char *name, int line), tb_mesh_shader(m, name))
 TB_BV(shader_set, (long long m, const char *name, double v, int line), tb_shader_set(m, name, v))
 TB_BV(screen_shader, (const char *name, int line), tb_screen_shader(name))
+TB_BV(shader_image, (long long m, long long s, long long i, int line), tb_shader_image(m, s, i))
 TB_BV(screen_set, (const char *name, const char *set, double v, int line), tb_screen_set(name, set, v))
 TB_BV(mesh_glow, (long long m, double g, int line), tb_mesh_glow(m, g))
 TB_BV(mesh_alpha, (long long m, double a, int line), tb_mesh_alpha(m, a))

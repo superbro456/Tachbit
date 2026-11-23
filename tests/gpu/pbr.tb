@@ -1,0 +1,77 @@
+// Свет в шейдерах (1.3): pbr из lib/shaders.tb — картинка и рельеф в слотах (shader_image), лампы (lamp_k ...),
+// металл и пластик; свой шейдер с tex_r и lamp_k. Кадры со своими шейдерами TB_GPU_CHECK не сверяет —
+// тест ловит падения и ошибки видеокарты; картинку сверяет tests/run_gpu.sh по снимку (держи окно: hold)
+use shaders
+
+// свой: картинка слота 0 и сколько света ламп
+gpu func lamp_look(p: pixel, boost: dec)
+    k = 0.2
+    count i from 0 to 7
+        k = k + lamp_k(i, p.wx, p.wy, p.wz) * boost
+    if tex_on(0)
+        p.r = tex_r(0, p.u, p.v) * k
+        p.g = tex_g(0, p.u, p.v) * k
+        p.b = tex_b(0, p.u, p.v) * k
+
+func main()
+    a = args()
+    hold = len(a) > 0 and a[len(a) - 1] == "hold"
+    try window_open(320, 200, "свет в шейдерах")
+    stone = load_image("examples/apps/pbr_room/stone.png") or -1
+    stone_n = load_image("examples/apps/pbr_room/stone_normal.png") or -1
+    floor = mesh_new()
+    count i from -3 to 2
+        count j from -3 to 2
+            mesh_add_uv(floor, i, 0, j, 0, 0, i, 0, j + 1, 0, 0.5, i + 1, 0, j + 1, 0.5, 0.5)
+            mesh_add_uv(floor, i, 0, j, 0, 0, i + 1, 0, j + 1, 0.5, 0.5, i + 1, 0, j, 0.5, 0)
+    mesh_shader(floor, "pbr")
+    shader_image(floor, 0, stone)
+    shader_image(floor, 1, stone_n)
+    shader_set(floor, "rough", 0.6)
+    plate = mesh_new()
+    mesh_add_uv(plate, -1, 0, 0, 0, 1, 1, 0, 0, 1, 1, 1, 1, 0, 1, 0)
+    mesh_add_uv(plate, -1, 0, 0, 0, 1, 1, 1, 0, 1, 0, -1, 1, 0, 0, 0)
+    mesh_shader(plate, "lamp_look")
+    shader_set(plate, "boost", 2)
+    mesh_image(plate, stone)
+    gold = mesh_new()
+    box(gold, -0.4, 0, -0.4, 0.4, 0.8, 0.4, rgb(235, 190, 110))
+    mesh_shader(gold, "pbr")
+    shader_set(gold, "metal", 1)
+    shader_set(gold, "rough", 0.3)
+    red = mesh_new()
+    box(red, -0.4, 0, -0.4, 0.4, 0.8, 0.4, rgb(200, 40, 45))
+    mesh_shader(red, "pbr")
+    shader_set(red, "rough", 0.7)
+    lit = mesh_new()
+    box(lit, -0.3, 0, -0.3, 0.3, 0.6, 0.3, rgb(180, 180, 180))
+    mesh_shader(lit, "standard")
+    frames = 0
+    repeat while window_alive() and (hold or frames < 30)
+        frames += 1
+        if frames % 10 < 5 or hold
+            sunlight(0.4, 0.8, -0.3, 0.3)
+        else
+            sunlight(0, 0, 0, 0.05)
+        point_light(0, -1, 1, -1, rgb(255, 160, 80), 4)
+        spot_light(1, 1.5, 2, -1, -0.5, -1, 0.5, 50, rgb(80, 160, 255), 6)
+        clear_window(rgb(10, 12, 20))
+        camera(0, 2.2, -4.2, 0, 0.4, 0)
+        draw_mesh(floor, 0, 0, 0, 0)
+        draw_mesh(plate, 0, 0, 1.5, 0)
+        draw_mesh(gold, -1.1, 0, 0, 20)
+        draw_mesh(red, 1.1, 0, 0, -20)
+        draw_mesh(lit, 0, 0, -0.8, 0)
+    print("кадров: " + frames)
+
+func box(m: int, x0: dec, y0: dec, z0: dec, x1: dec, y1: dec, z1: dec, c: int)
+    face(m, x0, y0, z0, x0, y1, z0, x1, y1, z0, x1, y0, z0, c)
+    face(m, x0, y0, z1, x1, y0, z1, x1, y1, z1, x0, y1, z1, c)
+    face(m, x0, y0, z0, x0, y0, z1, x0, y1, z1, x0, y1, z0, c)
+    face(m, x1, y0, z0, x1, y1, z0, x1, y1, z1, x1, y0, z1, c)
+    face(m, x0, y1, z0, x0, y1, z1, x1, y1, z1, x1, y1, z0, c)
+    face(m, x0, y0, z0, x1, y0, z0, x1, y0, z1, x0, y0, z1, c)
+
+func face(m: int, x1: dec, y1: dec, z1: dec, x2: dec, y2: dec, z2: dec, x3: dec, y3: dec, z3: dec, x4: dec, y4: dec, z4: dec, c: int)
+    mesh_add(m, x1, y1, z1, x2, y2, z2, x3, y3, z3, c)
+    mesh_add(m, x1, y1, z1, x3, y3, z3, x4, y4, z4, c)

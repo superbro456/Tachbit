@@ -4,7 +4,9 @@
 //   mesh_shader(sea, "sea_water")      // точки: цвет воды, блики, пена
 //   shader_set(sea, "height", 0.2)     // настройки — числа после p или v
 // Точка p: x, y (экран), z (глубина), wx wy wz (место в мире), nx ny nz (нормаль), u v, r g b a (цвет сетки),
-// time (секунды), sx sy sz (куда светит солнце), amb (фон), cx cy cz (камера).
+// time (секунды), sx sy sz (куда светит солнце), amb (фон), cx cy cz (камера), tx ty tz (касательная: куда растёт u).
+// В любой gpu func: lamp_k(i, x, y, z) — сколько света лампы i (0…7) доходит до точки, lamp_x/y/z(i), lamp_r/g/b(i);
+// tex_r/g/b/a(слот, u, v) — цвет картинки слота 0…3 (shader_image), tex_on(слот) — есть ли там картинка.
 // Угол v: x y z (в сетке), nx ny nz, u v, r g b a, time, i (номер угла).
 
 // ---------- общие помощники ----------
@@ -49,14 +51,217 @@ gpu func standard(p: pixel, shine: dec, power: dec, rim: dec, fog_near: dec, fog
     vl = sqrt(vx * vx + vy * vy + vz * vz) + 0.0001
     edge = 1 - abs(p.nx * vx + p.ny * vy + p.nz * vz) / vl
     e = rim * edge * edge * edge
-    p.r = p.r * k + s + e
-    p.g = p.g * k + s + e
-    p.b = p.b * k + s + e
+    p.r = p.r * (k + lamps_light(0, p.nx, p.ny, p.nz, p.wx, p.wy, p.wz)) + s + e
+    p.g = p.g * (k + lamps_light(1, p.nx, p.ny, p.nz, p.wx, p.wy, p.wz)) + s + e
+    p.b = p.b * (k + lamps_light(2, p.nx, p.ny, p.nz, p.wx, p.wy, p.wz)) + s + e
     if fog_far > fog_near
         f = clamp((vl - fog_near) / (fog_far - fog_near), 0, 1)
         p.r = mix(p.r, fog_r, f)
         p.g = mix(p.g, fog_g, f)
         p.b = mix(p.b, fog_b, f)
+
+// ---------- лампы в шейдере ----------
+// свет всех ламп (point_light, spot_light) по каналу ch (0 — красный, 1 — зелёный, 2 — синий) в точке (wx, wy, wz)
+// с нормалью (nx, ny, nz): рассеянный, без бликов. Добавь к цвету: p.r = p.r * (k + lamps_light(0, ...))
+gpu func lamps_light(ch: int, nx: dec, ny: dec, nz: dec, wx: dec, wy: dec, wz: dec) gives s: dec
+    s = 0.0
+    count i from 0 to 7
+        k = lamp_k(i, wx, wy, wz)
+        if k > 0
+            lx = lamp_x(i) - wx
+            ly = lamp_y(i) - wy
+            lz = lamp_z(i) - wz
+            ll = sqrt(lx * lx + ly * ly + lz * lz) + 0.000001
+            nl = (nx * lx + ny * ly + nz * lz) / ll
+            if nl > 0
+                c = lamp_r(i)
+                if ch == 1
+                    c = lamp_g(i)
+                else if ch == 2
+                    c = lamp_b(i)
+                s = s + c * k * nl
+    return s
+
+// ---------- PBR: металл и шероховатость, рельеф, все лампы, отражение неба ----------
+// Цвет — цвет сетки × картинка слота 0 (mesh_image или shader_image(m, 0, картинка)).
+// Рельеф — карта нормалей в слоте 1: shader_image(m, 1, картинка) (синеватая картинка: x — красный, y — зелёный).
+// metal — металл 0…1, rough — шероховатость 0…1 (0 — как 0.5; 0.05 — зеркало, 1 — мел),
+// bump — сила рельефа (0 — как 1), tile — сколько раз картинки повторяются (0 — как 1),
+// reflect — отражение неба (0 — как 1; совсем без — 0.001), fog_far — туман цвета неба (0 — без).
+// Яркие места не «выгорают» в белое, а мягко подходят к нему (тон-маппинг ACES).
+gpu func ggx(nh: dec, a: dec) gives d: dec
+    a2 = a * a
+    t = nh * nh * (a2 - 1) + 1
+    return a2 / (3.14159265 * t * t + 0.000001)
+
+gpu func smith(nv: dec, nl: dec, k: dec) gives g: dec
+    return nv / (nv * (1 - k) + k) * nl / (nl * (1 - k) + k)
+
+gpu func fresnel(f0: dec, c: dec) gives f: dec
+    return f0 + (1 - f0) * pow(clamp(1 - c, 0, 1), 5)
+
+// блик (Кук — Торранс без Френеля): нормаль n, к глазу v, к свету l (все длиной 1), уже умножен на n·l
+gpu func pbr_spec(nx: dec, ny: dec, nz: dec, vx: dec, vy: dec, vz: dec, lx: dec, ly: dec, lz: dec, rough: dec) gives s: dec
+    hx = lx + vx
+    hy = ly + vy
+    hz = lz + vz
+    hl = sqrt(hx * hx + hy * hy + hz * hz)
+    if hl < 0.00001
+        return 0.0
+    nh = max((nx * hx + ny * hy + nz * hz) / hl, 0.0)
+    nv = max(nx * vx + ny * vy + nz * vz, 0.001)
+    nl = max(nx * lx + ny * ly + nz * lz, 0.0)
+    k = (rough + 1) * (rough + 1) / 8
+    return ggx(nh, rough * rough) * smith(nv, nl, k) / (4 * nv)
+
+// косинус между глазом и серединой (для Френеля)
+gpu func pbr_vh(vx: dec, vy: dec, vz: dec, lx: dec, ly: dec, lz: dec) gives c: dec
+    hx = lx + vx
+    hy = ly + vy
+    hz = lz + vz
+    hl = sqrt(hx * hx + hy * hy + hz * hz) + 0.00001
+    return clamp((vx * hx + vy * hy + vz * hz) / hl, 0, 1)
+
+gpu func aces(x: dec) gives y: dec
+    x = max(x, 0.0)
+    return clamp(x * (2.51 * x + 0.03) / (x * (2.43 * x + 0.59) + 0.14), 0, 1)
+
+gpu func pbr(p: pixel, metal: dec, rough: dec, bump: dec, tile: dec, reflect: dec, fog_far: dec)
+    if rough <= 0
+        rough = 0.5
+    rough = clamp(rough, 0.05, 1)
+    if bump <= 0
+        bump = 1.0
+    if tile <= 0
+        tile = 1.0
+    if reflect <= 0
+        reflect = 1.0
+    metal = clamp(metal, 0, 1)
+    u = p.u * tile
+    v = p.v * tile
+    ar = p.r
+    ag = p.g
+    ab = p.b
+    if tex_on(0)
+        ar = ar * tex_r(0, u, v)
+        ag = ag * tex_g(0, u, v)
+        ab = ab * tex_b(0, u, v)
+    // свет считается в «линейных» цветах (как в настоящих движках), в конце — обратно для экрана
+    ar = ar * ar
+    ag = ag * ag
+    ab = ab * ab
+    nx = p.nx
+    ny = p.ny
+    nz = p.nz
+    if tex_on(1)
+        mx = (tex_r(1, u, v) * 2 - 1) * bump
+        my = (tex_g(1, u, v) * 2 - 1) * bump
+        mz = tex_b(1, u, v) * 2 - 1
+        // касательная поперёк нормали, третья ось — нормаль × касательная
+        d = p.tx * nx + p.ty * ny + p.tz * nz
+        tx = p.tx - nx * d
+        ty = p.ty - ny * d
+        tz = p.tz - nz * d
+        tl = sqrt(tx * tx + ty * ty + tz * tz)
+        if tl > 0.0001
+            tx = tx / tl
+            ty = ty / tl
+            tz = tz / tl
+            kx = ny * tz - nz * ty
+            ky = nz * tx - nx * tz
+            kz = nx * ty - ny * tx
+            qx = tx * mx + kx * my + nx * mz
+            qy = ty * mx + ky * my + ny * mz
+            qz = tz * mx + kz * my + nz * mz
+            ql = sqrt(qx * qx + qy * qy + qz * qz)
+            if ql > 0.0001
+                nx = qx / ql
+                ny = qy / ql
+                nz = qz / ql
+    vx = p.cx - p.wx
+    vy = p.cy - p.wy
+    vz = p.cz - p.wz
+    dist = sqrt(vx * vx + vy * vy + vz * vz) + 0.00001
+    vx = vx / dist
+    vy = vy / dist
+    vz = vz / dist
+    fr = mix(0.04, ar, metal)
+    fg = mix(0.04, ag, metal)
+    fb = mix(0.04, ab, metal)
+    kd = 1 - metal
+    cr = 0.0
+    cg = 0.0
+    cb = 0.0
+    // солнце
+    sl = sqrt(p.sx * p.sx + p.sy * p.sy + p.sz * p.sz)
+    if sl > 0.001
+        lx = p.sx / sl
+        ly = p.sy / sl
+        lz = p.sz / sl
+        nl = nx * lx + ny * ly + nz * lz
+        if nl > 0
+            s = pbr_spec(nx, ny, nz, vx, vy, vz, lx, ly, lz, rough)
+            c = pbr_vh(vx, vy, vz, lx, ly, lz)
+            sun = (1 - p.amb) * 1.6
+            f = fresnel(fr, c)
+            cr = cr + ((1 - f) * kd * ar * nl + f * s) * sun
+            f = fresnel(fg, c)
+            cg = cg + ((1 - f) * kd * ag * nl + f * s) * sun
+            f = fresnel(fb, c)
+            cb = cb + ((1 - f) * kd * ab * nl + f * s) * sun
+    // лампы
+    count i from 0 to 7
+        k = lamp_k(i, p.wx, p.wy, p.wz)
+        if k > 0
+            lx = lamp_x(i) - p.wx
+            ly = lamp_y(i) - p.wy
+            lz = lamp_z(i) - p.wz
+            ll = sqrt(lx * lx + ly * ly + lz * lz) + 0.000001
+            lx = lx / ll
+            ly = ly / ll
+            lz = lz / ll
+            nl = nx * lx + ny * ly + nz * lz
+            if nl > 0
+                s = pbr_spec(nx, ny, nz, vx, vy, vz, lx, ly, lz, rough)
+                c = pbr_vh(vx, vy, vz, lx, ly, lz)
+                k = k * 1.6
+                f = fresnel(fr, c)
+                cr = cr + ((1 - f) * kd * ar * nl + f * s) * k * lamp_r(i)
+                f = fresnel(fg, c)
+                cg = cg + ((1 - f) * kd * ag * nl + f * s) * k * lamp_g(i)
+                f = fresnel(fb, c)
+                cb = cb + ((1 - f) * kd * ab * nl + f * s) * k * lamp_b(i)
+    // фон и отражение неба: луч от глаза отражается от точки и смотрит в небо
+    nv = max(nx * vx + ny * vy + nz * vz, 0.0)
+    ry = 2 * nv * ny - vy
+    t = clamp(ry, 0, 1)
+    skr = mix(0.62, 0.16, t)
+    skg = mix(0.68, 0.3, t)
+    skb = mix(0.75, 0.62, t)
+    // вниз — земля: тёмная, чуть тёплая
+    if ry < 0
+        g = clamp(-ry * 4, 0, 1)
+        skr = mix(skr, 0.1, g)
+        skg = mix(skg, 0.09, g)
+        skb = mix(skb, 0.08, g)
+    // шершавое отражает «среднее небо», гладкое — само небо в отражённой стороне
+    skr = mix(skr, 0.3, rough)
+    skg = mix(skg, 0.34, rough)
+    skb = mix(skb, 0.42, rough)
+    env = clamp(p.amb * 3, 0, 1) * reflect
+    edge = pow(1 - nv, 5) * (1 - rough) * (1 - rough)
+    cr = cr + p.amb * ar * kd + skr * (fr + (1 - fr) * edge) * env
+    cg = cg + p.amb * ag * kd + skg * (fg + (1 - fg) * edge) * env
+    cb = cb + p.amb * ab * kd + skb * (fb + (1 - fb) * edge) * env
+    p.r = sqrt(aces(cr))
+    p.g = sqrt(aces(cg))
+    p.b = sqrt(aces(cb))
+    if fog_far > 0
+        q = clamp(dist / fog_far, 0, 1)
+        q = q * q
+        p.r = mix(p.r, 0.78, q)
+        p.g = mix(p.g, 0.82, q)
+        p.b = mix(p.b, 0.86, q)
 
 // ---------- мультяшный: свет ступеньками и тёмный контур ----------
 gpu func toon(p: pixel, steps: dec, outline: dec)
