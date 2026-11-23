@@ -1,0 +1,14 @@
+// Материалы glTF как из Blender (1.3): металл, шероховатость, карты нормалей и металла, свечение, прозрачность
+use model
+
+func main()
+    md = model.load("tests/lib/models/shelf.glb") else err
+        print("нет: " + err)
+        return
+    print("треугольников: " + model.triangles(md))
+    each ln in model.materials(md)
+        print(ln)
+    old = model.load("tests/lib/models/walker.glb") else err
+        print("нет: " + err)
+        return
+    print("walker: " + len(model.materials(old)) + " кусков")

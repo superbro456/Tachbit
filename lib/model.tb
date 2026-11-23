@@ -31,6 +31,16 @@ obj Part
     skin_j: list int       // кости углов: по 4 на угол (12 на треугольник), -1 — нет; пусто — без костей
     skin_w: list dec       // их веса
     lods: list int         // упрощённые копии сетки (model.lod), от ближней к дальней
+    // материал glTF (как в Blender, Principled BSDF): с ним build сам ставит шейдер pbr
+    has_mat: bool
+    map_file: list text    // карты для слотов 1, 2, 3: нормали, металл+шероховатость, свечение ("" — нет)
+    map_img: list int
+    metal: dec
+    rough: dec
+    bump: dec
+    glow: dec
+    glow_color: int
+    alpha: dec
 
 obj Model
     parts: list Part
@@ -56,6 +66,7 @@ obj Model
     nmat: list dec            // узел: матрица 16 (если в файле matrix)
     nhasm: list bool
     anims: list Anim
+    look: text                // шейдер от model.shader ("" — сам: pbr для материалов glTF)
     k: dec
     ox: dec
     oy: dec
@@ -149,12 +160,15 @@ modpub func build(md: Model)
         p.mesh = mesh_new()
         if p.image_file != "" and p.image < 0
             p.image = load_image(p.image_file) or -1
+        count k from 0 to 2
+            if p.map_file[k] != "" and p.map_img[k] < 0
+                p.map_img[k] = load_image(p.map_file[k]) or -1
         if p.image >= 0 and len(p.uv) > 0
             mesh_image(p.mesh, p.image)
         n = len(p.pos) / 9
         count t from 0 to n - 1
             a = t * 9
-            if p.image >= 0 and len(p.uv) > 0
+            if len(p.uv) > 0
                 b = t * 6
                 mesh_add_uv(p.mesh, p.pos[a], p.pos[a + 1], p.pos[a + 2], p.uv[b], p.uv[b + 1], p.pos[a + 3], p.pos[a + 4], p.pos[a + 5], p.uv[b + 2], p.uv[b + 3], p.pos[a + 6], p.pos[a + 7], p.pos[a + 8], p.uv[b + 4], p.uv[b + 5])
             else
@@ -171,6 +185,10 @@ modpub func build(md: Model)
                     b = p.skin_j[c * 4 + q]
                     if b >= 0 and p.skin_w[c * 4 + q] > 0.0
                         bone_weight(p.mesh, b, p.pos[c * 3], p.pos[c * 3 + 1], p.pos[c * 3 + 2], p.skin_w[c * 4 + q])
+        if p.alpha < 1.0
+            mesh_alpha(p.mesh, p.alpha)
+        if p.has_mat or md.look != ""
+            put_look(p, p.mesh, md.look)
 
 // нарисовать модель в точке мира, повёрнутой как draw_mesh_rot
 modpub func draw(md: Model, x: dec, y: dec, z: dec, yaw: dec, pitch: dec, roll: dec)
@@ -214,13 +232,63 @@ modpub func free(md: Model)
             mesh_free(lm)
         p.lods.clear()
 
-// свой шейдер (gpu func) всем кускам — после build; с ним кости модели считает видеокарта
+// свой шейдер (gpu func) всем кускам; с ним кости модели считает видеокарта. Можно до build и после.
+// Куски с материалом glTF и так получают "pbr" с картами и настройками из файла;
+// "" — снова так, "plain" — без шейдера (простой свет)
 modpub func shader(md: Model, name: text)
+    md.look = name
     each p in md.parts
         if p.mesh >= 0
-            mesh_shader(p.mesh, name)
+            put_look(p, p.mesh, name)
         each lm in p.lods
-            mesh_shader(lm, name)
+            put_look(p, lm, name)
+
+// шейдер куску: для pbr — ещё картинки и настройки материала из файла
+func put_look(p: Part, m: int, name: text)
+    if name == ""
+        name = "plain"
+        if p.has_mat
+            name = "pbr"
+    if name == "plain"
+        mesh_shader(m, "")
+        return
+    mesh_shader(m, name)
+    if name != "pbr"
+        return
+    if p.image >= 0 and len(p.uv) > 0
+        shader_image(m, 0, p.image)
+    if len(p.uv) > 0
+        count k from 0 to 2
+            if p.map_img[k] >= 0
+                shader_image(m, k + 1, p.map_img[k])
+    if p.has_mat
+        shader_set(m, "metal", p.metal)
+        shader_set(m, "rough", p.rough)
+        shader_set(m, "bump", p.bump)
+        shader_set(m, "glow", p.glow)
+        shader_set(m, "glow_color", p.glow_color)
+
+// материалы кусков одной строкой на кусок — проверить, что пришло из файла:
+// "rust: цвет-картинка да, металл 1, шероховатость 1, рельеф нет, металл-карта да, свечение 0, прозрачность 1"
+modpub func materials(md: Model) gives lines: list text
+    each p in md.parts
+        ln = p.name + ": цвет-картинка " + yes_no(p.image_file != "")
+        if p.has_mat
+            ln += ", металл " + round2(p.metal) + ", шероховатость " + round2(p.rough) + ", рельеф " + yes_no(p.map_file[0] != "") + ", металл-карта " + yes_no(p.map_file[1] != "") + ", свечение " + round2(p.glow)
+            if p.map_file[2] != ""
+                ln += " с картой"
+            ln += ", прозрачность " + round2(p.alpha)
+        else
+            ln += ", без материала glTF"
+        lines.add(ln)
+
+func yes_no(b: bool)
+    if b
+        return "да"
+    return "нет"
+
+func round2(x: dec) gives t: text
+    t = "" + round(x * 100) / 100.0
 
 // имена анимаций в файле
 modpub func animations(md: Model) gives names: list text
@@ -455,7 +523,10 @@ func new_model() gives md: Model
     md = Model(min_x: 1000000000000.0, min_y: 1000000000000.0, min_z: 1000000000000.0, max_x: -1000000000000.0, max_y: -1000000000000.0, max_z: -1000000000000.0, k: 1.0)
 
 func new_part(name: text, c: int) gives p: Part
-    p = Part(name: name, color: c, image: -1, mesh: -1)
+    p = Part(name: name, color: c, image: -1, mesh: -1, rough: 0.5, bump: 1.0, alpha: 1.0)
+    repeat 3 times
+        p.map_file.add("")
+        p.map_img.add(-1)
 
 func grow_box(md: Model, x: dec, y: dec, z: dec)
     md.min_x = min(md.min_x, x)
@@ -658,6 +729,7 @@ func read_mtl(src: text, folder: text, mats: dict text Part)
 // треугольники, цвет материала, картинка цвета (файл или внутри .glb), цвета вершин.
 // Кости (skins, первый) и анимации (animations) — см. model.play.
 
+use shaders
 use c
     func fopen(path: text, mode: text) gives u64
     func fread(buf: int, size: u64, n: u64, f: u64) gives u64
@@ -980,7 +1052,7 @@ func add_mesh(g: Gltf, mi: int, w: list dec, skinned: bool)
                     repeat 4 times
                         p.skin_j.add(-1)
                         p.skin_w.add(0.0)
-            if len(uv) >= nv * 2 and p.image_file != ""
+            if len(uv) >= nv * 2 and needs_uv(p)
                 each v in [a, b, c]
                     p.uv.add(uv[v * 2])
                     p.uv.add(uv[v * 2 + 1])
@@ -1016,20 +1088,57 @@ func part_for(g: Gltf, mat: int) gives p: Part
         f = mb + ".pbrMetallicRoughness.baseColorFactor"
         // в glTF цвет линейный, на экран — примерно корень (гамма 2)
         p.color = rgb(clamp255(sqrt(jnum(g.j, f + ".0", 1.0))), clamp255(sqrt(jnum(g.j, f + ".1", 1.0))), clamp255(sqrt(jnum(g.j, f + ".2", 1.0))))
-        tex = jint(g.j, mb + ".pbrMetallicRoughness.baseColorTexture.index", -1)
-        if tex >= 0
-            img = jint(g.j, "textures." + tex + ".source", -1)
-            if img >= 0
-                uri = json_get(g.j, "images." + img + ".uri") or ""
-                if uri != "" and not starts_with(uri, "data:")
-                    p.image_file = join_path(g.folder, url_decode(uri))
-                else
-                    bv = jint(g.j, "images." + img + ".bufferView", -1)
-                    if bv >= 0
-                        p.image_file = "#" + bv
-                        p.image = view_image(g, bv)
+        bf, bi = tex_src(g, jint(g.j, mb + ".pbrMetallicRoughness.baseColorTexture.index", -1))
+        p.image_file = bf
+        p.image = bi
+        // остальное как в Blender (Principled BSDF → glTF): металл, шероховатость, рельеф, свечение, прозрачность
+        p.has_mat = true
+        p.metal = jnum(g.j, mb + ".pbrMetallicRoughness.metallicFactor", 1.0)
+        p.rough = jnum(g.j, mb + ".pbrMetallicRoughness.roughnessFactor", 1.0)
+        p.bump = jnum(g.j, mb + ".normalTexture.scale", 1.0)
+        keys = ["normalTexture", "pbrMetallicRoughness.metallicRoughnessTexture", "emissiveTexture"]
+        count k from 0 to 2
+            mf, mi = tex_src(g, jint(g.j, mb + "." + keys[k] + ".index", -1))
+            p.map_file[k] = mf
+            p.map_img[k] = mi
+        ef = mb + ".emissiveFactor"
+        er = jnum(g.j, ef + ".0", 0.0)
+        eg = jnum(g.j, ef + ".1", 0.0)
+        eb = jnum(g.j, ef + ".2", 0.0)
+        // сила свечения Blender (KHR_materials_emissive_strength)
+        es = jnum(g.j, mb + ".extensions.KHR_materials_emissive_strength.emissiveStrength", 1.0)
+        top = max(er, max(eg, eb))
+        if top > 0.0
+            p.glow = top * es
+            p.glow_color = rgb(clamp255(sqrt(er / top)), clamp255(sqrt(eg / top)), clamp255(sqrt(eb / top)))
+        if (json_get(g.j, mb + ".alphaMode") or "") == "BLEND"
+            p.alpha = jnum(g.j, f + ".3", 1.0)
     g.md.parts.add(p)
     g.part_of[mat] = len(g.md.parts) - 1
+
+// текстура glTF номер tex → файл рядом (картинка грузится в build) или сразу картинка из .glb; -1 — нет
+func tex_src(g: Gltf, tex: int) gives file: text, img: int
+    file = ""
+    img = -1
+    if tex < 0
+        return
+    src = jint(g.j, "textures." + tex + ".source", -1)
+    if src < 0
+        return
+    uri = json_get(g.j, "images." + src + ".uri") or ""
+    if uri != "" and not starts_with(uri, "data:")
+        file = join_path(g.folder, url_decode(uri))
+    else
+        bv = jint(g.j, "images." + src + ".bufferView", -1)
+        if bv >= 0
+            file = "#" + bv
+            img = view_image(g, bv)
+
+func needs_uv(p: Part) gives yes: bool
+    yes = p.image_file != ""
+    each f in p.map_file
+        if f != ""
+            yes = true
 
 // картинка внутри .glb: сразу в картинку Tachbit (до free_buffers)
 func view_image(g: Gltf, bv: int)

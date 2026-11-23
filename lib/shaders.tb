@@ -129,19 +129,23 @@ gpu func aces(x: dec) gives y: dec
     x = max(x, 0.0)
     return clamp(x * (2.51 * x + 0.03) / (x * (2.43 * x + 0.59) + 0.14), 0, 1)
 
-gpu func pbr(p: pixel, metal: dec, rough: dec, bump: dec, tile: dec, reflect: dec, fog_far: dec)
+gpu func pbr(p: pixel, metal: dec, rough: dec, bump: dec, tile: dec, reflect: dec, fog_far: dec, glow: dec, glow_color: dec)
     if rough <= 0
         rough = 0.5
-    rough = clamp(rough, 0.05, 1)
     if bump <= 0
         bump = 1.0
     if tile <= 0
         tile = 1.0
     if reflect <= 0
         reflect = 1.0
-    metal = clamp(metal, 0, 1)
     u = p.u * tile
     v = p.v * tile
+    // слот 2 — карта металла и шероховатости как в glTF / Blender: зелёный — шероховатость, синий — металл
+    if tex_on(2)
+        rough = rough * tex_g(2, u, v)
+        metal = metal * tex_b(2, u, v)
+    rough = clamp(rough, 0.05, 1)
+    metal = clamp(metal, 0, 1)
     ar = p.r
     ag = p.g
     ab = p.b
@@ -256,6 +260,25 @@ gpu func pbr(p: pixel, metal: dec, rough: dec, bump: dec, tile: dec, reflect: de
     cr = cr + p.amb * ar * kd + skr * (fr + (1 - fr) * edge) * env
     cg = cg + p.amb * ag * kd + skg * (fg + (1 - fg) * edge) * env
     cb = cb + p.amb * ab * kd + skb * (fb + (1 - fb) * edge) * env
+    // свечение (emission): цвет glow_color (0 — свой цвет), слот 3 — карта свечения
+    if glow > 0
+        er = ar
+        eg = ag
+        eb = ab
+        if glow_color > 0
+            er = floor(glow_color / 65536) / 255
+            eg = floor(fract(glow_color / 65536) * 256 + 0.001) / 255
+            eb = (glow_color - floor(glow_color / 256) * 256) / 255
+            er = er * er
+            eg = eg * eg
+            eb = eb * eb
+        if tex_on(3)
+            er = er * tex_r(3, u, v) * tex_r(3, u, v)
+            eg = eg * tex_g(3, u, v) * tex_g(3, u, v)
+            eb = eb * tex_b(3, u, v) * tex_b(3, u, v)
+        cr = cr + er * glow
+        cg = cg + eg * glow
+        cb = cb + eb * glow
     p.r = sqrt(aces(cr))
     p.g = sqrt(aces(cg))
     p.b = sqrt(aces(cb))

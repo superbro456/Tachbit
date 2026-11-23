@@ -1,0 +1,99 @@
+// Как в Blender: модель shelf.glb с материалами Principled BSDF — Tachbit берёт их из файла сам.
+// Ржавый шар (карта металла и шероховатости), каменная плита (карта нормалей), неоновое кольцо
+// (свечение), стеклянный куб (прозрачность). Ничего не настраивается руками: model.load + model.build.
+//   tb run examples/apps/blender_look/main.tb        — смотреть и крутить
+//   tb run examples/apps/blender_look/main.tb demo   — камера летает сама
+// Свою модель: в Blender File → Export → glTF 2.0 (.glb), положи рядом и поменяй имя файла ниже.
+//
+// Q / E — облететь, W / S — ближе / дальше, P — материал из файла / простой свет, X — свечение на весь экран
+use model
+
+func main()
+    a = args()
+    demo = len(a) > 0 and a[len(a) - 1] == "demo"
+    try window_open(960, 600, "Как в Blender")
+    md = model.load(here("shelf.glb")) else err
+        print("нет модели: " + err)
+        return
+    model.build(md)
+
+    angle = -25.0
+    dist = 6.5
+    frame = 0
+    plain = false
+    glow_on = true
+    prev = ""
+    screen_set("glow", "power", 0.9)
+    screen_set("glow", "threshold", 0.85)
+    screen_set("glow", "size", 14)
+    repeat while window_alive()
+        frame += 1
+        now = ""
+        each k in ["p", "x"]
+            if key_down(k)
+                now += k
+        if find(now, "p") >= 0 and find(prev, "p") < 0
+            plain = not plain
+            if plain
+                model.shader(md, "plain")
+            else
+                model.shader(md, "")
+        if find(now, "x") >= 0 and find(prev, "x") < 0
+            glow_on = not glow_on
+        prev = now
+        if demo
+            angle = 50 * sin_t(frame * 0.008)
+        if key_down("q") or key_down("left")
+            angle -= 1.2
+        if key_down("e") or key_down("right")
+            angle += 1.2
+        if key_down("w") or key_down("up")
+            dist = max(2.5, dist - 0.06)
+        if key_down("s") or key_down("down")
+            dist = min(12.0, dist + 0.06)
+
+        sunlight(0.5, 0.8, -0.4, 0.3)
+        t = frame * 0.02
+        point_light(0, 2.5 * cos_t(t), 1.6, -1.5 + 0.8 * sin_t(t), rgb(255, 200, 150), 4)
+        shadows(12)
+        clear_window(rgb(30, 34, 44))
+        camera(dist * sin_t(angle * 0.0174533), 2.4, -dist * cos_t(angle * 0.0174533), 0, 0.5, 0)
+        model.draw(md, 0, 0, 0, 0, 0, 0)
+        if glow_on
+            screen_shader("glow")
+            screen_shader("fxaa")
+        hint = "Q/E облететь  W/S ближе  P материал из файла: "
+        if plain
+            hint += "нет (простой свет)"
+        else
+            hint += "да"
+        hint += "   X свечение   " + fps() + " к/с"
+        draw_text(13, 13, hint, rgb(0, 0, 0), 2)
+        draw_text(12, 12, hint, rgb(255, 255, 255), 2)
+
+// файл рядом с программой (или в папке примера, если запускают из корня Tachbit)
+func here(name: text) gives path: text
+    path = name
+    if file_exists("examples/apps/blender_look/" + name)
+        path = "examples/apps/blender_look/" + name
+        return
+    a = args()
+    if len(a) > 0
+        p = a[0]
+        cut_at = -1
+        count i from 0 to len(p) - 1
+            if p[i] == "/"
+                cut_at = i
+        if cut_at >= 0
+            path = cut(p, 0, cut_at) + "/" + name
+
+func sin_t(x: dec) gives r: dec
+    repeat while x > 3.14159265
+        x -= 6.2831853
+    repeat while x < -3.14159265
+        x += 6.2831853
+    x2 = x * x
+    r = x * (1 - x2 / 6 * (1 - x2 / 20 * (1 - x2 / 42 * (1 - x2 / 72 * (1 - x2 / 110)))))
+
+func cos_t(x: dec) gives r: dec
+    r = sin_t(x + 1.57079633)
