@@ -84,7 +84,6 @@ function activate(context) {
     context.subscriptions.push(
         diags,
         vscode.commands.registerCommand('tachbit.run', () => runInTerminal('run')),
-        vscode.commands.registerCommand('tachbit.runBar', () => runInTerminal('run')),
         // зелёная кнопка «отладка» (F5, Touch Bar, Run and Debug): просто запускаем файл
         vscode.debug.registerDebugConfigurationProvider('tachbit', {
             resolveDebugConfiguration() { runInTerminal('run'); return undefined; }

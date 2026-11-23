@@ -2,7 +2,7 @@
   "name": "tachbit",
   "displayName": "Tachbit",
   "description": "Язык Tachbit: цвета, темы Tachbit Dark/Light, запуск по F5 и ошибки прямо в коде",
-  "version": "0.9.3",
+  "version": "0.9.4",
   "publisher": "tachbit",
   "engines": {
     "vscode": "^1.75.0"
@@ -61,14 +61,6 @@
       {
         "command": "tachbit.showC",
         "title": "Tachbit: показать C-код"
-      },
-      {
-        "command": "tachbit.runBar",
-        "title": "Запустить",
-        "icon": {
-          "light": "./play-bar.png",
-          "dark": "./play-bar.png"
-        }
       }
     ],
     "keybindings": [
@@ -90,19 +82,6 @@
           "command": "tachbit.run",
           "when": "editorLangId == tachbit",
           "group": "navigation"
-        }
-      ],
-      "touchBar": [
-        {
-          "command": "tachbit.runBar",
-          "when": "editorLangId == tachbit",
-          "group": "navigation"
-        }
-      ],
-      "commandPalette": [
-        {
-          "command": "tachbit.runBar",
-          "when": "false"
         }
       ]
     },
