@@ -12,6 +12,15 @@ build/
 examples/**
 !examples/**/
 !examples/**/*.tb
+!examples/**/*.png
+!examples/**/*.jpg
+!examples/**/*.glb
+!examples/**/*.gltf
+!examples/**/*.bin
+!examples/**/*.obj
+!examples/**/*.mtl
+!examples/**/*.wav
+!examples/**/*.py
 tests/bench/**
 !tests/bench/**/
 !tests/bench/**/*.tb
