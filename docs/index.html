@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="dark">
+<meta name="color-scheme" content="light">
 <meta name="theme-color" content="#05070d">
 <title>Tachbit</title>
 <meta name="description" content="Tachbit: write complex programs in a clear language and get a real, fast native program.">
@@ -121,27 +121,40 @@ html.ru [data-en]{display:none}
   h2{font-size:25px;margin-top:64px}
   .win pre{font-size:13px}
 }
-/* Оформление «Орбита»: тёмный космос, бирюзовое свечение, стекло (сайт всегда тёмный) */
-:root{--bg:#05070d;--fg:#eef3f8;--mut:#8b95a7;--line:rgba(148,163,184,.14);--soft:rgba(255,255,255,.04);--card:rgba(255,255,255,.035);--teal:#3ee6d6;--teal2:#9ff5ec}
-body{background:#05070d}
-.top{background:radial-gradient(1200px 600px at 75% 30%,rgba(62,230,214,.16),transparent 60%),radial-gradient(900px 500px at 10% 0%,rgba(99,102,241,.18),transparent 60%),#05070d}
-.top::before{inset:0;width:auto;height:auto;right:0;top:0;border-radius:0;background:
- radial-gradient(1px 1px at 20% 30%,#fff8,transparent),radial-gradient(1px 1px at 60% 15%,#fff6,transparent),radial-gradient(1.5px 1.5px at 85% 60%,#fff9,transparent),radial-gradient(1px 1px at 40% 80%,#fff5,transparent),radial-gradient(1px 1px at 10% 70%,#fff6,transparent),radial-gradient(1px 1px at 75% 85%,#fff5,transparent),radial-gradient(1.5px 1.5px at 30% 55%,#fff7,transparent);opacity:.9}
-.top::after{content:"";position:absolute;right:-6%;top:6%;width:760px;height:520px;border-radius:50%;border:1px solid rgba(62,230,214,.25);transform:rotate(-14deg);box-shadow:0 0 60px rgba(62,230,214,.08) inset;pointer-events:none}
-.tag{border-color:rgba(62,230,214,.35);background:rgba(62,230,214,.06)}
-.dot{background:#3ee6d6;box-shadow:0 0 12px #3ee6d6}
-h1 em{color:#3ee6d6;text-shadow:0 0 28px rgba(62,230,214,.55)}
-.lead{color:#a9b3c4}
-.b1{background:#3ee6d6;color:#04211e;box-shadow:0 0 30px rgba(62,230,214,.45)}
-.b2{border-color:rgba(148,163,184,.3);background:rgba(255,255,255,.03)}
-.win{background:rgba(17,20,30,.7);backdrop-filter:blur(14px);border-color:rgba(62,230,214,.25);box-shadow:0 0 0 1px rgba(255,255,255,.03),0 30px 90px rgba(0,0,0,.6),0 0 60px rgba(62,230,214,.12)}
-.term,.facts,.card{background:rgba(255,255,255,.035);backdrop-filter:blur(10px)}
-.term{box-shadow:0 0 40px rgba(62,230,214,.10)}
-.card:hover{border-color:rgba(62,230,214,.6);box-shadow:0 0 30px rgba(62,230,214,.12)}
-.card .n{color:#a5b4fc}
-code{background:rgba(255,255,255,.06)}
-.inst pre,.first{background:rgba(0,0,0,.45);border:1px solid var(--line)}
+/* Оформление: сверху «Орбита» (тёмный космос, свечение), ниже «Аврора» (светлое сияние, матовое стекло) */
+:root{--bg:#ffffff;--fg:#0a0a0f;--mut:#5f6270;--line:rgba(15,23,42,.09);--soft:#f4f5f8;--card:rgba(255,255,255,.72);--teal:#14b8a6}
+body{background:#fff;position:relative;overflow-x:hidden}
+/* сияние «Авроры» за светлой частью */
+body::before{content:"";position:absolute;left:0;right:0;top:820px;height:1900px;z-index:-1;pointer-events:none;background:
+ radial-gradient(520px 380px at 88% 12%,rgba(20,184,166,.30),transparent 70%),
+ radial-gradient(520px 360px at 8% 34%,rgba(56,189,248,.26),transparent 70%),
+ radial-gradient(480px 340px at 92% 62%,rgba(167,139,250,.28),transparent 70%),
+ radial-gradient(420px 300px at 12% 88%,rgba(244,114,182,.12),transparent 70%);filter:blur(40px)}
 
+/* «Орбита» — первый экран */
+.top{color:#eef3f8;background:radial-gradient(700px 460px at 80% 30%,rgba(20,184,166,.26),transparent 65%),radial-gradient(640px 420px at 62% 0%,rgba(56,189,248,.22),transparent 65%),radial-gradient(620px 420px at 98% 80%,rgba(167,139,250,.26),transparent 65%),radial-gradient(520px 360px at 8% 10%,rgba(244,114,182,.10),transparent 65%),#05070d;padding-bottom:30px}
+.top::before{inset:0;width:auto;height:auto;right:0;top:0;border-radius:0;background:
+ radial-gradient(1px 1px at 20% 30%,#fff8,transparent),radial-gradient(1px 1px at 60% 15%,#fff6,transparent),radial-gradient(1.5px 1.5px at 85% 60%,#fff9,transparent),radial-gradient(1px 1px at 40% 80%,#fff5,transparent),radial-gradient(1px 1px at 10% 70%,#fff6,transparent),radial-gradient(1px 1px at 75% 85%,#fff5,transparent),radial-gradient(1.5px 1.5px at 30% 55%,#fff7,transparent),radial-gradient(1px 1px at 52% 42%,#fff5,transparent);opacity:.9}
+.top::after{content:"";position:absolute;right:-6%;top:6%;width:760px;height:520px;border-radius:50%;border:1px solid rgba(167,139,250,.28);transform:rotate(-14deg);box-shadow:0 0 60px rgba(62,230,214,.08) inset;pointer-events:none}
+.top .tag{color:#c4f1ec;border-color:rgba(167,139,250,.35);background:rgba(255,255,255,.05)}
+.top .dot{background:linear-gradient(135deg,#2dd4bf,#a78bfa);box-shadow:0 0 12px rgba(45,212,191,.8)}
+.top h1 em{background:linear-gradient(90deg,#2dd4bf,#38bdf8 50%,#a78bfa);-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 0 18px rgba(56,189,248,.35))}
+.top .lead{color:#a9b3c4}
+.top .b1{background:linear-gradient(90deg,#2dd4bf,#38bdf8 55%,#a78bfa);color:#06121a;border-radius:999px;box-shadow:0 0 34px rgba(56,189,248,.40)}
+.top .b2{border-color:rgba(148,163,184,.3);background:rgba(255,255,255,.04);color:#eef3f8;border-radius:999px;backdrop-filter:blur(6px)}
+.win{background:rgba(17,20,30,.72);backdrop-filter:blur(14px);border-color:rgba(167,139,250,.28);box-shadow:0 0 0 1px rgba(255,255,255,.03),0 30px 90px rgba(0,0,0,.6),0 0 70px rgba(56,189,248,.14)}
+
+/* «Аврора» — всё, что ниже */
+.term,.card,.facts{background:rgba(255,255,255,.72);backdrop-filter:blur(12px);box-shadow:0 10px 30px rgba(30,41,59,.07)}
+.term{box-shadow:0 18px 50px rgba(5,7,13,.22)}
+.card{border-radius:20px}
+.card:hover{border-color:rgba(20,184,166,.55);box-shadow:0 14px 40px rgba(20,184,166,.12)}
+.card .n{background:linear-gradient(90deg,#14b8a6,#a78bfa);-webkit-background-clip:text;background-clip:text;color:transparent}
+h2 .dot{background:linear-gradient(135deg,#14b8a6,#a78bfa)}
+.inst .b1{background:#0a0a0f;color:#fff;border-radius:999px;box-shadow:0 10px 26px rgba(10,10,15,.18)}
+.inst .b1:hover{background:#1f2937}
+.inst pre,.first{background:#111318;color:#eef3f8}
+.shots img{box-shadow:0 14px 40px rgba(30,41,59,.12)}
 </style>
 </head>
 <body>
