@@ -1,5 +1,8 @@
 # Changes
 
+## 0.9.7
+- Icon: the Tachbit logo tile.
+
 ## 0.9.6
 - New icon: the Tachbit file icon.
 
