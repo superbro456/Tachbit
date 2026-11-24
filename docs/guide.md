@@ -53,7 +53,7 @@ tb start hello.tb  # или просто один файл (можно без .t
 ```
 `install.sh` собирает `tb` из семени.
 
-**Windows, проще всего.** Запусти `Tachbit-Setup-<версия>.exe`: он кладёт `tb.exe` в `%USERPROFILE%\.tachbit\bin`, добавляет эту папку в PATH, ставит компилятор C (LLVM-MinGW через winget), если его нет, и делает пункт «Удалить» в «Приложениях». Права администратора не нужны. Сам установщик собирается на Linux: `./tools/windows/make_installer.sh` (нужны пакеты `mingw-w64` и `nsis`), файл появится в `build/windows/`.
+**Windows, проще всего.** Запусти `download/Tachbit-Setup.exe`. Если Tachbit уже стоит, он сам предложит **обновить** его поверх старой версии (без лицензии и лишних вопросов, PATH и настройки остаются). Он кладёт `tb.exe` в `%USERPROFILE%\.tachbit\bin`, добавляет эту папку в PATH, ставит компилятор C (LLVM-MinGW через winget), если его нет, и делает пункт «Удалить» в «Приложениях». Права администратора не нужны. Сам установщик собирается на Linux: `./tools/windows/make_installer.sh` (нужны пакеты `mingw-w64` и `nsis`), файл появится в `build/windows/`.
 
 **Windows, вручную.** Нужен компилятор C из MinGW-w64: `winget install -e --id MartinStorsjo.LLVM-MinGW.UCRT` (или MSYS2 с gcc). Потом в PowerShell из папки Tachbit:
 ```

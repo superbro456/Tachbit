@@ -52,7 +52,7 @@ curl -fsSL https://raw.githubusercontent.com/superbro456/Tachbit/main/tools/get.
 ./tools/install_vscode.sh          # подсветка и запуск в VS Code
 ```
 
-На Windows: `Tachbit-Setup-<версия>.exe` из папки `download/` или `powershell -ExecutionPolicy Bypass -File tools\install.ps1`.
+На Windows: `download/Tachbit-Setup.exe` (новая версия ставится поверх старой как обновление) или `powershell -ExecutionPolicy Bypass -File tools\install.ps1`.
 
 | Команда | Что делает |
 |---|---|

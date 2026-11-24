@@ -48,7 +48,7 @@ brew install --HEAD tachbit
 git tag v1.3 && git push origin v1.3
 ```
 Потом на https://github.com/superbro456/Tachbit/releases/new выбери тег, напиши что нового,
-приложи `download/Tachbit-Setup-*.exe`.
+приложи `download/Tachbit-Setup.exe`.
 
 ## 6. Анонс
 
