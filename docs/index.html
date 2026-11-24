@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#05070d">
 <title>Tachbit</title>
 <meta name="description" content="Tachbit: write complex programs in a clear language and get a real, fast native program.">
 <meta property="og:title" content="Tachbit">
@@ -10,51 +12,147 @@
 <meta property="og:image" content="img/tachbit-icon-light-512.png">
 <link rel="icon" href="img/tachbit-icon-light-512.png">
 <style>
-:root{--bg:#fbfaf7;--fg:#1c1d21;--mut:#5d6068;--card:#fff;--line:#e6e3dc;--acc:#2f6f5e;--code:#f3f1ec;--codefg:#23252b}
-@media (prefers-color-scheme:dark){:root{--bg:#14161a;--fg:#ecebe7;--mut:#a3a6ad;--card:#1c1f24;--line:#2c3037;--acc:#7cc4ad;--code:#1f2329;--codefg:#e4e2dc}}
+/* Цвета Tachbit: чёрная плитка логотипа, белая «t», бирюзовая точка */
+:root{
+  --ink:#111113;--tile:#1c1c1e;--teal:#4fb3ac;--teal2:#8fd3cc;
+  --bg:#ffffff;--fg:#141416;--mut:#61646b;--line:#e7e7ea;--soft:#f5f5f6;--card:#ffffff;
+  --mono:ui-monospace,SFMono-Regular,"JetBrains Mono",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root{--bg:#111113;--fg:#f4f3ef;--mut:#a0a2a8;--line:#2a2b30;--soft:#18181b;--card:#18181b}}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--fg);font:17px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
-.wrap{max-width:980px;margin:0 auto;padding:0 20px}
-header{display:flex;align-items:center;justify-content:space-between;padding:22px 0}
-header img{height:34px}
-.logo-dark{display:none}
-@media (prefers-color-scheme:dark){.logo-light{display:none}.logo-dark{display:block}}
-nav a{color:var(--mut);text-decoration:none;margin-left:18px;font-size:15px}
-nav a:hover{color:var(--fg)}
-.lang{border:1px solid var(--line);background:none;color:var(--fg);border-radius:8px;padding:3px 9px;margin-left:18px;cursor:pointer;font:inherit;font-size:14px}
-.hero{padding:56px 0 40px}
-h1{font-size:44px;line-height:1.15;margin:0 0 16px;letter-spacing:-.02em;max-width:760px}
-.lead{font-size:20px;color:var(--mut);max-width:680px;margin:0 0 28px}
-.btns a{display:inline-block;padding:11px 20px;border-radius:10px;text-decoration:none;font-weight:600;margin:0 10px 10px 0}
-.b1{background:var(--acc);color:#fff}
-@media (prefers-color-scheme:dark){.b1{color:#10221c}}
-.b2{border:1px solid var(--line);color:var(--fg)}
-pre{background:var(--code);color:var(--codefg);border:1px solid var(--line);border-radius:12px;padding:16px 18px;overflow-x:auto;font:14.5px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;margin:0}
-h2{font-size:28px;margin:64px 0 18px;letter-spacing:-.01em}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}
-.grid>*,.two>*,.shots>*{min-width:0}
-.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 20px}
-.card h3{margin:0 0 6px;font-size:18px}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font:17px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:inherit}
+.wrap{max-width:1080px;margin:0 auto;padding:0 20px}
+code{font-family:var(--mono);font-size:.9em;background:var(--soft);border:1px solid var(--line);border-radius:6px;padding:1px 6px}
+
+/* шапка и первый экран — всегда тёмные, как плитка логотипа */
+.top{background:var(--ink);color:#f4f3ef;position:relative;overflow:hidden}
+.top::before{content:"";position:absolute;right:-180px;top:-220px;width:620px;height:620px;border-radius:50%;background:radial-gradient(circle,rgba(79,179,172,.28),rgba(79,179,172,0) 65%);pointer-events:none}
+header{display:flex;align-items:center;justify-content:space-between;padding:20px 0;position:relative}
+header img{height:32px;display:block}
+nav{display:flex;align-items:center;gap:22px}
+nav a{color:#a0a2a8;text-decoration:none;font-size:15px}
+nav a:hover{color:#fff}
+.lang{border:1px solid #34353b;background:none;color:#f4f3ef;border-radius:999px;padding:3px 12px;cursor:pointer;font:600 13px var(--mono)}
+.hero{display:grid;grid-template-columns:1.05fr 1fr;gap:44px;align-items:center;padding:64px 0 84px;position:relative}
+.hero>*{min-width:0}
+.tag{display:inline-flex;align-items:center;gap:8px;font:600 13px var(--mono);color:var(--teal2);border:1px solid #2c3b3a;border-radius:999px;padding:4px 12px;margin-bottom:22px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--teal);display:inline-block;flex:none}
+h1{font-size:50px;line-height:1.08;margin:0 0 20px;letter-spacing:-.03em;font-weight:750}
+h1 em{font-style:normal;color:var(--teal)}
+.lead{font-size:19px;color:#b9bbc1;margin:0 0 30px;max-width:540px}
+.btns{display:flex;flex-wrap:wrap;gap:12px}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:12px 20px;border-radius:12px;text-decoration:none;font-weight:650;font-size:16px;border:1px solid transparent;cursor:pointer}
+.b1{background:var(--teal);color:#0d1f1d}
+.b1:hover{background:#62c3bc}
+.b2{border-color:#34353b;color:#f4f3ef}
+.b2:hover{border-color:#55575e}
+
+/* окно редактора с подсветкой темы Tachbit Dark */
+.win{background:var(--tile);border:1px solid #2c2d32;border-radius:16px;box-shadow:0 30px 80px rgba(0,0,0,.45);overflow:hidden}
+.bar{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid #2a2b30}
+.bar i{width:11px;height:11px;border-radius:50%;background:#3a3b41;display:block}
+.bar span{margin-left:10px;font:13px var(--mono);color:#8d8f96}
+.win pre{margin:0;padding:18px 20px 22px;overflow-x:auto;font:14.5px/1.65 var(--mono);color:#f4f3ef;background:none;border:0}
+.kw{color:#4fb3ac;font-weight:700}.ty{color:#8fd3cc}.fn{color:#fff;font-weight:700}.st{color:#e3b98a}.nu{color:#f08f73}.cm{color:#7d7d85;font-style:italic}.bi{color:#8fd3cc}
+.out{border-top:1px solid #2a2b30;padding:10px 20px;font:13.5px var(--mono);color:#8d8f96}
+.out b{color:var(--teal2);font-weight:600}
+
+/* строка установки под первым экраном */
+.quick{position:relative;margin-top:-30px;z-index:2}
+.term{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 12px 12px 18px;box-shadow:0 10px 30px rgba(0,0,0,.08)}
+.term .p{color:var(--teal);font:700 15px var(--mono);flex:none}
+.term code{flex:1;min-width:0;background:none;border:0;padding:0;font-size:14.5px;white-space:nowrap;overflow-x:auto}
+.copy{flex:none;border:1px solid var(--line);background:var(--soft);color:var(--fg);border-radius:9px;padding:6px 12px;font:600 13px var(--mono);cursor:pointer}
+.copy:hover{border-color:var(--teal)}
+
+.facts{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border:1px solid var(--line);border-radius:14px;margin:40px 0 0}
+.facts div{padding:18px 20px;border-left:1px solid var(--line)}
+.facts div:first-child{border-left:0}
+.facts b{display:block;font:700 15px var(--mono);margin-bottom:2px}
+.facts>div>span{color:var(--mut);font-size:14.5px}
+.facts b span{color:inherit;font-size:inherit}
+
+h2{display:flex;align-items:center;gap:12px;font-size:30px;line-height:1.2;margin:84px 0 24px;letter-spacing:-.02em}
+h2 .dot{width:10px;height:10px}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.grid>*,.shots>*,.inst>*{min-width:0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px 22px;transition:border-color .15s}
+.card:hover{border-color:var(--teal)}
+.card .n{font:700 12px var(--mono);color:var(--teal);letter-spacing:.06em}
+.card h3{margin:6px 0 6px;font-size:18px}
 .card p{margin:0;color:var(--mut);font-size:15.5px}
-.two{display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start}
-@media (max-width:760px){.two{grid-template-columns:1fr}h1{font-size:34px}}
-.shots{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
-.shots img{width:100%;border-radius:12px;border:1px solid var(--line);display:block}
-.k{color:var(--mut);font-size:14px;margin:8px 0 0}
-code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.92em}
-footer{margin:72px 0 40px;color:var(--mut);font-size:14px;border-top:1px solid var(--line);padding-top:20px}
+
+.shots{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.shots figure{margin:0}
+.shots img{width:100%;aspect-ratio:16/10;object-fit:cover;border-radius:14px;border:1px solid var(--line);display:block;background:var(--soft)}
+.shots figcaption{font:13px var(--mono);color:var(--mut);margin-top:8px}
+
+.inst{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.inst .card{display:flex;flex-direction:column;gap:10px}
+.inst h3{display:flex;align-items:center;gap:10px;margin:0}
+.inst pre,.first{margin:0;background:var(--tile);color:#f4f3ef;border-radius:12px;padding:14px 16px;overflow-x:auto;font:13.5px/1.6 var(--mono)}
+.inst .btn{align-self:flex-start;margin-top:auto}
+.note{font-size:14px;color:var(--mut);margin:0}
+.first{padding:18px 20px;font-size:14.5px}
+
+footer{margin:84px 0 0;padding:28px 0 44px;border-top:1px solid var(--line);color:var(--mut);font-size:14px;display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center}
+footer img{height:22px}
 footer a{color:var(--mut)}
+
 [data-ru]{display:none}
 html.ru [data-ru]{display:revert}
 html.ru [data-en]{display:none}
+
+@media (max-width:900px){
+  .hero{grid-template-columns:1fr;padding:44px 0 72px;gap:32px}
+  h1{font-size:38px}
+  .grid,.inst,.shots{grid-template-columns:1fr 1fr}
+  .facts{grid-template-columns:1fr 1fr}
+  .facts div:nth-child(3){border-left:0}
+  .facts div:nth-child(n+3){border-top:1px solid var(--line)}
+}
+@media (max-width:600px){
+  nav a{display:none}
+  h1{font-size:32px}
+  .lead{font-size:17px}
+  .grid,.inst,.shots{grid-template-columns:1fr}
+  h2{font-size:25px;margin-top:64px}
+  .win pre{font-size:13px}
+}
+/* Оформление «Орбита»: тёмный космос, бирюзовое свечение, стекло (сайт всегда тёмный) */
+:root{--bg:#05070d;--fg:#eef3f8;--mut:#8b95a7;--line:rgba(148,163,184,.14);--soft:rgba(255,255,255,.04);--card:rgba(255,255,255,.035);--teal:#3ee6d6;--teal2:#9ff5ec}
+body{background:#05070d}
+.top{background:radial-gradient(1200px 600px at 75% 30%,rgba(62,230,214,.16),transparent 60%),radial-gradient(900px 500px at 10% 0%,rgba(99,102,241,.18),transparent 60%),#05070d}
+.top::before{inset:0;width:auto;height:auto;right:0;top:0;border-radius:0;background:
+ radial-gradient(1px 1px at 20% 30%,#fff8,transparent),radial-gradient(1px 1px at 60% 15%,#fff6,transparent),radial-gradient(1.5px 1.5px at 85% 60%,#fff9,transparent),radial-gradient(1px 1px at 40% 80%,#fff5,transparent),radial-gradient(1px 1px at 10% 70%,#fff6,transparent),radial-gradient(1px 1px at 75% 85%,#fff5,transparent),radial-gradient(1.5px 1.5px at 30% 55%,#fff7,transparent);opacity:.9}
+.top::after{content:"";position:absolute;right:-6%;top:6%;width:760px;height:520px;border-radius:50%;border:1px solid rgba(62,230,214,.25);transform:rotate(-14deg);box-shadow:0 0 60px rgba(62,230,214,.08) inset;pointer-events:none}
+.tag{border-color:rgba(62,230,214,.35);background:rgba(62,230,214,.06)}
+.dot{background:#3ee6d6;box-shadow:0 0 12px #3ee6d6}
+h1 em{color:#3ee6d6;text-shadow:0 0 28px rgba(62,230,214,.55)}
+.lead{color:#a9b3c4}
+.b1{background:#3ee6d6;color:#04211e;box-shadow:0 0 30px rgba(62,230,214,.45)}
+.b2{border-color:rgba(148,163,184,.3);background:rgba(255,255,255,.03)}
+.win{background:rgba(17,20,30,.7);backdrop-filter:blur(14px);border-color:rgba(62,230,214,.25);box-shadow:0 0 0 1px rgba(255,255,255,.03),0 30px 90px rgba(0,0,0,.6),0 0 60px rgba(62,230,214,.12)}
+.term,.facts,.card{background:rgba(255,255,255,.035);backdrop-filter:blur(10px)}
+.term{box-shadow:0 0 40px rgba(62,230,214,.10)}
+.card:hover{border-color:rgba(62,230,214,.6);box-shadow:0 0 30px rgba(62,230,214,.12)}
+.card .n{color:#a5b4fc}
+code{background:rgba(255,255,255,.06)}
+.inst pre,.first{background:rgba(0,0,0,.45);border:1px solid var(--line)}
+
 </style>
 </head>
 <body>
+
+<div class="top">
 <div class="wrap">
 <header>
-  <a href="#"><img class="logo-light" src="img/tachbit-logo-light.svg" alt="Tachbit"><img class="logo-dark" src="img/tachbit-logo-dark.svg" alt="Tachbit"></a>
+  <a href="#"><img src="img/tachbit-logo-dark.svg" alt="Tachbit"></a>
   <nav>
     <a href="#install"><span data-en>Install</span><span data-ru>Установка</span></a>
+    <a href="#build"><span data-en>Features</span><span data-ru>Возможности</span></a>
     <a href="https://github.com/superbro456/Tachbit/blob/main/docs/guide.md"><span data-en>Guide</span><span data-ru>Справочник</span></a>
     <a href="https://github.com/superbro456/Tachbit">GitHub</a>
     <button class="lang" id="lang" type="button">RU</button>
@@ -62,103 +160,118 @@ html.ru [data-en]{display:none}
 </header>
 
 <section class="hero">
-  <h1 data-en>Write complex programs in a clear language. Get a real, fast program.</h1>
-  <h1 data-ru>Пиши сложные программы на понятном языке. Получай настоящую быструю программу.</h1>
-  <p class="lead" data-en>Tachbit reads almost like Python and runs like C. The compiler takes care of memory, cores and safety checks, and explains mistakes in plain words before the program runs.</p>
-  <p class="lead" data-ru>Tachbit читается почти как Python, а работает как C. Память, ядра и проверки берёт на себя компилятор, а ошибки объясняет простыми словами ещё до запуска.</p>
-  <div class="btns">
-    <a class="b1" href="#install"><span data-en>Install</span><span data-ru>Установить</span></a>
-    <a class="b2" href="https://github.com/superbro456/Tachbit/tree/main/examples"><span data-en>See examples</span><span data-ru>Примеры</span></a>
+  <div>
+    <div class="tag"><span class="dot"></span><span data-en>Tachbit 1.3 · open source</span><span data-ru>Tachbit 1.3 · открытый код</span></div>
+    <h1 data-en>Complex programs in a <em>clear</em> language.</h1>
+    <h1 data-ru>Сложные программы на <em>понятном</em> языке.</h1>
+    <p class="lead" data-en>Tachbit reads almost like Python and runs like C. The compiler takes care of memory, cores and safety checks, and explains mistakes in plain words before the program runs.</p>
+    <p class="lead" data-ru>Tachbit читается почти как Python, а работает как C. Память, ядра и проверки берёт на себя компилятор, а ошибки объясняет простыми словами ещё до запуска.</p>
+    <div class="btns">
+      <a class="btn b1" href="#install"><span data-en>Install Tachbit</span><span data-ru>Установить Tachbit</span></a>
+      <a class="btn b2" href="https://github.com/superbro456/Tachbit/tree/main/examples"><span data-en>See examples</span><span data-ru>Примеры</span></a>
+    </div>
+  </div>
+  <div class="win">
+    <div class="bar"><i></i><i></i><i></i><span>main.tb</span></div>
+<pre><span class="kw">obj</span> <span class="ty">Item</span>
+    name: <span class="ty">text</span>
+    price: <span class="ty">int</span>
+
+<span class="kw">func</span> <span class="fn">total</span>(items: <span class="ty">list Item</span>) <span class="kw">gives</span> r: <span class="ty">int</span>
+    s = <span class="nu">0</span>
+    <span class="kw">each</span> it <span class="kw">in</span> items
+        s += it.price
+    <span class="kw">return</span> s
+
+<span class="kw">func</span> <span class="fn">main</span>()
+    items = <span class="ty">list Item</span>
+    items.add(Item(name: <span class="st">"tea"</span>, price: <span class="nu">120</span>))
+    items.add(Item(name: <span class="st">"coffee"</span>, price: <span class="nu">200</span>))
+    <span class="bi">print</span>(<span class="st">"total:"</span>, total(items))</pre>
+    <div class="out">$ tb run main.tb &nbsp;→&nbsp; <b>total: 320</b></div>
   </div>
 </section>
-
-<div class="two">
-<pre>obj Item
-    name: text
-    price: int
-
-func total(items: list Item) gives r: int
-    s = 0
-    each it in items
-        s += it.price
-    return s
-
-func main()
-    items = list Item
-    items.add(Item(name: "tea", price: 120))
-    items.add(Item(name: "coffee", price: 200))
-    print("total:", total(items))</pre>
-<div>
-  <div class="card" style="margin-bottom:14px">
-    <h3 data-en>Indentation, no noise</h3><h3 data-ru>Отступы вместо скобок</h3>
-    <p data-en>Blocks are indentation. Types are inferred or written. Programs start at <code>func main()</code>.</p>
-    <p data-ru>Блоки задаются отступами. Типы выводятся сами или пишутся явно. Программа начинается с <code>func main()</code>.</p>
-  </div>
-  <div class="card">
-    <h3 data-en>Native, not a prototype</h3><h3 data-ru>Настоящая программа, а не макет</h3>
-    <p data-en>Tachbit compiles to C, then clang or gcc makes a native program. The compiler is written in Tachbit and builds itself. Messages in English or Russian.</p>
-    <p data-ru>Tachbit переводит программу в C, а clang или gcc делают из неё настоящую программу. Компилятор написан на самом Tachbit и собирает сам себя. Сообщения на русском или английском.</p>
-  </div>
 </div>
 </div>
 
-<h2 data-en>What you can build</h2><h2 data-ru>Что можно написать</h2>
+<div class="wrap">
+<div class="quick">
+  <div class="term">
+    <span class="p">$</span>
+    <code id="cmd">curl -fsSL https://raw.githubusercontent.com/superbro456/Tachbit/main/tools/get.sh | sh</code>
+    <button class="copy" type="button" data-copy="cmd"><span data-en>Copy</span><span data-ru>Копировать</span></button>
+  </div>
+</div>
+
+<div class="facts">
+  <div><b><span data-en>Native</span><span data-ru>Настоящий код</span></b><span data-en>Compiles to C, then a real program</span><span data-ru>Переводит в C и даёт настоящую программу</span></div>
+  <div><b><span data-en>Self-hosted</span><span data-ru>Сам себя собирает</span></b><span data-en>The compiler is written in Tachbit</span><span data-ru>Компилятор написан на Tachbit</span></div>
+  <div><b>EN · RU</b><span data-en>Errors in plain words, two languages</span><span data-ru>Ошибки простыми словами, два языка</span></div>
+  <div><b>MIT</b><span data-en>Free and open source</span><span data-ru>Бесплатный и открытый</span></div>
+</div>
+
+<h2 id="build"><span class="dot"></span><span data-en>What you can build</span><span data-ru>Что можно написать</span></h2>
 <div class="grid">
-  <div class="card"><h3 data-en>Games and 3D</h3><h3 data-ru>Игры и 3D</h3>
+  <div class="card"><div class="n">01</div><h3 data-en>Games and 3D</h3><h3 data-ru>Игры и 3D</h3>
     <p data-en>Blender models with animation, PBR materials, lights and shadows, particles, your own shaders written in Tachbit. Metal on Mac, Vulkan on Linux and Windows.</p>
     <p data-ru>Модели из Blender с анимацией, PBR-материалы, свет и тени, частицы, свои шейдеры прямо на Tachbit. Metal на Mac, Vulkan на Linux и Windows.</p></div>
-  <div class="card"><h3 data-en>Desktop apps</h3><h3 data-ru>Приложения</h3>
+  <div class="card"><div class="n">02</div><h3 data-en>Desktop apps</h3><h3 data-ru>Приложения</h3>
     <p data-en>Several OS windows, buttons, lists and dialogs from <code>lib/ui.tb</code>, files, sound, gamepad, mouse look and fullscreen.</p>
     <p data-ru>Несколько окон ОС, кнопки, списки и диалоги из <code>lib/ui.tb</code>, файлы, звук, геймпад, мышь и полный экран.</p></div>
-  <div class="card"><h3 data-en>Safe use of every core</h3><h3 data-ru>Все ядра без гонок</h3>
+  <div class="card"><div class="n">03</div><h3 data-en>Safe use of every core</h3><h3 data-ru>Все ядра без гонок</h3>
     <p data-en><code>on all cores</code>, <code>background</code>, channels and <code>move</code>. The compiler catches data races before the program runs.</p>
     <p data-ru><code>on all cores</code>, <code>background</code>, каналы и <code>move</code>. Гонки данных компилятор ловит до запуска.</p></div>
-  <div class="card"><h3 data-en>Down to bare metal</h3><h3 data-ru>До самого железа</h3>
+  <div class="card"><div class="n">04</div><h3 data-en>Down to bare metal</h3><h3 data-ru>До самого железа</h3>
     <p data-en><code>tb bare</code> makes a bootable x86-64 kernel. <code>danger</code> blocks give memory, ports and <code>asm</code> when you need them.</p>
     <p data-ru><code>tb bare</code> собирает загружаемое ядро x86-64. В блоках <code>danger</code> доступны память, порты и <code>asm</code>.</p></div>
-  <div class="card"><h3 data-en>Errors you cannot ignore</h3><h3 data-ru>Ошибки не теряются</h3>
+  <div class="card"><div class="n">05</div><h3 data-en>Errors you cannot ignore</h3><h3 data-ru>Ошибки не теряются</h3>
     <p data-en><code>fail</code>, <code>try</code> and <code>or</code>. A call that can fail must be handled, so problems do not hide.</p>
     <p data-ru><code>fail</code>, <code>try</code> и <code>or</code>. Вызов, который может сломаться, нельзя проигнорировать.</p></div>
-  <div class="card"><h3 data-en>Editor support</h3><h3 data-ru>Редактор</h3>
-    <p data-en>VS Code extension: colors, Tachbit Dark and Light themes, run with one button, errors right in the code.</p>
-    <p data-ru>Расширение для VS Code: подсветка, темы Tachbit Dark и Light, запуск одной кнопкой, ошибки прямо в коде.</p></div>
+  <div class="card"><div class="n">06</div><h3 data-en>Editor support</h3><h3 data-ru>Редактор</h3>
+    <p data-en>VS Code extension «Tachbit Language»: colors, Tachbit Dark and Light themes, run with one button, errors right in the code.</p>
+    <p data-ru>Расширение «Tachbit Language» для VS Code: подсветка, темы Tachbit Dark и Light, запуск одной кнопкой, ошибки прямо в коде.</p></div>
 </div>
 
-<h2 data-en>Made with Tachbit</h2><h2 data-ru>Сделано на Tachbit</h2>
+<h2><span class="dot"></span><span data-en>Made with Tachbit</span><span data-ru>Сделано на Tachbit</span></h2>
 <div class="shots">
-  <figure style="margin:0"><img src="img/pbr-room-screenshot.jpg" alt="PBR room demo" loading="lazy"><p class="k">examples/apps/pbr_room</p></figure>
-  <figure style="margin:0"><img src="img/cube-man-screenshot.png" alt="Cube man game" loading="lazy"><p class="k">examples/apps/cube_man</p></figure>
-  <figure style="margin:0"><img src="img/files-screenshot.png" alt="File manager" loading="lazy"><p class="k">apps/files</p></figure>
+  <figure><img src="img/pbr-room-screenshot.jpg" alt="PBR room demo" loading="lazy"><figcaption>examples/apps/pbr_room</figcaption></figure>
+  <figure><img src="img/cube-man-screenshot.png" alt="Cube man game" loading="lazy"><figcaption>examples/apps/cube_man</figcaption></figure>
+  <figure><img src="img/files-screenshot.png" alt="File manager" loading="lazy"><figcaption>apps/files</figcaption></figure>
 </div>
 
-<h2 id="install" data-en>Install</h2><h2 data-ru>Установка</h2>
-<div class="grid" style="grid-template-columns:1fr">
+<h2 id="install"><span class="dot"></span><span data-en>Install</span><span data-ru>Установка</span></h2>
+<div class="inst">
   <div class="card"><h3>Mac / Linux</h3>
-    <p data-en style="margin-bottom:10px">One command. Needs a C compiler (on Mac: <code>xcode-select --install</code>).</p>
-    <p data-ru style="margin-bottom:10px">Одна команда. Нужен компилятор C (на Mac: <code>xcode-select --install</code>).</p>
-    <pre>curl -fsSL https://raw.githubusercontent.com/superbro456/Tachbit/main/tools/get.sh | sh</pre></div>
+    <p class="note" data-en>One command. Needs a C compiler (on Mac: <code>xcode-select --install</code>). Run it again to update.</p>
+    <p class="note" data-ru>Одна команда. Нужен компилятор C (на Mac: <code>xcode-select --install</code>). Запусти ещё раз, чтобы обновить.</p>
+    <pre id="c1">curl -fsSL https://raw.githubusercontent.com/superbro456/Tachbit/main/tools/get.sh | sh</pre>
+    <button class="copy" type="button" data-copy="c1" style="align-self:flex-start"><span data-en>Copy</span><span data-ru>Копировать</span></button></div>
+  <div class="card"><h3>Windows</h3>
+    <p class="note" data-en>Installer, no admin rights needed. Sets up a C compiler if there is none. Already installed? Run it again: it updates Tachbit in place.</p>
+    <p class="note" data-ru>Установщик без прав администратора. Если нет компилятора C, поставит и его. Уже стоит? Запусти снова: он обновит Tachbit поверх.</p>
+    <a class="btn b1" href="https://github.com/superbro456/Tachbit/raw/main/download/Tachbit-Setup.exe"><span data-en>Download Tachbit-Setup.exe</span><span data-ru>Скачать Tachbit-Setup.exe</span></a></div>
   <div class="card"><h3>Homebrew</h3>
-    <p data-en style="margin-bottom:10px">Mac with Homebrew:</p><p data-ru style="margin-bottom:10px">Mac с Homebrew:</p>
+    <p class="note" data-en>Mac with Homebrew:</p><p class="note" data-ru>Mac с Homebrew:</p>
     <pre>brew tap superbro456/tachbit https://github.com/superbro456/Tachbit
 brew install --HEAD tachbit</pre></div>
-  <div class="card"><h3>Windows</h3>
-    <p data-en style="margin-bottom:10px">Installer, no admin rights needed. It also sets up a C compiler if there is none.</p>
-    <p data-ru style="margin-bottom:10px">Установщик без прав администратора. Если нет компилятора C, поставит и его.</p>
-    <div class="btns"><a class="b2" href="https://github.com/superbro456/Tachbit/raw/main/download/Tachbit-Setup.exe">Tachbit-Setup.exe</a></div></div>
 </div>
-<h3 style="margin-top:28px" data-en>First program</h3><h3 style="margin-top:28px" data-ru>Первая программа</h3>
-<pre>tb new hello        # a project with main.tb
-tb start hello      # build and run
-tb run file.tb      # run one file
-tb check file.tb    # only look for errors
-tb lang en          # messages in English (tb lang ru — in Russian)</pre>
+
+<h2><span class="dot"></span><span data-en>First program</span><span data-ru>Первая программа</span></h2>
+<pre class="first"><span class="kw">tb new</span> hello        <span class="cm"># a project with main.tb</span>
+<span class="kw">tb start</span> hello      <span class="cm"># build and run</span>
+<span class="kw">tb run</span> file.tb      <span class="cm"># run one file</span>
+<span class="kw">tb check</span> file.tb    <span class="cm"># only look for errors</span>
+<span class="kw">tb lang</span> en          <span class="cm"># messages in English (tb lang ru — in Russian)</span></pre>
 
 <footer>
+  <img src="img/tachbit-icon-light-512.png" alt="">
   <span data-en>Tachbit is free and open source, MIT license.</span><span data-ru>Tachbit бесплатный и открытый, лицензия MIT.</span>
-  · <a href="https://github.com/superbro456/Tachbit">GitHub</a>
-  · <a href="https://github.com/superbro456/Tachbit/blob/main/docs/guide.md"><span data-en>Guide (Russian)</span><span data-ru>Справочник</span></a>
+  <a href="https://github.com/superbro456/Tachbit">GitHub</a>
+  <a href="https://github.com/superbro456/Tachbit/blob/main/docs/guide.md"><span data-en>Guide (Russian)</span><span data-ru>Справочник</span></a>
+  <a href="https://github.com/superbro456/Tachbit/raw/main/download/Tachbit-Setup.exe">Windows</a>
 </footer>
 </div>
+
 <script>
 (function(){
   var h=document.documentElement,b=document.getElementById('lang');
@@ -166,6 +279,13 @@ tb lang en          # messages in English (tb lang ru — in Russian)</pre>
   var saved=null;try{saved=localStorage.getItem('tb-lang')}catch(e){}
   set(saved?saved==='ru':/^(ru|ky|uz|kk|uk|be)/i.test(navigator.language||''));
   b.onclick=function(){set(!h.classList.contains('ru'))};
+  document.querySelectorAll('.copy').forEach(function(btn){
+    btn.onclick=function(){
+      var t=document.getElementById(btn.getAttribute('data-copy')).textContent;
+      var done=function(){var o=btn.innerHTML;btn.textContent='✓';setTimeout(function(){btn.innerHTML=o},1200)};
+      if(navigator.clipboard){navigator.clipboard.writeText(t).then(done,function(){})}
+    };
+  });
 })();
 </script>
 </body>
