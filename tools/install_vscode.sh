@@ -13,8 +13,8 @@ cat > "$work/extension.vsixmanifest" <<XML
 <?xml version="1.0" encoding="utf-8"?>
 <PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011" xmlns:d="http://schemas.microsoft.com/developer/vsx-schema-design/2011">
   <Metadata>
-    <Identity Language="en-US" Id="tachbit" Version="$version" Publisher="tachbit" />
-    <DisplayName>Tachbit</DisplayName>
+    <Identity Language="en-US" Id="tachbit-lang" Version="$version" Publisher="tachbit" />
+    <DisplayName>Tachbit Language</DisplayName>
     <Description xml:space="preserve">Tachbit: цвета, темы, запуск по F5, ошибки в коде</Description>
     <Categories>Programming Languages,Themes</Categories>
     <Properties>
@@ -50,6 +50,7 @@ for code in code code-insiders cursor \
     "/Applications/Cursor.app/Contents/Resources/app/bin/cursor"; do
     if command -v "$code" >/dev/null 2>&1 || [ -x "$code" ]; then
         "$code" --uninstall-extension tachbit.tachbit >/dev/null 2>&1
+        "$code" --uninstall-extension tachbit.tachbit-lang >/dev/null 2>&1
         if out=$("$code" --install-extension "$root/build/tachbit.vsix" --force 2>&1); then
             echo "поставлено через: $code"
             installed="yes"

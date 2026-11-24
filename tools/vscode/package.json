@@ -1,6 +1,6 @@
 {
-  "name": "tachbit",
-  "displayName": "Tachbit",
+  "name": "tachbit-lang",
+  "displayName": "Tachbit Language",
   "description": "Tachbit language: colors, Tachbit Dark/Light themes, run with one button (F5, ▶, Touch Bar) and errors right in the code",
   "version": "0.9.6",
   "publisher": "tachbit",
