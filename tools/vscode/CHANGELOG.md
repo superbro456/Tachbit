@@ -1,5 +1,8 @@
 # Changes
 
+## 0.9.6
+- New icon: the Tachbit file icon.
+
 ## 0.9.5
 - Errors are underlined in English too (`tb lang en`).
 
