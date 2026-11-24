@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#05070d">
+<title>19. Каналы, move и все ядра · Язык Tachbit</title>
+<meta name="description" content="Передавать данные между потоками и раздавать цикл всем ядрам.">
+<meta property="og:title" content="19. Каналы, move и все ядра · Язык Tachbit">
+<meta property="og:image" content="../../img/tachbit-icon-light-512.png">
+<link rel="icon" href="../../img/tachbit-icon-light-512.png">
+<link rel="stylesheet" href="../../learn/learn.css">
+</head>
+<body>
+<div class="top"><div class="wrap">
+<header>
+  <a href="../../index.html"><img src="../../img/tachbit-logo-dark.svg" alt="Tachbit"></a>
+  <nav>
+    <a href="../../index.html" class="hide">Главная</a>
+    <a href="../../learn/" class="on">Уроки</a>
+    <a href="../../learn/lang/ref.html" class="">Указатель</a>
+    <a href="https://github.com/superbro456/Tachbit">GitHub</a>
+  </nav>
+</header>
+<div class="head"><div class="crumb"><a href="../">Уроки</a> › <a href="./">Язык Tachbit</a> › Несколько ядер и скорость</div><h1><span class="no">19</span>Каналы, move и все ядра</h1><p class="goal">Передавать данные между потоками и раздавать цикл всем ядрам.</p><div class="chips"><span>channel T</span><span>.send</span><span>.receive</span><span>.close</span><span>.ready</span><span>each x in ch</span><span>move</span><span>on all cores</span></div></div>
+</div></div>
+<div class="wrap">
+<div class="page"><details class="side" open><summary>Все уроки языка</summary><h4>Основа языка</h4><a href="01.html"><b>1</b>Первая программа</a><a href="02.html"><b>2</b>Переменные и типы</a><a href="03.html"><b>3</b>Сравнения и решения</a><a href="04.html"><b>4</b>Повторение: циклы</a><a href="05.html"><b>5</b>Текст</a><a href="06.html"><b>6</b>Списки</a><a href="07.html"><b>7</b>Словари: dict</a><a href="08.html"><b>8</b>Функции</a><a href="09.html"><b>9</b>Свои типы: obj</a><a href="10.html"><b>10</b>Ярлыки: link</a><a href="11.html"><b>11</b>Варианты: enum и match</a><a href="12.html"><b>12</b>Ошибки: fail, try, or, else err</a><h4>Настоящие программы</h4><a href="13.html"><b>13</b>Модули и библиотеки</a><a href="14.html"><b>14</b>Числа, время и случайность</a><a href="15.html"><b>15</b>Файлы, папки, ввод</a><a href="16.html"><b>16</b>Интернет: HTTP, JSON и свой сервер</a><a href="17.html"><b>17</b>Память</a><h4>Несколько ядер и скорость</h4><a href="18.html"><b>18</b>Работа в фоне: background, shared, lock</a><a href="19.html" class="on"><b>19</b>Каналы, move и все ядра</a><a href="20.html"><b>20</b>Скорость одним словом</a><h4>Окна, игры, звук</h4><a href="21.html"><b>21</b>Окно и 2D-рисование</a><a href="22.html"><b>22</b>3D</a><a href="23.html"><b>23</b>Звук</a><a href="24.html"><b>24</b>Приложения с кнопками: lib/ui</a><h4>Система</h4><a href="25.html"><b>25</b>Железо: danger, память руками, shape, zone</a><a href="26.html"><b>26</b>Связь с C и системой</a><a href="27.html"><b>27</b>Своё ядро: tb bare</a><a href="28.html"><b>28</b>Команды tb и настройки</a><h4>В конце</h4><a href="ref.html"><b>✱</b>Указатели</a></details><main><h2>channel</h2><p>Канал — очередь между потоками. <code>.send(x)</code> кладёт в конец, <code>.receive()</code> берёт из начала и ждёт, если пусто. <code>.close()</code> — больше писать не будут. <code>each x in ch</code> берёт, пока канал не закрыт и не пуст. <code>.ready()</code> — есть ли что взять без ожидания.</p><pre class="code"><span class="kw">func</span> worker(jobs: <span class="kw">channel</span> <span class="ty">int</span>, results: <span class="kw">channel</span> <span class="ty">text</span>)
+    <span class="kw">each</span> n <span class="kw">in</span> jobs
+        results.send(<span class="st">"готово "</span> + n * n)
+    <span class="kw">return</span> <span class="nu">0</span>
+
+<span class="kw">func</span> main()
+    jobs = <span class="kw">channel</span> <span class="ty">int</span>
+    results = <span class="kw">channel</span> <span class="ty">text</span>
+    w = <span class="kw">background</span> worker(jobs, results)
+    <span class="kw">count</span> i <span class="kw">from</span> <span class="nu">1</span> <span class="kw">to</span> <span class="nu">3</span>
+        jobs.send(i)
+    jobs.close()
+    <span class="kw">count</span> i <span class="kw">from</span> <span class="nu">1</span> <span class="kw">to</span> <span class="nu">3</span>
+        print(results.receive())
+    print(w.wait)</pre><div class="lbl">Вывод</div><pre class="out">готово 1
+готово 4
+готово 9
+0</pre><h2>move и on all cores</h2><p><code>move</code> отдаёт список в фон целиком, без копии; после этого старое имя пустое. <code>on all cores</code> раздаёт цикл <code>count</code> или <code>each</code> всем ядрам процессора. Общий итог копят в <code>shared</code> через <code>+=</code>.</p><pre class="code"><span class="kw">func</span> total(xs: <span class="kw">list</span> <span class="ty">int</span>)
+    s = <span class="nu">0</span>
+    <span class="kw">each</span> x <span class="kw">in</span> xs
+        s += x
+    <span class="kw">return</span> s
+
+<span class="kw">shared</span> found = <span class="ty">int</span> <span class="nu">0</span>
+
+<span class="kw">func</span> is_prime(n: <span class="ty">int</span>)
+    <span class="kw">if</span> n &lt; <span class="nu">2</span>
+        <span class="kw">return</span> <span class="kw">false</span>
+    d = <span class="nu">2</span>
+    <span class="kw">repeat</span> <span class="kw">while</span> d * d &lt;= n
+        <span class="kw">if</span> n % d == <span class="nu">0</span>
+            <span class="kw">return</span> <span class="kw">false</span>
+        d += <span class="nu">1</span>
+    <span class="kw">return</span> <span class="kw">true</span>
+
+<span class="kw">func</span> main()
+    data = <span class="kw">list</span> <span class="ty">int</span>
+    <span class="kw">count</span> i <span class="kw">from</span> <span class="nu">1</span> <span class="kw">to</span> <span class="nu">1000</span>
+        data.add(i)
+    a = <span class="kw">background</span> total(<span class="kw">move</span> data)
+    print(a.wait)
+    <span class="kw">count</span> n <span class="kw">from</span> <span class="nu">1</span> <span class="kw">to</span> <span class="nu">100000</span> <span class="kw">on</span> <span class="kw">all</span> <span class="kw">cores</span>
+        <span class="kw">if</span> is_prime(n)
+            found += <span class="nu">1</span>
+    print(found)</pre><div class="lbl">Вывод</div><pre class="out">500500
+9592</pre><div class="rules"><b>Запомнить</b><ul><li>Внутри <code>on all cores</code> данные снаружи только читаются; компилятор следит даже через другие имена и функции.</li><li><code>TB_CORES=1 ./программа</code> — запустить на одном ядре для сравнения.</li><li>По каналу идут <code>int</code>, <code>dec</code>, <code>bool</code>, <code>text</code> и <code>enum</code>.</li></ul></div><div class="task"><b>Задание</b>Сделайте конвейер из трёх потоков: первый шлёт числа 1..20, второй возводит их в квадрат, третий складывает. Связь — двумя каналами.</div><div class="pn2"><a href="18.html"><small>← назад</small>18. Работа в фоне: background, shared, lock</a><a class="nx" href="20.html"><small>дальше →</small>20. Скорость одним словом</a></div></main></div>
+<footer>
+  <img src="../../img/tachbit-icon-light-512.png" alt="">
+  <span>Tachbit бесплатный и открытый, лицензия MIT. Все примеры проверены компилятором Tachbit.</span>
+  <a href="../../index.html">Главная</a>
+  <a href="../../learn/">Уроки</a>
+  <a href="https://github.com/superbro456/Tachbit/blob/main/docs/guide.md">Справочник</a>
+</footer>
+</div>
+<script>if(window.matchMedia('(max-width:900px)').matches){var s=document.querySelector('details.side');if(s)s.removeAttribute('open')}</script>
+</body>
+</html>

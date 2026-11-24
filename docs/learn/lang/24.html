@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#05070d">
+<title>24. Приложения с кнопками: lib/ui · Язык Tachbit</title>
+<meta name="description" content="Собрать окно с кнопками, полями и списками.">
+<meta property="og:title" content="24. Приложения с кнопками: lib/ui · Язык Tachbit">
+<meta property="og:image" content="../../img/tachbit-icon-light-512.png">
+<link rel="icon" href="../../img/tachbit-icon-light-512.png">
+<link rel="stylesheet" href="../../learn/learn.css">
+</head>
+<body>
+<div class="top"><div class="wrap">
+<header>
+  <a href="../../index.html"><img src="../../img/tachbit-logo-dark.svg" alt="Tachbit"></a>
+  <nav>
+    <a href="../../index.html" class="hide">Главная</a>
+    <a href="../../learn/" class="on">Уроки</a>
+    <a href="../../learn/lang/ref.html" class="">Указатель</a>
+    <a href="https://github.com/superbro456/Tachbit">GitHub</a>
+  </nav>
+</header>
+<div class="head"><div class="crumb"><a href="../">Уроки</a> › <a href="./">Язык Tachbit</a> › Окна, игры, звук</div><h1><span class="no">24</span>Приложения с кнопками: lib/ui</h1><p class="goal">Собрать окно с кнопками, полями и списками.</p><div class="chips"><span>use ui</span><span>ui.start</span><span>ui.frame</span><span>ui.end_frame</span><span>ui.button</span><span>ui.btn</span><span>ui.edit</span><span>ui.lbl</span><span>ui.hbox</span><span>ui.vbox</span><span>ui.done</span><span>ui.check</span><span>ui.window</span></div></div>
+</div></div>
+<div class="wrap">
+<div class="page"><details class="side" open><summary>Все уроки языка</summary><h4>Основа языка</h4><a href="01.html"><b>1</b>Первая программа</a><a href="02.html"><b>2</b>Переменные и типы</a><a href="03.html"><b>3</b>Сравнения и решения</a><a href="04.html"><b>4</b>Повторение: циклы</a><a href="05.html"><b>5</b>Текст</a><a href="06.html"><b>6</b>Списки</a><a href="07.html"><b>7</b>Словари: dict</a><a href="08.html"><b>8</b>Функции</a><a href="09.html"><b>9</b>Свои типы: obj</a><a href="10.html"><b>10</b>Ярлыки: link</a><a href="11.html"><b>11</b>Варианты: enum и match</a><a href="12.html"><b>12</b>Ошибки: fail, try, or, else err</a><h4>Настоящие программы</h4><a href="13.html"><b>13</b>Модули и библиотеки</a><a href="14.html"><b>14</b>Числа, время и случайность</a><a href="15.html"><b>15</b>Файлы, папки, ввод</a><a href="16.html"><b>16</b>Интернет: HTTP, JSON и свой сервер</a><a href="17.html"><b>17</b>Память</a><h4>Несколько ядер и скорость</h4><a href="18.html"><b>18</b>Работа в фоне: background, shared, lock</a><a href="19.html"><b>19</b>Каналы, move и все ядра</a><a href="20.html"><b>20</b>Скорость одним словом</a><h4>Окна, игры, звук</h4><a href="21.html"><b>21</b>Окно и 2D-рисование</a><a href="22.html"><b>22</b>3D</a><a href="23.html"><b>23</b>Звук</a><a href="24.html" class="on"><b>24</b>Приложения с кнопками: lib/ui</a><h4>Система</h4><a href="25.html"><b>25</b>Железо: danger, память руками, shape, zone</a><a href="26.html"><b>26</b>Связь с C и системой</a><a href="27.html"><b>27</b>Своё ядро: tb bare</a><a href="28.html"><b>28</b>Команды tb и настройки</a><h4>В конце</h4><a href="ref.html"><b>✱</b>Указатели</a></details><main><h2>Немедленное рисование</h2><p>Библиотека <code>ui</code> написана на самом Tachbit. Каждый кадр программа заново зовёт <code>ui.button</code>, и функция сразу рисует кнопку и отвечает, нажали ли её. Хранить кнопки нигде не нужно. <code>hbox</code>/<code>vbox</code> раскладывают элементы без координат.</p><pre class="code"><span class="kw">use</span> ui
+
+<span class="kw">func</span> main()
+    <span class="kw">try</span> window_open(<span class="nu">520</span>, <span class="nu">300</span>, <span class="st">"Заметки"</span>)
+    u = ui.start()
+    notes = <span class="kw">list</span> <span class="ty">text</span>
+    draft = <span class="st">""</span>
+    <span class="kw">repeat</span> <span class="kw">while</span> window_alive()
+        ui.frame(u)
+        clear_window(u.bg)
+        ui.pad(u, <span class="nu">16</span>)
+        ui.heading(u, <span class="st">"Мои заметки"</span>)
+        ui.hbox(u, <span class="nu">32</span>, <span class="nu">8</span>)
+        draft = ui.edit(u, <span class="st">"draft"</span>, draft, <span class="st">"новая заметка"</span>)
+        <span class="kw">if</span> ui.btn_main(u, <span class="st">"Добавить"</span>) <span class="kw">and</span> draft != <span class="st">""</span>
+            notes.add(draft)
+            draft = <span class="st">""</span>
+        ui.done(u)
+        <span class="kw">each</span> n <span class="kw">in</span> notes
+            ui.lbl(u, <span class="st">"• "</span> + n)
+        ui.end_frame(u)</pre><div class="lbl">Проверка</div><pre class="out">tb check: ошибок нет. Откроется окно, поэтому запускайте у себя на компьютере.</pre><div class="rules"><b>Запомнить</b><ul><li>Что есть: кнопки, галочки, поля ввода с выделением и буфером обмена, списки, прокрутка, меню, вкладки, ползунки, подсказки, перетаскивание, окна внутри программы, вопрос «да/нет», тёмная и светлая тема.</li><li>Пример большого приложения — файловый менеджер <code>examples/apps/files</code>.</li></ul></div><div class="task"><b>Задание</b>Сделайте список дел: поле ввода, кнопка «Добавить», у каждой задачи галочка «сделано» и кнопка «удалить». Сохраняйте список в файл при выходе.</div><div class="pn2"><a href="23.html"><small>← назад</small>23. Звук</a><a class="nx" href="25.html"><small>дальше →</small>25. Железо: danger, память руками, shape, zone</a></div></main></div>
+<footer>
+  <img src="../../img/tachbit-icon-light-512.png" alt="">
+  <span>Tachbit бесплатный и открытый, лицензия MIT. Все примеры проверены компилятором Tachbit.</span>
+  <a href="../../index.html">Главная</a>
+  <a href="../../learn/">Уроки</a>
+  <a href="https://github.com/superbro456/Tachbit/blob/main/docs/guide.md">Справочник</a>
+</footer>
+</div>
+<script>if(window.matchMedia('(max-width:900px)').matches){var s=document.querySelector('details.side');if(s)s.removeAttribute('open')}</script>
+</body>
+</html>

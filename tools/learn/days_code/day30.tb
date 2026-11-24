@@ -1,0 +1,23 @@
+// день 30: общий скелет — состояние, события, цикл, слои
+enum Mode
+    work
+    done
+
+obj App
+    mode: Mode
+    todo: list text
+
+func handle(a: App, ev: text)            // события меняют состояние
+    if ev == "готово" and len(a.todo) > 0
+        last = a.todo.pop()
+    if len(a.todo) == 0
+        a.mode = Mode.done
+
+func draw(a: App)                        // вывод только читает
+    print("режим:", a.mode, " дел:", len(a.todo))
+
+func main()
+    a = App(mode: Mode.work, todo: ["код", "тест", "отправить"])
+    each ev in ["готово", "готово", "готово"]   // цикл событий
+        handle(a, ev)
+        draw(a)

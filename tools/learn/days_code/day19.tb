@@ -1,0 +1,29 @@
+// день 19: экраны игры — тот же автомат, что и дверь
+enum Screen
+    menu
+    play
+    pause
+    over
+
+func main()
+    s = Screen.menu
+    lives = 1
+    each key in ["enter", "p", "p", "удар", "enter"]
+        match s
+            menu
+                if key == "enter"
+                    s = Screen.play
+            play
+                if key == "p"
+                    s = Screen.pause
+                else if key == "удар"
+                    lives -= 1
+                    if lives == 0
+                        s = Screen.over
+            pause
+                if key == "p"
+                    s = Screen.play
+            over
+                if key == "enter"
+                    s = Screen.menu
+        print(key, "→", s)

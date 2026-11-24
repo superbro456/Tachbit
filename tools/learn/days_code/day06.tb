@@ -1,0 +1,9 @@
+// день 6: функции — вход, выход, без сюрпризов
+func area(w: int, h: int)
+    return w * h
+
+func price_of(w: int, h: int, per_meter: int)
+    return area(w, h) * per_meter
+
+func main()
+    print("ковёр 3×4 стоит", price_of(3, 4, 250))

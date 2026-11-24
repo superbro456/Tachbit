@@ -1,0 +1,12 @@
+// день 8: справочник — найти по ключу сразу
+func main()
+    stock = dict text int
+    stock["чай"] = 10
+    stock["кофе"] = 4
+    stock["чай"] -= 3
+    if stock.has("сок")
+        print("сок есть")
+    else
+        print("сока нет")
+    each name in stock
+        print(name, stock[name])

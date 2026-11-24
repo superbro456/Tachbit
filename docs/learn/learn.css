@@ -1,0 +1,134 @@
+/* Уроки Tachbit: тот же стиль, что у главной — сверху «Орбита», ниже «Аврора» */
+:root{
+  --ink:#05070d;--teal:#14b8a6;--teal2:#8fd3cc;--sky:#38bdf8;--lil:#a78bfa;
+  --bg:#ffffff;--fg:#0a0a0f;--mut:#5f6270;--line:rgba(15,23,42,.09);--soft:#f4f5f8;--card:rgba(255,255,255,.72);
+  --mono:ui-monospace,SFMono-Regular,"JetBrains Mono",Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:#fff;color:var(--fg);font:17px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;position:relative;overflow-x:hidden}
+body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;background:
+ radial-gradient(520px 380px at 90% 10%,rgba(20,184,166,.20),transparent 70%),
+ radial-gradient(520px 360px at 6% 40%,rgba(56,189,248,.16),transparent 70%),
+ radial-gradient(480px 340px at 94% 70%,rgba(167,139,250,.18),transparent 70%);filter:blur(40px)}
+a{color:inherit}
+.wrap{max-width:1120px;margin:0 auto;padding:0 20px}
+code{font-family:var(--mono);font-size:.88em;background:var(--soft);border:1px solid var(--line);border-radius:6px;padding:1px 6px}
+
+/* тёмная шапка */
+.top{color:#eef3f8;position:relative;overflow:hidden;background:radial-gradient(640px 380px at 82% 20%,rgba(20,184,166,.26),transparent 65%),radial-gradient(560px 360px at 60% -10%,rgba(56,189,248,.20),transparent 65%),radial-gradient(560px 380px at 100% 100%,rgba(167,139,250,.24),transparent 65%),var(--ink)}
+.top::before{content:"";position:absolute;inset:0;pointer-events:none;background:radial-gradient(1px 1px at 20% 30%,#fff8,transparent),radial-gradient(1px 1px at 60% 15%,#fff6,transparent),radial-gradient(1.5px 1.5px at 85% 60%,#fff9,transparent),radial-gradient(1px 1px at 40% 80%,#fff5,transparent),radial-gradient(1px 1px at 10% 70%,#fff6,transparent),radial-gradient(1px 1px at 75% 85%,#fff5,transparent)}
+.top::after{content:"";position:absolute;right:-10%;top:-30%;width:720px;height:460px;border-radius:50%;border:1px solid rgba(167,139,250,.25);transform:rotate(-14deg);pointer-events:none}
+header{display:flex;align-items:center;justify-content:space-between;padding:18px 0;position:relative;z-index:1}
+header img{height:30px;display:block}
+nav{display:flex;align-items:center;gap:22px}
+nav a{color:#a0a2a8;text-decoration:none;font-size:15px}
+nav a:hover,nav a.on{color:#fff}
+.head{position:relative;z-index:1;padding:26px 0 40px}
+.crumb{font:600 13px var(--mono);color:#8fa1b5;margin-bottom:14px}
+.crumb a{text-decoration:none;color:#c4f1ec}
+.head h1{font-size:40px;line-height:1.12;margin:0 0 12px;letter-spacing:-.02em;font-weight:750;display:flex;gap:16px;align-items:baseline}
+.head h1 .no{font:800 40px var(--mono);background:linear-gradient(90deg,#2dd4bf,#38bdf8 50%,#a78bfa);-webkit-background-clip:text;background-clip:text;color:transparent}
+.head h1 em{font-style:normal;background:linear-gradient(90deg,#2dd4bf,#38bdf8 50%,#a78bfa);-webkit-background-clip:text;background-clip:text;color:transparent}
+.head .goal{color:#b9c3d2;font-size:18px;margin:0;max-width:760px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:18px}
+.chips span{font:600 12.5px var(--mono);color:#c4f1ec;border:1px solid rgba(167,139,250,.35);background:rgba(255,255,255,.05);border-radius:999px;padding:3px 10px}
+
+/* страница урока: слева оглавление, справа текст */
+.page{display:grid;grid-template-columns:250px minmax(0,1fr);gap:44px;padding:36px 0 30px}
+.side{position:sticky;top:16px;align-self:start;max-height:calc(100vh - 32px);overflow:auto;font-size:14px;padding-right:4px}
+.side summary{display:none}
+.side h4{font:700 11.5px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--mut);margin:18px 0 6px}
+.side h4:first-of-type{margin-top:0}
+.side a{display:flex;gap:8px;text-decoration:none;color:#3b3f4a;padding:4px 8px;border-radius:8px;line-height:1.35}
+.side a b{font:600 12px var(--mono);color:#9aa0ad;min-width:20px;padding-top:2px}
+.side a:hover{background:var(--soft)}
+.side a.on{background:rgba(20,184,166,.10);color:var(--fg);font-weight:600}
+.side a.on b{color:var(--teal)}
+main{min-width:0}
+main h2{font-size:24px;line-height:1.25;margin:34px 0 10px;letter-spacing:-.01em}
+main h2:first-child{margin-top:0}
+main p{margin:0 0 12px}
+
+/* код и вывод */
+pre.code{margin:12px 0 0;background:#111318;color:#eef3f8;border-radius:14px;padding:16px 18px;overflow-x:auto;font:14px/1.6 var(--mono);box-shadow:0 14px 40px rgba(5,7,13,.16)}
+pre.code.sh{background:#1a1d24}
+.kw{color:#4fb3ac;font-weight:700}.ty{color:#8fd3cc}.st{color:#e3b98a}.nu{color:#f08f73}.cm{color:#7d7d85;font-style:italic}
+.lbl{font:700 11.5px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--mut);margin:12px 0 4px}
+.fname{font:600 12.5px var(--mono);color:var(--mut);margin:18px 0 -4px}
+pre.out{margin:0 0 6px;background:var(--card);backdrop-filter:blur(10px);border:1px solid var(--line);border-radius:12px;padding:10px 16px;font:13.5px/1.55 var(--mono);white-space:pre-wrap;overflow-x:auto}
+
+/* блоки */
+.rules{margin:30px 0 0;border:1px solid rgba(20,184,166,.35);background:rgba(20,184,166,.06);border-radius:16px;padding:14px 20px}
+.rules b{font:700 12px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:#0f8f82}
+.rules ul{margin:6px 0 0 18px;padding:0}
+.rules li{margin:4px 0}
+.task{margin:16px 0 0;border:1px solid rgba(167,139,250,.4);background:rgba(167,139,250,.07);border-radius:16px;padding:14px 20px}
+.task b{font:700 12px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:#6d4fd8;display:block;margin-bottom:4px}
+.pattern{margin:18px 0;border-radius:16px;padding:16px 20px;background:#111318;color:#eef3f8;box-shadow:0 14px 40px rgba(5,7,13,.16)}
+.pattern .pn{font:700 12px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:#8fd3cc}
+.pattern p{margin:4px 0 0;font-size:18px}
+.where{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:18px 0}
+.where div{background:var(--card);backdrop-filter:blur(10px);border:1px solid var(--line);border-radius:16px;padding:12px 16px;font-size:15px;color:#3b3f4a;box-shadow:0 8px 24px rgba(30,41,59,.05)}
+.where b{display:block;font:700 12px var(--mono);letter-spacing:.06em;text-transform:uppercase;margin-bottom:4px}
+.where .a b{color:#0f8f82}.where .g b{color:#0284c7}.where .o b{color:#6d4fd8}
+
+/* вперёд / назад */
+.pn2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:40px 0 0}
+.pn2 a{display:block;text-decoration:none;border:1px solid var(--line);background:var(--card);border-radius:16px;padding:12px 16px}
+.pn2 a:hover{border-color:rgba(20,184,166,.55)}
+.pn2 small{display:block;font:600 12px var(--mono);color:var(--mut)}
+.pn2 .nx{text-align:right;grid-column:2}
+
+/* хаб */
+.hub{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:36px 0 0}
+.big{display:block;text-decoration:none;border:1px solid var(--line);background:var(--card);backdrop-filter:blur(12px);border-radius:22px;padding:22px 24px;box-shadow:0 10px 30px rgba(30,41,59,.07)}
+.big:hover{border-color:rgba(20,184,166,.55);box-shadow:0 14px 40px rgba(20,184,166,.12)}
+.big .n{font:700 12px var(--mono);letter-spacing:.06em;background:linear-gradient(90deg,#14b8a6,#a78bfa);-webkit-background-clip:text;background-clip:text;color:transparent}
+.big h3{margin:6px 0 6px;font-size:22px}
+.big p{margin:0;color:var(--mut);font-size:15.5px}
+.sec{display:flex;align-items:center;gap:12px;font-size:28px;line-height:1.2;margin:64px 0 8px;letter-spacing:-.02em}
+.sec .dot{width:10px;height:10px;border-radius:50%;background:linear-gradient(135deg,#14b8a6,#a78bfa);flex:none}
+.sub{color:var(--mut);margin:0 0 18px}
+.grp{font:700 12px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--mut);margin:26px 0 8px}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.grid a{display:flex;gap:10px;text-decoration:none;border:1px solid var(--line);background:var(--card);border-radius:14px;padding:10px 14px;font-size:15px;line-height:1.35}
+.grid a:hover{border-color:rgba(20,184,166,.55)}
+.grid a b{font:700 13px var(--mono);color:var(--teal);min-width:22px}
+.grid a span small{display:block;color:var(--mut);font-size:13px;margin-top:2px}
+.dl{display:flex;flex-wrap:wrap;gap:10px;margin:16px 0 0}
+.dl a{display:inline-flex;align-items:center;gap:8px;text-decoration:none;border-radius:999px;padding:9px 16px;font-weight:600;font-size:15px;background:#0a0a0f;color:#fff}
+.dl a.l{background:var(--card);color:var(--fg);border:1px solid var(--line)}
+.loop{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:6px 0 14px;font:13.5px var(--mono)}
+.loop span{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:3px 12px}
+.loop i{font-style:normal;color:var(--mut)}
+table{width:100%;border-collapse:collapse;font-size:15px;margin:8px 0 18px}
+th,td{text-align:left;vertical-align:top;padding:7px 10px;border-bottom:1px solid var(--line)}
+th{color:var(--mut);font-weight:600;font-size:13px}
+.ref td:first-child{font-family:var(--mono);font-size:13.5px;color:#6d4fd8;width:44%;word-break:break-word}
+.ref td:last-child{white-space:nowrap;color:var(--mut);font-size:13.5px}
+.ref td:last-child a{color:var(--teal)}
+.ref tr.g td{background:rgba(20,184,166,.07);font-weight:700;color:var(--fg);font-family:inherit;font-size:14px}
+.box{border:1px solid var(--line);background:var(--card);border-radius:16px;padding:14px 20px;margin:14px 0}
+
+footer{margin:70px 0 0;padding:26px 0 40px;border-top:1px solid var(--line);color:var(--mut);font-size:14px;display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center}
+footer img{width:22px;height:22px;border-radius:6px}
+
+@media (max-width:900px){
+  .page{grid-template-columns:1fr;gap:18px;padding-top:20px}
+  .side{position:static;max-height:none;overflow:visible;border:1px solid var(--line);background:var(--card);border-radius:14px;padding:4px 12px}
+  .side summary{display:block;cursor:pointer;font-weight:650;padding:8px 0}
+  .side:not([open]) > :not(summary){display:none}
+  .grid{grid-template-columns:1fr 1fr}
+  .where{grid-template-columns:1fr}
+}
+@media (max-width:600px){
+  nav{gap:14px}
+  nav .hide{display:none}
+  .head h1,.head h1 .no{font-size:28px}
+  .head .goal{font-size:16px}
+  .hub,.grid,.pn2{grid-template-columns:1fr}
+  .pn2 .nx{grid-column:1}
+  pre.code{font-size:12.5px;padding:14px}
+  .sec{font-size:24px;margin-top:48px}
+}

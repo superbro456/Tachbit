@@ -1,0 +1,15 @@
+// день 26: производитель и потребитель
+func cook(orders: channel int, ready: channel text)
+    each n in orders
+        ready.send("блюдо №" + n)
+    ready.close()
+
+func main()
+    orders = channel int
+    ready = channel text
+    k = background cook(orders, ready)
+    count i from 1 to 3
+        orders.send(i)                     // производитель кладёт
+    orders.close()
+    each dish in ready                     // потребитель забирает
+        print(dish)

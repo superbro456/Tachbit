@@ -1,0 +1,5 @@
+enter → play
+p → pause
+p → play
+удар → over
+enter → menu

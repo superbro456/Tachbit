@@ -1,0 +1,15 @@
+// день 25: параллельно — каждый своё, общее под замком
+shared done = int 0
+
+func work(a: int, b: int)
+    sum = 0
+    count i from a to b
+        sum += i
+    lock done
+        done += 1                         // общее меняем только под замком
+    return sum
+
+func main()
+    a = background work(1, 500000)
+    b = background work(500001, 1000000)
+    print("сумма:", a.wait + b.wait, " работ закончено:", done)

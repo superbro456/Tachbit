@@ -1,0 +1,14 @@
+// день 4: фильтр, преобразование, свёртка
+func main()
+    prices = [120, 900, 45, 300, 1500]
+    cheap = list int
+    each p in prices
+        if p < 500
+            cheap.add(p)                 // фильтр: оставить нужные
+    with_tax = list int
+    each p in cheap
+        with_tax.add(p + p * 12 / 100)   // преобразование: каждый по правилу
+    sum = 0
+    each p in with_tax
+        sum += p                         // свёртка: много в одно
+    print(cheap, with_tax, sum)

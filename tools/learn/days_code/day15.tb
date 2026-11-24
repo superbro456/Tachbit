@@ -1,0 +1,15 @@
+// день 15: игровой цикл — ввод, обновить, нарисовать
+func main()
+    try window_open(640, 360, "Игровой цикл")
+    set_fps(60)
+    x = 320.0
+    speed = 200.0                       // точек в секунду
+    repeat while window_alive()
+        dt = frame_ms() / 1000          // 1) сколько прошло
+        if key_down("left")             // 2) ввод
+            x -= speed * dt
+        if key_down("right")
+            x += speed * dt
+        x = max(20.0, min(620.0, x))    // 3) обновить и не выпустить за край
+        clear_window(rgb(20, 24, 36))   // 4) нарисовать всё заново
+        draw_circle(round(x), 180, 20, rgb(255, 190, 60))

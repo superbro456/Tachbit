@@ -1,0 +1,26 @@
+// день 28: планировщик — всем по очереди понемногу
+obj Task
+    name: text
+    left: int      // сколько ещё работы
+
+func main()
+    queue = list Task
+    queue.add(Task(name: "музыка", left: 3))
+    queue.add(Task(name: "браузер", left: 5))
+    queue.add(Task(name: "часы", left: 1))
+    slice = 2                               // квант: сколько даём за раз
+    tick = 0
+    repeat while len(queue) > 0
+        t = queue[0]
+        rest = list Task
+        count i from 1 to len(queue) - 1
+            rest.add(queue[i])
+        work = min(slice, t.left)
+        t.left -= work
+        tick += work
+        print("такт", tick, ":", t.name, "сделал", work)
+        if t.left > 0
+            rest.add(t)                     // не закончил — в конец очереди
+        else
+            print("   ", t.name, "готов")
+        queue = rest

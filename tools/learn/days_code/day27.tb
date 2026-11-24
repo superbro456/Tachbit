@@ -1,0 +1,27 @@
+// день 27: кольцевой буфер — как драйвер копит нажатия
+obj Ring
+    data: list int
+    head: int      // откуда читать
+    tail: int      // куда писать
+    used: int
+
+func put(r: Ring, x: int) gives ok: bool
+    ok = r.used < len(r.data)
+    if not ok
+        return                             // полно: новое теряем, старое не портим
+    r.data[r.tail] = x
+    r.tail = (r.tail + 1) % len(r.data)
+    r.used += 1
+
+func take(r: Ring) gives x: int
+    x = r.data[r.head]
+    r.head = (r.head + 1) % len(r.data)
+    r.used -= 1
+
+func main()
+    r = Ring(data: [0, 0, 0, 0])
+    each key in [65, 66, 67, 68, 69]       // 5 нажатий в буфер на 4
+        if not put(r, key)
+            print("буфер полон, потеряно:", char(key))
+    repeat while r.used > 0
+        print("прочитал:", char(take(r)))

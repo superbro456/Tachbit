@@ -1,0 +1,13 @@
+// день 22: простой ИИ — смотри, реши, действуй
+func decide(my_x: dec, ball_x: dec, dist_goal: dec) gives act: text
+    if abs(ball_x - my_x) > 1.0
+        act = "бежать к мячу"           // далеко — догнать
+    else if dist_goal < 10.0
+        act = "бить по воротам"         // близко к воротам — бить
+    else
+        act = "вести мяч"               // иначе вести дальше
+
+func main()
+    print(decide(0.0, 5.0, 20.0))
+    print(decide(4.5, 5.0, 20.0))
+    print(decide(4.5, 5.0, 6.0))

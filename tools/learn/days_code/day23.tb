@@ -1,0 +1,15 @@
+// день 23: ОС — службы и сообщения вместо общих переменных
+func clock_service(asks: channel text, answers: channel text)
+    each q in asks                      // служба ждёт вопрос
+        if q == "время"
+            answers.send(date_now())
+        else
+            answers.send("не знаю: " + q)
+
+func main()
+    asks = channel text
+    answers = channel text
+    w = background clock_service(asks, answers)
+    asks.send("время")
+    print("ответ службы:", answers.receive())
+    asks.close()

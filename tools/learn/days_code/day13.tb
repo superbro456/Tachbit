@@ -1,0 +1,26 @@
+// день 13: конечный автомат — в каком режиме и куда можно перейти
+enum Door
+    closed
+    open
+    locked
+
+func next(d: Door, action: text) gives n: Door
+    n = d
+    match d
+        closed
+            if action == "открыть"
+                n = Door.open
+            else if action == "запереть"
+                n = Door.locked
+        open
+            if action == "закрыть"
+                n = Door.closed
+        locked
+            if action == "отпереть"
+                n = Door.closed
+
+func main()
+    d = Door.closed
+    each a in ["открыть", "запереть", "закрыть", "запереть", "открыть", "отпереть"]
+        d = next(d, a)
+        print(a, "→", d)

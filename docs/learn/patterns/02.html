@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#05070d">
+<title>2. Охранник · Паттерны Tachbit</title>
+<meta name="description" content="Научиться отсекать плохие случаи в начале функции.">
+<meta property="og:title" content="2. Охранник · Паттерны Tachbit">
+<meta property="og:image" content="../../img/tachbit-icon-light-512.png">
+<link rel="icon" href="../../img/tachbit-icon-light-512.png">
+<link rel="stylesheet" href="../../learn/learn.css">
+</head>
+<body>
+<div class="top"><div class="wrap">
+<header>
+  <a href="../../index.html"><img src="../../img/tachbit-logo-dark.svg" alt="Tachbit"></a>
+  <nav>
+    <a href="../../index.html" class="hide">Главная</a>
+    <a href="../../learn/" class="on">Уроки</a>
+    <a href="../../learn/lang/ref.html" class="">Указатель</a>
+    <a href="https://github.com/superbro456/Tachbit">GitHub</a>
+  </nav>
+</header>
+<div class="head"><div class="crumb"><a href="../">Уроки</a> › <a href="./">Паттерны</a> › Основа логики</div><h1><span class="no">02</span>Решения и «охранник»</h1><p class="goal">Научиться отсекать плохие случаи в начале функции.</p></div>
+</div></div>
+<div class="wrap">
+<div class="page"><details class="side" open><summary>Все 30 паттернов</summary><h4>Основа логики</h4><a href="01.html"><b>1</b>Состояние</a><a href="02.html" class="on"><b>2</b>Охранник</a><a href="03.html"><b>3</b>Накопитель</a><a href="04.html"><b>4</b>Фильтр → преобразование → свёртка</a><a href="05.html"><b>5</b>Модель</a><a href="06.html"><b>6</b>Чистая функция</a><a href="07.html"><b>7</b>Ошибка как значение</a><h4>Как устроены приложения</h4><a href="08.html"><b>8</b>Справочник</a><a href="09.html"><b>9</b>Загрузить → изменить → сохранить</a><a href="10.html"><b>10</b>Слои</a><a href="11.html"><b>11</b>Цикл событий</a><a href="12.html"><b>12</b>Модель / вид</a><a href="13.html"><b>13</b>Конечный автомат</a><a href="14.html"><b>14</b>Команда</a><h4>Как устроены игры</h4><a href="15.html"><b>15</b>Игровой цикл</a><a href="16.html"><b>16</b>Интегратор</a><a href="17.html"><b>17</b>Пересечение коробок</a><a href="18.html"><b>18</b>Список сущностей</a><a href="19.html"><b>19</b>Автомат экранов</a><a href="20.html"><b>20</b>Плавный переход</a><a href="21.html"><b>21</b>Очередь событий</a><a href="22.html"><b>22</b>Смотри → реши → действуй</a><h4>Как устроена система</h4><a href="23.html"><b>23</b>Служба</a><a href="24.html"><b>24</b>Владение</a><a href="25.html"><b>25</b>Раздели и собери</a><a href="26.html"><b>26</b>Производитель / потребитель</a><a href="27.html"><b>27</b>Кольцо</a><a href="28.html"><b>28</b>По кругу</a><a href="29.html"><b>29</b>Проверка на входе</a><a href="30.html"><b>30</b>Состояние + события + цикл + слои</a></details><main><p>Программа постоянно решает: можно или нельзя, туда или сюда. Новички пишут вложенные <code>if</code> в пять этажей, и логика теряется. Профессионалы делают наоборот: сначала проверяют всё, что может пойти не так, и сразу выходят. Это и есть <b>охранник</b> (guard).</p><p>После охранников остаётся «счастливый путь»: код, который работает, когда всё в порядке. Его легко читать, потому что он не спрятан внутри условий.</p><div class="pattern"><div class="pn">Паттерн «Охранник»</div><p>Плохие случаи проверяй первыми и выходи сразу. Хороший путь — последним, без вложенности.</p></div><div class="where"><div class="a"><b>Приложение</b>Вход на сайт: нет логина — выход; неверный пароль — выход; заблокирован — выход; дальше вход.</div><div class="g"><b>Игра</b>Прыжок: герой в воздухе — нельзя; оглушён — нельзя; иначе прыгает.</div><div class="o"><b>ОС</b>Открыть файл: нет такого — ошибка; нет прав — ошибка; занят — ошибка; иначе открыть.</div></div><h2>Код</h2><div class="fname">day02.tb</div><pre class="code"><span class="cm">// день 2: решения и «охранник»</span>
+<span class="kw">func</span> can_buy(money: <span class="ty">int</span>, price: <span class="ty">int</span>, age: <span class="ty">int</span>) <span class="kw">gives</span> ok: <span class="ty">bool</span>
+    ok = <span class="kw">false</span>
+    <span class="kw">if</span> age &lt; <span class="nu">18</span>
+        <span class="kw">return</span>           <span class="cm">// охранник: плохой случай уходит сразу</span>
+    <span class="kw">if</span> money &lt; price
+        <span class="kw">return</span>
+    ok = <span class="kw">true</span>
+
+<span class="kw">func</span> main()
+    print(can_buy(<span class="nu">500</span>, <span class="nu">120</span>, <span class="nu">20</span>))
+    print(can_buy(<span class="nu">100</span>, <span class="nu">120</span>, <span class="nu">20</span>))
+    print(can_buy(<span class="nu">500</span>, <span class="nu">120</span>, <span class="nu">15</span>))</pre><div class="lbl">Вывод</div><pre class="out">true
+false
+false</pre><div class="task"><b>Задание</b>Добавьте четвёртый параметр <code>banned: bool</code> и охранник для него. Проверьте три вызова.</div><div class="pn2"><a href="01.html"><small>← назад</small>1. Состояние</a><a class="nx" href="03.html"><small>дальше →</small>3. Накопитель</a></div></main></div>
+<footer>
+  <img src="../../img/tachbit-icon-light-512.png" alt="">
+  <span>Tachbit бесплатный и открытый, лицензия MIT. Все примеры проверены компилятором Tachbit.</span>
+  <a href="../../index.html">Главная</a>
+  <a href="../../learn/">Уроки</a>
+  <a href="https://github.com/superbro456/Tachbit/blob/main/docs/guide.md">Справочник</a>
+</footer>
+</div>
+<script>if(window.matchMedia('(max-width:900px)').matches){var s=document.querySelector('details.side');if(s)s.removeAttribute('open')}</script>
+</body>
+</html>

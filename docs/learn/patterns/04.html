@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#05070d">
+<title>4. Фильтр → преобразование → свёртка · Паттерны Tachbit</title>
+<meta name="description" content="Разложить обработку списка на три понятных шага.">
+<meta property="og:title" content="4. Фильтр → преобразование → свёртка · Паттерны Tachbit">
+<meta property="og:image" content="../../img/tachbit-icon-light-512.png">
+<link rel="icon" href="../../img/tachbit-icon-light-512.png">
+<link rel="stylesheet" href="../../learn/learn.css">
+</head>
+<body>
+<div class="top"><div class="wrap">
+<header>
+  <a href="../../index.html"><img src="../../img/tachbit-logo-dark.svg" alt="Tachbit"></a>
+  <nav>
+    <a href="../../index.html" class="hide">Главная</a>
+    <a href="../../learn/" class="on">Уроки</a>
+    <a href="../../learn/lang/ref.html" class="">Указатель</a>
+    <a href="https://github.com/superbro456/Tachbit">GitHub</a>
+  </nav>
+</header>
+<div class="head"><div class="crumb"><a href="../">Уроки</a> › <a href="./">Паттерны</a> › Основа логики</div><h1><span class="no">04</span>Фильтр, преобразование, свёртка</h1><p class="goal">Разложить обработку списка на три понятных шага.</p></div>
+</div></div>
+<div class="wrap">
+<div class="page"><details class="side" open><summary>Все 30 паттернов</summary><h4>Основа логики</h4><a href="01.html"><b>1</b>Состояние</a><a href="02.html"><b>2</b>Охранник</a><a href="03.html"><b>3</b>Накопитель</a><a href="04.html" class="on"><b>4</b>Фильтр → преобразование → свёртка</a><a href="05.html"><b>5</b>Модель</a><a href="06.html"><b>6</b>Чистая функция</a><a href="07.html"><b>7</b>Ошибка как значение</a><h4>Как устроены приложения</h4><a href="08.html"><b>8</b>Справочник</a><a href="09.html"><b>9</b>Загрузить → изменить → сохранить</a><a href="10.html"><b>10</b>Слои</a><a href="11.html"><b>11</b>Цикл событий</a><a href="12.html"><b>12</b>Модель / вид</a><a href="13.html"><b>13</b>Конечный автомат</a><a href="14.html"><b>14</b>Команда</a><h4>Как устроены игры</h4><a href="15.html"><b>15</b>Игровой цикл</a><a href="16.html"><b>16</b>Интегратор</a><a href="17.html"><b>17</b>Пересечение коробок</a><a href="18.html"><b>18</b>Список сущностей</a><a href="19.html"><b>19</b>Автомат экранов</a><a href="20.html"><b>20</b>Плавный переход</a><a href="21.html"><b>21</b>Очередь событий</a><a href="22.html"><b>22</b>Смотри → реши → действуй</a><h4>Как устроена система</h4><a href="23.html"><b>23</b>Служба</a><a href="24.html"><b>24</b>Владение</a><a href="25.html"><b>25</b>Раздели и собери</a><a href="26.html"><b>26</b>Производитель / потребитель</a><a href="27.html"><b>27</b>Кольцо</a><a href="28.html"><b>28</b>По кругу</a><a href="29.html"><b>29</b>Проверка на входе</a><a href="30.html"><b>30</b>Состояние + события + цикл + слои</a></details><main><p>Работу со списками почти всегда можно разбить на три кирпичика. <b>Фильтр</b> оставляет только нужные элементы. <b>Преобразование</b> (map) меняет каждый элемент по правилу. <b>Свёртка</b> (fold) превращает много элементов в одно значение.</p><p>Когда задача кажется сложной, спросите себя: что я отбираю, что я меняю, во что я сворачиваю? Ответы и есть три цикла. Их потом легко проверять по отдельности.</p><div class="pattern"><div class="pn">Паттерн «Фильтр → преобразование → свёртка»</div><p>Отбери, измени каждый, сверни в одно. Каждый шаг — отдельный цикл.</p></div><div class="where"><div class="a"><b>Приложение</b>Счёт клиенту: отобрать неоплаченные услуги, к каждой добавить налог, сложить.</div><div class="g"><b>Игра</b>Взрыв: отобрать врагов в радиусе, каждому посчитать урон, сложить очки.</div><div class="o"><b>ОС</b>Отобрать процессы одного пользователя, взять у каждого память, сложить.</div></div><h2>Код</h2><div class="fname">day04.tb</div><pre class="code"><span class="cm">// день 4: фильтр, преобразование, свёртка</span>
+<span class="kw">func</span> main()
+    prices = [<span class="nu">120</span>, <span class="nu">900</span>, <span class="nu">45</span>, <span class="nu">300</span>, <span class="nu">1500</span>]
+    cheap = <span class="kw">list</span> <span class="ty">int</span>
+    <span class="kw">each</span> p <span class="kw">in</span> prices
+        <span class="kw">if</span> p &lt; <span class="nu">500</span>
+            cheap.add(p)                 <span class="cm">// фильтр: оставить нужные</span>
+    with_tax = <span class="kw">list</span> <span class="ty">int</span>
+    <span class="kw">each</span> p <span class="kw">in</span> cheap
+        with_tax.add(p + p * <span class="nu">12</span> / <span class="nu">100</span>)   <span class="cm">// преобразование: каждый по правилу</span>
+    sum = <span class="nu">0</span>
+    <span class="kw">each</span> p <span class="kw">in</span> with_tax
+        sum += p                         <span class="cm">// свёртка: много в одно</span>
+    print(cheap, with_tax, sum)</pre><div class="lbl">Вывод</div><pre class="out">[120, 45, 300] [134, 50, 336] 520</pre><div class="task"><b>Задание</b>Отберите цены дороже 200, сделайте скидку 10% каждой и найдите самую большую.</div><div class="pn2"><a href="03.html"><small>← назад</small>3. Накопитель</a><a class="nx" href="05.html"><small>дальше →</small>5. Модель</a></div></main></div>
+<footer>
+  <img src="../../img/tachbit-icon-light-512.png" alt="">
+  <span>Tachbit бесплатный и открытый, лицензия MIT. Все примеры проверены компилятором Tachbit.</span>
+  <a href="../../index.html">Главная</a>
+  <a href="../../learn/">Уроки</a>
+  <a href="https://github.com/superbro456/Tachbit/blob/main/docs/guide.md">Справочник</a>
+</footer>
+</div>
+<script>if(window.matchMedia('(max-width:900px)').matches){var s=document.querySelector('details.side');if(s)s.removeAttribute('open')}</script>
+</body>
+</html>

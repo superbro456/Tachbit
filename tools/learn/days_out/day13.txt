@@ -1,0 +1,6 @@
+открыть → open
+запереть → open
+закрыть → closed
+запереть → locked
+открыть → locked
+отпереть → closed

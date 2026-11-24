@@ -1,0 +1,12 @@
+// день 24: память — кто владеет и когда отдать
+func main()
+    temp                                    // всё, что создано тут, уйдёт в конце блока
+        words = split("раз два три", " ")
+        print("слов:", len(words))
+    danger                                  // руками: взял — отдай
+        buf = new_mem(64) else err
+            print(err)
+            return
+        write32(buf, 42)
+        print("в памяти:", read32(buf))
+        free_mem(buf)

@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#05070d">
+<title>13. Конечный автомат · Паттерны Tachbit</title>
+<meta name="description" content="Описывать поведение через режимы и разрешённые переходы.">
+<meta property="og:title" content="13. Конечный автомат · Паттерны Tachbit">
+<meta property="og:image" content="../../img/tachbit-icon-light-512.png">
+<link rel="icon" href="../../img/tachbit-icon-light-512.png">
+<link rel="stylesheet" href="../../learn/learn.css">
+</head>
+<body>
+<div class="top"><div class="wrap">
+<header>
+  <a href="../../index.html"><img src="../../img/tachbit-logo-dark.svg" alt="Tachbit"></a>
+  <nav>
+    <a href="../../index.html" class="hide">Главная</a>
+    <a href="../../learn/" class="on">Уроки</a>
+    <a href="../../learn/lang/ref.html" class="">Указатель</a>
+    <a href="https://github.com/superbro456/Tachbit">GitHub</a>
+  </nav>
+</header>
+<div class="head"><div class="crumb"><a href="../">Уроки</a> › <a href="./">Паттерны</a> › Как устроены приложения</div><h1><span class="no">13</span>Конечный автомат</h1><p class="goal">Описывать поведение через режимы и разрешённые переходы.</p></div>
+</div></div>
+<div class="wrap">
+<div class="page"><details class="side" open><summary>Все 30 паттернов</summary><h4>Основа логики</h4><a href="01.html"><b>1</b>Состояние</a><a href="02.html"><b>2</b>Охранник</a><a href="03.html"><b>3</b>Накопитель</a><a href="04.html"><b>4</b>Фильтр → преобразование → свёртка</a><a href="05.html"><b>5</b>Модель</a><a href="06.html"><b>6</b>Чистая функция</a><a href="07.html"><b>7</b>Ошибка как значение</a><h4>Как устроены приложения</h4><a href="08.html"><b>8</b>Справочник</a><a href="09.html"><b>9</b>Загрузить → изменить → сохранить</a><a href="10.html"><b>10</b>Слои</a><a href="11.html"><b>11</b>Цикл событий</a><a href="12.html"><b>12</b>Модель / вид</a><a href="13.html" class="on"><b>13</b>Конечный автомат</a><a href="14.html"><b>14</b>Команда</a><h4>Как устроены игры</h4><a href="15.html"><b>15</b>Игровой цикл</a><a href="16.html"><b>16</b>Интегратор</a><a href="17.html"><b>17</b>Пересечение коробок</a><a href="18.html"><b>18</b>Список сущностей</a><a href="19.html"><b>19</b>Автомат экранов</a><a href="20.html"><b>20</b>Плавный переход</a><a href="21.html"><b>21</b>Очередь событий</a><a href="22.html"><b>22</b>Смотри → реши → действуй</a><h4>Как устроена система</h4><a href="23.html"><b>23</b>Служба</a><a href="24.html"><b>24</b>Владение</a><a href="25.html"><b>25</b>Раздели и собери</a><a href="26.html"><b>26</b>Производитель / потребитель</a><a href="27.html"><b>27</b>Кольцо</a><a href="28.html"><b>28</b>По кругу</a><a href="29.html"><b>29</b>Проверка на входе</a><a href="30.html"><b>30</b>Состояние + события + цикл + слои</a></details><main><p>Многие вещи живут в <b>режимах</b>: дверь закрыта, открыта или заперта. В каждом режиме допустимы свои действия. Запертую дверь нельзя открыть — сначала отпереть. Если описать это флажками <code>is_open</code>, <code>is_locked</code>, легко получить невозможное «открыта и заперта одновременно».</p><p>Конечный автомат решает это: один <code>enum</code> с режимами и одна функция «режим + действие → новый режим». Невозможные состояния просто нельзя записать.</p><div class="pattern"><div class="pn">Паттерн «Конечный автомат»</div><p>Один enum на режим, одна функция переходов. Никаких пар флажков.</p></div><div class="where"><div class="a"><b>Приложение</b>Заказ: новый → оплачен → отправлен → доставлен. Нельзя отправить неоплаченный.</div><div class="g"><b>Игра</b>Герой: стоит, бежит, прыгает, падает. Из прыжка нельзя снова прыгнуть.</div><div class="o"><b>ОС</b>Задача: готова, работает, ждёт, завершена. Планировщик двигает её только по разрешённым стрелкам.</div></div><h2>Код</h2><div class="fname">day13.tb</div><pre class="code"><span class="cm">// день 13: конечный автомат — в каком режиме и куда можно перейти</span>
+<span class="kw">enum</span> Door
+    closed
+    open
+    locked
+
+<span class="kw">func</span> next(d: Door, action: <span class="ty">text</span>) <span class="kw">gives</span> n: Door
+    n = d
+    <span class="kw">match</span> d
+        closed
+            <span class="kw">if</span> action == <span class="st">"открыть"</span>
+                n = Door.open
+            <span class="kw">else</span> <span class="kw">if</span> action == <span class="st">"запереть"</span>
+                n = Door.locked
+        open
+            <span class="kw">if</span> action == <span class="st">"закрыть"</span>
+                n = Door.closed
+        locked
+            <span class="kw">if</span> action == <span class="st">"отпереть"</span>
+                n = Door.closed
+
+<span class="kw">func</span> main()
+    d = Door.closed
+    <span class="kw">each</span> a <span class="kw">in</span> [<span class="st">"открыть"</span>, <span class="st">"запереть"</span>, <span class="st">"закрыть"</span>, <span class="st">"запереть"</span>, <span class="st">"открыть"</span>, <span class="st">"отпереть"</span>]
+        d = next(d, a)
+        print(a, <span class="st">"→"</span>, d)</pre><div class="lbl">Вывод</div><pre class="out">открыть → open
+запереть → open
+закрыть → closed
+запереть → locked
+открыть → locked
+отпереть → closed</pre><div class="task"><b>Задание</b>Добавьте режим <code>broken</code>: из любого режима действие «выбить» ломает дверь навсегда.</div><div class="pn2"><a href="12.html"><small>← назад</small>12. Модель / вид</a><a class="nx" href="14.html"><small>дальше →</small>14. Команда</a></div></main></div>
+<footer>
+  <img src="../../img/tachbit-icon-light-512.png" alt="">
+  <span>Tachbit бесплатный и открытый, лицензия MIT. Все примеры проверены компилятором Tachbit.</span>
+  <a href="../../index.html">Главная</a>
+  <a href="../../learn/">Уроки</a>
+  <a href="https://github.com/superbro456/Tachbit/blob/main/docs/guide.md">Справочник</a>
+</footer>
+</div>
+<script>if(window.matchMedia('(max-width:900px)').matches){var s=document.querySelector('details.side');if(s)s.removeAttribute('open')}</script>
+</body>
+</html>

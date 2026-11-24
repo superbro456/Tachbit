@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#05070d">
+<title>15. Файлы, папки, ввод · Язык Tachbit</title>
+<meta name="description" content="Сохранять данные между запусками и спрашивать пользователя.">
+<meta property="og:title" content="15. Файлы, папки, ввод · Язык Tachbit">
+<meta property="og:image" content="../../img/tachbit-icon-light-512.png">
+<link rel="icon" href="../../img/tachbit-icon-light-512.png">
+<link rel="stylesheet" href="../../learn/learn.css">
+</head>
+<body>
+<div class="top"><div class="wrap">
+<header>
+  <a href="../../index.html"><img src="../../img/tachbit-logo-dark.svg" alt="Tachbit"></a>
+  <nav>
+    <a href="../../index.html" class="hide">Главная</a>
+    <a href="../../learn/" class="on">Уроки</a>
+    <a href="../../learn/lang/ref.html" class="">Указатель</a>
+    <a href="https://github.com/superbro456/Tachbit">GitHub</a>
+  </nav>
+</header>
+<div class="head"><div class="crumb"><a href="../">Уроки</a> › <a href="./">Язык Tachbit</a> › Настоящие программы</div><h1><span class="no">15</span>Файлы, папки, ввод</h1><p class="goal">Сохранять данные между запусками и спрашивать пользователя.</p><div class="chips"><span>read_file</span><span>write_file</span><span>file_exists</span><span>file_size</span><span>list_dir</span><span>is_folder</span><span>make_folder</span><span>move</span><span>remove</span><span>input</span><span>args</span><span>env</span><span>run</span><span>exit</span></div></div>
+</div></div>
+<div class="wrap">
+<div class="page"><details class="side" open><summary>Все уроки языка</summary><h4>Основа языка</h4><a href="01.html"><b>1</b>Первая программа</a><a href="02.html"><b>2</b>Переменные и типы</a><a href="03.html"><b>3</b>Сравнения и решения</a><a href="04.html"><b>4</b>Повторение: циклы</a><a href="05.html"><b>5</b>Текст</a><a href="06.html"><b>6</b>Списки</a><a href="07.html"><b>7</b>Словари: dict</a><a href="08.html"><b>8</b>Функции</a><a href="09.html"><b>9</b>Свои типы: obj</a><a href="10.html"><b>10</b>Ярлыки: link</a><a href="11.html"><b>11</b>Варианты: enum и match</a><a href="12.html"><b>12</b>Ошибки: fail, try, or, else err</a><h4>Настоящие программы</h4><a href="13.html"><b>13</b>Модули и библиотеки</a><a href="14.html"><b>14</b>Числа, время и случайность</a><a href="15.html" class="on"><b>15</b>Файлы, папки, ввод</a><a href="16.html"><b>16</b>Интернет: HTTP, JSON и свой сервер</a><a href="17.html"><b>17</b>Память</a><h4>Несколько ядер и скорость</h4><a href="18.html"><b>18</b>Работа в фоне: background, shared, lock</a><a href="19.html"><b>19</b>Каналы, move и все ядра</a><a href="20.html"><b>20</b>Скорость одним словом</a><h4>Окна, игры, звук</h4><a href="21.html"><b>21</b>Окно и 2D-рисование</a><a href="22.html"><b>22</b>3D</a><a href="23.html"><b>23</b>Звук</a><a href="24.html"><b>24</b>Приложения с кнопками: lib/ui</a><h4>Система</h4><a href="25.html"><b>25</b>Железо: danger, память руками, shape, zone</a><a href="26.html"><b>26</b>Связь с C и системой</a><a href="27.html"><b>27</b>Своё ядро: tb bare</a><a href="28.html"><b>28</b>Команды tb и настройки</a><h4>В конце</h4><a href="ref.html"><b>✱</b>Указатели</a></details><main><h2>Файлы</h2><p><code>write_file</code> записывает текст в файл целиком, <code>read_file</code> читает его. Обе могут сломаться (нет прав, нет файла), поэтому их зовут с <code>try</code>, <code>or</code> или <code>else err</code>.</p><pre class="code"><span class="kw">func</span> main()
+    <span class="kw">try</span> write_file(<span class="st">"notes.txt"</span>, <span class="st">"купить хлеб\nпозвонить маме\n"</span>)
+    s = <span class="kw">try</span> read_file(<span class="st">"notes.txt"</span>)
+    <span class="kw">each</span> line <span class="kw">in</span> split(trim(s), <span class="st">"\n"</span>)
+        print(<span class="st">"•"</span>, line)
+    print(file_exists(<span class="st">"notes.txt"</span>), file_size(<span class="st">"notes.txt"</span>))
+    missing = read_file(<span class="st">"нет-такого.txt"</span>) <span class="kw">or</span> <span class="st">"(пусто)"</span>
+    print(missing)</pre><div class="lbl">Вывод</div><pre class="out">• купить хлеб
+• позвонить маме
+true 50
+(пусто)</pre><h2>Папки</h2><p>Для папок: <code>list_dir</code> (имена, у папок <code>/</code> в конце), <code>is_folder</code>, <code>make_folder</code>, <code>move</code> (переместить или переименовать), <code>remove</code> (файл или пустая папка).</p><pre class="code"><span class="kw">func</span> main()
+    <span class="kw">try</span> make_folder(<span class="st">"box"</span>)
+    <span class="kw">try</span> write_file(<span class="st">"box/a.txt"</span>, <span class="st">"A"</span>)
+    <span class="kw">try</span> <span class="kw">move</span>(<span class="st">"box/a.txt"</span>, <span class="st">"box/b.txt"</span>)
+    names = <span class="kw">try</span> list_dir(<span class="st">"box"</span>)
+    print(names, is_folder(<span class="st">"box"</span>))
+    <span class="kw">try</span> remove(<span class="st">"box/b.txt"</span>)
+    <span class="kw">try</span> remove(<span class="st">"box"</span>)
+    print(file_exists(<span class="st">"box"</span>))</pre><div class="lbl">Вывод</div><pre class="out">[b.txt] true
+false</pre><h2>Ввод, слова запуска, окружение</h2><p><code>input()</code> читает строку с клавиатуры (может сломаться, если ввод кончился). <code>args()</code> — список слов, написанных после имени файла: <code>tb run main.tb один два</code>. <code>env("HOME")</code> — переменная окружения. <code>run("команда")</code> запускает команду терминала и отдаёт код выхода. <code>exit(код)</code> завершает программу.</p><pre class="code"><span class="kw">func</span> main()
+    show(<span class="st">"Как тебя зовут? "</span>)
+    name = input() <span class="kw">or</span> <span class="st">"гость"</span>
+    print(<span class="st">"Привет,"</span>, name)
+    print(<span class="st">"слов после файла:"</span>, len(args()))
+    print(len(env(<span class="st">"HOME"</span>)) &gt; <span class="nu">0</span>)
+    code_out = run(<span class="st">"true"</span>)
+    print(<span class="st">"код выхода:"</span>, code_out)
+    exit(<span class="nu">0</span>)</pre><div class="lbl">Вывод (ввели: Алия)</div><pre class="out">Как тебя зовут? Привет, Алия
+слов после файла: 0
+true
+код выхода: 0</pre><div class="rules"><b>Запомнить</b><ul><li>Путь пишется от папки, где запустили программу, или полный: <code>/Users/имя/…</code>.</li><li><code>\n</code> в тексте — перевод строки, <code>\t</code> — табуляция, <code>\"</code> — кавычка.</li></ul></div><div class="task"><b>Задание</b>Сделайте «дневник»: программа читает <code>diary.txt</code> (если его нет — пустой), печатает старые записи, спрашивает новую через <code>input()</code> и дописывает её с датой <code>date_now()</code>.</div><div class="pn2"><a href="14.html"><small>← назад</small>14. Числа, время и случайность</a><a class="nx" href="16.html"><small>дальше →</small>16. Интернет: HTTP, JSON и свой сервер</a></div></main></div>
+<footer>
+  <img src="../../img/tachbit-icon-light-512.png" alt="">
+  <span>Tachbit бесплатный и открытый, лицензия MIT. Все примеры проверены компилятором Tachbit.</span>
+  <a href="../../index.html">Главная</a>
+  <a href="../../learn/">Уроки</a>
+  <a href="https://github.com/superbro456/Tachbit/blob/main/docs/guide.md">Справочник</a>
+</footer>
+</div>
+<script>if(window.matchMedia('(max-width:900px)').matches){var s=document.querySelector('details.side');if(s)s.removeAttribute('open')}</script>
+</body>
+</html>

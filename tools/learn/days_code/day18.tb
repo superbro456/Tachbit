@@ -1,0 +1,19 @@
+// день 18: много сущностей — список, обновить всех, убрать мёртвых
+obj Enemy
+    x: dec
+    hp: int
+
+func main()
+    enemies = list Enemy
+    count i from 1 to 5
+        enemies.add(Enemy(x: i * 10.0, hp: i))
+    // выстрел по всем: каждый теряет 2 жизни
+    each e in enemies
+        e.hp -= 2
+    // убрать мёртвых: собрать новый список живых
+    alive = list Enemy
+    each e in enemies
+        if e.hp > 0
+            alive.add(e)
+    enemies = alive
+    print("осталось врагов:", len(enemies))

@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#05070d">
+<title>10. Ярлыки: link · Язык Tachbit</title>
+<meta name="description" content="Менять чужую переменную через другое имя.">
+<meta property="og:title" content="10. Ярлыки: link · Язык Tachbit">
+<meta property="og:image" content="../../img/tachbit-icon-light-512.png">
+<link rel="icon" href="../../img/tachbit-icon-light-512.png">
+<link rel="stylesheet" href="../../learn/learn.css">
+</head>
+<body>
+<div class="top"><div class="wrap">
+<header>
+  <a href="../../index.html"><img src="../../img/tachbit-logo-dark.svg" alt="Tachbit"></a>
+  <nav>
+    <a href="../../index.html" class="hide">Главная</a>
+    <a href="../../learn/" class="on">Уроки</a>
+    <a href="../../learn/lang/ref.html" class="">Указатель</a>
+    <a href="https://github.com/superbro456/Tachbit">GitHub</a>
+  </nav>
+</header>
+<div class="head"><div class="crumb"><a href="../">Уроки</a> › <a href="./">Язык Tachbit</a> › Основа языка</div><h1><span class="no">10</span>Ярлыки: link</h1><p class="goal">Менять чужую переменную через другое имя.</p><div class="chips"><span>link</span><span>имя: link место</span><span>func f(link x, …)</span></div></div>
+</div></div>
+<div class="wrap">
+<div class="page"><details class="side" open><summary>Все уроки языка</summary><h4>Основа языка</h4><a href="01.html"><b>1</b>Первая программа</a><a href="02.html"><b>2</b>Переменные и типы</a><a href="03.html"><b>3</b>Сравнения и решения</a><a href="04.html"><b>4</b>Повторение: циклы</a><a href="05.html"><b>5</b>Текст</a><a href="06.html"><b>6</b>Списки</a><a href="07.html"><b>7</b>Словари: dict</a><a href="08.html"><b>8</b>Функции</a><a href="09.html"><b>9</b>Свои типы: obj</a><a href="10.html" class="on"><b>10</b>Ярлыки: link</a><a href="11.html"><b>11</b>Варианты: enum и match</a><a href="12.html"><b>12</b>Ошибки: fail, try, or, else err</a><h4>Настоящие программы</h4><a href="13.html"><b>13</b>Модули и библиотеки</a><a href="14.html"><b>14</b>Числа, время и случайность</a><a href="15.html"><b>15</b>Файлы, папки, ввод</a><a href="16.html"><b>16</b>Интернет: HTTP, JSON и свой сервер</a><a href="17.html"><b>17</b>Память</a><h4>Несколько ядер и скорость</h4><a href="18.html"><b>18</b>Работа в фоне: background, shared, lock</a><a href="19.html"><b>19</b>Каналы, move и все ядра</a><a href="20.html"><b>20</b>Скорость одним словом</a><h4>Окна, игры, звук</h4><a href="21.html"><b>21</b>Окно и 2D-рисование</a><a href="22.html"><b>22</b>3D</a><a href="23.html"><b>23</b>Звук</a><a href="24.html"><b>24</b>Приложения с кнопками: lib/ui</a><h4>Система</h4><a href="25.html"><b>25</b>Железо: danger, память руками, shape, zone</a><a href="26.html"><b>26</b>Связь с C и системой</a><a href="27.html"><b>27</b>Своё ядро: tb bare</a><a href="28.html"><b>28</b>Команды tb и настройки</a><h4>В конце</h4><a href="ref.html"><b>✱</b>Указатели</a></details><main><h2>link на качество или элемент</h2><p><code>link</code> — это ярлык: другое имя для того же места в памяти. Изменили ярлык — изменилось само место. Удобно, когда до значения длинный путь.</p><pre class="code"><span class="kw">obj</span> Hero
+    hp: <span class="ty">int</span>
+    gold: <span class="ty">int</span>
+
+<span class="kw">func</span> main()
+    h = Hero(hp: <span class="nu">100</span>, gold: <span class="nu">5</span>)
+    life: <span class="kw">link</span> h.hp
+    life -= <span class="nu">30</span>
+    life += <span class="nu">5</span>
+    print(h.hp)
+
+    xs = [<span class="nu">1</span>, <span class="nu">2</span>, <span class="nu">3</span>]
+    first: <span class="kw">link</span> xs[<span class="nu">0</span>]
+    first = <span class="nu">99</span>
+    print(xs)</pre><div class="lbl">Вывод</div><pre class="out">75
+[99, 2, 3]</pre><h2>link в параметре</h2><p>Если функция должна поменять число вызывающего, параметр делают ярлыком.</p><pre class="code"><span class="kw">func</span> heal(<span class="kw">link</span> hp, amount: <span class="ty">int</span>)
+    hp += amount
+    <span class="kw">if</span> hp &gt; <span class="nu">100</span>
+        hp = <span class="nu">100</span>
+
+<span class="kw">func</span> main()
+    hp = <span class="nu">70</span>
+    heal(hp, <span class="nu">50</span>)
+    print(hp)</pre><div class="lbl">Вывод</div><pre class="out">100</pre><div class="rules"><b>Запомнить</b><ul><li>Пока жив ярлык на элемент списка, сам список нельзя растить (<code>.add</code>): память списка могла бы переехать. Компилятор это проверяет.</li><li>Ярлык на один элемент <code>list bool</code> взять нельзя: там биты, у бита нет адреса.</li></ul></div><div class="task"><b>Задание</b>Напишите <code>swap(link a, link b)</code>, которая меняет два числа местами, и проверьте на двух переменных и на двух элементах списка.</div><div class="pn2"><a href="09.html"><small>← назад</small>9. Свои типы: obj</a><a class="nx" href="11.html"><small>дальше →</small>11. Варианты: enum и match</a></div></main></div>
+<footer>
+  <img src="../../img/tachbit-icon-light-512.png" alt="">
+  <span>Tachbit бесплатный и открытый, лицензия MIT. Все примеры проверены компилятором Tachbit.</span>
+  <a href="../../index.html">Главная</a>
+  <a href="../../learn/">Уроки</a>
+  <a href="https://github.com/superbro456/Tachbit/blob/main/docs/guide.md">Справочник</a>
+</footer>
+</div>
+<script>if(window.matchMedia('(max-width:900px)').matches){var s=document.querySelector('details.side');if(s)s.removeAttribute('open')}</script>
+</body>
+</html>

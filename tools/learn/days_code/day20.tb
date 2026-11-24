@@ -1,0 +1,11 @@
+// день 20: плавность — от «было» к «стало» за время
+use anim
+
+func main()
+    from_x = 0.0
+    to_x = 100.0
+    count step from 0 to 5
+        t = step / 5.0                          // 0 … 1 — доля пути
+        a = anim.lerp(from_x, to_x, t)          // ровно
+        b = anim.lerp(from_x, to_x, anim.ease("out", t))   // быстро, потом мягко
+        print("t =", t, " ровно", round(a), " мягко", round(b))

@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#05070d">
+<title>7. Словари: dict · Язык Tachbit</title>
+<meta name="description" content="Находить значение по ключу, как в телефонной книге.">
+<meta property="og:title" content="7. Словари: dict · Язык Tachbit">
+<meta property="og:image" content="../../img/tachbit-icon-light-512.png">
+<link rel="icon" href="../../img/tachbit-icon-light-512.png">
+<link rel="stylesheet" href="../../learn/learn.css">
+</head>
+<body>
+<div class="top"><div class="wrap">
+<header>
+  <a href="../../index.html"><img src="../../img/tachbit-logo-dark.svg" alt="Tachbit"></a>
+  <nav>
+    <a href="../../index.html" class="hide">Главная</a>
+    <a href="../../learn/" class="on">Уроки</a>
+    <a href="../../learn/lang/ref.html" class="">Указатель</a>
+    <a href="https://github.com/superbro456/Tachbit">GitHub</a>
+  </nav>
+</header>
+<div class="head"><div class="crumb"><a href="../">Уроки</a> › <a href="./">Язык Tachbit</a> › Основа языка</div><h1><span class="no">07</span>Словари: dict</h1><p class="goal">Находить значение по ключу, как в телефонной книге.</p><div class="chips"><span>{ }</span><span>dict K V</span><span>d[k]</span><span>.has</span><span>.remove</span><span>.keys</span><span>.values</span><span>.clear</span><span>len</span><span>each k in d</span></div></div>
+</div></div>
+<div class="wrap">
+<div class="page"><details class="side" open><summary>Все уроки языка</summary><h4>Основа языка</h4><a href="01.html"><b>1</b>Первая программа</a><a href="02.html"><b>2</b>Переменные и типы</a><a href="03.html"><b>3</b>Сравнения и решения</a><a href="04.html"><b>4</b>Повторение: циклы</a><a href="05.html"><b>5</b>Текст</a><a href="06.html"><b>6</b>Списки</a><a href="07.html" class="on"><b>7</b>Словари: dict</a><a href="08.html"><b>8</b>Функции</a><a href="09.html"><b>9</b>Свои типы: obj</a><a href="10.html"><b>10</b>Ярлыки: link</a><a href="11.html"><b>11</b>Варианты: enum и match</a><a href="12.html"><b>12</b>Ошибки: fail, try, or, else err</a><h4>Настоящие программы</h4><a href="13.html"><b>13</b>Модули и библиотеки</a><a href="14.html"><b>14</b>Числа, время и случайность</a><a href="15.html"><b>15</b>Файлы, папки, ввод</a><a href="16.html"><b>16</b>Интернет: HTTP, JSON и свой сервер</a><a href="17.html"><b>17</b>Память</a><h4>Несколько ядер и скорость</h4><a href="18.html"><b>18</b>Работа в фоне: background, shared, lock</a><a href="19.html"><b>19</b>Каналы, move и все ядра</a><a href="20.html"><b>20</b>Скорость одним словом</a><h4>Окна, игры, звук</h4><a href="21.html"><b>21</b>Окно и 2D-рисование</a><a href="22.html"><b>22</b>3D</a><a href="23.html"><b>23</b>Звук</a><a href="24.html"><b>24</b>Приложения с кнопками: lib/ui</a><h4>Система</h4><a href="25.html"><b>25</b>Железо: danger, память руками, shape, zone</a><a href="26.html"><b>26</b>Связь с C и системой</a><a href="27.html"><b>27</b>Своё ядро: tb bare</a><a href="28.html"><b>28</b>Команды tb и настройки</a><h4>В конце</h4><a href="ref.html"><b>✱</b>Указатели</a></details><main><h2>Ключ и значение</h2><p><code>dict</code> хранит пары «ключ → значение». Ключ — <code>text</code> или <code>int</code>. Пустой словарь: <code>dict text int</code> (ключ текст, значение число).</p><pre class="code"><span class="kw">func</span> main()
+    phones = {<span class="st">"Алия"</span>: <span class="st">"555-12"</span>, <span class="st">"Вали"</span>: <span class="st">"555-34"</span>}
+    print(phones[<span class="st">"Алия"</span>])
+    phones[<span class="st">"Тимур"</span>] = <span class="st">"555-56"</span>          <span class="cm">// добавить или заменить</span>
+    print(phones.has(<span class="st">"Вали"</span>), phones.has(<span class="st">"Олег"</span>))
+    phones.remove(<span class="st">"Вали"</span>)
+    print(len(phones), phones.keys())
+    <span class="kw">each</span> name <span class="kw">in</span> phones                 <span class="cm">// по ключам, в порядке добавления</span>
+        print(name, <span class="st">"→"</span>, phones[name])</pre><div class="lbl">Вывод</div><pre class="out">555-12
+true false
+2 [Алия, Тимур]
+Алия → 555-12
+Тимур → 555-56</pre><h2>Счётчик слов</h2><p>Самый частый приём: посчитать, сколько раз встретилось каждое слово.</p><pre class="code"><span class="kw">func</span> main()
+    text_in = <span class="st">"кот пёс кот мышь кот пёс"</span>
+    counts = <span class="kw">dict</span> <span class="ty">text</span> <span class="ty">int</span>
+    <span class="kw">each</span> w <span class="kw">in</span> split(text_in, <span class="st">" "</span>)
+        <span class="kw">if</span> <span class="kw">not</span> counts.has(w)
+            counts[w] = <span class="nu">0</span>
+        counts[w] += <span class="nu">1</span>
+    print(counts)
+    print(counts.values())</pre><div class="lbl">Вывод</div><pre class="out">{кот: 3, пёс: 2, мышь: 1}
+[3, 2, 1]</pre><div class="rules"><b>Запомнить</b><ul><li>Взять ключ, которого нет, — ошибка; сначала проверьте <code>.has(k)</code>.</li><li>Убирать ключи во время <code>each</code> по этому же словарю нельзя: компилятор не даст.</li><li>Порядок ключей при печати и <code>each</code> — как добавляли.</li></ul></div><div class="task"><b>Задание</b>Сделайте словарь «товар → цена» на 5 товаров и список покупок. Посчитайте сумму покупок; если товара нет в словаре, напечатайте «нет такого: …» и пропустите его.</div><div class="pn2"><a href="06.html"><small>← назад</small>6. Списки</a><a class="nx" href="08.html"><small>дальше →</small>8. Функции</a></div></main></div>
+<footer>
+  <img src="../../img/tachbit-icon-light-512.png" alt="">
+  <span>Tachbit бесплатный и открытый, лицензия MIT. Все примеры проверены компилятором Tachbit.</span>
+  <a href="../../index.html">Главная</a>
+  <a href="../../learn/">Уроки</a>
+  <a href="https://github.com/superbro456/Tachbit/blob/main/docs/guide.md">Справочник</a>
+</footer>
+</div>
+<script>if(window.matchMedia('(max-width:900px)').matches){var s=document.querySelector('details.side');if(s)s.removeAttribute('open')}</script>
+</body>
+</html>

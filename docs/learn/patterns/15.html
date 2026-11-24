@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#05070d">
+<title>15. Игровой цикл · Паттерны Tachbit</title>
+<meta name="description" content="Понять, чем игра отличается от приложения: она живёт, даже когда вы ничего не нажимаете.">
+<meta property="og:title" content="15. Игровой цикл · Паттерны Tachbit">
+<meta property="og:image" content="../../img/tachbit-icon-light-512.png">
+<link rel="icon" href="../../img/tachbit-icon-light-512.png">
+<link rel="stylesheet" href="../../learn/learn.css">
+</head>
+<body>
+<div class="top"><div class="wrap">
+<header>
+  <a href="../../index.html"><img src="../../img/tachbit-logo-dark.svg" alt="Tachbit"></a>
+  <nav>
+    <a href="../../index.html" class="hide">Главная</a>
+    <a href="../../learn/" class="on">Уроки</a>
+    <a href="../../learn/lang/ref.html" class="">Указатель</a>
+    <a href="https://github.com/superbro456/Tachbit">GitHub</a>
+  </nav>
+</header>
+<div class="head"><div class="crumb"><a href="../">Уроки</a> › <a href="./">Паттерны</a> › Как устроены игры</div><h1><span class="no">15</span>Игровой цикл</h1><p class="goal">Понять, чем игра отличается от приложения: она живёт, даже когда вы ничего не нажимаете.</p></div>
+</div></div>
+<div class="wrap">
+<div class="page"><details class="side" open><summary>Все 30 паттернов</summary><h4>Основа логики</h4><a href="01.html"><b>1</b>Состояние</a><a href="02.html"><b>2</b>Охранник</a><a href="03.html"><b>3</b>Накопитель</a><a href="04.html"><b>4</b>Фильтр → преобразование → свёртка</a><a href="05.html"><b>5</b>Модель</a><a href="06.html"><b>6</b>Чистая функция</a><a href="07.html"><b>7</b>Ошибка как значение</a><h4>Как устроены приложения</h4><a href="08.html"><b>8</b>Справочник</a><a href="09.html"><b>9</b>Загрузить → изменить → сохранить</a><a href="10.html"><b>10</b>Слои</a><a href="11.html"><b>11</b>Цикл событий</a><a href="12.html"><b>12</b>Модель / вид</a><a href="13.html"><b>13</b>Конечный автомат</a><a href="14.html"><b>14</b>Команда</a><h4>Как устроены игры</h4><a href="15.html" class="on"><b>15</b>Игровой цикл</a><a href="16.html"><b>16</b>Интегратор</a><a href="17.html"><b>17</b>Пересечение коробок</a><a href="18.html"><b>18</b>Список сущностей</a><a href="19.html"><b>19</b>Автомат экранов</a><a href="20.html"><b>20</b>Плавный переход</a><a href="21.html"><b>21</b>Очередь событий</a><a href="22.html"><b>22</b>Смотри → реши → действуй</a><h4>Как устроена система</h4><a href="23.html"><b>23</b>Служба</a><a href="24.html"><b>24</b>Владение</a><a href="25.html"><b>25</b>Раздели и собери</a><a href="26.html"><b>26</b>Производитель / потребитель</a><a href="27.html"><b>27</b>Кольцо</a><a href="28.html"><b>28</b>По кругу</a><a href="29.html"><b>29</b>Проверка на входе</a><a href="30.html"><b>30</b>Состояние + события + цикл + слои</a></details><main><p>Приложение спит, пока нет событий. Игра крутится постоянно, обычно 60 раз в секунду. Каждый круг: узнать, сколько прошло времени (<code>dt</code>), прочитать ввод, обновить мир, нарисовать всё заново.</p><p>Важная деталь — <code>dt</code>. Если двигать героя «на 3 точки за кадр», на быстром компьютере он побежит быстрее. Если «200 точек в секунду × dt», скорость одинакова везде.</p><div class="pattern"><div class="pn">Паттерн «Игровой цикл»</div><p>Каждый кадр: dt → ввод → обновить → нарисовать. Скорость всегда × dt.</p></div><div class="where"><div class="a"><b>Приложение</b>Видеоплеер и анимации интерфейса тоже живут в таком цикле, пока что-то движется.</div><div class="g"><b>Игра</b>Каждая игра: футбол, гонки, платформер. В нашем <code>examples/apps/football</code> ровно этот цикл.</div><div class="o"><b>ОС</b>Оболочка «Капля» рисует окна в цикле по кадрам; таймер ядра тикает так же, только для задач.</div></div><h2>Код</h2><div class="fname">day15.tb</div><pre class="code"><span class="cm">// день 15: игровой цикл — ввод, обновить, нарисовать</span>
+<span class="kw">func</span> main()
+    <span class="kw">try</span> window_open(<span class="nu">640</span>, <span class="nu">360</span>, <span class="st">"Игровой цикл"</span>)
+    set_fps(<span class="nu">60</span>)
+    x = <span class="nu">320.0</span>
+    speed = <span class="nu">200.0</span>                       <span class="cm">// точек в секунду</span>
+    <span class="kw">repeat</span> <span class="kw">while</span> window_alive()
+        dt = frame_ms() / <span class="nu">1000</span>          <span class="cm">// 1) сколько прошло</span>
+        <span class="kw">if</span> key_down(<span class="st">"left"</span>)             <span class="cm">// 2) ввод</span>
+            x -= speed * dt
+        <span class="kw">if</span> key_down(<span class="st">"right"</span>)
+            x += speed * dt
+        x = max(<span class="nu">20.0</span>, min(<span class="nu">620.0</span>, x))    <span class="cm">// 3) обновить и не выпустить за край</span>
+        clear_window(rgb(<span class="nu">20</span>, <span class="nu">24</span>, <span class="nu">36</span>))   <span class="cm">// 4) нарисовать всё заново</span>
+        draw_circle(round(x), <span class="nu">180</span>, <span class="nu">20</span>, rgb(<span class="nu">255</span>, <span class="nu">190</span>, <span class="nu">60</span>))</pre><div class="lbl">Что будет</div><pre class="out">Откроется окно. Запускайте у себя на компьютере.</pre><div class="task"><b>Задание</b>Добавьте движение вверх-вниз и второй шарик, который медленно едет за первым.</div><div class="pn2"><a href="14.html"><small>← назад</small>14. Команда</a><a class="nx" href="16.html"><small>дальше →</small>16. Интегратор</a></div></main></div>
+<footer>
+  <img src="../../img/tachbit-icon-light-512.png" alt="">
+  <span>Tachbit бесплатный и открытый, лицензия MIT. Все примеры проверены компилятором Tachbit.</span>
+  <a href="../../index.html">Главная</a>
+  <a href="../../learn/">Уроки</a>
+  <a href="https://github.com/superbro456/Tachbit/blob/main/docs/guide.md">Справочник</a>
+</footer>
+</div>
+<script>if(window.matchMedia('(max-width:900px)').matches){var s=document.querySelector('details.side');if(s)s.removeAttribute('open')}</script>
+</body>
+</html>

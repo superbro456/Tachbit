@@ -1,0 +1,28 @@
+// день 14: команды и отмена
+obj Cmd
+    kind: text      // "add" или "del"
+    value: text
+
+func do_cmd(doc: list text, c: Cmd)
+    if c.kind == "add"
+        doc.add(c.value)
+    else
+        last = doc.pop()
+
+func undo(doc: list text, c: Cmd)
+    if c.kind == "add"
+        last = doc.pop()
+    else
+        doc.add(c.value)
+
+func main()
+    doc = list text
+    done = list Cmd
+    each w in ["раз", "два", "три"]
+        c = Cmd(kind: "add", value: w)
+        do_cmd(doc, c)
+        done.add(c)
+    print("было:", doc)
+    undo(doc, done.pop())                 // Ctrl+Z
+    undo(doc, done.pop())
+    print("после двух отмен:", doc)

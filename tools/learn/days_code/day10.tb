@@ -1,0 +1,19 @@
+// день 10: слои — данные, логика, вывод отдельно
+// файл shop_logic.tb рядом:  modpub func total(prices: list int) ...
+obj Order
+    items: list int
+
+func total(o: Order)                     // логика: только считает
+    sum = 0
+    each p in o.items
+        sum += p
+    return sum
+
+func print_order(o: Order)                      // вывод: только показывает
+    print("товаров", len(o.items), "на", total(o), "сом")
+
+func main()
+    o = Order()                          // данные
+    o.items.add(120)
+    o.items.add(300)
+    print_order(o)

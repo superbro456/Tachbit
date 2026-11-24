@@ -1,0 +1,12 @@
+// день 9: сохранение — загрузить, изменить, записать
+func main()
+    path = "notes.txt"
+    old = read_file(path) or ""
+    lines = list text
+    if old != ""
+        lines = split(old, "\n")
+    lines.add("заметка " + (len(lines) + 1))
+    write_file(path, join(lines, "\n")) else err
+        print("не сохранил:", err)
+        return
+    print("в файле заметок:", len(lines))

@@ -1,0 +1,20 @@
+// день 12: состояние отдельно, рисование отдельно
+use ui
+
+obj Model
+    clicks: int
+
+func main()
+    try window_open(420, 240, "Счётчик")
+    u = ui.start()
+    m = Model()
+    repeat while window_alive()
+        ui.frame(u)
+        // 1) событие меняет состояние
+        if ui.button(u, 40, 120, 160, 44, "Нажми")
+            m.clicks += 1
+        if ui.button(u, 220, 120, 160, 44, "Сброс")
+            m.clicks = 0
+        // 2) рисование только читает состояние
+        ui.big_text(u, 40, 40, "нажато: " + m.clicks, 3, rgb(240, 240, 240))
+        ui.end_frame(u)

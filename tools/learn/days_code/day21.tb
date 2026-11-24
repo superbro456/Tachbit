@@ -1,0 +1,18 @@
+// день 21: события — кто-то сообщил, другие отреагировали
+obj Event
+    kind: text
+    power: int
+
+func main()
+    events = list Event                 // очередь событий кадра
+    events.add(Event(kind: "удар", power: 7))
+    events.add(Event(kind: "монета", power: 1))
+    events.add(Event(kind: "удар", power: 2))
+    score = 0
+    each e in events                    // каждый слушатель смотрит своё
+        if e.kind == "удар" and e.power > 5
+            print("звук: громкий удар")
+        if e.kind == "монета"
+            score += 10
+            print("звук: дзынь")
+    print("очки:", score)

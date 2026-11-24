@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#05070d">
+<title>23. Служба · Паттерны Tachbit</title>
+<meta name="description" content="Понять, как устроена ОС Omnium: части общаются письмами, а не общими переменными.">
+<meta property="og:title" content="23. Служба · Паттерны Tachbit">
+<meta property="og:image" content="../../img/tachbit-icon-light-512.png">
+<link rel="icon" href="../../img/tachbit-icon-light-512.png">
+<link rel="stylesheet" href="../../learn/learn.css">
+</head>
+<body>
+<div class="top"><div class="wrap">
+<header>
+  <a href="../../index.html"><img src="../../img/tachbit-logo-dark.svg" alt="Tachbit"></a>
+  <nav>
+    <a href="../../index.html" class="hide">Главная</a>
+    <a href="../../learn/" class="on">Уроки</a>
+    <a href="../../learn/lang/ref.html" class="">Указатель</a>
+    <a href="https://github.com/superbro456/Tachbit">GitHub</a>
+  </nav>
+</header>
+<div class="head"><div class="crumb"><a href="../">Уроки</a> › <a href="./">Паттерны</a> › Как устроена система</div><h1><span class="no">23</span>Службы и сообщения</h1><p class="goal">Понять, как устроена ОС Omnium: части общаются письмами, а не общими переменными.</p></div>
+</div></div>
+<div class="wrap">
+<div class="page"><details class="side" open><summary>Все 30 паттернов</summary><h4>Основа логики</h4><a href="01.html"><b>1</b>Состояние</a><a href="02.html"><b>2</b>Охранник</a><a href="03.html"><b>3</b>Накопитель</a><a href="04.html"><b>4</b>Фильтр → преобразование → свёртка</a><a href="05.html"><b>5</b>Модель</a><a href="06.html"><b>6</b>Чистая функция</a><a href="07.html"><b>7</b>Ошибка как значение</a><h4>Как устроены приложения</h4><a href="08.html"><b>8</b>Справочник</a><a href="09.html"><b>9</b>Загрузить → изменить → сохранить</a><a href="10.html"><b>10</b>Слои</a><a href="11.html"><b>11</b>Цикл событий</a><a href="12.html"><b>12</b>Модель / вид</a><a href="13.html"><b>13</b>Конечный автомат</a><a href="14.html"><b>14</b>Команда</a><h4>Как устроены игры</h4><a href="15.html"><b>15</b>Игровой цикл</a><a href="16.html"><b>16</b>Интегратор</a><a href="17.html"><b>17</b>Пересечение коробок</a><a href="18.html"><b>18</b>Список сущностей</a><a href="19.html"><b>19</b>Автомат экранов</a><a href="20.html"><b>20</b>Плавный переход</a><a href="21.html"><b>21</b>Очередь событий</a><a href="22.html"><b>22</b>Смотри → реши → действуй</a><h4>Как устроена система</h4><a href="23.html" class="on"><b>23</b>Служба</a><a href="24.html"><b>24</b>Владение</a><a href="25.html"><b>25</b>Раздели и собери</a><a href="26.html"><b>26</b>Производитель / потребитель</a><a href="27.html"><b>27</b>Кольцо</a><a href="28.html"><b>28</b>По кругу</a><a href="29.html"><b>29</b>Проверка на входе</a><a href="30.html"><b>30</b>Состояние + события + цикл + слои</a></details><main><p>Когда две программы меняют одну переменную одновременно, возникает путаница. В Omnium части системы — это <b>службы</b>. У каждой свои данные, и никто их не трогает. Чтобы что-то попросить, службе посылают сообщение по каналу и ждут ответ.</p><p>В Tachbit для этого есть <code>channel</code>: <code>send</code> кладёт сообщение, <code>receive</code> забирает, <code>each</code> перебирает, пока канал не закроют. <code>background</code> запускает службу рядом с основной программой.</p><div class="pattern"><div class="pn">Паттерн «Служба»</div><p>Свои данные у каждого. Просьба — сообщение в канал. Ответ — сообщение обратно.</p></div><div class="where"><div class="a"><b>Приложение</b>Фронт и бэкенд сайта: страница посылает запрос, сервер отвечает. Это та же служба.</div><div class="g"><b>Игра</b>Отдельный поток загружает уровни и посылает «готово» основному циклу.</div><div class="o"><b>ОС</b>В Omnium часы, клавиатура, консоль и диск — службы с каналами (omnium/clock.tb, keyboard.tb).</div></div><h2>Код</h2><div class="fname">day23.tb</div><pre class="code"><span class="cm">// день 23: ОС — службы и сообщения вместо общих переменных</span>
+<span class="kw">func</span> clock_service(asks: <span class="kw">channel</span> <span class="ty">text</span>, answers: <span class="kw">channel</span> <span class="ty">text</span>)
+    <span class="kw">each</span> q <span class="kw">in</span> asks                      <span class="cm">// служба ждёт вопрос</span>
+        <span class="kw">if</span> q == <span class="st">"время"</span>
+            answers.send(date_now())
+        <span class="kw">else</span>
+            answers.send(<span class="st">"не знаю: "</span> + q)
+
+<span class="kw">func</span> main()
+    asks = <span class="kw">channel</span> <span class="ty">text</span>
+    answers = <span class="kw">channel</span> <span class="ty">text</span>
+    w = <span class="kw">background</span> clock_service(asks, answers)
+    asks.send(<span class="st">"время"</span>)
+    print(<span class="st">"ответ службы:"</span>, answers.receive())
+    asks.close()</pre><div class="lbl">Вывод</div><pre class="out">ответ службы: 2026-11-22 12:30:00</pre><div class="task"><b>Задание</b>Научите службу отвечать на «привет» и на «сколько» (сколько вопросов она уже получила).</div><div class="pn2"><a href="22.html"><small>← назад</small>22. Смотри → реши → действуй</a><a class="nx" href="24.html"><small>дальше →</small>24. Владение</a></div></main></div>
+<footer>
+  <img src="../../img/tachbit-icon-light-512.png" alt="">
+  <span>Tachbit бесплатный и открытый, лицензия MIT. Все примеры проверены компилятором Tachbit.</span>
+  <a href="../../index.html">Главная</a>
+  <a href="../../learn/">Уроки</a>
+  <a href="https://github.com/superbro456/Tachbit/blob/main/docs/guide.md">Справочник</a>
+</footer>
+</div>
+<script>if(window.matchMedia('(max-width:900px)').matches){var s=document.querySelector('details.side');if(s)s.removeAttribute('open')}</script>
+</body>
+</html>

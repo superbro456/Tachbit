@@ -1,0 +1,12 @@
+// день 5: модель — свой тип для вещи из жизни
+obj Player
+    name: text
+    hp: int
+    items: list text
+
+func main()
+    p = Player(name: "Нази", hp: 100)
+    p.items.add("меч")
+    p.items.add("зелье")
+    p.hp -= 30
+    print(p.name, "здоровье", p.hp, "вещи", p.items)

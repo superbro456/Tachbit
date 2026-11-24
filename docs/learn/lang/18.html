@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#05070d">
+<title>18. Работа в фоне: background, shared, lock · Язык Tachbit</title>
+<meta name="description" content="Делать несколько дел одновременно.">
+<meta property="og:title" content="18. Работа в фоне: background, shared, lock · Язык Tachbit">
+<meta property="og:image" content="../../img/tachbit-icon-light-512.png">
+<link rel="icon" href="../../img/tachbit-icon-light-512.png">
+<link rel="stylesheet" href="../../learn/learn.css">
+</head>
+<body>
+<div class="top"><div class="wrap">
+<header>
+  <a href="../../index.html"><img src="../../img/tachbit-logo-dark.svg" alt="Tachbit"></a>
+  <nav>
+    <a href="../../index.html" class="hide">Главная</a>
+    <a href="../../learn/" class="on">Уроки</a>
+    <a href="../../learn/lang/ref.html" class="">Указатель</a>
+    <a href="https://github.com/superbro456/Tachbit">GitHub</a>
+  </nav>
+</header>
+<div class="head"><div class="crumb"><a href="../">Уроки</a> › <a href="./">Язык Tachbit</a> › Несколько ядер и скорость</div><h1><span class="no">18</span>Работа в фоне: background, shared, lock</h1><p class="goal">Делать несколько дел одновременно.</p><div class="chips"><span>background</span><span>.wait</span><span>.crashed</span><span>shared</span><span>lock</span><span>unlock</span></div></div>
+</div></div>
+<div class="wrap">
+<div class="page"><details class="side" open><summary>Все уроки языка</summary><h4>Основа языка</h4><a href="01.html"><b>1</b>Первая программа</a><a href="02.html"><b>2</b>Переменные и типы</a><a href="03.html"><b>3</b>Сравнения и решения</a><a href="04.html"><b>4</b>Повторение: циклы</a><a href="05.html"><b>5</b>Текст</a><a href="06.html"><b>6</b>Списки</a><a href="07.html"><b>7</b>Словари: dict</a><a href="08.html"><b>8</b>Функции</a><a href="09.html"><b>9</b>Свои типы: obj</a><a href="10.html"><b>10</b>Ярлыки: link</a><a href="11.html"><b>11</b>Варианты: enum и match</a><a href="12.html"><b>12</b>Ошибки: fail, try, or, else err</a><h4>Настоящие программы</h4><a href="13.html"><b>13</b>Модули и библиотеки</a><a href="14.html"><b>14</b>Числа, время и случайность</a><a href="15.html"><b>15</b>Файлы, папки, ввод</a><a href="16.html"><b>16</b>Интернет: HTTP, JSON и свой сервер</a><a href="17.html"><b>17</b>Память</a><h4>Несколько ядер и скорость</h4><a href="18.html" class="on"><b>18</b>Работа в фоне: background, shared, lock</a><a href="19.html"><b>19</b>Каналы, move и все ядра</a><a href="20.html"><b>20</b>Скорость одним словом</a><h4>Окна, игры, звук</h4><a href="21.html"><b>21</b>Окно и 2D-рисование</a><a href="22.html"><b>22</b>3D</a><a href="23.html"><b>23</b>Звук</a><a href="24.html"><b>24</b>Приложения с кнопками: lib/ui</a><h4>Система</h4><a href="25.html"><b>25</b>Железо: danger, память руками, shape, zone</a><a href="26.html"><b>26</b>Связь с C и системой</a><a href="27.html"><b>27</b>Своё ядро: tb bare</a><a href="28.html"><b>28</b>Команды tb и настройки</a><h4>В конце</h4><a href="ref.html"><b>✱</b>Указатели</a></details><main><h2>background и .wait</h2><p><code>background f(...)</code> запускает функцию в отдельном потоке (на другом ядре процессора) и сразу отдаёт «номерок». <code>.wait</code> ждёт, пока функция закончит, и забирает ответ. Пока фон работает, <code>main</code> делает своё.</p><pre class="code"><span class="kw">func</span> sum_to(a: <span class="ty">int</span>, b: <span class="ty">int</span>)
+    s = <span class="nu">0</span>
+    <span class="kw">count</span> i <span class="kw">from</span> a <span class="kw">to</span> b
+        s += i
+    <span class="kw">return</span> s
+
+<span class="kw">func</span> main()
+    x = <span class="kw">background</span> sum_to(<span class="nu">1</span>, <span class="nu">5000000</span>)
+    y = <span class="kw">background</span> sum_to(<span class="nu">5000001</span>, <span class="nu">10000000</span>)
+    z = sum_to(<span class="nu">1</span>, <span class="nu">10</span>)                <span class="cm">// main тем временем считает своё</span>
+    print(x.wait + y.wait, z)</pre><div class="lbl">Вывод</div><pre class="out">50000005000000 55</pre><h2>shared и lock</h2><p><code>shared</code> — переменная, общая для всей программы. Если её меняют из фона, это делают внутри <code>lock имя</code>: тогда в один момент блок выполняет только кто-то один, и сложения не теряются. <code>unlock имя</code> отпускает замок раньше конца блока.</p><pre class="code"><span class="kw">shared</span> hits = <span class="ty">int</span> <span class="nu">0</span>
+
+<span class="kw">func</span> work(n: <span class="ty">int</span>)
+    <span class="kw">repeat</span> n <span class="kw">times</span>
+        <span class="kw">lock</span> counter
+            hits += <span class="nu">1</span>
+    <span class="kw">return</span> <span class="nu">0</span>
+
+<span class="kw">func</span> main()
+    a = <span class="kw">background</span> work(<span class="nu">100000</span>)
+    b = <span class="kw">background</span> work(<span class="nu">100000</span>)
+    print(a.wait + b.wait, hits)</pre><div class="lbl">Вывод</div><pre class="out">0 200000</pre><div class="rules"><b>Запомнить</b><ul><li>В <code>background</code> можно передать только <code>int</code>, <code>dec</code>, <code>bool</code>, <code>text</code>, каналы и списки через <code>move</code>.</li><li>Компилятор сам ловит: <code>shared</code> без замка, замок внутри того же замка, два замка в разном порядке.</li><li><code>a.crashed</code> — упала ли задача (в своей ОС Omnium падение задачи не роняет систему).</li></ul></div><div class="task"><b>Задание</b>Посчитайте простые числа до 2 000 000 в четырёх <code>background</code> по кускам и сравните время (<code>time_ms</code>) с подсчётом в одном потоке.</div><div class="pn2"><a href="17.html"><small>← назад</small>17. Память</a><a class="nx" href="19.html"><small>дальше →</small>19. Каналы, move и все ядра</a></div></main></div>
+<footer>
+  <img src="../../img/tachbit-icon-light-512.png" alt="">
+  <span>Tachbit бесплатный и открытый, лицензия MIT. Все примеры проверены компилятором Tachbit.</span>
+  <a href="../../index.html">Главная</a>
+  <a href="../../learn/">Уроки</a>
+  <a href="https://github.com/superbro456/Tachbit/blob/main/docs/guide.md">Справочник</a>
+</footer>
+</div>
+<script>if(window.matchMedia('(max-width:900px)').matches){var s=document.querySelector('details.side');if(s)s.removeAttribute('open')}</script>
+</body>
+</html>

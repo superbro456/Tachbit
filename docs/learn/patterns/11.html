@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#05070d">
+<title>11. Цикл событий · Паттерны Tachbit</title>
+<meta name="description" content="Увидеть сердце любой интерактивной программы: ждать, разобрать, ответить.">
+<meta property="og:title" content="11. Цикл событий · Паттерны Tachbit">
+<meta property="og:image" content="../../img/tachbit-icon-light-512.png">
+<link rel="icon" href="../../img/tachbit-icon-light-512.png">
+<link rel="stylesheet" href="../../learn/learn.css">
+</head>
+<body>
+<div class="top"><div class="wrap">
+<header>
+  <a href="../../index.html"><img src="../../img/tachbit-logo-dark.svg" alt="Tachbit"></a>
+  <nav>
+    <a href="../../index.html" class="hide">Главная</a>
+    <a href="../../learn/" class="on">Уроки</a>
+    <a href="../../learn/lang/ref.html" class="">Указатель</a>
+    <a href="https://github.com/superbro456/Tachbit">GitHub</a>
+  </nav>
+</header>
+<div class="head"><div class="crumb"><a href="../">Уроки</a> › <a href="./">Паттерны</a> › Как устроены приложения</div><h1><span class="no">11</span>Цикл событий</h1><p class="goal">Увидеть сердце любой интерактивной программы: ждать, разобрать, ответить.</p></div>
+</div></div>
+<div class="wrap">
+<div class="page"><details class="side" open><summary>Все 30 паттернов</summary><h4>Основа логики</h4><a href="01.html"><b>1</b>Состояние</a><a href="02.html"><b>2</b>Охранник</a><a href="03.html"><b>3</b>Накопитель</a><a href="04.html"><b>4</b>Фильтр → преобразование → свёртка</a><a href="05.html"><b>5</b>Модель</a><a href="06.html"><b>6</b>Чистая функция</a><a href="07.html"><b>7</b>Ошибка как значение</a><h4>Как устроены приложения</h4><a href="08.html"><b>8</b>Справочник</a><a href="09.html"><b>9</b>Загрузить → изменить → сохранить</a><a href="10.html"><b>10</b>Слои</a><a href="11.html" class="on"><b>11</b>Цикл событий</a><a href="12.html"><b>12</b>Модель / вид</a><a href="13.html"><b>13</b>Конечный автомат</a><a href="14.html"><b>14</b>Команда</a><h4>Как устроены игры</h4><a href="15.html"><b>15</b>Игровой цикл</a><a href="16.html"><b>16</b>Интегратор</a><a href="17.html"><b>17</b>Пересечение коробок</a><a href="18.html"><b>18</b>Список сущностей</a><a href="19.html"><b>19</b>Автомат экранов</a><a href="20.html"><b>20</b>Плавный переход</a><a href="21.html"><b>21</b>Очередь событий</a><a href="22.html"><b>22</b>Смотри → реши → действуй</a><h4>Как устроена система</h4><a href="23.html"><b>23</b>Служба</a><a href="24.html"><b>24</b>Владение</a><a href="25.html"><b>25</b>Раздели и собери</a><a href="26.html"><b>26</b>Производитель / потребитель</a><a href="27.html"><b>27</b>Кольцо</a><a href="28.html"><b>28</b>По кругу</a><a href="29.html"><b>29</b>Проверка на входе</a><a href="30.html"><b>30</b>Состояние + события + цикл + слои</a></details><main><p>Программа с окном или терминалом почти всё время ничего не делает — она <b>ждёт событие</b>: нажатие, строку, сообщение из сети. Пришло — разобрали, что это, ответили, снова ждём. Этот бесконечный круг называют <b>циклом событий</b>.</p><p>Внутри круга не должно быть долгих дел: пока вы считаете минуту, программа «зависла» для человека. Долгое отдают в фон (день 25).</p><div class="pattern"><div class="pn">Паттерн «Цикл событий»</div><p>Жди → разбери → ответь → снова жди. Внутри круга только быстрые дела.</p></div><div class="where"><div class="a"><b>Приложение</b>Каждое приложение с окном: клик → обработчик → перерисовать → ждать дальше.</div><div class="g"><b>Игра</b>Тот же круг, только он не ждёт, а крутится 60 раз в секунду (день 15).</div><div class="o"><b>ОС</b>Ядро ждёт прерывания: таймер, клавиатура, диск. Обработало — вернулось к ожиданию.</div></div><h2>Код</h2><div class="fname">day11.tb</div><pre class="code"><span class="cm">// день 11: цикл событий — ждём, разбираем, отвечаем</span>
+<span class="kw">func</span> main()
+    count_ok = <span class="nu">0</span>
+    <span class="kw">repeat</span> <span class="kw">while</span> <span class="kw">true</span>
+        line = input() <span class="kw">else</span> <span class="kw">err</span>
+            <span class="kw">stop</span>                          <span class="cm">// ввод закончился</span>
+        cmd = trim(line)
+        <span class="kw">if</span> cmd == <span class="st">"выход"</span>
+            <span class="kw">stop</span>
+        <span class="kw">else</span> <span class="kw">if</span> cmd == <span class="st">"привет"</span>
+            print(<span class="st">"и тебе привет"</span>)
+            count_ok += <span class="nu">1</span>
+        <span class="kw">else</span>
+            print(<span class="st">"не знаю команду:"</span>, cmd)
+    print(<span class="st">"понял команд:"</span>, count_ok)</pre><div class="lbl">Вывод (ввели: привет / что / привет / выход)</div><pre class="out">и тебе привет
+не знаю команду: что
+и тебе привет
+понял команд: 2</pre><div class="task"><b>Задание</b>Добавьте команды <code>время</code> (вывести <code>date_now()</code>) и <code>счёт</code> (сколько всего команд было).</div><div class="pn2"><a href="10.html"><small>← назад</small>10. Слои</a><a class="nx" href="12.html"><small>дальше →</small>12. Модель / вид</a></div></main></div>
+<footer>
+  <img src="../../img/tachbit-icon-light-512.png" alt="">
+  <span>Tachbit бесплатный и открытый, лицензия MIT. Все примеры проверены компилятором Tachbit.</span>
+  <a href="../../index.html">Главная</a>
+  <a href="../../learn/">Уроки</a>
+  <a href="https://github.com/superbro456/Tachbit/blob/main/docs/guide.md">Справочник</a>
+</footer>
+</div>
+<script>if(window.matchMedia('(max-width:900px)').matches){var s=document.querySelector('details.side');if(s)s.removeAttribute('open')}</script>
+</body>
+</html>

@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#05070d">
+<title>25. Железо: danger, память руками, shape, zone · Язык Tachbit</title>
+<meta name="description" content="Работать с адресами, байтами и регистрами, как в C.">
+<meta property="og:title" content="25. Железо: danger, память руками, shape, zone · Язык Tachbit">
+<meta property="og:image" content="../../img/tachbit-icon-light-512.png">
+<link rel="icon" href="../../img/tachbit-icon-light-512.png">
+<link rel="stylesheet" href="../../learn/learn.css">
+</head>
+<body>
+<div class="top"><div class="wrap">
+<header>
+  <a href="../../index.html"><img src="../../img/tachbit-logo-dark.svg" alt="Tachbit"></a>
+  <nav>
+    <a href="../../index.html" class="hide">Главная</a>
+    <a href="../../learn/" class="on">Уроки</a>
+    <a href="../../learn/lang/ref.html" class="">Указатель</a>
+    <a href="https://github.com/superbro456/Tachbit">GitHub</a>
+  </nav>
+</header>
+<div class="head"><div class="crumb"><a href="../">Уроки</a> › <a href="./">Язык Tachbit</a> › Система</div><h1><span class="no">25</span>Железо: danger, память руками, shape, zone</h1><p class="goal">Работать с адресами, байтами и регистрами, как в C.</p><div class="chips"><span>danger</span><span>new_mem</span><span>free_mem</span><span>grow_mem</span><span>copy_mem</span><span>fill_mem</span><span>read8…64</span><span>write8…64</span><span>address_of</span><span>asm</span><span>shape</span><span>at</span><span>u8…u64</span><span>i8…i64</span><span>bits</span><span>bytes</span><span>big</span><span>zone_new</span><span>zone_take</span><span>zone_used</span><span>zone_clear</span><span>zone_free</span></div></div>
+</div></div>
+<div class="wrap">
+<div class="page"><details class="side" open><summary>Все уроки языка</summary><h4>Основа языка</h4><a href="01.html"><b>1</b>Первая программа</a><a href="02.html"><b>2</b>Переменные и типы</a><a href="03.html"><b>3</b>Сравнения и решения</a><a href="04.html"><b>4</b>Повторение: циклы</a><a href="05.html"><b>5</b>Текст</a><a href="06.html"><b>6</b>Списки</a><a href="07.html"><b>7</b>Словари: dict</a><a href="08.html"><b>8</b>Функции</a><a href="09.html"><b>9</b>Свои типы: obj</a><a href="10.html"><b>10</b>Ярлыки: link</a><a href="11.html"><b>11</b>Варианты: enum и match</a><a href="12.html"><b>12</b>Ошибки: fail, try, or, else err</a><h4>Настоящие программы</h4><a href="13.html"><b>13</b>Модули и библиотеки</a><a href="14.html"><b>14</b>Числа, время и случайность</a><a href="15.html"><b>15</b>Файлы, папки, ввод</a><a href="16.html"><b>16</b>Интернет: HTTP, JSON и свой сервер</a><a href="17.html"><b>17</b>Память</a><h4>Несколько ядер и скорость</h4><a href="18.html"><b>18</b>Работа в фоне: background, shared, lock</a><a href="19.html"><b>19</b>Каналы, move и все ядра</a><a href="20.html"><b>20</b>Скорость одним словом</a><h4>Окна, игры, звук</h4><a href="21.html"><b>21</b>Окно и 2D-рисование</a><a href="22.html"><b>22</b>3D</a><a href="23.html"><b>23</b>Звук</a><a href="24.html"><b>24</b>Приложения с кнопками: lib/ui</a><h4>Система</h4><a href="25.html" class="on"><b>25</b>Железо: danger, память руками, shape, zone</a><a href="26.html"><b>26</b>Связь с C и системой</a><a href="27.html"><b>27</b>Своё ядро: tb bare</a><a href="28.html"><b>28</b>Команды tb и настройки</a><h4>В конце</h4><a href="ref.html"><b>✱</b>Указатели</a></details><main><h2>danger и память руками</h2><p>Слова, которыми можно испортить память, работают только внутри блока <code>danger</code>. Так сразу видно опасные места. <code>new_mem</code> берёт блок байт (заполнен нулями), <code>read/write 8/16/32/64</code> читают и пишут числа нужного размера, <code>free_mem</code> отдаёт блок.</p><pre class="code"><span class="kw">func</span> main()
+    <span class="kw">danger</span>
+        buf = <span class="kw">try</span> new_mem(<span class="nu">64</span>)
+        write32(buf, <span class="nu">7</span>)
+        write32(buf + <span class="nu">4</span>, <span class="nu">1000</span>)
+        fill_mem(buf + <span class="nu">8</span>, <span class="nu">0xFF</span>, <span class="nu">4</span>)
+        copy_mem(buf + <span class="nu">16</span>, buf, <span class="nu">8</span>)
+        print(read32(buf + <span class="nu">16</span>), read32(buf + <span class="nu">20</span>), read8(buf + <span class="nu">9</span>))
+        buf = <span class="kw">try</span> grow_mem(buf, <span class="nu">128</span>)
+        free_mem(buf)</pre><div class="lbl">Вывод</div><pre class="out">7 1000 255</pre><h2>shape: раскладка байтов</h2><p><code>shape</code> описывает, какие поля лежат в памяти по порядку и какого они размера. <code>Тип at адрес</code> накладывает раскладку на память, и поля читаются как обычные <code>int</code>. Так описывают регистры устройств, заголовки пакетов и записи на диске.</p><pre class="code"><span class="kw">shape</span> Header
+    kind: <span class="ty">u8</span>
+    flags: <span class="kw">bits</span> <span class="nu">4</span>
+    ver: <span class="kw">bits</span> <span class="nu">4</span>
+    length: <span class="ty">u16</span> <span class="kw">big</span>
+    id: <span class="ty">u32</span>
+
+<span class="kw">func</span> main()
+    print(Header.size)
+    <span class="kw">danger</span>
+        a = <span class="kw">try</span> new_mem(Header.size)
+        h = Header <span class="kw">at</span> a
+        h.kind = <span class="nu">2</span>
+        h.ver = <span class="nu">3</span>
+        h.length = <span class="nu">513</span>
+        h.id = <span class="nu">70000</span>
+        print(h.kind, h.ver, h.length, h.id, read8(a + <span class="nu">2</span>), read8(a + <span class="nu">3</span>))
+        free_mem(a)</pre><div class="lbl">Вывод</div><pre class="out">8
+2 3 513 70000 2 1</pre><h2>zone: много кусков, одна уборка</h2><p>Зона выдаёт куски памяти очень быстро и отдаёт их все сразу: удобно для кадра игры или одного запроса сервера.</p><pre class="code"><span class="kw">func</span> main()
+    <span class="kw">danger</span>
+        z = <span class="kw">try</span> zone_new(<span class="nu">4096</span>)
+        <span class="kw">count</span> i <span class="kw">from</span> <span class="nu">1</span> <span class="kw">to</span> <span class="nu">100</span>
+            p = zone_take(z, <span class="nu">24</span>)
+            write64(p, i)
+        print(zone_used(z))
+        zone_clear(z)
+        print(zone_used(z))
+        zone_free(z)</pre><div class="lbl">Вывод</div><pre class="out">3200
+0</pre><div class="rules"><b>Запомнить</b><ul><li>Размеры полей: <code>u8 u16 u32 u64</code>, <code>i8 … i64</code>, <code>bits N</code>, <code>bytes N</code>, <code>big</code> — старший байт первым.</li><li><code>TB_MEM_CHECK=1</code> ловит чтение после <code>free_mem</code>, выход за край и забытые блоки — со строками.</li><li>Внутри <code>danger</code> числа при переполнении заворачиваются, как в железе.</li></ul></div><div class="task"><b>Задание</b>Опишите <code>shape</code> для записи «товар»: код <code>u32</code>, цена <code>u32</code>, количество <code>u16</code>, флаг «есть на складе» <code>bits 1</code>. Положите 10 записей подряд в одну память и посчитайте сумму.</div><div class="pn2"><a href="24.html"><small>← назад</small>24. Приложения с кнопками: lib/ui</a><a class="nx" href="26.html"><small>дальше →</small>26. Связь с C и системой</a></div></main></div>
+<footer>
+  <img src="../../img/tachbit-icon-light-512.png" alt="">
+  <span>Tachbit бесплатный и открытый, лицензия MIT. Все примеры проверены компилятором Tachbit.</span>
+  <a href="../../index.html">Главная</a>
+  <a href="../../learn/">Уроки</a>
+  <a href="https://github.com/superbro456/Tachbit/blob/main/docs/guide.md">Справочник</a>
+</footer>
+</div>
+<script>if(window.matchMedia('(max-width:900px)').matches){var s=document.querySelector('details.side');if(s)s.removeAttribute('open')}</script>
+</body>
+</html>

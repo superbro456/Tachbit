@@ -1,0 +1,14 @@
+// день 7: ошибка — это тоже ответ
+func parse_age(s: text)
+    n = try to_int(s)
+    if n < 0 or n > 150
+        fail "возраст вне границ: " + n
+    return n
+
+func main()
+    a = parse_age("25") or -1
+    print("возраст", a)
+    b = parse_age("300") else err
+        print("не вышло:", err)
+    c = parse_age("abc") or -1
+    print("запасное значение:", c)

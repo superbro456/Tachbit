@@ -1,0 +1,22 @@
+// день 29: права — ключ проверяют на входе
+obj Key
+    owner: text
+    can: list text
+
+func allowed(k: Key, action: text) gives ok: bool
+    ok = false
+    each c in k.can
+        if c == action
+            ok = true
+
+func open_camera(k: Key)
+    if not allowed(k, "камера")
+        fail k.owner + ": нет ключа на камеру"
+    print(k.owner, "снимает")
+
+func main()
+    chat = Key(owner: "чат", can: ["сеть", "камера"])
+    game = Key(owner: "игра", can: ["звук"])
+    try open_camera(chat)
+    open_camera(game) else err
+        print("отказано:", err)

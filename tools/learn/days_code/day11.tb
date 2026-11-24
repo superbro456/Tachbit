@@ -1,0 +1,15 @@
+// день 11: цикл событий — ждём, разбираем, отвечаем
+func main()
+    count_ok = 0
+    repeat while true
+        line = input() else err
+            stop                          // ввод закончился
+        cmd = trim(line)
+        if cmd == "выход"
+            stop
+        else if cmd == "привет"
+            print("и тебе привет")
+            count_ok += 1
+        else
+            print("не знаю команду:", cmd)
+    print("понял команд:", count_ok)

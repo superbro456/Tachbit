@@ -1,0 +1,16 @@
+// день 17: столкновения — две коробки пересекаются?
+obj Box
+    x: dec
+    y: dec
+    w: dec
+    h: dec
+
+func hit(a: Box, b: Box) gives yes: bool
+    yes = a.x < b.x + b.w and b.x < a.x + a.w and a.y < b.y + b.h and b.y < a.y + a.h
+
+func main()
+    hero = Box(x: 10, y: 10, w: 20, h: 30)
+    wall = Box(x: 25, y: 0, w: 10, h: 100)
+    coin = Box(x: 80, y: 15, w: 8, h: 8)
+    print("герой и стена:", hit(hero, wall))
+    print("герой и монета:", hit(hero, coin))

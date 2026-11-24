@@ -1,0 +1,13 @@
+// день 2: решения и «охранник»
+func can_buy(money: int, price: int, age: int) gives ok: bool
+    ok = false
+    if age < 18
+        return           // охранник: плохой случай уходит сразу
+    if money < price
+        return
+    ok = true
+
+func main()
+    print(can_buy(500, 120, 20))
+    print(can_buy(100, 120, 20))
+    print(can_buy(500, 120, 15))
