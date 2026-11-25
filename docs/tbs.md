@@ -62,27 +62,54 @@ screen main 4x7          // экран main: 4 столбца, 7 строк
 | `slider имя` | ползунок | `min`, `max`, `value` |
 | `pick имя` | выбор из списка | `items: Один \| Два \| Три`, `value: 1` (выбран второй) |
 | `tabs имя` | вкладки | `items`, `value` |
-| `card` | карточка-фон: вещи в её клетках отходят от краёв | |
+| `card` | карточка-фон: вещи в её клетках отходят от краёв | `padding` |
 | `line` | черта | |
+| `image` | картинка | `src`, `fit` |
 
 Имя нужно вещам, на которые нажимают или в которые пишут: по нему программа узнаёт нажатие и текст.
 
-## Общие свойства
+## Общие свойства (как в CSS)
 
-| Свойство | Что |
-|---|---|
-| `color` | цвет текста |
-| `backcolor` | цвет фона |
-| `corner.radius` | скругление краёв (в точках) |
-| `corner.color` | цвет рамки |
-| `size` | размер букв |
-| `font` | `bold`, `regular` или `mono` |
-| `align` | `left`, `center`, `right` (у текста) |
-| `accent` | цветное у поля, ползунка, переключателя (рамка с фокусом, дорожка) |
-| `style` | взять свойства из стиля (`style: price`) |
+Можно писать наши имена или имена из CSS: справа — то же самое по-CSS-ному. Размеры — в точках (`12` или `12px`) или в процентах.
 
-Цвета пишутся по имени темы — `accent ink dim red panel bg raised field line faint white black` — или как `#ff8800`.
-Цвета по имени темы сами меняются, если включить светлую тему (`ui.light(u)`).
+| Свойство | CSS | Что |
+|---|---|---|
+| `text` | текст тега | надпись |
+| `color` | `color` | цвет текста |
+| `backcolor` | `background`, `background-color` | цвет фона |
+| `corner.radius` | `border-radius` | скругление краёв |
+| `corner.color` | `border-color` | цвет рамки |
+| `corner.width` | `border-width` | толщина рамки (0 — без рамки) |
+| `width`, `height` | `width`, `height` | своя ширина и высота (точки или % места) |
+| `min.width`, `max.width`, `min.height`, `max.height` | `min-width` ... | не меньше и не больше |
+| `scale` | `transform: scale` | вся вещь крупнее или мельче: `1.5` или `150%` |
+| `margin` | `margin` | отступ снаружи: `8` или `8 16` (сверху-снизу, слева-справа) |
+| `padding` | `padding` | отступ внутри (текст от краёв; у `card` — вещи от краёв карточки) |
+| `size` | `font-size` | размер букв |
+| `font` | `font-weight`, `font-family` | `bold`, `regular`, `mono` |
+| `align` | `text-align` | `left`, `center`, `right` |
+| `spacing` | `letter-spacing` | разрядка между буквами |
+| `line.height` | `line-height` | высота строки: `1.5` или `150%` |
+| `transform` | `text-transform` | `upper`, `lower`, `capitalize` |
+| `decoration` | `text-decoration` | `underline`, `line-through` |
+| `wrap` | `white-space` | `yes` — длинный текст переносится по словам (абзац) |
+| `opacity` | `opacity` | прозрачность: `0.5` или `50%` |
+| `shadow` | `box-shadow` | тень: `none`, `small`, `medium`, `big` |
+| `visible` | `display: none`, `visibility: hidden` | `no` — вещь спрятана |
+| `layer` | `z-index` | слой: больше — выше |
+| `cursor` | `cursor` | курсор над вещью: `hand`, `text`, `move` |
+| `tip` | `title` | подсказка, если задержать мышь |
+| `disabled` | `disabled` | `yes` — кнопку не нажать (серая) |
+| `hover.color`, `hover.backcolor`, `hover.corner.color` ... | `:hover { ... }` | любое свойство с `hover.` — когда мышь над вещью |
+| `look` | — | вид кнопки: `main`, `second`, `soft`, `ghost`, `danger` |
+| `accent` | `accent-color` | цветное у поля, ползунка, переключателя |
+| `style` | `class` | взять свойства из стиля |
+
+Цвета: имена темы — `accent ink dim red panel bg raised field line faint white black` (они сами меняются в светлой теме),
+имена из CSS — `green blue yellow orange purple pink gray transparent`, и `#ff8800`, `#f80`, `rgb(255, 136, 0)`.
+
+Картинка: `image (A1:B3)` и `src: cat.png` (путь от программы или от папки файла .tbs). Вписывается в место целиком;
+`fit: fill` — растянуть на всё место.
 
 ## Стили
 
