@@ -1,0 +1,106 @@
+// Витрина lib/ui.tb: стили текста, виды кнопок, поля, переключатели, вкладки, карточки.
+// tb run examples/apps/ui_look/main.tb
+use ui
+
+func main()
+    window_sharp()
+    try window_open(1040, 700, "Витрина ui")
+    u = ui.start()
+    tab = 0
+    name = "Манул"
+    mail = ""
+    notify = true
+    dark = true
+    sound = false
+    vol = 65
+    lang = 1
+    page = 0
+    repeat while window_alive()
+        ui.frame(u)
+        clear_window(u.bg)
+        // слева — меню разделов: кнопки без фона
+        ui.hbox(u, 0, 0)
+        ui.vbox(u, 210, 4)
+        x, y, w, h = ui.box_rect(u)
+        draw_rect(x, y, w, h, u.panel)
+        draw_rect(x + w - 1, y, 1, h, u.line)
+        ui.pad(u, 14)
+        ui.text_line(u, "Tachbit", "heading", 44)
+        ui.caps(u, "Разделы")
+        names = ["Обзор", "Проекты", "Сообщения", "Настройки"]
+        count i from 0 to len(names) - 1
+            hit = false
+            if i == page
+                hit = ui.btn_soft(u, names[i])
+            else
+                hit = ui.btn_ghost(u, names[i])
+            if hit
+                page = i
+        ui.done(u)
+        // справа — содержимое
+        ui.vbox(u, 0, 14)
+        ui.pad(u, 24)
+        ui.hbox(u, 44, 10)
+        ui.h1(u, "Настройки профиля")
+        ui.chip(u, "новое")
+        ui.at_end(u)
+        if ui.btn_icon(u, "×")
+            stop
+        ui.done(u)
+        ui.note(u, "Так выглядят стили текста, кнопки и поля новой библиотеки ui.")
+        tab = ui.tabs(u, ["Профиль", "Внешний вид", "Звук"], tab)
+        ui.hbox(u, 0, 18)
+        // карточка с полями
+        ui.card(u, 380)
+        ui.heading(u, "Профиль")
+        ui.caps(u, "Имя")
+        name = ui.edit(u, "name", name, "Как вас зовут")
+        ui.caps(u, "Почта")
+        mail = ui.edit(u, "mail", mail, "name@mail.com")
+        ui.caps(u, "Язык")
+        lang = ui.pick(u, "lang", ["English", "Русский", "Oʻzbek"], lang)
+        ui.space(u, 4)
+        ui.hbox_end(u, 36, 10)
+        ui.at_end(u)
+        if ui.btn_main(u, "Сохранить")
+            print("сохранено: " + name)
+        if ui.btn_ghost(u, "Отмена")
+            name = "Манул"
+        ui.done(u)
+        ui.done(u)
+        // вторая карточка: переключатели, ползунок, кнопки
+        ui.card(u, 0)
+        ui.heading(u, "Настройки")
+        notify = ui.toggle(u, "Уведомления", notify)
+        dark = ui.toggle(u, "Тёмная тема", dark)
+        sound = ui.checkbox(u, "Звук при сообщении", sound)
+        ui.h3(u, "Громкость")
+        vol = ui.slide(u, "vol", vol, 0, 100)
+        ui.note(u, "Сейчас: " + vol + "%")
+        ui.code_line(u, "ui.btn_main(u, \"Сохранить\")")
+        ui.space(u, 4)
+        ui.caps(u, "Все виды кнопок")
+        ui.hbox(u, 36, 8)
+        b1 = ui.btn_main(u, "Главная")
+        b2 = ui.btn(u, "Обычная")
+        b3 = ui.btn_soft(u, "Мягкая")
+        if b1 or b2 or b3
+            print("нажали")
+        ui.done(u)
+        ui.hbox(u, 36, 8)
+        if ui.btn_ghost(u, "Без фона")
+            print("без фона")
+        if ui.btn_danger(u, "Удалить")
+            ui.ask(u, "Удалить проект?", "Это нельзя отменить.", "Удалить", "Отмена")
+        b4 = ui.btn_if(u, "Нельзя", false)
+        if ui.btn_link(u, "ссылка")
+            print("ссылка")
+        ui.done(u)
+        ui.done(u)
+        ui.done(u)
+        ui.done(u)
+        ui.done(u)
+        a = ui.answer(u)
+        if a == 1
+            print("удалили")
+        ui.end_frame(u)

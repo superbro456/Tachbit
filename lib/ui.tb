@@ -99,10 +99,20 @@ obj Ui
     cursor_now: text
     // шрифт: настоящий TTF (ui.start находит системный), -1 — встроенный пиксельный 8×16
     font: int
+    bold: int            // полужирный шрифт: заголовки, кнопки (нет своего — тот же font)
+    mono: int            // моноширинный шрифт для кода
     fs: int              // размер букв (уже с учётом масштаба)
     line_h: int          // высота строки текста
     k: dec               // масштаб: 1.0, а на Retina 2.0
-    radius: int          // скругление углов (0 — острые)
+    radius: int          // скругление кнопок и полей (0 — острые)
+    cr: int              // скругление карточек, окон, всплывающих списков
+    // плавность и спокойный режим
+    anim: dict text int  // наведение у каждой кнопки: 0..100, меняется плавно
+    busy_ms: int         // когда что-то происходило последний раз (мышь, клавиши, анимация)
+    calm_fps: int        // спокойный режим: столько кадров в секунду, пока ничего не происходит (0 — выключен)
+    fps_now: int
+    old_mx: int
+    old_my: int
     // цвета (можно поменять: u.accent = rgb(...), или ui.light(u) / ui.dark(u))
     bg: int
     panel: int
@@ -114,7 +124,10 @@ obj Ui
     hover: int
     sel: int
     red: int
-    shadow: int
+    shadow: int          // тень (полупрозрачный rgba)
+    raised: int          // приподнятое: обычная кнопка, выбранная вкладка, всплывающий список
+    fieldbg: int         // фон поля ввода
+    faint: int           // совсем бледное: выключенная кнопка
     boxes: list Box      // раскладка: вложенные ряды и столбцы, последний — текущий
 
 // место раскладки: прямоугольник, который отдаёт себя по кускам
@@ -130,50 +143,85 @@ obj Box
     rev: bool            // после ui.at_end: куски идут с конца (справа налево, снизу вверх)
 
 modpub func start() gives u: Ui
-    u = Ui(active: "", font: -1, k: 1.0, pop_pick: -1, win_i: -1, cursor_now: "arrow")
+    u = Ui(active: "", font: -1, bold: -1, mono: -1, k: 1.0, pop_pick: -1, win_i: -1, cursor_now: "arrow", calm_fps: 10)
     if window_scale() > 1.0
         u.k = window_scale()
     u.fs = px(u, 14)
     u.line_h = px(u, 16)
-    u.radius = px(u, 6)
-    // шрифт системы: свой путь можно дать в TB_UI_FONT или потом ui.use_font(u, "шрифт.ttf")
-    paths = [env("TB_UI_FONT"), "/System/Library/Fonts/SFNS.ttf", "/System/Library/Fonts/Helvetica.ttc", "/System/Library/Fonts/Supplemental/Arial.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/TTF/DejaVuSans.ttf", "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf", "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf", "C:/Windows/Fonts/segoeui.ttf", "C:/Windows/Fonts/arial.ttf"]
-    each p in paths
-        if p != "" and file_exists(p)
-            got = load_font(p) else err
-                skip
-            u.font = got
-            stop
+    u.radius = px(u, 10)
+    u.cr = px(u, 14)
+    // свои шрифты ui лежат рядом с библиотекой: lib/fonts (Inter и JetBrains Mono)
+    home = env("HOME")
+    if home == ""
+        home = env("USERPROFILE")
+    dirs = [env("TB_LIB"), home + "/.tachbit/lib", "lib"]
+    each d in dirs
+        if d != "" and u.font < 0 and file_exists(d + "/fonts/Inter-Regular.ttf")
+            u.font = font_or(d + "/fonts/Inter-Regular.ttf")
+            u.bold = font_or(d + "/fonts/Inter-SemiBold.ttf")
+            u.mono = font_or(d + "/fonts/JetBrainsMono-Regular.ttf")
+    // свой шрифт можно дать в TB_UI_FONT или потом ui.use_font(u, "шрифт.ttf")
+    if env("TB_UI_FONT") != "" and file_exists(env("TB_UI_FONT"))
+        u.font = font_or(env("TB_UI_FONT"))
+        u.bold = u.font
+    if u.font < 0
+        paths = ["/System/Library/Fonts/SFNS.ttf", "/System/Library/Fonts/Helvetica.ttc", "/System/Library/Fonts/Supplemental/Arial.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/TTF/DejaVuSans.ttf", "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf", "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf", "C:/Windows/Fonts/segoeui.ttf", "C:/Windows/Fonts/arial.ttf"]
+        each p in paths
+            if p != "" and file_exists(p)
+                u.font = font_or(p)
+                if u.font >= 0
+                    stop
+    if u.bold < 0
+        u.bold = u.font
+    if u.mono < 0
+        monos = ["/System/Library/Fonts/Menlo.ttc", "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", "C:/Windows/Fonts/consola.ttf"]
+        each p in monos
+            if file_exists(p)
+                u.mono = font_or(p)
+                if u.mono >= 0
+                    stop
+    if u.mono < 0
+        u.mono = u.font
+    u.busy_ms = time_ms()
     dark(u)
 
+// шрифт из файла или −1, если не вышло
+func font_or(path: text)
+    f = load_font(path) else err
+        return -1
+    return f
 // тёмная тема (она по умолчанию)
 modpub func dark(u: Ui)
-    u.bg = rgb(22, 23, 29)
-    u.panel = rgb(31, 32, 40)
-    u.line = rgb(50, 52, 63)
-    u.ink = rgb(232, 232, 238)
-    u.dim = rgb(140, 143, 158)
-    u.accent = rgb(47, 209, 191)
-    u.on_accent = rgb(16, 20, 24)
-    u.hover = rgb(42, 44, 55)
-    u.sel = rgb(30, 78, 86)
-    u.red = rgb(235, 90, 100)
-    u.shadow = rgb(10, 10, 14)
-
+    u.bg = rgb(22, 24, 31)
+    u.panel = rgb(30, 33, 43)
+    u.raised = rgb(40, 44, 57)
+    u.fieldbg = rgb(18, 20, 26)
+    u.line = rgb(44, 48, 61)
+    u.ink = rgb(238, 240, 246)
+    u.dim = rgb(139, 145, 163)
+    u.faint = rgb(84, 89, 104)
+    u.accent = rgb(58, 214, 193)
+    u.on_accent = rgb(10, 40, 36)
+    u.hover = rgb(46, 50, 64)
+    u.sel = rgb(26, 74, 72)
+    u.red = rgb(240, 96, 106)
+    u.shadow = rgba(0, 0, 0, 110)
 // светлая тема
 modpub func light(u: Ui)
-    u.bg = rgb(244, 245, 248)
+    u.bg = rgb(243, 244, 247)
     u.panel = rgb(255, 255, 255)
-    u.line = rgb(214, 217, 225)
-    u.ink = rgb(28, 30, 38)
-    u.dim = rgb(110, 114, 128)
-    u.accent = rgb(20, 150, 140)
+    u.raised = rgb(255, 255, 255)
+    u.fieldbg = rgb(250, 251, 252)
+    u.line = rgb(222, 225, 232)
+    u.ink = rgb(24, 27, 36)
+    u.dim = rgb(104, 110, 126)
+    u.faint = rgb(178, 182, 194)
+    u.accent = rgb(16, 158, 143)
     u.on_accent = rgb(255, 255, 255)
-    u.hover = rgb(232, 235, 241)
-    u.sel = rgb(200, 236, 232)
+    u.hover = rgb(236, 238, 243)
+    u.sel = rgb(208, 240, 235)
     u.red = rgb(214, 60, 72)
-    u.shadow = rgb(200, 203, 212)
-
+    u.shadow = rgba(30, 36, 60, 40)
 // n обычных точек → настоящие (на Retina вдвое больше)
 modpub func px(u: Ui, n: int)
     return round(n * u.k)
@@ -198,6 +246,11 @@ modpub func frame(u: Ui)
     u.side_back = b
     u.side_fwd = fw
     u.typed = typed_text()
+    if u.mx != u.old_mx or u.my != u.old_my or u.down or u.release or u.wheel != 0 or u.typed != "" or b or fw
+        u.busy_ms = time_ms()
+    u.old_mx = u.mx
+    u.old_my = u.my
+    calm(u)
     u.entered = false
     u.want_cursor = "arrow"
     u.tip = ""
@@ -217,7 +270,8 @@ modpub func end_frame(u: Ui)
         draw_tip(u)
     if u.dragging
         w = text_w(u, u.drag_data) + px(u, 20)
-        rbox(u, u.mx + px(u, 12), u.my + px(u, 8), w, px(u, 26), u.radius, u.accent)
+        shadow_under(u, u.mx + px(u, 12), u.my + px(u, 8), w, px(u, 26), px(u, 13), 2)
+        rbox(u, u.mx + px(u, 12), u.my + px(u, 8), w, px(u, 26), px(u, 13), u.accent)
         txt(u, u.mx + px(u, 22), u.my + px(u, 8) + (px(u, 26) - u.line_h) / 2, u.drag_data, u.on_accent)
     if u.ask_open
         draw_ask(u)
@@ -229,6 +283,40 @@ modpub func end_frame(u: Ui)
     if u.want_cursor != u.cursor_now
         set_cursor(u.want_cursor)
         u.cursor_now = u.want_cursor
+
+// спокойный режим: пока мышь, клавиши и анимации стоят дольше 1,5 секунды, окно рисуется
+// u.calm_fps раз в секунду (10) — процессор и видеокарта почти не работают, ноутбук не греется.
+// Сдвинули мышь — сразу снова 60. u.calm_fps = 0 выключает (игры и живые картинки),
+// ui.stay_awake(u) — «сейчас что-то движется само, не засыпай»
+func calm(u: Ui)
+    if u.calm_fps <= 0
+        return
+    want = 60
+    if time_ms() - u.busy_ms > 1500
+        want = u.calm_fps
+    if want != u.fps_now
+        set_fps(want)
+        u.fps_now = want
+
+modpub func stay_awake(u: Ui)
+    u.busy_ms = time_ms()
+
+// плавное наведение: у места id число 0..100 растёт к 100, пока on, и падает к 0 — примерно за 0,12 с
+modpub func ease_to(u: Ui, id: text, on: bool) gives p: int
+    p = 0
+    if u.anim.has(id)
+        p = u.anim[id]
+    step = max(8, min(100, round(frame_ms() * 100.0 / 120.0)))
+    if on and p < 100
+        p = min(100, p + step)
+        u.busy_ms = time_ms()
+    else if not on and p > 0
+        p = max(0, p - step)
+        u.busy_ms = time_ms()
+    u.anim[id] = p
+
+func spot(x: int, y: int)
+    return "" + x + "," + y
 
 // взять свой шрифт .ttf (false — не получилось, остаётся прежний)
 modpub func use_font(u: Ui, path: text)
@@ -275,6 +363,8 @@ func look(u: Ui, name: text)
     u.was[name] = before
     now = key_down(name)
     u.keys[name] = now
+    if now
+        u.busy_ms = time_ms()
     n = 0
     if u.held.has(name)
         n = u.held[name]
@@ -366,11 +456,100 @@ modpub func txt(u: Ui, x: int, y: int, s: text, color: int)
 
 // крупный текст (заголовок): size — размер букв в обычных точках
 modpub func big_text(u: Ui, x: int, y: int, s: text, size: int, color: int)
-    if u.font >= 0
-        draw_font(u.font, x, y, s, px(u, size), color)
+    if u.bold >= 0
+        draw_font(u.bold, x, y, s, px(u, size), color)
     else
         draw_text(x, y, s, max(1, px(u, size) / 12), color)
 
+// ---------- стили текста ----------
+// У каждой надписи свой стиль, как классы в CSS:
+//   "title"    — крупный заголовок окна (полужирный 26)
+//   "heading"  — заголовок раздела (полужирный 20)
+//   "sub"      — подзаголовок (полужирный 15)
+//   "body"     — обычный текст (14)
+//   "strong"   — обычный, но полужирный (14)
+//   "note"     — бледная пометка (13)
+//   "caption"  — маленькая подпись над полем: ЗАГЛАВНЫЕ, бледные, с разрядкой (11)
+//   "code"     — код, моноширинный (13)
+//   "accent"   — цветной текст (14)
+//   "danger"   — красный текст (14)
+// ui.styled(u, x, y, s, "heading") рисует по координатам, а ui.h1, ui.heading, ui.h3, ui.lbl, ui.note,
+// ui.caps, ui.code_line встают в раскладку.
+
+func st_font(u: Ui, st: text)
+    if st == "title" or st == "heading" or st == "sub" or st == "strong" or st == "caption" or st == "button"
+        return u.bold
+    if st == "code"
+        return u.mono
+    return u.font
+
+func st_size(u: Ui, st: text)
+    if st == "title"
+        return px(u, 26)
+    if st == "heading"
+        return px(u, 20)
+    if st == "sub"
+        return px(u, 15)
+    if st == "note" or st == "code"
+        return px(u, 13)
+    if st == "caption"
+        return px(u, 11)
+    return u.fs
+
+func st_color(u: Ui, st: text)
+    if st == "note" or st == "caption"
+        return u.dim
+    if st == "accent"
+        return u.accent
+    if st == "danger"
+        return u.red
+    return u.ink
+
+// высота строки текста этого стиля
+modpub func style_h(u: Ui, st: text)
+    return st_size(u, st) * 5 / 4 + px(u, 2)
+
+// ширина текста в этом стиле
+modpub func style_w(u: Ui, s: text, st: text)
+    f = st_font(u, st)
+    size = st_size(u, st)
+    if st == "caption"
+        t = upper(s)
+        if f < 0
+            return chars(t) * 8 * max(1, round(u.k))
+        return text_width(f, t, size) + chars(t) * px(u, 1)
+    if f < 0
+        return chars(s) * 8 * max(1, round(u.k))
+    return text_width(f, s, size)
+
+// надпись стилем st: верх строки в y
+modpub func styled(u: Ui, x: int, y: int, s: text, st: text)
+    styled_color(u, x, y, s, st, st_color(u, st))
+
+modpub func styled_color(u: Ui, x: int, y: int, s: text, st: text, color: int)
+    f = st_font(u, st)
+    size = st_size(u, st)
+    if f < 0
+        draw_text(x, y, s, max(1, round(u.k)), color)
+        return
+    if st == "caption"
+        t = upper(s)
+        cx = x
+        n = chars(t)
+        count i from 0 to n - 1
+            ch = mid_chars(t, i, i + 1)
+            draw_font(f, cx, y, ch, size, color)
+            cx += text_width(f, ch, size) + px(u, 1)
+        return
+    draw_font(f, x, y, s, size, color)
+
+// надпись стилем st по середине высоты h
+modpub func styled_in(u: Ui, x: int, y: int, h: int, s: text, st: text, color: int)
+    styled_color(u, x, y + (h - st_size(u, st) * 5 / 4) / 2, s, st, color)
+
+// цвет c с непрозрачностью a (0..255)
+modpub func alpha_of(c: int, a: int)
+    return rgba(bit_and(shift_right(c, 16), 255), bit_and(shift_right(c, 8), 255), bit_and(c, 255), max(0, min(255, a)))
 // текст в ширину w точек: длинный обрезается и кончается на ..
 modpub func fit(u: Ui, s: text, w: int)
     if text_w(u, s) <= w
@@ -397,58 +576,106 @@ modpub func frame_rect(x: int, y: int, w: int, h: int, color: int)
 
 // прямоугольник со скруглёнными углами (r — радиус)
 modpub func rbox(u: Ui, x: int, y: int, w: int, h: int, r0: int, color: int)
-    r = min(r0, min(w, h) / 2)
-    if r <= 1
-        draw_rect(x, y, w, h, color)
-        return
-    draw_rect(x + r, y, w - 2 * r, h, color)
-    draw_rect(x, y + r, r, h - 2 * r, color)
-    draw_rect(x + w - r, y + r, r, h - 2 * r, color)
-    draw_circle(x + r, y + r, r, color)
-    draw_circle(x + w - 1 - r, y + r, r, color)
-    draw_circle(x + r, y + h - 1 - r, r, color)
-    draw_circle(x + w - 1 - r, y + h - 1 - r, r, color)
-
+    draw_round(x, y, w, h, max(0, r0), "all", color)
 // скруглённая плашка с рамкой
 modpub func rframe(u: Ui, x: int, y: int, w: int, h: int, fill: int, border: int)
-    rbox(u, x, y, w, h, u.radius, border)
-    rbox(u, x + 1, y + 1, w - 2, h - 2, u.radius - 1, fill)
+    rframe_r(u, x, y, w, h, u.radius, fill, border)
 
+// то же со своим скруглением r
+modpub func rframe_r(u: Ui, x: int, y: int, w: int, h: int, r: int, fill: int, border: int)
+    t = max(1, round(u.k))
+    rbox(u, x, y, w, h, r, border)
+    rbox(u, x + t, y + t, w - 2 * t, h - 2 * t, r - t, fill)
 // панель: заливка и рамка
 modpub func panel(u: Ui, x: int, y: int, w: int, h: int)
-    rframe(u, x, y, w, h, u.panel, u.line)
+    rframe_r(u, x, y, w, h, u.cr, u.panel, u.line)
 
+// мягкая тень под прямоугольником: depth — насколько «приподнят» (1 — карточка, 3 — окно, список)
+modpub func shadow_under(u: Ui, x: int, y: int, w: int, h: int, r: int, depth: int)
+    draw_shadow(x, y + px(u, 2 * depth), w, h, r, px(u, 6 + 8 * depth), u.shadow)
 // ---------- кнопки ----------
 
 // кнопка: true в кадре, когда на неё нажали
 modpub func button(u: Ui, x: int, y: int, w: int, h: int, s: text) gives hit: bool
-    over = free(u) and inside(u, x, y, w, h)
-    c = u.panel
-    if over
-        c = u.hover
-        u.want_cursor = "hand"
-    if over and u.down
-        c = u.sel
-    rframe(u, x, y, w, h, c, u.line)
-    label_center(u, x, y, w, h, s, u.ink)
-    hit = over and u.press
+    hit = draw_btn(u, x, y, w, h, s, "second")
 
+// общий рисунок кнопок. kind: "main" — главная цветная со свечением, "second" — обычная приподнятая,
+// "ghost" — без фона (фон только при наведении), "soft" — мягкая цветная, "danger" — опасное действие
+func draw_btn(u: Ui, x: int, y: int, w: int, h: int, s: text, kind: text) gives hit: bool
+    over = free(u) and inside(u, x, y, w, h)
+    if over
+        u.want_cursor = "hand"
+    t = ease_to(u, kind + spot(x, y), over)
+    hit = over and u.press
+    dy = 0
+    if over and u.down
+        dy = max(1, round(u.k))
+    r = u.radius
+    st = "button"
+    color = u.ink
+    if kind == "main"
+        draw_shadow(x, y + px(u, 3) + dy, w, h, r, px(u, 8 + 6 * t / 100), alpha_of(u.accent, 50 + 60 * t / 100))
+        c = mix(u.accent, rgb(255, 255, 255), 14 * t / 100)
+        if dy > 0
+            c = mix(u.accent, rgb(0, 0, 0), 10)
+        rbox(u, x, y + dy, w, h, r, c)
+        color = u.on_accent
+    else if kind == "second"
+        rframe(u, x, y + dy, w, h, mix(u.raised, u.ink, 7 * t / 100), mix(u.line, u.dim, 35 * t / 100))
+    else if kind == "ghost"
+        if t > 0
+            rbox(u, x, y + dy, w, h, r, alpha_of(u.ink, 22 * t / 100))
+        color = mix(u.dim, u.ink, t)
+        st = "body"
+    else if kind == "soft"
+        rbox(u, x, y + dy, w, h, r, alpha_of(u.accent, 36 + 30 * t / 100))
+        color = u.accent
+    else if kind == "danger"
+        rbox(u, x, y + dy, w, h, r, alpha_of(u.red, 40 + 215 * t / 100))
+        color = mix(u.red, rgb(255, 255, 255), t)
+    tx = fit_style(u, s, w - px(u, 12), st)
+    lx = x + (w - style_w(u, tx, st)) / 2
+    // широкая кнопка без фона или мягкая (меню сбоку) — текст слева, как пункты меню
+    if (kind == "ghost" or kind == "soft") and w > style_w(u, tx, st) + px(u, 90)
+        lx = x + px(u, 14)
+    styled_in(u, lx, y + dy, h, tx, st, color)
+
+// текст в ширину w стилем st: длинный кончается на ..
+func fit_style(u: Ui, s: text, w: int, st: text)
+    if style_w(u, s, st) <= w
+        return s
+    n = chars(s)
+    repeat while n > 0 and style_w(u, first_chars(s, n) + "..", st) > w
+        n -= 1
+    return first_chars(s, n) + ".."
+
+modpub func button_ghost(u: Ui, x: int, y: int, w: int, h: int, s: text) gives hit: bool
+    hit = draw_btn(u, x, y, w, h, s, "ghost")
+
+modpub func button_soft(u: Ui, x: int, y: int, w: int, h: int, s: text) gives hit: bool
+    hit = draw_btn(u, x, y, w, h, s, "soft")
+
+modpub func button_danger(u: Ui, x: int, y: int, w: int, h: int, s: text) gives hit: bool
+    hit = draw_btn(u, x, y, w, h, s, "danger")
+
+// круглая кнопка-значок (×, +, ⋯, ←): s — один-два знака
+modpub func button_icon(u: Ui, x: int, y: int, size: int, s: text) gives hit: bool
+    over = free(u) and inside(u, x, y, size, size)
+    if over
+        u.want_cursor = "hand"
+    t = ease_to(u, "icon" + spot(x, y), over)
+    hit = over and u.press
+    if t > 0
+        rbox(u, x, y, size, size, size / 2, alpha_of(u.ink, 24 * t / 100))
+    styled_in(u, x + (size - style_w(u, s, "sub")) / 2, y, size, s, "sub", mix(u.dim, u.ink, t))
 // кнопка, которую не нажать (серая)
 modpub func button_off(u: Ui, x: int, y: int, w: int, h: int, s: text)
-    rframe(u, x, y, w, h, u.bg, u.line)
-    label_center(u, x, y, w, h, s, u.line)
-
+    rbox(u, x, y, w, h, u.radius, mix(u.panel, u.raised, 50))
+    tx = fit_style(u, s, w - px(u, 12), "button")
+    styled_in(u, x + (w - style_w(u, tx, "button")) / 2, y, h, tx, "button", u.faint)
 // главная кнопка: цветная
 modpub func button_main(u: Ui, x: int, y: int, w: int, h: int, s: text) gives hit: bool
-    over = free(u) and inside(u, x, y, w, h)
-    c = u.accent
-    if over
-        c = mix(u.accent, u.ink, 15)
-        u.want_cursor = "hand"
-    rbox(u, x, y, w, h, u.radius, c)
-    label_center(u, x, y, w, h, s, u.on_accent)
-    hit = over and u.press
-
+    hit = draw_btn(u, x, y, w, h, s, "main")
 // смесь двух цветов: p процентов второго
 modpub func mix(a: int, b: int, p: int)
     r = (shift_right(a, 16) * (100 - p) + shift_right(b, 16) * p) / 100
@@ -459,22 +686,47 @@ modpub func mix(a: int, b: int, p: int)
 // переключатель: [x] текст; отдаёт новое значение
 modpub func check(u: Ui, x: int, y: int, s: text, on: bool) gives now: bool
     now = on
-    b = px(u, 16)
-    w = px(u, 24) + text_w(u, s)
-    over = free(u) and inside(u, x, y, w, px(u, 18))
-    if on
-        rbox(u, x, y + 1, b, b, px(u, 4), u.accent)
-        tick_mark(u, x + b / 2, y + 1 + b / 2, b, u.on_accent)
+    b = px(u, 18)
+    w = px(u, 28) + text_w(u, s)
+    over = free(u) and inside(u, x, y, w, px(u, 20))
+    t = ease_to(u, "chk" + spot(x, y), on)
+    if t > 0
+        rbox(u, x, y + 1, b, b, px(u, 5), mix(u.fieldbg, u.accent, t))
+        if t > 50
+            tick_mark(u, x + b / 2, y + 1 + b / 2, b, u.on_accent)
     else
-        rframe(u, x, y + 1, b, b, u.bg, u.dim)
-    color = u.ink
+        border = u.dim
+        if over
+            border = u.accent
+        rframe_r(u, x, y + 1, b, b, px(u, 5), u.fieldbg, border)
     if over
-        color = u.accent
         u.want_cursor = "hand"
-    txt(u, x + px(u, 24), y + 1, s, color)
+    txt(u, x + px(u, 28), y + 2, s, u.ink)
     if over and u.press
         now = not on
 
+// переключатель-«пилюля»: дорожка с белым кружком, текст справа; отдаёт новое значение
+modpub func switch_at(u: Ui, x: int, y: int, s: text, on: bool) gives now: bool
+    now = on
+    tw = px(u, 38)
+    th = px(u, 22)
+    w = tw + px(u, 12) + text_w(u, s)
+    over = free(u) and inside(u, x, y, w, th)
+    if over
+        u.want_cursor = "hand"
+    t = ease_to(u, "sw" + spot(x, y), on)
+    if t == 0
+        rframe_r(u, x, y, tw, th, th / 2, u.raised, mix(u.line, u.dim, 40))
+    else
+        rbox(u, x, y, tw, th, th / 2, mix(u.raised, u.accent, t))
+    g = px(u, 3)
+    kd = th - 2 * g
+    kx = x + g + (tw - 2 * g - kd) * t / 100
+    draw_shadow(kx, y + g + px(u, 1), kd, kd, kd / 2, px(u, 3), rgba(0, 0, 0, 90))
+    rbox(u, kx, y + g, kd, kd, kd / 2, rgb(255, 255, 255))
+    txt(u, x + tw + px(u, 12), y + (th - u.line_h) / 2, s, u.ink)
+    if over and u.press
+        now = not on
 // галочка ✓ толщиной в 2 точки (на Retina толще)
 func tick_mark(u: Ui, cx: int, cy: int, b: int, color: int)
     t = max(2, px(u, 2))
@@ -489,9 +741,9 @@ modpub func row(u: Ui, id: text, x: int, y: int, w: int, h: int, s: text, select
     res = 0
     over = free(u) and inside(u, x, y, w, h)
     if selected
-        rbox(u, x, y, w, h, u.radius, u.sel)
+        rbox(u, x, y, w, h, px(u, 8), u.sel)
     else if over
-        rbox(u, x, y, w, h, u.radius, u.hover)
+        rbox(u, x, y, w, h, px(u, 8), u.hover)
     if s != ""
         txt(u, x + px(u, 8), y + (h - u.line_h) / 2, fit(u, s, w - px(u, 16)), u.ink)
     if over and u.press
@@ -674,12 +926,7 @@ modpub func field(u: Ui, id: text, x: int, y: int, w: int, h: int, value: text, 
             u.entered = true
         if key_pressed(u, "escape")
             u.focus = ""
-    border = u.line
-    if mine
-        border = u.accent
-    else if over
-        border = u.dim
-    rframe(u, x, y, w, h, u.bg, border)
+    field_frame(u, x, y, w, h, mine, over)
     room = w - px(u, 20)
     ty = y + (h - u.line_h) / 2
     if now == "" and not mine
@@ -703,6 +950,16 @@ modpub func field(u: Ui, id: text, x: int, y: int, w: int, h: int, value: text, 
     if mine and (time_ms() - u.focus_tick) % 1000 < 550
         cx = x + px(u, 8) + text_w(u, mid_chars(now, from_c, u.caret))
         draw_rect(cx, ty, max(1, px(u, 2)), u.line_h, u.accent)
+
+// рамка поля: тёмный фон; при наведении рамка светлее, с фокусом — цветная и мягкое свечение вокруг
+func field_frame(u: Ui, x: int, y: int, w: int, h: int, mine: bool, over: bool)
+    border = u.line
+    if mine
+        draw_shadow(x, y, w, h, u.radius, px(u, 5), alpha_of(u.accent, 70))
+        border = u.accent
+    else if over
+        border = mix(u.line, u.dim, 50)
+    rframe(u, x, y, w, h, u.fieldbg, border)
 
 // какая буква под мышью: dx — сколько точек от начала текста
 func caret_at(u: Ui, s: text, dx: int)
@@ -760,10 +1017,7 @@ modpub func text_box(u: Ui, id: text, x: int, y: int, w: int, h: int, value: tex
             if cl >= top + shown
                 top = cl - shown + 1
     u.scroll[id] = top
-    border = u.line
-    if mine
-        border = u.accent
-    rframe(u, x, y, w, h, u.bg, border)
+    field_frame(u, x, y, w, h, mine, over)
     a = min(u.caret, u.anchor)
     b = max(u.caret, u.anchor)
     st = 0
@@ -802,12 +1056,15 @@ modpub func slider(u: Ui, id: text, x: int, y: int, w: int, h: int, value: int, 
         v = max(lo, min(hi, v + u.wheel))
     t = px(u, 4)
     cy = y + h / 2
-    rbox(u, x, cy - t / 2, w, t, t / 2, u.line)
+    rbox(u, x, cy - t / 2, w, t, t / 2, u.raised)
     kx = x + (v - lo) * w / span
     rbox(u, x, cy - t / 2, kx - x, t, t / 2, u.accent)
-    r = px(u, 8)
-    draw_circle(kx, cy, r, u.accent)
-    draw_circle(kx, cy, r - px(u, 3), u.panel)
+    r = px(u, 9)
+    e = ease_to(u, "sl" + id, over or u.active == id)
+    if e > 0
+        rbox(u, kx - r - px(u, 5), cy - r - px(u, 5), 2 * r + px(u, 10), 2 * r + px(u, 10), r + px(u, 5), alpha_of(u.accent, 60 * e / 100))
+    draw_shadow(kx - r, cy - r + px(u, 1), 2 * r, 2 * r, r, px(u, 4), rgba(0, 0, 0, 100))
+    rbox(u, kx - r, cy - r, 2 * r, 2 * r, r, rgb(255, 255, 255))
 
 // выбор одного из списка: кнопка со стрелкой, по щелчку — список поверх всего. Отдаёт номер
 modpub func choose(u: Ui, id: text, x: int, y: int, w: int, h: int, items: list text, current: int) gives sel: int
@@ -820,12 +1077,14 @@ modpub func choose(u: Ui, id: text, x: int, y: int, w: int, h: int, items: list 
     if sel >= 0 and sel < len(items)
         shown = items[sel]
     over = free(u) and inside(u, x, y, w, h)
-    c = u.panel
     if over
-        c = u.hover
         u.want_cursor = "hand"
-    rframe(u, x, y, w, h, c, u.line)
-    txt(u, x + px(u, 10), y + (h - u.line_h) / 2, fit(u, shown, w - px(u, 34)), u.ink)
+    t = ease_to(u, "pick" + spot(x, y), over or u.pop == id)
+    border = mix(u.line, u.dim, 35 * t / 100)
+    if u.pop == id
+        border = u.accent
+    rframe(u, x, y, w, h, mix(u.fieldbg, u.raised, t), border)
+    txt(u, x + px(u, 12), y + (h - u.line_h) / 2, fit(u, shown, w - px(u, 36)), u.ink)
     chevron(u, x + w - px(u, 18), y + h / 2, u.dim)
     if over and u.press
         open_pop(u, id, items, x, y + h + px(u, 4), w)
@@ -853,11 +1112,12 @@ modpub func menu_at(u: Ui, id: text, x: int, y: int, w: int, h: int, title: text
         u.pop_pick = -1
         u.pop = ""
     over = free(u) and inside(u, x, y, w, h)
-    if over or u.pop == id
-        rbox(u, x, y, w, h, u.radius, u.hover)
+    t = ease_to(u, "menu" + spot(x, y), over or u.pop == id)
+    if t > 0
+        rbox(u, x, y, w, h, u.radius, alpha_of(u.ink, 22 * t / 100))
     if over
         u.want_cursor = "hand"
-    label_center(u, x, y, w, h, title, u.ink)
+    label_center(u, x, y, w, h, title, mix(u.dim, u.ink, max(t, 60)))
     if over and u.press
         wmax = w
         each it in items
@@ -871,8 +1131,8 @@ func draw_pop(u: Ui)
     y = min(u.pop_y, window_h() - h - px(u, 4))
     w = u.pop_w
     u.in_pop = true
-    rbox(u, x + px(u, 3), y + px(u, 4), w, h, u.radius, u.shadow)
-    rframe(u, x, y, w, h, u.panel, u.line)
+    shadow_under(u, x, y, w, h, u.cr, 3)
+    rframe_r(u, x, y, w, h, u.cr, u.raised, u.line)
     count i from 0 to len(u.pop_items) - 1
         iy = y + px(u, 4) + i * ih
         s = u.pop_items[i]
@@ -881,7 +1141,7 @@ func draw_pop(u: Ui)
             skip
         over = inside(u, x + px(u, 4), iy, w - px(u, 8), ih)
         if over
-            rbox(u, x + px(u, 4), iy, w - px(u, 8), ih, u.radius, u.sel)
+            rbox(u, x + px(u, 4), iy, w - px(u, 8), ih, u.radius - px(u, 2), alpha_of(u.accent, 40))
             u.want_cursor = "hand"
         txt(u, x + px(u, 14), iy + (ih - u.line_h) / 2, fit(u, s, w - px(u, 28)), u.ink)
         if over and u.release and u.tick != u.pop_tick
@@ -895,24 +1155,28 @@ func draw_pop(u: Ui)
 // вкладки в ряд: отдаёт номер открытой
 modpub func tabs_at(u: Ui, x: int, y: int, w: int, h: int, names: list text, current: int) gives sel: int
     sel = current
-    tx = x
+    g = px(u, 3)
+    total = 2 * g
+    each nm in names
+        total += style_w(u, nm, "strong") + px(u, 28)
+    total = min(total, w)
+    rbox(u, x, y, total, h, u.radius, u.fieldbg)
+    tx = x + g
     count i from 0 to len(names) - 1
-        tw = text_w(u, names[i]) + px(u, 28)
+        tw = style_w(u, names[i], "strong") + px(u, 28)
         over = free(u) and inside(u, tx, y, tw, h)
-        color = u.dim
+        t = ease_to(u, "tab" + spot(tx, y), over)
+        color = mix(u.dim, u.ink, t)
         if i == current
-            color = u.ink
-            draw_rect(tx + px(u, 8), y + h - px(u, 3), tw - px(u, 16), px(u, 3), u.accent)
-        else if over
+            draw_shadow(tx, y + g + px(u, 1), tw, h - 2 * g, u.radius - g, px(u, 4), rgba(0, 0, 0, 80))
+            rbox(u, tx, y + g, tw, h - 2 * g, u.radius - g, u.raised)
             color = u.ink
         if over
             u.want_cursor = "hand"
-        label_center(u, tx, y, tw, h - px(u, 3), names[i], color)
+        styled_in(u, tx + px(u, 14), y, h, names[i], "strong", color)
         if over and u.press
             sel = i
         tx += tw
-    draw_rect(x, y + h - 1, w, 1, u.line)
-
 // подсказка: показать текст, если мышь задержалась над последним местом раскладки
 modpub func tip(u: Ui, s: text)
     tip_at(u, u.lx, u.ly, u.lw, u.lh, s)
@@ -940,8 +1204,9 @@ func draw_tip(u: Ui)
     y = u.my + px(u, 20)
     if y + h > window_h()
         y = u.my - h - px(u, 8)
-    rbox(u, x, y, w, h, u.radius, u.ink)
-    txt(u, x + px(u, 10), y + px(u, 6), u.tip, u.bg)
+    shadow_under(u, x, y, w, h, u.radius, 2)
+    rframe(u, x, y, w, h, u.raised, u.line)
+    txt(u, x + px(u, 10), y + px(u, 6), u.tip, u.ink)
 
 // ---------- перетаскивание ----------
 
@@ -1000,16 +1265,16 @@ modpub func window(u: Ui, id: text, title: text, w0: int, h0: int) gives open: b
         u.want_cursor = "move"
     u.win_x[id] = x
     u.win_y[id] = y
-    rbox(u, x + px(u, 4), y + px(u, 6), w, h, u.radius, u.shadow)
-    rframe(u, x, y, w, h, u.panel, u.line)
-    txt(u, x + px(u, 12), y + (bar - u.line_h) / 2, fit(u, title, w - bar - px(u, 16)), u.ink)
+    shadow_under(u, x, y, w, h, u.cr, 4)
+    rframe_r(u, x, y, w, h, u.cr, u.panel, u.line)
+    styled_in(u, x + px(u, 14), y, bar, fit_style(u, title, w - bar - px(u, 20), "strong"), "strong", u.ink)
     draw_rect(x + 1, y + bar, w - 2, 1, u.line)
     // крестик
     cx = x + w - bar / 2
     cy = y + bar / 2
     over_x = free(u) and inside(u, x + w - bar, y, bar, bar)
     if over_x
-        draw_circle(cx, cy, px(u, 10), u.red)
+        rbox(u, cx - px(u, 10), cy - px(u, 10), px(u, 20), px(u, 20), px(u, 10), u.red)
         u.want_cursor = "hand"
     s = px(u, 4)
     draw_line(cx - s, cy - s, cx + s, cy + s, u.ink)
@@ -1171,27 +1436,62 @@ modpub func done(u: Ui)
 func auto(u: Ui, s: text, extra: int)
     if cur(u).across
         return text_w(u, s) + px(u, extra)
-    return px(u, 32)
+    return px(u, 34)
 
+// то же для кнопки: ширина по полужирному тексту
+func auto_btn(u: Ui, s: text)
+    if cur(u).across
+        return style_w(u, s, "button") + px(u, 32)
+    return px(u, 34)
 // кнопка на своём месте
 modpub func btn(u: Ui, s: text) gives hit: bool
-    x, y, w, h = take_px(u, auto(u, s, 28))
+    x, y, w, h = take_px(u, auto_btn(u, s))
     hit = button(u, x, y, w, h, s)
 
+// кнопка без фона: фон появляется при наведении (панели, меню, второстепенное)
+modpub func btn_ghost(u: Ui, s: text) gives hit: bool
+    x, y, w, h = take_px(u, auto_btn(u, s))
+    hit = button_ghost(u, x, y, w, h, s)
+
+// мягкая цветная кнопка: заметная, но не главная («Добавить», «Ещё»)
+modpub func btn_soft(u: Ui, s: text) gives hit: bool
+    x, y, w, h = take_px(u, auto_btn(u, s))
+    hit = button_soft(u, x, y, w, h, s)
+
+// красная кнопка: удалить, выйти
+modpub func btn_danger(u: Ui, s: text) gives hit: bool
+    x, y, w, h = take_px(u, auto_btn(u, s))
+    hit = button_danger(u, x, y, w, h, s)
+
+// круглая кнопка-значок: ui.btn_icon(u, "×")
+modpub func btn_icon(u: Ui, s: text) gives hit: bool
+    x, y, w, h = take_px(u, px(u, 34))
+    size = min(w, h)
+    hit = button_icon(u, x + (w - size) / 2, y + (h - size) / 2, size, s)
+
+// текст-ссылка: цветной, при наведении подчёркнут
+modpub func btn_link(u: Ui, s: text) gives hit: bool
+    x, y, w, h = take_px(u, auto(u, s, 4))
+    over = free(u) and inside(u, x, y, text_w(u, s), h)
+    if over
+        u.want_cursor = "hand"
+    ty = y + (h - u.line_h) / 2
+    txt(u, x, ty, fit(u, s, w), u.accent)
+    if over
+        draw_rect(x, ty + u.line_h, min(w, text_w(u, s)), max(1, round(u.k)), u.accent)
+    hit = over and u.press
 // кнопка, которую можно нажать только когда ok (иначе серая)
 modpub func btn_if(u: Ui, s: text, ok: bool) gives hit: bool
-    x, y, w, h = take_px(u, auto(u, s, 28))
+    x, y, w, h = take_px(u, auto_btn(u, s))
     hit = false
     if ok
         hit = button(u, x, y, w, h, s)
     else
         button_off(u, x, y, w, h, s)
-
 // главная (цветная) кнопка на своём месте
 modpub func btn_main(u: Ui, s: text) gives hit: bool
-    x, y, w, h = take_px(u, auto(u, s, 28))
+    x, y, w, h = take_px(u, auto_btn(u, s))
     hit = button_main(u, x, y, w, h, s)
-
 // надпись на своём месте (по высоте — по середине)
 modpub func lbl(u: Ui, s: text)
     x, y, w, h = take_px(u, auto(u, s, 4))
@@ -1204,25 +1504,68 @@ modpub func note(u: Ui, s: text)
 
 // заголовок
 modpub func heading(u: Ui, s: text)
-    size = px(u, 36)
-    if cur(u).across
-        size = text_w(u, s) * 3 / 2 + px(u, 8)
-    x, y, w, h = take_px(u, size)
-    big_text(u, x, y + (h - px(u, 28)) / 2, s, 22, u.ink)
+    text_line(u, s, "heading", 34)
 
+// крупный заголовок окна
+modpub func h1(u: Ui, s: text)
+    text_line(u, s, "title", 42)
+
+// подзаголовок
+modpub func h3(u: Ui, s: text)
+    text_line(u, s, "sub", 26)
+
+// маленькая подпись ЗАГЛАВНЫМИ над полем: ui.caps(u, "Имя")
+modpub func caps(u: Ui, s: text)
+    text_line(u, s, "caption", 16)
+
+// полужирная надпись
+modpub func bold_lbl(u: Ui, s: text)
+    text_line(u, s, "strong", 24)
+
+// строка кода моноширинным шрифтом на тёмной плашке
+modpub func code_line(u: Ui, s: text)
+    size = px(u, 30)
+    if cur(u).across
+        size = style_w(u, s, "code") + px(u, 20)
+    x, y, w, h = take_px(u, size)
+    rbox(u, x, y, w, h, px(u, 8), u.fieldbg)
+    styled_in(u, x + px(u, 10), y, h, fit_style(u, s, w - px(u, 20), "code"), "code", u.ink)
+
+// цветная плашка-метка: «новое», «3», «готово»
+modpub func chip(u: Ui, s: text)
+    w0 = style_w(u, s, "caption") + px(u, 16)
+    size = px(u, 22)
+    if cur(u).across
+        size = w0
+    x, y, w, h = take_px(u, size)
+    bh = px(u, 20)
+    by = y + (h - bh) / 2
+    rbox(u, x, by, w0, bh, bh / 2, alpha_of(u.accent, 45))
+    styled_in(u, x + px(u, 8), by, bh, s, "caption", u.accent)
+
+// надпись своим стилем на своём месте: size — высота строки в обычных точках
+modpub func text_line(u: Ui, s: text, st: text, size: int)
+    n = px(u, size)
+    if cur(u).across
+        n = style_w(u, s, st) + px(u, 6)
+    x, y, w, h = take_px(u, n)
+    styled_in(u, x, y, h, fit_style(u, s, w, st), st, st_color(u, st))
 // переключатель на своём месте
 modpub func toggle(u: Ui, s: text, on: bool) gives now: bool
-    x, y, w, h = take_px(u, auto(u, s, 32))
-    now = check(u, x, y + (h - px(u, 18)) / 2, s, on)
+    x, y, w, h = take_px(u, auto(u, s, 54))
+    now = switch_at(u, x, y + (h - px(u, 22)) / 2, s, on)
 
+// галочка [✓] на своём месте
+modpub func checkbox(u: Ui, s: text, on: bool) gives now: bool
+    x, y, w, h = take_px(u, auto(u, s, 32))
+    now = check(u, x, y + (h - px(u, 20)) / 2, s, on)
 // поле ввода: в ряду занимает весь остаток, в столбце — строку
 modpub func edit(u: Ui, id: text, value: text, hint: text) gives now: text
-    size = px(u, 32)
+    size = px(u, 36)
     if cur(u).across
         size = 0
     x, y, w, h = take_px(u, size)
     now = field(u, id, x, y, w, h, value, hint)
-
 // многострочное поле на своём месте: size — высота (0 — весь остаток)
 modpub func area(u: Ui, id: text, value: text, size: int) gives now: text
     x, y, w, h = take(u, size)
@@ -1268,14 +1611,13 @@ modpub func picture(u: Ui, img: int)
 // черта-разделитель
 modpub func divider(u: Ui)
     x, y, w, h = take_px(u, 1)
-    draw_rect(x, y, w, h, u.line)
-
+    draw_rect(x, y, w, max(1, round(u.k)), u.line)
 // панель на всё следующее место: дальше раскладка внутри неё (закрыть — ui.done)
 modpub func card(u: Ui, size: int)
     x, y, w, h = take(u, size)
+    shadow_under(u, x, y, w, h, u.cr, 1)
     panel(u, x, y, w, h)
-    u.boxes.add(Box(x: x + px(u, 12), y: y + px(u, 12), w: w - px(u, 24), h: h - px(u, 24), gap: px(u, 8)))
-
+    u.boxes.add(Box(x: x + px(u, 16), y: y + px(u, 16), w: w - px(u, 32), h: h - px(u, 32), gap: px(u, 10)))
 // ---------- окно-вопрос ----------
 
 // открыть вопрос «да / нет»; ответ потом даёт answer(u)
@@ -1297,21 +1639,23 @@ modpub func answer(u: Ui) gives a: int
 func draw_ask(u: Ui)
     W = window_w()
     H = window_h()
-    w = min(W - px(u, 40), max(px(u, 360), text_w(u, u.ask_text) + px(u, 48)))
-    h = px(u, 150)
+    draw_rect(0, 0, W, H, rgba(0, 0, 0, 110))
+    w = min(W - px(u, 40), max(px(u, 380), text_w(u, u.ask_text) + px(u, 56)))
+    h = px(u, 164)
     x = (W - w) / 2
     y = (H - h) / 2
-    rbox(u, x + px(u, 6), y + px(u, 6), w, h, u.radius, u.shadow)
-    panel(u, x, y, w, h)
-    big_text(u, x + px(u, 20), y + px(u, 18), u.ask_title, 24, u.ink)
-    txt(u, x + px(u, 20), y + px(u, 62), fit(u, u.ask_text, w - px(u, 40)), u.dim)
+    shadow_under(u, x, y, w, h, u.cr, 5)
+    rframe_r(u, x, y, w, h, u.cr, u.panel, u.line)
+    styled(u, x + px(u, 24), y + px(u, 22), fit_style(u, u.ask_title, w - px(u, 48), "heading"), "heading")
+    txt(u, x + px(u, 24), y + px(u, 64), fit(u, u.ask_text, w - px(u, 48)), u.dim)
     u.in_ask = u.tick != u.ask_tick
     bw = px(u, 120)
-    bh = px(u, 32)
-    if button_main(u, x + w - bw - px(u, 20), y + h - bh - px(u, 16), bw, bh, u.ask_yes) or key_pressed(u, "enter")
+    bh = px(u, 36)
+    by = y + h - bh - px(u, 20)
+    if button_main(u, x + w - bw - px(u, 24), by, bw, bh, u.ask_yes) or key_pressed(u, "enter")
         u.ask_answer = 1
         u.ask_open = false
-    else if button(u, x + w - 2 * bw - px(u, 32), y + h - bh - px(u, 16), bw, bh, u.ask_no) or key_pressed(u, "escape")
+    else if button_ghost(u, x + w - 2 * bw - px(u, 32), by, bw, bh, u.ask_no) or key_pressed(u, "escape")
         u.ask_answer = 2
         u.ask_open = false
     u.in_ask = false

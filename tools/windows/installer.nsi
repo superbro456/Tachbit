@@ -69,6 +69,8 @@ Section "Tachbit (команда tb)" SecMain
   RMDir /r "$INSTDIR\lib"
   SetOutPath "$INSTDIR\lib"
   File "lib\*.tb"
+  SetOutPath "$INSTDIR\lib\fonts"
+  File "lib\fonts\*.*"
   RMDir /r "$INSTDIR\examples"
   SetOutPath "$INSTDIR\examples"
   File /r "examples\*.*"

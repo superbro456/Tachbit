@@ -55,6 +55,8 @@ Copy-Item -Force build\tb.exe (Join-Path $bin 'tb.exe')
 $lib = Join-Path $env:USERPROFILE '.tachbit\lib'
 New-Item -ItemType Directory -Force -Path $lib | Out-Null
 Copy-Item -Force lib\*.tb $lib
+New-Item -ItemType Directory -Force -Path (Join-Path $lib 'fonts') | Out-Null
+Copy-Item -Force lib\fonts\* (Join-Path $lib 'fonts')
 
 # 5) эта папка — в PATH пользователя, чтобы tb работал в любом терминале
 $path = [Environment]::GetEnvironmentVariable('Path', 'User')

@@ -11,7 +11,7 @@ mkdir -p "$bin" || exit 1
 cp ./build/tb "$bin/tb"
 echo "стоит компилятор на Tachbit (собран сам собой)"
 # общие библиотеки (use ui): lib/*.tb → ~/.tachbit/lib
-mkdir -p "$HOME/.tachbit/lib" && cp lib/*.tb "$HOME/.tachbit/lib/" && echo "библиотеки: $HOME/.tachbit/lib"
+mkdir -p "$HOME/.tachbit/lib/fonts" && cp lib/*.tb "$HOME/.tachbit/lib/" && cp lib/fonts/* "$HOME/.tachbit/lib/fonts/" && echo "библиотеки: $HOME/.tachbit/lib"
 
 # язык сообщений: если ещё не выбран — по языку системы (поменять: tb lang en / tb lang ru)
 if [ ! -f "$HOME/.tachbit/lang" ]; then
