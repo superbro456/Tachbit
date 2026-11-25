@@ -44,6 +44,26 @@ python3 tools/futura/ramdisk.py add ramdisk.tar new.igz bin/hello=hello.futura
 `add` печатает новые `rd_isize=… rd_csize=…`: их надо поставить в строку загрузки ядра
 вместо старых.
 
+## Tachbit прямо внутри FuturaOS (tb + tcc)
+
+`tb run файл.tb` работает в терминале FuturaOS: `tb` делает C, маленький компилятор tcc
+делает программу. Собрать набор (на Linux):
+
+```sh
+git clone https://github.com/TinyCC/tinycc
+TB_FUTURA_INCLUDE=~/futura-src/include tools/futura/inside.sh tinycc futura-root
+cd futura-root && python3 ../tools/futura/ramdisk.py add ../ramdisk.tar ../new.igz \
+    $(find . -type f | sed 's|^\./||;s|.*|&=&|')
+```
+
+В набор входят `/bin/tb`, `/bin/tcc`, `/bin/cc` (tcc + `tb_futura_sdk.h`), `/usr/lib/tcc`,
+`/usr/include` (его заголовки и поправки Tachbit). Проверено в QEMU: все 76 тестов
+собраны и запущены командой `tb run` внутри FuturaOS, результат тот же, что при сборке на Linux.
+Программы через tcc медленнее, чем через clang (tcc почти не оптимизирует); быстрый путь будет через LLVM.
+
+Что узнали про его shell (esh): нет `${X:-y}`, `&&`, `case`, `2>&1`. Поэтому `tb` берёт
+компилятор из `$CC` сам, без shell.
+
 ## Как это устроено
 
 - `include/tb_futura.h` подключается раньше всего (`clang -include`) и закрывает

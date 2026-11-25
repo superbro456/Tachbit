@@ -61,9 +61,24 @@ def add(tar_path, dst, pairs):
     while end >= 512 and old[end - 512:end] == b"\0" * 512:
         end -= 512
     buf.write(old[:end])
+    # какие папки уже есть: его tarfs не делает папку сам, её нужно записать в архив
+    have = set()
+    with tarfile.open(tar_path) as old_t:
+        for m in old_t:
+            if m.isdir():
+                have.add(m.name.strip("/"))
     t = tarfile.open(fileobj=buf, mode="w", format=tarfile.USTAR_FORMAT)
     for p in pairs:
         inside, here = p.split("=", 1)
+        parts = inside.strip("/").split("/")[:-1]
+        for i in range(1, len(parts) + 1):
+            d = "/".join(parts[:i])
+            if d not in have:
+                di = tarfile.TarInfo(d)
+                di.type = tarfile.DIRTYPE
+                di.mode = 0o755
+                t.addfile(di)
+                have.add(d)
         data = open(here, "rb").read()
         info = tarfile.TarInfo(inside.lstrip("/"))
         info.size = len(data)
