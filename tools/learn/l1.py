@@ -279,7 +279,7 @@ func main()
     greet("Алия", 2)
 ''', "run"),
 ("Несколько ответов: gives",
- "Если ответов несколько, их называют после <code>gives</code>. Внутри функции они — обычные переменные. Принять их можно сразу в несколько имён.",
+ "Если ответов несколько, их называют после <code>gives</code>. Внутри функции они — обычные переменные. Принять их можно сразу в несколько имён, в ячейки списка или в поля obj (<code>p.x, p.y = f()</code>).",
 '''func divide(a: int, b: int) gives whole: int, rest: int
     whole = a / b
     rest = a % b
@@ -287,6 +287,9 @@ func main()
 func main()
     q, r = divide(17, 5)
     print("17 = 5 *", q, "+", r)
+    res = [0, 0]
+    res[0], res[1] = divide(9, 4)     // ответы сразу в ячейки списка
+    print(res)
 ''', "run"),
 ("Функция зовёт сама себя",
  "Это называется рекурсия. Нужна остановка, иначе функция будет звать себя вечно; Tachbit тогда скажет «стек переполнен».",
@@ -516,9 +519,11 @@ func main()
 lesson("Числа, время и случайность", "Готовые функции для чисел и времени.",
 [
 ("Числа",
- "Округлить, модуль, меньшее и большее, корень. <code>min</code> и <code>max</code> работают с двумя числами.",
+ "Округлить, модуль, меньшее и большее, корень. <code>min</code> и <code>max</code> работают с двумя числами. Для игр и графики есть углы и степени: <code>sin cos tan asin acos atan atan2</code> (углы в радианах, <code>pi()</code> = 3.14159…), <code>pow</code> (степень), <code>exp</code>, <code>log</code>, <code>floor</code> (вниз до целого), <code>ceil</code> (вверх).",
 '''func main()
     print(round(2.6), round(2.4), abs(-7), min(3, 9), max(3, 9), sqrt(16.0))
+    print(floor(2.7), ceil(2.1), pow(2.0, 10.0), round(pi() * 100))
+    print(round(sin(pi() / 2)), round(cos(0.0)), round(atan2(1.0, 1.0) * 180 / pi()))
     print(bit_and(12, 10), bit_or(12, 10), bit_xor(12, 10), shift_left(1, 4), 0xFF)
 ''', "run"),
 ("Время и случайность",
@@ -535,4 +540,4 @@ lesson("Числа, время и случайность", "Готовые фу�
 ],
 ["<code>round</code> отдаёт <code>int</code>. Дробь из целого: умножьте на <code>1.0</code>.", "<code>0x</code>-числа и битовые функции работают везде, не только в <code>danger</code>."],
 "Сделайте игру «угадай число»: программа загадывает <code>random(1, 100)</code>, вы вводите числа (<code>input()</code>, урок 15), она отвечает «больше» или «меньше» и в конце говорит число попыток и сколько секунд прошло.",
-["round", "abs", "min", "max", "sqrt", "random", "time_ms", "wait_ms", "date_now", "unix_time", "bit_and", "bit_or", "bit_xor", "bit_not", "shift_left", "shift_right", "0x"])
+["round", "abs", "min", "max", "sqrt", "sin", "cos", "tan", "asin", "acos", "atan", "atan2", "pow", "exp", "log", "floor", "ceil", "pi", "random", "time_ms", "wait_ms", "date_now", "unix_time", "bit_and", "bit_or", "bit_xor", "bit_not", "shift_left", "shift_right", "0x"])

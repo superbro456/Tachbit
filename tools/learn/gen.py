@@ -207,7 +207,7 @@ def lang_ref():
 def lang_index():
     head = ('<div class="crumb"><a href="../">Уроки</a></div>'
             '<h1>Язык <em>Tachbit</em></h1><p class="goal">28 уроков: все слова, команды и встроенные функции языка. В каждом уроке объяснение, проверенный пример с настоящим выводом и задание.</p>')
-    body = '<div class="dl"><a href="01.html">Начать с урока 1</a><a class="l" href="ref.html">Указатели</a><a class="l" href="../files/tachbit-yazyk-1.2.pdf">Книга PDF</a><a class="l" href="../files/tachbit-yazyk-kod.zip">Код примеров .zip</a></div>'
+    body = '<div class="dl"><a href="01.html">Начать с урока 1</a><a class="l" href="ref.html">Указатели</a><a class="l" href="../files/tachbit-yazyk.pdf">Книга PDF</a><a class="l" href="../files/tachbit-spravochnik.pdf">Справочник PDF</a><a class="l" href="../files/tachbit-yazyk-kod.zip">Код примеров .zip</a></div>'
     for a, b, t, d in PARTS:
         body += f'<div class="grp">{t} · {d}</div><div class="grid">'
         body += "".join(f'<a href="{n:02d}.html"><b>{n}</b><span>{L[n-1]["title"]}<small>{L[n-1]["goal"]}</small></span></a>' for n in range(a, b + 1))
@@ -269,7 +269,7 @@ def pat_index():
 <p><b>Приложение</b></p><div class="loop"><span>ждать событие</span><i>→</i><span>разобрать</span><i>→</i><span>изменить состояние</span><i>→</i><span>перерисовать</span><i>↺</i></div>
 <p><b>Игра</b></p><div class="loop"><span>dt</span><i>→</i><span>ввод</span><i>→</i><span>обновить мир</span><i>→</i><span>нарисовать кадр</span><i>↺ 60 раз в секунду</i></div>
 <p><b>Ядро ОС</b></p><div class="loop"><span>прерывание</span><i>→</i><span>кто это</span><i>→</i><span>разбудить службу</span><i>→</i><span>выбрать следующую задачу</span><i>↺</i></div>
-<div class="dl"><a href="01.html">Начать с паттерна 1</a><a class="l" href="../files/tachbit-kurs-30-dney.pdf">Курс PDF</a><a class="l" href="../files/tachbit-kurs-kod.zip">Код .zip</a></div>"""
+<div class="dl"><a href="01.html">Начать с паттерна 1</a><a class="l" href="../files/tachbit-patterny-1.pdf">Часть 1, PDF</a><a class="l" href="../files/tachbit-patterny-2.pdf">Часть 2, PDF</a><a class="l" href="../files/tachbit-kurs-kod.zip">Код .zip</a></div>"""
     for a, b, t, d in WEEKS:
         body += f'<div class="grp">Неделя {(a + 6) // 7} · {t}</div><div class="grid">'
         body += "".join(f'<a href="{n:02d}.html"><b>{n}</b><span>{D[n]["pattern"][0]}<small>{D[n]["pattern"][1]}</small></span></a>' for n in range(a, b + 1))
@@ -298,8 +298,8 @@ def hub():
     body += "".join(f'<a href="patterns/{n:02d}.html"><b>{n}</b><span>{D[n]["pattern"][0]}</span></a>' for n in range(1, 7))
     body += """</div>
 <h2 class="sec"><span class="dot"></span>Скачать</h2>
-<p class="sub">Те же курсы книгами и все примеры файлами.</p>
-<div class="dl"><a class="l" href="files/tachbit-yazyk-1.2.pdf">Язык Tachbit, PDF</a><a class="l" href="files/tachbit-yazyk-kod.zip">Код уроков языка</a><a class="l" href="files/tachbit-kurs-30-dney.pdf">Как думает программа, PDF</a><a class="l" href="files/tachbit-kurs-kod.zip">Код паттернов</a></div>"""
+<p class="sub">Четыре книги и все примеры файлами.</p>
+<div class="dl"><a class="l" href="files/tachbit-yazyk.pdf">Язык Tachbit, PDF</a><a class="l" href="files/tachbit-spravochnik.pdf">Справочник Tachbit, PDF</a><a class="l" href="files/tachbit-yazyk-kod.zip">Код уроков языка</a><a class="l" href="files/tachbit-patterny-1.pdf">Паттерны, часть 1, PDF</a><a class="l" href="files/tachbit-patterny-2.pdf">Паттерны, часть 2, PDF</a><a class="l" href="files/tachbit-kurs-kod.zip">Код паттернов</a></div>"""
     write("index.html", page("Уроки Tachbit", "Уроки по языку Tachbit и паттернам программирования, с проверенными примерами.", 1, head, f"<div>{body}</div>", "learn"))
 
 

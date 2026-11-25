@@ -39,13 +39,17 @@
     greet(<span class="st">"Алия"</span>, <span class="nu">2</span>)</pre><div class="lbl">Вывод</div><pre class="out">12
 20
 привет, Алия
-привет, Алия</pre><h2>Несколько ответов: gives</h2><p>Если ответов несколько, их называют после <code>gives</code>. Внутри функции они — обычные переменные. Принять их можно сразу в несколько имён.</p><pre class="code"><span class="kw">func</span> divide(a: <span class="ty">int</span>, b: <span class="ty">int</span>) <span class="kw">gives</span> whole: <span class="ty">int</span>, rest: <span class="ty">int</span>
+привет, Алия</pre><h2>Несколько ответов: gives</h2><p>Если ответов несколько, их называют после <code>gives</code>. Внутри функции они — обычные переменные. Принять их можно сразу в несколько имён, в ячейки списка или в поля obj (<code>p.x, p.y = f()</code>).</p><pre class="code"><span class="kw">func</span> divide(a: <span class="ty">int</span>, b: <span class="ty">int</span>) <span class="kw">gives</span> whole: <span class="ty">int</span>, rest: <span class="ty">int</span>
     whole = a / b
     rest = a % b
 
 <span class="kw">func</span> main()
     q, r = divide(<span class="nu">17</span>, <span class="nu">5</span>)
-    print(<span class="st">"17 = 5 *"</span>, q, <span class="st">"+"</span>, r)</pre><div class="lbl">Вывод</div><pre class="out">17 = 5 * 3 + 2</pre><h2>Функция зовёт сама себя</h2><p>Это называется рекурсия. Нужна остановка, иначе функция будет звать себя вечно; Tachbit тогда скажет «стек переполнен».</p><pre class="code"><span class="kw">func</span> fact(n: <span class="ty">int</span>)
+    print(<span class="st">"17 = 5 *"</span>, q, <span class="st">"+"</span>, r)
+    res = [<span class="nu">0</span>, <span class="nu">0</span>]
+    res[<span class="nu">0</span>], res[<span class="nu">1</span>] = divide(<span class="nu">9</span>, <span class="nu">4</span>)     <span class="cm">// ответы сразу в ячейки списка</span>
+    print(res)</pre><div class="lbl">Вывод</div><pre class="out">17 = 5 * 3 + 2
+[2, 1]</pre><h2>Функция зовёт сама себя</h2><p>Это называется рекурсия. Нужна остановка, иначе функция будет звать себя вечно; Tachbit тогда скажет «стек переполнен».</p><pre class="code"><span class="kw">func</span> fact(n: <span class="ty">int</span>)
     <span class="kw">if</span> n &lt;= <span class="nu">1</span>
         <span class="kw">return</span> <span class="nu">1</span>
     <span class="kw">return</span> n * fact(n - <span class="nu">1</span>)

@@ -309,14 +309,16 @@ lesson("Окно и 2D-рисование", "Открыть окно, рисов
 ],
 ["Клавиши: <code>left right up down space enter escape backspace tab shift cmd ctrl alt</code>, <code>f1…f12</code>, буквы и цифры. <code>cmd</code> = Command на Mac и Ctrl на Linux/Windows.",
  "<code>frame_ms()</code> — длина прошлого кадра: умножайте скорость на него, и игра идёт одинаково при любой частоте.",
+ "Ещё окна: <code>chat = try window_new(300, 200, \"Чат\")</code>, <code>window_use(chat)</code> — рисовать в нём, <code>window_use(0)</code> — снова в главном, <code>window_shown</code>, <code>window_close</code>.",
+ "Полный экран — <code>window_fullscreen(true)</code>. Мышь для шутера: <code>mouse_lock(true)</code>, сдвиг мыши — <code>mouse_dx()</code> и <code>mouse_dy()</code>.",
  "Ещё: <code>window_w/h</code>, <code>window_sharp</code> (Retina), <code>set_fps</code>, <code>fps</code>, <code>clipboard_get/set</code>, <code>blur_rect</code>, <code>draw_shadow</code>, <code>draw_image_alpha</code>, <code>image_scaled</code>, <code>screen_image</code>."],
 "Сделайте игру «лови звёзды»: звезда падает сверху в случайном месте, корзина внизу двигается стрелками, считайте очки и выводите их текстом.",
-["window_open", "window_alive", "clear_window", "rgb", "rgba", "draw_pixel", "draw_rect", "draw_round", "draw_circle", "draw_line", "draw_triangle", "draw_text", "key_down", "mouse_x", "mouse_y", "mouse_down", "mouse_wheel", "mouse_back", "mouse_forward", "typed_text", "pad_count", "pad_down", "pad_axis", "load_image", "draw_image", "draw_image_alpha", "image_w", "image_h", "image_scaled", "screen_image", "load_font", "draw_font", "text_width", "frame_ms", "fps", "set_fps", "window_w", "window_h", "window_sharp", "window_scale", "set_cursor", "clipboard_get", "clipboard_set", "blur_rect", "draw_shadow"])
+["window_open", "window_alive", "clear_window", "rgb", "rgba", "draw_pixel", "draw_rect", "draw_round", "draw_circle", "draw_line", "draw_triangle", "draw_text", "key_down", "mouse_x", "mouse_y", "mouse_down", "mouse_wheel", "mouse_back", "mouse_forward", "typed_text", "pad_count", "pad_down", "pad_axis", "load_image", "draw_image", "draw_image_alpha", "image_w", "image_h", "image_scaled", "screen_image", "load_font", "draw_font", "text_width", "frame_ms", "fps", "set_fps", "window_w", "window_h", "window_sharp", "window_scale", "window_new", "window_use", "window_shown", "window_close", "window_fullscreen", "mouse_lock", "mouse_dx", "mouse_dy", "set_cursor", "clipboard_get", "clipboard_set", "blur_rect", "draw_shadow"])
 
 lesson("3D", "Сетки из треугольников, камера, свет и картинки на гранях.",
 [
 ("Куб, камера и свет",
- "<code>mesh_new()</code> — пустая сетка, <code>mesh_add</code> добавляет в неё треугольник (x вправо, y вверх, z вперёд). <code>draw_mesh(m, x, y, z, поворот)</code> рисует сетку в мире. <code>camera</code> — где стоит глаз и куда смотрит. <code>sunlight</code> включает солнце. Считает видеокарта.",
+ "<code>mesh_new()</code> — пустая сетка, <code>mesh_add</code> добавляет в неё треугольник (x вправо, y вверх, z вперёд). <code>draw_mesh(m, x, y, z, поворот)</code> рисует сетку в мире, <code>draw_mesh_rot</code> — с наклоном и креном. <code>camera</code> — где стоит глаз и куда смотрит. <code>sunlight</code> включает солнце, <code>point_light</code> — лампу (до 8 ламп), <code>fog</code> — туман, <code>shadows</code> — тени. У сетки есть свои настройки: <code>mesh_smooth</code> (плавный свет), <code>mesh_shine</code> (блеск), <code>mesh_glow</code> (светится сама), <code>mesh_alpha</code> (стекло, вода). Считает видеокарта.",
 '''func quad(m: int, x1: dec, y1: dec, z1: dec, x2: dec, y2: dec, z2: dec, x3: dec, y3: dec, z3: dec, x4: dec, y4: dec, z4: dec, c: int)
     mesh_add(m, x1, y1, z1, x2, y2, z2, x3, y3, z3, c)
     mesh_add(m, x1, y1, z1, x3, y3, z3, x4, y4, z4, c)
@@ -327,14 +329,22 @@ func main()
     quad(m, -1.0, -1.0, -1.0, -1.0, 1.0, -1.0, 1.0, 1.0, -1.0, 1.0, -1.0, -1.0, rgb(230, 80, 80))
     quad(m, 1.0, -1.0, 1.0, 1.0, 1.0, 1.0, -1.0, 1.0, 1.0, -1.0, -1.0, 1.0, rgb(80, 200, 120))
     quad(m, -1.0, 1.0, -1.0, -1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, -1.0, rgb(80, 140, 240))
+    glass = mesh_new()
+    quad(glass, -1.0, -1.0, 0.0, -1.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0, -1.0, 0.0, rgb(120, 200, 255))
+    mesh_alpha(glass, 0.4)                // стекло: видно, что за ним
+    mesh_shine(m, 0.6)                    // блеск, как у лака
     camera(0, 2, -6, 0, 0, 0)
-    sunlight(0.5, 1, -0.3, 0.25)
+    sunlight(0.5, 1, -0.3, 0.25)          // солнце сверху сбоку
+    point_light(0, -3, 2, -2, rgb(255, 180, 90), 8)   // тёплая лампа номер 0
+    fog(rgb(15, 18, 28), 8, 20)           // туман от 8 до 20
+    shadows(20)                           // тени в квадрате 20 × 20
     turn = 0.0
     repeat while window_alive()
         turn += 60 * frame_ms() / 1000
         clear_window(rgb(15, 18, 28))
         draw_mesh(m, 0, 0, 0, turn)
         draw_mesh_rot(m, 3, 0, 0, turn, 30, 0)
+        draw_mesh(glass, -3, 0, -1, 0)
 ''', "check"),
 ("Картинка на сетке",
  "<code>mesh_image(m, картинка)</code> рисует сетку картинкой. <code>mesh_add_uv</code> — треугольник, у каждого угла своё место на картинке (u, v от 0 до 1).",
@@ -352,10 +362,14 @@ func main()
 ''', "check"),
 ],
 ["Ближнее закрывает дальнее само (глубина). Задние грани закрытых сеток не рисуются.",
+ "Готовые модели из Blender и других программ: <code>use model</code>, потом <code>md = try model.load(\"hero.glb\")</code>, <code>model.build(md)</code>, <code>model.draw(md, x, y, z, 0, 0, 0)</code>. Анимации из файла: <code>model.play(md, \"walk\", секунды)</code>.",
+ "Кости: <code>bone_add</code>, <code>bone_box</code>, <code>bone_turn</code> — одна сетка становится персонажем, который сгибается.",
+ "Свои шейдеры пишутся на самом Tachbit: <code>gpu func</code>, потом <code>mesh_shader(m, \"имя\")</code>. Готовые (вода, огонь, небо, мультяшный, pbr) — в <code>use shaders</code>.",
+ "Большой мир: <code>mesh_lod</code> (вдали проще), <code>mesh_far</code> (дальше не рисовать), <code>mesh_free</code> (отдать память), подгрузка кусков — <code>use stream</code>.",
  "<code>TB_GPU_INFO=1</code> — сказать при запуске, чем рисуем; <code>TB_GPU=0</code> — рисовать процессором.",
- "Примеры: <code>examples/basics/cube.tb</code>, игры <code>examples/apps/corridor</code> и <code>football</code>."],
-"Постройте из кубов лестницу из 5 ступенек и облетите её камерой по кругу (камера в точке <code>(8·cos, 4, 8·sin)</code>, смотрит в центр).",
-["mesh_new", "mesh_add", "mesh_add_uv", "mesh_image", "draw_mesh", "draw_mesh_rot", "camera", "sunlight", "draw_triangle"])
+ "Примеры: <code>examples/basics/cube.tb</code>, <code>shader_scene.tb</code>, <code>view_model.tb</code>, игры <code>examples/apps/corridor</code>, <code>football</code>, <code>pbr_room</code>, <code>big_world</code>."],
+"Постройте из кубов лестницу из 5 ступенек и облетите её камерой по кругу: камера в точке <code>(8 * cos(a), 4, 8 * sin(a))</code>, смотрит в центр, угол <code>a</code> растёт каждый кадр. Повесьте над лестницей лампу.",
+["mesh_new", "mesh_add", "mesh_add_uv", "mesh_image", "draw_mesh", "draw_mesh_rot", "camera", "sunlight", "point_light", "spot_light", "light_off", "fog", "shadows", "mesh_smooth", "mesh_shine", "mesh_glow", "mesh_alpha", "mesh_clear", "mesh_count", "mesh_lod", "mesh_far", "mesh_free", "bone_add", "bone_box", "bone_turn", "mesh_shader", "shader_set", "gpu func", "draw_triangle"])
 
 lesson("Звук", "Звуки, музыка и звук в 3D.",
 [
@@ -566,6 +580,7 @@ tb bare файл.tb              # ядро без ОС
 tb app файл.tb [--own]       # программа для Omnium
 tb lib файл.tb               # библиотека для C
 tb version                   # какая версия
+tb lang en / tb lang ru      # сообщения компилятора по-английски или по-русски
 --llvm / --c                 # к build и run: через LLVM или через C
 ''', "none"),
 ("Переменные окружения",
@@ -583,4 +598,4 @@ TB_UI_FONT=шрифт.ttf   # шрифт для lib/ui
 ["VS Code: расширение Tachbit подсвечивает код и подчёркивает ошибки при сохранении.",
  "Полный справочник — <code>docs/guide.md</code> в репозитории."],
 "Создайте проект <code>tb new hello</code>, запустите его через <code>tb start hello</code>, потом посмотрите <code>tb c hello/main.tb</code>: сравните, во что превратились ваши 5 строк.",
-["tb new", "tb start", "tb run", "tb build", "tb check", "tb c", "tb ll", "tb bare", "tb app", "tb lib", "tb version"])
+["tb new", "tb start", "tb run", "tb build", "tb check", "tb c", "tb ll", "tb bare", "tb app", "tb lib", "tb version", "tb lang"])
