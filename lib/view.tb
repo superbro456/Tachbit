@@ -93,6 +93,8 @@ obj TbsKeep
     radius: int
     fs: int
     bold: int
+    k: dec
+    line_h: int
 
 // прочитать файл .tbs. Нет файла — окно покажет ошибку красным, программа не падает
 modpub func file(path: text) gives v: TbsView
@@ -203,7 +205,7 @@ func parse(v: TbsView, src: text)
         if isprop
             if cur >= 0 and ind > s.items[cur].ind
                 if not known_prop(key)
-                    oops(v, n, "такого свойства нет: " + key + " (есть text, color, backcolor, corner.radius, corner.color, size, font, align, look, hint, value, on, min, max, items, style)")
+                    oops(v, n, "такого свойства нет: " + key + " (есть text, color, backcolor, corner.radius, corner.color, size, font, align, look, hint, value, on, min, max, items, style, width, height, scale)")
                 s.items[cur].props[key] = val
             else
                 screen_prop(v, s, key, val, n)
@@ -333,7 +335,7 @@ func needs_id(k: text)
     return false
 
 func known_prop(k: text)
-    each w in ["text", "color", "backcolor", "corner.radius", "corner.color", "size", "font", "align", "look", "hint", "value", "on", "min", "max", "items", "style", "accent"]
+    each w in ["text", "color", "backcolor", "corner.radius", "corner.color", "size", "font", "align", "look", "hint", "value", "on", "min", "max", "items", "style", "accent", "width", "height", "scale"]
         if w == k
             return true
     return false
@@ -554,15 +556,36 @@ func split_line(u: Ui, start: int, total: int, n: int, sizes: list text, gap: in
 
 // где вещь: по клеткам или по точкам (точки считаются от окна при каждом кадре — окно тянут, вещь едет)
 func place(u: Ui, v: TbsView, xs: list int, ys: list int, it: TbsItem, bx: int, by: int, bw: int, bh: int) gives x: int, y: int, w: int, h: int
+    pw = prop(v, it, "width")
+    ph = prop(v, it, "height")
     if it.mode != "xy"
         x, y, w, h = rect(xs, ys, it)
+        // width / height: своя ширина и высота внутри клеток (точки или % клеток); по высоте — по середине,
+        // по ширине — слева (align: center или right двигают)
+        if pw != "" and is_place(pw)
+            nw = min(w, len_px(u, pw, w))
+            al = prop(v, it, "align")
+            if al == "center"
+                x += (w - nw) / 2
+            else if al == "right"
+                x += w - nw
+            w = nw
+        if ph != "" and is_place(ph)
+            nh = min(h, len_px(u, ph, h))
+            y += (h - nh) / 2
+            h = nh
         return
-    w = natural_w(u, v, it)
-    h = natural_h(u, it)
+    sc = scale_pct(v, it)
+    w = natural_w(u, v, it) * sc / 100
+    h = natural_h(u, it) * sc / 100
     if it.pw != ""
         w = len_px(u, it.pw, bw)
     if it.ph != ""
         h = len_px(u, it.ph, bh)
+    if pw != "" and is_place(pw)
+        w = len_px(u, pw, bw)
+    if ph != "" and is_place(ph)
+        h = len_px(u, ph, bh)
     x = at_px(u, it.px, bx, bw)
     y = at_px(u, it.py, by, bh)
     // −число: правый (нижний) край вещи стоит в этой точке
@@ -570,6 +593,16 @@ func place(u: Ui, v: TbsView, xs: list int, ys: list int, it: TbsItem, bx: int, 
         x -= w
     if starts_with(it.py, "-")
         y -= h
+
+// scale: 1.5, 2, 150% → проценты (100 — как есть)
+func scale_pct(v: TbsView, it: TbsItem)
+    s = prop(v, it, "scale")
+    if s == ""
+        return 100
+    if ends_with(s, "%")
+        return max(10, min(1000, to_int(cut(s, 0, len(s) - 2)) or 100))
+    d = to_dec(s) or 1.0
+    return max(10, min(1000, round(d * 100)))
 
 func rect(xs: list int, ys: list int, it: TbsItem) gives x: int, y: int, w: int, h: int
     x = xs[it.c0 * 2]
@@ -596,7 +629,7 @@ func num(v: TbsView, it: TbsItem, key: text, dflt: int)
 
 // на время рисования вещи её свойства становятся цветами и размерами ui, потом всё возвращается
 func keep(u: Ui) gives k: TbsKeep
-    k = TbsKeep(ink: u.ink, dim: u.dim, accent: u.accent, on_accent: u.on_accent, raised: u.raised, fieldbg: u.fieldbg, line: u.line, red: u.red, radius: u.radius, fs: u.fs, bold: u.bold)
+    k = TbsKeep(ink: u.ink, dim: u.dim, accent: u.accent, on_accent: u.on_accent, raised: u.raised, fieldbg: u.fieldbg, line: u.line, red: u.red, radius: u.radius, fs: u.fs, bold: u.bold, k: u.k, line_h: u.line_h)
 
 func restore(u: Ui, k: TbsKeep)
     u.ink = k.ink
@@ -610,8 +643,17 @@ func restore(u: Ui, k: TbsKeep)
     u.radius = k.radius
     u.fs = k.fs
     u.bold = k.bold
+    u.k = k.k
+    u.line_h = k.line_h
 
 func apply(u: Ui, v: TbsView, it: TbsItem, look: text)
+    // scale: вся вещь крупнее или мельче — буквы, высота, скругления (1.5 или 150%)
+    sc = scale_pct(v, it)
+    if sc != 100
+        u.k = u.k * sc / 100.0
+        u.fs = ui.px(u, 14)
+        u.line_h = ui.px(u, 16)
+        u.radius = ui.px(u, 10)
     c = prop(v, it, "color")
     bg = prop(v, it, "backcolor")
     if prop(v, it, "accent") != ""
@@ -642,15 +684,16 @@ func draw_item(u: Ui, v: TbsView, it: TbsItem, x: int, y: int, w: int, h: int)
     if w < ui.px(u, 8) or h < ui.px(u, 8)
         return               // окно сжали так, что вещи негде встать: не рисуем, а не ломаемся
     k = it.kind
-    if k == "title" or k == "heading" or k == "subtitle" or k == "text" or k == "note" or k == "caps" or k == "code" or k == "chip"
-        draw_text_item(u, v, it, x, y, w, h)
-        return
     id = it.id
     look = prop(v, it, "look")
     if look == ""
         look = "second"
     kept = keep(u)
     apply(u, v, it, look)
+    if k == "title" or k == "heading" or k == "subtitle" or k == "text" or k == "note" or k == "caps" or k == "code" or k == "chip"
+        draw_text_item(u, v, it, x, y, w, h)
+        restore(u, kept)
+        return
     ch = min(h, ui.px(u, 36))
     cy = y + (h - ch) / 2
     label = prop(v, it, "text")
