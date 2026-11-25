@@ -54,6 +54,8 @@ curl -fsSL https://raw.githubusercontent.com/superbro456/Tachbit/main/tools/get.
 
 На Windows: `download/Tachbit-Setup.exe` (новая версия ставится поверх старой как обновление) или `powershell -ExecutionPolicy Bypass -File tools\install.ps1`.
 
+Расширение для VS Code (подсказки, F12, ошибки в коде): `download/tachbit-vscode.vsix` → в VS Code Cmd/Ctrl+Shift+P → «Extensions: Install from VSIX...». Для Cursor и VSCodium — в Open VSX по слову «Tachbit».
+
 | Команда | Что делает |
 |---|---|
 | `tb new shop` | новый проект: папка `shop/` с `main.tb` |

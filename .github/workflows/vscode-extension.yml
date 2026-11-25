@@ -1,0 +1,48 @@
+# Расширение VS Code: собрать .vsix, выложить в Releases на GitHub и в Open VSX.
+# Запуск: тег vscode-v0.10.0 (git tag vscode-v0.10.0 && git push origin vscode-v0.10.0)
+# или вручную: Actions → «VS Code extension» → Run workflow.
+# Для Open VSX один раз добавь секрет OVSX_TOKEN (Settings → Secrets and variables → Actions);
+# без него шаг Open VSX просто пропускается.
+name: VS Code extension
+
+on:
+  push:
+    tags: ['vscode-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Собрать .vsix
+        working-directory: tools/vscode
+        run: |
+          node lsp/make_builtins.js
+          npx -y @vscode/vsce@3.2.1 package --no-dependencies -o ../../tachbit-vscode.vsix
+          echo "VERSION=$(node -p "require('./package.json').version")" >> "$GITHUB_ENV"
+      - name: Releases на GitHub
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="vscode-v$VERSION"
+          cp tachbit-vscode.vsix "tachbit-vscode-$VERSION.vsix"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "tachbit-vscode-$VERSION.vsix" --clobber
+          else
+            gh release create "$tag" "tachbit-vscode-$VERSION.vsix" --title "Tachbit for VS Code $VERSION" \
+              --notes "Install: VS Code → Cmd/Ctrl+Shift+P → Extensions: Install from VSIX... → this file. Changes: tools/vscode/CHANGELOG.md"
+          fi
+      - name: Open VSX
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_TOKEN }}
+        if: env.OVSX_PAT != ''
+        run: |
+          npx -y ovsx@0.10.1 create-namespace tachbit -p "$OVSX_PAT" || true
+          npx -y ovsx@0.10.1 publish tachbit-vscode.vsix -p "$OVSX_PAT"

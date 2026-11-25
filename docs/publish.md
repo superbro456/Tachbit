@@ -40,7 +40,14 @@ brew install --HEAD tachbit
    ```
 4. Через несколько минут расширение найдётся в VS Code по слову «Tachbit».
 
-Для Cursor и VSCodium то же расширение публикуется на https://open-vsx.org (`npx ovsx publish -p <токен>`).
+Старое имя расширения Microsoft больше не выдаёт (удалённые имена не возвращают), поэтому расширение раздаём так:
+
+- **Releases на GitHub и Open VSX — сами.** Тег `vscode-v0.10.0` (`git tag vscode-v0.10.0 && git push origin vscode-v0.10.0`)
+  или Actions → «VS Code extension» → Run workflow: собирается `.vsix`, кладётся в Releases и, если есть секрет `OVSX_TOKEN`, — в Open VSX
+  (оттуда берут Cursor, VSCodium, Windsurf).
+- **Open VSX, один раз:** войди на https://open-vsx.org через GitHub, подпиши соглашение издателя (Profile → Publisher Agreement),
+  сделай токен (Settings → Access Tokens) и добавь его в репозиторий: Settings → Secrets and variables → Actions → New secret, имя `OVSX_TOKEN`.
+- **Файл в репозитории:** `download/tachbit-vscode.vsix` — VS Code → Cmd/Ctrl+Shift+P → «Extensions: Install from VSIX...».
 
 ## 5. Тег версии и релиз
 
