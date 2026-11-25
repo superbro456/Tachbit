@@ -62,6 +62,7 @@ obj TbsScreen
     gap: int
     pad: int
     items: list TbsItem
+    narrow: text             // узкое окно (как телефон): "" — 560 точек, "off" — выключено, число — своя граница
 
 obj TbsStyle
     name: text
@@ -81,6 +82,7 @@ obj TbsView
     said: bool               // ошибки уже напечатаны
     hov: bool                // мышь над вещью, которую сейчас рисуем: тогда берутся свойства hover.*
     imgs: dict text int      // картинки: путь и размер → номер картинки
+    scroll: dict text int    // прокрутка экрана (узкий режим, fill), в настоящих точках
 
 // цвета и размеры ui, которые вещь меняет на время своего рисования
 obj TbsKeep
@@ -252,6 +254,8 @@ func screen_prop(v: TbsView, s: TbsScreen, key: text, val: text, n: int)
             s.colw = sizes
         else
             s.rowh = sizes
+    else if key == "narrow"
+        s.narrow = val
     else if key == "gap"
         s.gap = to_int(val) or 12
     else if key == "pad"
@@ -267,7 +271,7 @@ func screen_prop(v: TbsView, s: TbsScreen, key: text, val: text, n: int)
             s.gap = 12
             s.pad = 20
     else
-        oops(v, n, "у экрана есть только cols, rows, gap, pad, space; свойство вещи пиши под ней с отступом")
+        oops(v, n, "у экрана есть только cols, rows, gap, pad, space, narrow; свойство вещи пиши под ней с отступом")
 
 // строка вещи: вид [имя] (клетки). Отдаёт номер вещи или −1
 func item(v: TbsView, s: TbsScreen, body: text, ind: int, n: int)
@@ -342,7 +346,7 @@ func known_prop(k0: text)
     k = k0
     if starts_with(k, "hover.")
         k = cut(k, 6, len(k) - 1)
-    each w in ["text", "color", "backcolor", "corner.radius", "corner.color", "corner.width", "size", "font", "align", "look", "hint", "value", "on", "min", "max", "items", "style", "accent", "width", "height", "scale", "padding", "margin", "opacity", "shadow", "visible", "cursor", "tip", "disabled", "spacing", "transform", "decoration", "wrap", "line.height", "min.width", "max.width", "min.height", "max.height", "layer", "src", "fit"]
+    each w in ["text", "color", "backcolor", "corner.radius", "corner.color", "corner.width", "size", "font", "align", "look", "hint", "value", "on", "min", "max", "items", "style", "accent", "width", "height", "scale", "padding", "margin", "opacity", "shadow", "visible", "cursor", "tip", "disabled", "spacing", "transform", "decoration", "wrap", "line.height", "min.width", "max.width", "min.height", "max.height", "layer", "src", "fit", "narrow", "order", "span"]
         if w == k
             return true
     return false
@@ -564,8 +568,23 @@ modpub func screen(u: Ui, v: TbsView, name: text)
         gap = ui.px(u, s.gap)
     if s.pad >= 0
         pad = ui.px(u, s.pad)
+    // узкое окно (как телефон): всё встаёт в один столбец по порядку, длинное листается колёсиком
+    edge = 560
+    if s.narrow == "off"
+        edge = 0
+    else if s.narrow != ""
+        edge = to_int(no_px(s.narrow)) or 560
+    if bw < ui.px(u, edge)
+        flow(u, v, s, 1, bx, by, bw, bh, ui.px(u, 14), ui.px(u, 16), true)
+        return
+    // cols: fill 150 — столько столбцов по 150 точек, сколько влезает; вещи текут по порядку
+    if len(s.colw) >= 2 and s.colw[0] == "fill"
+        cw = ui.px(u, to_int(no_px(s.colw[1])) or 150)
+        n = max(1, (bw - 2 * pad + gap) / (cw + gap))
+        flow(u, v, s, n, bx, by, bw, bh, gap, pad, false)
+        return
     xs = split_line(u, bx + pad, bw - 2 * pad, s.cols, s.colw, gap)
-    ys = split_line(u, by + pad, bh - 2 * pad, s.rows, s.rowh, gap)
+    ys = split_line(u, by + pad, bh - 2 * pad, s.rows, auto_rows(u, v, s), gap)
     // слои (layer, как z-index): меньше — ниже. В слое сначала карточки (они фон), потом остальное
     lo = 0
     hi = 0
@@ -575,13 +594,13 @@ modpub func screen(u: Ui, v: TbsView, name: text)
         hi = max(hi, L)
     count L from lo to hi
         each it in s.items
-            if it.kind == "card" and num(v, it, "layer", 0) == L
+            if it.kind == "card" and num(v, it, "layer", 0) == L and not hidden_here(v, it, false)
                 x, y, w, h = place(u, v, xs, ys, it, bx, by, bw, bh)
                 draw_any(u, v, it, x, y, w, h)
         // вещи внутри карточки отходят от её краёв
         inset = ui.px(u, 16)
         each it in s.items
-            if it.kind != "card" and num(v, it, "layer", 0) == L
+            if it.kind != "card" and num(v, it, "layer", 0) == L and not hidden_here(v, it, false)
                 x, y, w, h = place(u, v, xs, ys, it, bx, by, bw, bh)
                 each c in s.items
                     if c.kind == "card" and it.mode != "xy" and c.mode != "xy" and it.c0 >= c.c0 and it.c1 <= c.c1 and it.r0 >= c.r0 and it.r1 <= c.r1
@@ -675,6 +694,174 @@ func fade(u: Ui, v: TbsView, it: TbsItem, c: int)
         return c
     return ui.mix(c, u.bg, 100 - op)
 
+// rows: auto — высота строки по самой высокой вещи в ней (как auto в CSS grid)
+func auto_rows(u: Ui, v: TbsView, s: TbsScreen) gives sizes: list text
+    count r from 0 to s.rows - 1
+        sz = "*"
+        if r < len(s.rowh)
+            sz = s.rowh[r]
+        if sz == "auto"
+            hmax = 0
+            each it in s.items
+                if it.mode != "xy" and it.r0 == r and it.r1 == r and it.kind != "card" and prop(v, it, "visible") != "no"
+                    hmax = max(hmax, flow_h(u, v, it, 0))
+            sz = "" + max(8, round(hmax / u.k))
+        sizes.add(sz)
+
+// высота вещи «по содержимому» (настоящие точки); w — ширина для переноса строк (0 — не знаем)
+func flow_h(u: Ui, v: TbsView, it: TbsItem, w: int)
+    if prop(v, it, "height") != "" and not ends_with(prop(v, it, "height"), "%")
+        return len_px(u, prop(v, it, "height"), 0)
+    k = it.kind
+    sc = scale_pct(v, it)
+    h = 40
+    if k == "title"
+        h = 44
+    else if k == "heading"
+        h = 34
+    else if k == "subtitle" or k == "chip" or k == "note"
+        h = 26
+    else if k == "caps"
+        h = 18
+    else if k == "line"
+        h = 12
+    else if k == "area"
+        h = 120
+    else if k == "image"
+        h = 160
+    else if k == "text"
+        h = 26
+    hp = ui.px(u, h) * sc / 100
+    if yes(prop(v, it, "wrap")) and w > 0
+        // примерно: сколько строк выйдет по ширине
+        size = u.fs
+        if prop(v, it, "size") != ""
+            size = ui.px(u, num(v, it, "size", 14))
+        tw = ui.text_w(u, prop(v, it, "text")) * size / max(1, u.fs)
+        lines = max(1, tw / max(1, w - ui.px(u, 8)) + 1)
+        lh = size * 5 / 4
+        if prop(v, it, "line.height") != ""
+            lh = size * pct_or_mul(prop(v, it, "line.height")) / 100
+        hp = max(hp, lines * lh + ui.px(u, 8))
+    return hp
+
+// поток: вещи по порядку (order меняет порядок), n в ряд; карточка собирает вещи из своих клеток.
+// Если не влезает по высоте — колёсико листает
+func flow(u: Ui, v: TbsView, s: TbsScreen, n: int, bx: int, by: int, bw: int, bh: int, gap: int, pad: int, narrow: bool)
+    key = s.name
+    off = 0
+    if v.scroll.has(key)
+        off = v.scroll[key]
+    // порядок: по order, при равных — как в файле
+    idx = list int
+    count i from 0 to len(s.items) - 1
+        idx.add(i)
+    count a from 1 to len(idx) - 1
+        b = a
+        repeat while b > 0 and num(v, s.items[idx[b - 1]], "order", 0) > num(v, s.items[idx[b]], "order", 0)
+            t = idx[b]
+            idx[b] = idx[b - 1]
+            idx[b - 1] = t
+            b -= 1
+    done = list bool
+    each it in s.items
+        done.add(false)
+    // вещи внутри карточек: они пойдут вместе с карточкой
+    inside = list int
+    each it in s.items
+        inside.add(-1)
+    count ci from 0 to len(s.items) - 1
+        c = s.items[ci]
+        if c.kind == "card" and c.mode == "cell"
+            count i from 0 to len(s.items) - 1
+                it = s.items[i]
+                if i != ci and it.kind != "card" and it.mode == "cell" and it.c0 >= c.c0 and it.c1 <= c.c1 and it.r0 >= c.r0 and it.r1 <= c.r1
+                    inside[i] = ci
+    W = bw - 2 * pad
+    colw = (W - gap * (n - 1)) / n
+    y = by + pad - off
+    col = 0
+    rowh = 0
+    each i in idx
+        it = s.items[i]
+        if done[i] or inside[i] >= 0
+            skip
+        done[i] = true
+        if hidden_here(v, it, narrow)
+            skip
+        if it.kind == "card"
+            // карточка — на всю ширину, внутри её вещи столбцом
+            if col > 0
+                y += rowh + gap
+                col = 0
+                rowh = 0
+            cp = ui.px(u, num(v, it, "padding", 16))
+            kids = list int
+            each j in idx
+                if inside[j] == i and not hidden_here(v, s.items[j], narrow)
+                    kids.add(j)
+            hh = 2 * cp
+            each j in kids
+                hh += flow_h(u, v, s.items[j], W - 2 * cp) + ui.px(u, 8)
+            if len(kids) > 0
+                hh -= ui.px(u, 8)
+            draw_any(u, v, it, bx + pad, y, W, hh)
+            yy = y + cp
+            each j in kids
+                kh = flow_h(u, v, s.items[j], W - 2 * cp)
+                draw_any(u, v, s.items[j], bx + pad + cp, yy, W - 2 * cp, kh)
+                done[j] = true
+                yy += kh + ui.px(u, 8)
+            y += hh + gap
+            skip
+        full = n == 1 or it.kind == "title" or it.kind == "heading" or it.kind == "area" or it.kind == "line" or prop(v, it, "span") == "all"
+        if full and col > 0
+            y += rowh + gap
+            col = 0
+            rowh = 0
+        w = colw
+        if full
+            w = W
+        h = flow_h(u, v, it, w)
+        x = bx + pad + col * (colw + gap)
+        if y + h > by and y < by + bh
+            draw_any(u, v, it, x, y, w, h)
+        rowh = max(rowh, h)
+        if full
+            y += rowh + gap
+            rowh = 0
+        else
+            col += 1
+            if col >= n
+                col = 0
+                y += rowh + gap
+                rowh = 0
+    if col > 0
+        y += rowh + gap
+    // прокрутка колёсиком, если всё не влезло
+    total = y + off - by + pad - gap
+    most = max(0, total - bh)
+    if u.wheel != 0 and ui.free(u) and ui.inside(u, bx, by, bw, bh)
+        off = off - u.wheel * ui.px(u, 40)
+    off = max(0, min(most, off))
+    v.scroll[key] = off
+    if most > 0
+        // тонкая полоска справа: где мы сейчас
+        th = max(ui.px(u, 30), bh * bh / max(1, total))
+        ty = by + (bh - th) * off / max(1, most)
+        ui.rbox(u, bx + bw - ui.px(u, 6), ty, ui.px(u, 4), th, ui.px(u, 2), u.line)
+
+// narrow: hide — в узком окне вещь прячется; narrow: only — видна только в узком
+func hidden_here(v: TbsView, it: TbsItem, narrow: bool)
+    if prop(v, it, "visible") == "no"
+        return true
+    nw = prop(v, it, "narrow")
+    if narrow and nw == "hide"
+        return true
+    if not narrow and nw == "only"
+        return true
+    return false
+
 // места столбцов (или строк): для каждого начало и конец, через одно
 func split_line(u: Ui, start: int, total: int, n: int, sizes: list text, gap: int) gives at: list int
     fixed = 0
@@ -683,10 +870,10 @@ func split_line(u: Ui, start: int, total: int, n: int, sizes: list text, gap: in
         sz = "*"
         if i < len(sizes)
             sz = sizes[i]
-        if sz == "*"
+        if sz == "*" or ends_with(sz, "+")
             stars += 1
         else
-            fixed += ui.px(u, to_int(sz) or 0)
+            fixed += ui.px(u, to_int(no_px(sz)) or 0)
     left = max(0, total - fixed - gap * (n - 1))
     each_star = 0
     if stars > 0
@@ -701,8 +888,11 @@ func split_line(u: Ui, start: int, total: int, n: int, sizes: list text, gap: in
         if i < len(sizes)
             sz = sizes[i]
         w = each_star
-        if sz != "*"
-            w = ui.px(u, to_int(sz) or 0) * shrink / 100
+        if ends_with(sz, "+")
+            // 200+ — делит остаток, но не меньше 200 (как minmax(200px, 1fr))
+            w = max(each_star, ui.px(u, to_int(cut(sz, 0, len(sz) - 2)) or 0))
+        else if sz != "*"
+            w = ui.px(u, to_int(no_px(sz)) or 0) * shrink / 100
         at.add(p)
         at.add(p + w)
         p += w + gap
