@@ -13,6 +13,10 @@ echo "стоит компилятор на Tachbit (собран сам собо
 # общие библиотеки (use ui): lib/*.tb → ~/.tachbit/lib
 mkdir -p "$HOME/.tachbit/lib/fonts" && cp lib/*.tb "$HOME/.tachbit/lib/" && cp lib/fonts/* "$HOME/.tachbit/lib/fonts/" && echo "библиотеки: $HOME/.tachbit/lib"
 
+# помощник языка для редакторов (LSP): ~/.tachbit/lsp и команда tb-lsp (нужен node)
+mkdir -p "$HOME/.tachbit/lsp" && cp tools/vscode/lsp/*.js tools/vscode/lsp/*.json "$HOME/.tachbit/lsp/"
+printf '#!/bin/sh\nexec node "$HOME/.tachbit/lsp/server.js" "$@"\n' > "$bin/tb-lsp" && chmod +x "$bin/tb-lsp"
+
 # язык сообщений: если ещё не выбран — по языку системы (поменять: tb lang en / tb lang ru)
 if [ ! -f "$HOME/.tachbit/lang" ]; then
     lang=en

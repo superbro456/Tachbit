@@ -1,8 +1,8 @@
 {
   "name": "tachbit-lang",
   "displayName": "Tachbit Language",
-  "description": "Tachbit language: colors, Tachbit Dark/Light themes, run with one button (F5, ▶, Touch Bar) and errors right in the code",
-  "version": "0.9.7",
+  "description": "Tachbit language: completion, hover docs, go to definition, rename, colors, themes, run with one button (F5, ▶, Touch Bar) and errors right in the code",
+  "version": "0.10.0",
   "publisher": "tachbit",
   "license": "MIT",
   "repository": {

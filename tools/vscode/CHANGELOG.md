@@ -1,5 +1,14 @@
 # Changes
 
+## 0.10.0
+- Language helper: completion while typing (your variables, functions, obj fields after `.`,
+  `ui.` functions from `use` modules, built-in words), hover with signature and description,
+  go to definition (F12, also into `lib/*.tb`), parameter hints inside `f(`, file outline,
+  all references (Shift+F12) and rename (F2).
+- Descriptions for all 220 built-in words.
+- If `.tb` files were set to open as another language (for example Python), the extension offers to fix it.
+- The same helper as a standalone LSP server for other editors: `tb-lsp` (`lsp/server.js`).
+
 ## 0.9.7
 - Icon: the Tachbit logo tile.
 
