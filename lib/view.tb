@@ -1,0 +1,634 @@
+// view — окна из файла .tbs: разметка и стили отдельно, логика в .tb.
+// Окно делится на сетку, как лист Excel: столбцы A, B, C ..., строки 1, 2, 3 ...
+// Каждая вещь занимает клетку (B2) или прямоугольник клеток (A1:C1). Сетка тянется вместе с окном.
+//
+//   // app.tbs
+//   style big
+//       color accent
+//       size 22
+//
+//   screen main 4x4
+//       h1 "Настройки"                   A1:D1
+//       caps "Имя"                       A2
+//       field name "Как вас зовут"       A3:C3
+//       main save "Сохранить"            D3
+//       note "Подпись другим стилем"     A4:D4 .big
+//
+//   // app.tb
+//   use ui
+//   use view
+//   func main()
+//       window_sharp()
+//       try window_open(800, 500, "Моё приложение")
+//       u = ui.start()
+//       v = view.file("app.tbs")
+//       repeat while window_alive()
+//           ui.frame(u)
+//           clear_window(u.bg)
+//           view.screen(u, v, "main")
+//           if view.pressed(v, "save")
+//               print(view.text_of(v, "name"))
+//           ui.end_frame(u)
+//
+// Поменяли и сохранили .tbs — окно перерисуется само, программу перезапускать не надо.
+// Что можно писать — в docs/tbs.md.
+
+use ui
+
+obj TbsItem
+    kind: text
+    id: text
+    label: text
+    extra: text          // второй текст в кавычках: начальное значение поля
+    nums: list int       // числа: у ползунка от, до, сначала
+    flag: bool           // слово on: переключатель включён сначала
+    c0: int
+    r0: int
+    c1: int
+    r1: int
+    style: text
+    line: int
+
+obj TbsScreen
+    name: text
+    cols: int
+    rows: int
+    colw: list text      // ширина столбцов: число точек или * (делят остаток)
+    rowh: list text
+    gap: int
+    pad: int
+    items: list TbsItem
+
+obj TbsStyle
+    name: text
+    props: dict text text
+
+obj TbsView
+    path: text
+    src: text
+    screens: list TbsScreen
+    styles: list TbsStyle
+    errors: list text
+    vals: dict text text     // тексты полей
+    ons: dict text bool      // переключатели и галочки
+    nums: dict text int      // ползунки, выбор из списка, вкладки
+    hits: dict text bool     // какие кнопки нажали в этом кадре
+    tick: int
+    said: bool               // ошибки уже напечатаны
+
+// прочитать файл .tbs. Нет файла — окно покажет ошибку красным, программа не падает
+modpub func file(path: text) gives v: TbsView
+    v = TbsView(path: path)
+    src = read_file(path) else err
+        v.errors.add(path + ": не могу прочитать файл")
+        return
+    parse(v, src)
+
+// то же из готового текста (без файла)
+modpub func from_text(src: text) gives v: TbsView
+    v = TbsView(path: "")
+    parse(v, src)
+
+// ---------- что нажали и что ввели ----------
+
+// кнопку id нажали в этом кадре
+modpub func pressed(v: TbsView, id: text)
+    return v.hits.has(id) and v.hits[id]
+
+// текст поля id
+modpub func text_of(v: TbsView, id: text)
+    if v.vals.has(id)
+        return v.vals[id]
+    return ""
+
+modpub func put_text(v: TbsView, id: text, s: text)
+    v.vals[id] = s
+
+// переключатель или галочка id включены
+modpub func is_on(v: TbsView, id: text)
+    return v.ons.has(id) and v.ons[id]
+
+modpub func put_on(v: TbsView, id: text, on: bool)
+    v.ons[id] = on
+
+// число ползунка, номер выбранного в списке или открытой вкладки
+modpub func number_of(v: TbsView, id: text)
+    if v.nums.has(id)
+        return v.nums[id]
+    return 0
+
+modpub func put_number(v: TbsView, id: text, n: int)
+    v.nums[id] = n
+
+// ---------- чтение .tbs ----------
+
+func parse(v: TbsView, src: text)
+    v.src = src
+    v.screens.clear()
+    v.styles.clear()
+    v.errors.clear()
+    v.said = false
+    lines = split(src, "\n")
+    sc = -1
+    st = -1
+    count n from 0 to len(lines) - 1
+        raw = lines[n]
+        words = tokens(raw)
+        if len(words) == 0
+            skip
+        indented = starts_with(raw, " ") or starts_with(raw, "\t")
+        w0 = words[0]
+        if not indented
+            sc = -1
+            st = -1
+            if w0 == "style" and len(words) >= 2
+                v.styles.add(TbsStyle(name: words[1]))
+                st = len(v.styles) - 1
+            else if w0 == "screen" and len(words) >= 3
+                s = TbsScreen(name: words[1], gap: -1, pad: -1)
+                parts = split(lower(words[2]), "x")
+                ok = len(parts) == 2
+                if ok
+                    s.cols = to_int(parts[0]) or 0
+                    s.rows = to_int(parts[1]) or 0
+                if s.cols < 1 or s.rows < 1 or s.cols > 26
+                    oops(v, n, "после имени экрана нужна сетка: столбцы x строки, например 4x5 (столбцов не больше 26)")
+                    s.cols = max(1, min(26, s.cols))
+                    s.rows = max(1, s.rows)
+                v.screens.add(s)
+                sc = len(v.screens) - 1
+            else
+                oops(v, n, "строка без отступа должна начинаться со style или screen")
+            skip
+        if st >= 0
+            if len(words) < 2
+                oops(v, n, "у свойства стиля нет значения: " + w0)
+                skip
+            if w0 != "color" and w0 != "bg" and w0 != "font" and w0 != "size" and w0 != "align" and w0 != "radius"
+                oops(v, n, "такого свойства стиля нет: " + w0 + " (есть color, bg, font, size, align, radius)")
+                skip
+            v.styles[st].props[w0] = words[1]
+            skip
+        if sc < 0
+            oops(v, n, "строка с отступом стоит не внутри style или screen")
+            skip
+        s = v.screens[sc]
+        if w0 == "cols" or w0 == "rows"
+            sizes = list text
+            count i from 1 to len(words) - 1
+                sizes.add(words[i])
+            if w0 == "cols"
+                s.colw = sizes
+            else
+                s.rowh = sizes
+            skip
+        if w0 == "gap" or w0 == "pad"
+            k = 0
+            if len(words) >= 2
+                k = to_int(words[1]) or 0
+            if w0 == "gap"
+                s.gap = k
+            else
+                s.pad = k
+            skip
+        if w0 == "space"
+            if len(words) >= 2 and words[1] == "tight"
+                s.gap = 6
+                s.pad = 10
+            else if len(words) >= 2 and words[1] == "roomy"
+                s.gap = 18
+                s.pad = 28
+            else
+                s.gap = 12
+                s.pad = 20
+            skip
+        item(v, s, words, n)
+
+// одна вещь экрана: вид, имя, "текст", числа, клетки, .стиль
+func item(v: TbsView, s: TbsScreen, words: list text, n: int)
+    kind = words[0]
+    if not known(kind)
+        oops(v, n, "такой вещи нет: " + kind)
+        return
+    it = TbsItem(kind: kind, line: n + 1, c0: -1)
+    texts = 0
+    count i from 1 to len(words) - 1
+        w = words[i]
+        if starts_with(w, "\"")
+            body = cut(w, 1, len(w) - 2)
+            if texts == 0
+                it.label = body
+            else
+                it.extra = body
+            texts += 1
+        else if starts_with(w, ".") and len(w) > 1
+            it.style = cut(w, 1, len(w) - 1)
+        else if is_cell(w)
+            cells(it, w)
+        else if w == "on"
+            it.flag = true
+        else if is_number(w)
+            it.nums.add(to_int(w) or 0)
+        else if it.id == ""
+            it.id = w
+        else
+            oops(v, n, "лишнее слово: " + w)
+    if it.c0 < 0
+        oops(v, n, "не сказано, в какой клетке: допиши, например, A1 или A1:C2")
+        return
+    if it.c1 >= s.cols or it.r1 >= s.rows
+        oops(v, n, "клетка за краем сетки " + s.cols + "x" + s.rows)
+        return
+    if needs_id(kind) and it.id == ""
+        oops(v, n, kind + " без имени: напиши имя после " + kind + ", по нему программа узнаёт нажатие и текст")
+        return
+    s.items.add(it)
+
+func known(k: text)
+    each w in ["h1", "heading", "h3", "text", "bold", "note", "caps", "code", "chip", "button", "main", "soft", "ghost", "danger", "link", "icon", "field", "area", "switch", "check", "slider", "pick", "tabs", "card", "line"]
+        if w == k
+            return true
+    return false
+
+func needs_id(k: text)
+    each w in ["button", "main", "soft", "ghost", "danger", "link", "icon", "field", "area", "switch", "check", "slider", "pick", "tabs"]
+        if w == k
+            return true
+    return false
+
+func is_number(w: text)
+    if len(w) == 0
+        return false
+    each ch in w
+        if code(ch) < 48 or code(ch) > 57
+            if not (ch == "-" and len(w) > 1)
+                return false
+    return true
+
+// A1, C12, A1:D3
+func is_cell(w: text)
+    parts = split(w, ":")
+    if len(parts) > 2
+        return false
+    each p in parts
+        if len(p) < 2
+            return false
+        c = code(p[0])
+        if c < 65 or c > 90
+            return false
+        if not is_number(cut(p, 1, len(p) - 1))
+            return false
+    return true
+
+func cells(it: TbsItem, w: text)
+    parts = split(w, ":")
+    a = parts[0]
+    b = parts[len(parts) - 1]
+    ca = code(a[0]) - 65
+    cb = code(b[0]) - 65
+    ra = (to_int(cut(a, 1, len(a) - 1)) or 1) - 1
+    rb = (to_int(cut(b, 1, len(b) - 1)) or 1) - 1
+    it.c0 = min(ca, cb)
+    it.c1 = max(ca, cb)
+    it.r0 = max(0, min(ra, rb))
+    it.r1 = max(0, max(ra, rb))
+
+func oops(v: TbsView, n: int, msg: text)
+    where = v.path
+    if where == ""
+        where = "tbs"
+    v.errors.add(where + ", строка " + (n + 1) + ": " + msg)
+
+// слова строки: "текст в кавычках" — одно слово (вместе с кавычками), // — дальше пояснение
+func tokens(line: text) gives words: list text
+    curw = ""
+    inq = false
+    prev = ""
+    each ch in line
+        if inq
+            curw += ch
+            if ch == "\""
+                inq = false
+                words.add(curw)
+                curw = ""
+        else if ch == "\""
+            if curw != ""
+                words.add(curw)
+            curw = "\""
+            inq = true
+        else if ch == "/" and prev == "/"
+            if len(curw) <= 1
+                curw = ""
+            else
+                curw = cut(curw, 0, len(curw) - 1)
+            stop
+        else if ch == " " or ch == "\t" or ch == "\r"
+            if curw != ""
+                words.add(curw)
+            curw = ""
+        else
+            curw += ch
+        prev = ch
+    if curw != ""
+        if inq
+            curw += "\""
+        words.add(curw)
+
+// ---------- рисование ----------
+
+// нарисовать экран name на всё свободное место (или в текущем месте раскладки ui)
+modpub func screen(u: Ui, v: TbsView, name: text)
+    v.hits.clear()
+    v.tick += 1
+    if v.path != "" and v.tick % 30 == 0
+        again(v)
+    bx, by, bw, bh = ui.take(u, 0)
+    if len(v.errors) > 0
+        show_errors(u, v, bx, by, bw)
+        return
+    si = -1
+    count i from 0 to len(v.screens) - 1
+        if v.screens[i].name == name
+            si = i
+    if si < 0
+        ui.txt(u, bx + ui.px(u, 12), by + ui.px(u, 12), "в .tbs нет экрана " + name, u.red)
+        return
+    s = v.screens[si]
+    gap = ui.px(u, 12)
+    pad = ui.px(u, 20)
+    if s.gap >= 0
+        gap = ui.px(u, s.gap)
+    if s.pad >= 0
+        pad = ui.px(u, s.pad)
+    xs = split_line(u, bx + pad, bw - 2 * pad, s.cols, s.colw, gap)
+    ys = split_line(u, by + pad, bh - 2 * pad, s.rows, s.rowh, gap)
+    // сначала карточки (они фон), потом всё остальное
+    each it in s.items
+        if it.kind == "card"
+            x, y, w, h = rect(xs, ys, it)
+            r = u.cr
+            fill = u.panel
+            st = find_style(v, it.style)
+            if st >= 0
+                fill = color(u, prop(v, st, "bg"), fill)
+                r = ui.px(u, to_int(prop(v, st, "radius")) or 14)
+            ui.shadow_under(u, x, y, w, h, r, 1)
+            ui.rframe_r(u, x, y, w, h, r, fill, u.line)
+    // вещи внутри карточки отходят от её краёв
+    inset = ui.px(u, 16)
+    each it in s.items
+        if it.kind != "card"
+            x, y, w, h = rect(xs, ys, it)
+            each c in s.items
+                if c.kind == "card" and it.c0 >= c.c0 and it.c1 <= c.c1 and it.r0 >= c.r0 and it.r1 <= c.r1
+                    if it.c0 == c.c0
+                        x += inset
+                        w -= inset
+                    if it.c1 == c.c1
+                        w -= inset
+                    if it.r0 == c.r0
+                        y += inset
+                        h -= inset
+                    if it.r1 == c.r1
+                        h -= inset
+            draw_item(u, v, it, x, y, w, h)
+
+// места столбцов (или строк): для каждого начало и конец, через одно
+func split_line(u: Ui, start: int, total: int, n: int, sizes: list text, gap: int) gives at: list int
+    fixed = 0
+    stars = 0
+    count i from 0 to n - 1
+        sz = "*"
+        if i < len(sizes)
+            sz = sizes[i]
+        if sz == "*"
+            stars += 1
+        else
+            fixed += ui.px(u, to_int(sz) or 0)
+    free = max(0, total - fixed - gap * (n - 1))
+    each_star = 0
+    if stars > 0
+        each_star = free / stars
+    p = start
+    count i from 0 to n - 1
+        sz = "*"
+        if i < len(sizes)
+            sz = sizes[i]
+        w = each_star
+        if sz != "*"
+            w = ui.px(u, to_int(sz) or 0)
+        at.add(p)
+        at.add(p + w)
+        p += w + gap
+
+func rect(xs: list int, ys: list int, it: TbsItem) gives x: int, y: int, w: int, h: int
+    x = xs[it.c0 * 2]
+    w = xs[it.c1 * 2 + 1] - x
+    y = ys[it.r0 * 2]
+    h = ys[it.r1 * 2 + 1] - y
+
+func draw_item(u: Ui, v: TbsView, it: TbsItem, x: int, y: int, w: int, h: int)
+    k = it.kind
+    id = it.id
+    ch = min(h, ui.px(u, 36))
+    cy = y + (h - ch) / 2
+    if k == "h1" or k == "heading" or k == "h3" or k == "text" or k == "bold" or k == "note" or k == "caps" or k == "code" or k == "chip"
+        draw_text_item(u, v, it, x, y, w, h)
+    else if k == "button"
+        hit(v, id, ui.button(u, x, cy, w, ch, it.label))
+    else if k == "main"
+        hit(v, id, ui.button_main(u, x, cy, w, ch, it.label))
+    else if k == "soft"
+        hit(v, id, ui.button_soft(u, x, cy, w, ch, it.label))
+    else if k == "ghost"
+        hit(v, id, ui.button_ghost(u, x, cy, w, ch, it.label))
+    else if k == "danger"
+        hit(v, id, ui.button_danger(u, x, cy, w, ch, it.label))
+    else if k == "icon"
+        hit(v, id, ui.button_icon(u, x + (w - ch) / 2, cy, ch, it.label))
+    else if k == "link"
+        over = ui.free(u) and ui.inside(u, x, y, ui.text_w(u, it.label), h)
+        if over
+            ui.cursor(u, "hand")
+        ty = y + (h - u.line_h) / 2
+        ui.txt(u, x, ty, ui.fit(u, it.label, w), u.accent)
+        if over
+            draw_rect(x, ty + u.line_h, min(w, ui.text_w(u, it.label)), max(1, round(u.k)), u.accent)
+        hit(v, id, over and u.press)
+    else if k == "field"
+        if not v.vals.has(id)
+            v.vals[id] = it.extra
+        v.vals[id] = ui.field(u, "tbs:" + id, x, cy, w, ch, v.vals[id], it.label)
+    else if k == "area"
+        if not v.vals.has(id)
+            v.vals[id] = it.extra
+        v.vals[id] = ui.text_box(u, "tbs:" + id, x, y, w, h, v.vals[id])
+    else if k == "switch"
+        if not v.ons.has(id)
+            v.ons[id] = it.flag
+        v.ons[id] = ui.switch_at(u, x, y + (h - ui.px(u, 22)) / 2, it.label, v.ons[id])
+    else if k == "check"
+        if not v.ons.has(id)
+            v.ons[id] = it.flag
+        v.ons[id] = ui.check(u, x, y + (h - ui.px(u, 20)) / 2, it.label, v.ons[id])
+    else if k == "slider"
+        lo = 0
+        hi = 100
+        if len(it.nums) >= 2
+            lo = it.nums[0]
+            hi = it.nums[1]
+        if not v.nums.has(id)
+            v.nums[id] = lo
+            if len(it.nums) >= 3
+                v.nums[id] = it.nums[2]
+        v.nums[id] = ui.slider(u, "tbs:" + id, x + ui.px(u, 10), y, w - ui.px(u, 20), h, v.nums[id], lo, hi)
+    else if k == "pick"
+        if not v.nums.has(id)
+            v.nums[id] = 0
+            if len(it.nums) >= 1
+                v.nums[id] = it.nums[0]
+        v.nums[id] = ui.choose(u, "tbs:" + id, x, cy, w, ch, split(it.label, "|"), v.nums[id])
+    else if k == "tabs"
+        if not v.nums.has(id)
+            v.nums[id] = 0
+        v.nums[id] = ui.tabs_at(u, x, cy, w, ch, split(it.label, "|"), v.nums[id])
+    else if k == "line"
+        draw_rect(x, y + h / 2, w, max(1, round(u.k)), u.line)
+
+func hit(v: TbsView, id: text, on: bool)
+    if on
+        v.hits[id] = true
+
+// надпись: свой стиль ui (h1, note ...) и поверх — свойства стиля из .tbs
+func draw_text_item(u: Ui, v: TbsView, it: TbsItem, x: int, y: int, w: int, h: int)
+    st = it.kind
+    if st == "text"
+        st = "body"
+    else if st == "bold"
+        st = "strong"
+    else if st == "caps"
+        st = "caption"
+    else if st == "h1"
+        st = "title"
+    else if st == "h3"
+        st = "sub"
+    s = it.label
+    if st == "chip"
+        bh = ui.px(u, 20)
+        bw = ui.style_w(u, s, "caption") + ui.px(u, 16)
+        by = y + (h - bh) / 2
+        ui.rbox(u, x, by, bw, bh, bh / 2, ui.alpha_of(u.accent, 45))
+        ui.styled_in(u, x + ui.px(u, 8), by, bh, s, "caption", u.accent)
+        return
+    if st == "code"
+        ui.rbox(u, x, y + (h - ui.px(u, 30)) / 2, w, ui.px(u, 30), ui.px(u, 8), u.fieldbg)
+        ui.styled_in(u, x + ui.px(u, 10), y, h, s, "code", u.ink)
+        return
+    si = find_style(v, it.style)
+    if si < 0
+        tw = ui.style_w(u, s, st)
+        ui.styled_in(u, x, y, h, s, st, ui_color(u, st))
+        return
+    // свой стиль: цвет, шрифт, размер, выравнивание, фон
+    c = color(u, prop(v, si, "color"), ui_color(u, st))
+    bg = prop(v, si, "bg")
+    if bg != ""
+        r = ui.px(u, to_int(prop(v, si, "radius")) or 8)
+        ui.rbox(u, x, y, w, h, r, color(u, bg, u.panel))
+    f = u.font
+    fname = prop(v, si, "font")
+    if fname == "bold" or (fname == "" and (st == "title" or st == "heading" or st == "sub" or st == "strong" or st == "caption"))
+        f = u.bold
+    else if fname == "mono"
+        f = u.mono
+    size = u.fs
+    if st == "title"
+        size = ui.px(u, 26)
+    else if st == "heading"
+        size = ui.px(u, 20)
+    else if st == "sub"
+        size = ui.px(u, 15)
+    else if st == "note"
+        size = ui.px(u, 13)
+    if prop(v, si, "size") != ""
+        size = ui.px(u, to_int(prop(v, si, "size")) or 14)
+    if f < 0
+        ui.txt(u, x, y + (h - u.line_h) / 2, s, c)
+        return
+    tw = text_width(f, s, size)
+    al = prop(v, si, "align")
+    tx = x
+    if bg != ""
+        tx = x + ui.px(u, 10)
+    if al == "center"
+        tx = x + (w - tw) / 2
+    else if al == "right"
+        tx = x + w - tw - (tx - x)
+    draw_font(f, tx, y + (h - size * 5 / 4) / 2, s, size, c)
+
+func ui_color(u: Ui, st: text)
+    if st == "note" or st == "caption"
+        return u.dim
+    return u.ink
+
+func find_style(v: TbsView, name: text)
+    if name == ""
+        return -1
+    count i from 0 to len(v.styles) - 1
+        if v.styles[i].name == name
+            return i
+    v.errors.add("нет стиля ." + name)
+    return -1
+
+func prop(v: TbsView, si: int, key: text)
+    if v.styles[si].props.has(key)
+        return v.styles[si].props[key]
+    return ""
+
+// цвет по имени темы (accent, ink, dim, red, panel, bg, raised, line, faint) или #rrggbb
+func color(u: Ui, name: text, fallback: int)
+    if name == "accent"
+        return u.accent
+    if name == "ink"
+        return u.ink
+    if name == "dim"
+        return u.dim
+    if name == "red"
+        return u.red
+    if name == "panel"
+        return u.panel
+    if name == "bg"
+        return u.bg
+    if name == "raised"
+        return u.raised
+    if name == "line"
+        return u.line
+    if name == "faint"
+        return u.faint
+    if starts_with(name, "#") and len(name) == 7
+        return rgb(hex2(cut(name, 1, 2)), hex2(cut(name, 3, 2)), hex2(cut(name, 5, 2)))
+    return fallback
+
+func hex2(s: text)
+    n = 0
+    each ch in lower(s)
+        d = find("0123456789abcdef", ch)
+        n = n * 16 + max(0, d)
+    return n
+
+// файл поменяли — читаем заново (что ввели в поля, остаётся)
+func again(v: TbsView)
+    src = read_file(v.path) else err
+        return
+    if src != v.src
+        parse(v, src)
+
+func show_errors(u: Ui, v: TbsView, x: int, y: int, w: int)
+    if not v.said
+        each e in v.errors
+            print(e)
+        v.said = true
+    ty = y + ui.px(u, 16)
+    each e in v.errors
+        ui.txt(u, x + ui.px(u, 16), ty, ui.fit(u, e, w - ui.px(u, 32)), u.red)
+        ty += ui.px(u, 22)

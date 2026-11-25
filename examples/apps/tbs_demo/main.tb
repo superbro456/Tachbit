@@ -1,0 +1,19 @@
+// Окно из файла app.tbs: здесь только логика.
+// tb run examples/apps/tbs_demo/main.tb  — поменяй app.tbs и сохрани: окно перерисуется само
+use ui
+use view
+
+func main()
+    window_sharp()
+    try window_open(820, 520, "Окно из .tbs")
+    u = ui.start()
+    v = view.file("examples/apps/tbs_demo/app.tbs")
+    repeat while window_alive()
+        ui.frame(u)
+        clear_window(u.bg)
+        view.screen(u, v, "main")
+        if view.pressed(v, "save")
+            print("создаём: " + view.text_of(v, "name") + ", уровень " + view.number_of(v, "level"))
+        if view.pressed(v, "cancel")
+            view.put_text(v, "name", "")
+        ui.end_frame(u)
