@@ -22,9 +22,17 @@ trap 'rm -rf "$tmp"' EXIT
 "$tb" check "$src"
 "$tb" c "$src" > "$tmp/prog.c"
 res=$("$cc" -print-resource-dir)
-"$cc" --target=x86_64-unknown-elf -O2 -w -nostdinc \
-    -isystem "$here/include" -isystem "$here/toaru-include" -isystem "$res/include" \
-    -include tb_futura.h -fno-pic -fno-stack-protector \
+# TB_FUTURA_INCLUDE = папка include/ из исходников FuturaOS (заголовки Алексея).
+# С ней: его настоящие pthread-замки и syscall() с его номерами.
+# Без неё: заголовки ToaruOS + свои замки (см. README).
+if [ -n "$TB_FUTURA_INCLUDE" ]; then
+    [ -f "$TB_FUTURA_INCLUDE/syscall_nums.h" ] || { echo "в $TB_FUTURA_INCLUDE нет syscall_nums.h — это не его include/"; exit 1; }
+    inc="-isystem $here/sdk-include -isystem $TB_FUTURA_INCLUDE -include tb_futura_sdk.h"
+else
+    inc="-isystem $here/include -isystem $here/toaru-include -include tb_futura.h"
+fi
+"$cc" --target=x86_64-unknown-elf -O2 -w -nostdinc $inc -isystem "$res/include" \
+    -fno-pic -fno-stack-protector \
     -c "$tmp/prog.c" -o "$tmp/prog.o"
 # как у его программ: обычный (не PIE) файл с адреса 0x400000, libc.so через /lib/ld.so.
 # Статически нельзя: в статической программе его libc не готовит место для _Thread_local.

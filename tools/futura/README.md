@@ -20,6 +20,19 @@ python3 tools/futura/ramdisk.py sysroot ramdisk.igz ~/.tachbit/futura
 tools/futura/build.sh hello.tb            # получится hello.futura
 ```
 
+### С заголовками Алексея (лучше)
+
+Если есть папка `include/` из исходников FuturaOS (Алексей прислал её 2026-11-25),
+укажите её — тогда Tachbit берёт его настоящие замки `pthread_mutex`/`pthread_cond`,
+а `syscall(номер, ...)` работает с его номерами вызовов (`syscall_nums.h`, например 9 = getpid):
+
+```sh
+TB_FUTURA_INCLUDE=~/futura-src/include tools/futura/build.sh hello.tb
+```
+
+Его заголовки в репозиторий не кладём (это его код). Свои поправки для этого режима —
+в `sdk-include/tb_futura_sdk.h`.
+
 Готовый файл кладут в FuturaOS, например в `/bin`, и запускают как обычную программу.
 Чтобы проверить у себя, можно вшить программу в ramdisk:
 
@@ -53,14 +66,16 @@ python3 tools/futura/ramdisk.py add ramdisk.tar new.igz bin/hello=hello.futura
    Обход: Tachbit просит страницы с `PROT_EXEC`.
 4. **`printf("%g", 0.0)`** печатает `0e-1074`. Обход: Tachbit поправляет это в своём выводе.
 5. `errno` — это `__errno_location()` (в ToaruOS было `__errno_addr()`).
-6. `syscall()` нет, номера вызовов свои: в Tachbit `syscall(...)` отдаёт ошибку ENOSYS.
+6. `syscall()` в его libc нет, номера вызовов свои. Без его заголовков Tachbit отдаёт ENOSYS;
+   с ними (`TB_FUTURA_INCLUDE`) зовёт ядро сам: инструкция `syscall`, номер в rax (проверено: `syscall(9)` = getpid).
 7. В `esh` строка `prog </dev/null >файл 2>файл` передаёт `</dev/null` программе как слово запуска,
    а `2>&1` и `&` в конце строки не работают ("Read only file system").
 
 ## Что проверено
 
 Ядро `KERN.BIN` и ramdisk из образа FuturaOS, загрузка через GRUB (multiboot2) в QEMU
-(q35, 2 ядра, 4 ГБ, UEFI). Тесты `tests/ok` (76 программ) собраны и запущены внутри FuturaOS.
+(q35, 2 ядра, 4 ГБ, UEFI). Тесты `tests/ok` (76 программ) собраны и запущены внутри FuturaOS, в обоих режимах
+(заголовки ToaruOS и его заголовки) результат одинаковый.
 65 из 76 совпали с эталоном буква в букву. Остальные отличаются только тем, что зависит от окружения:
 
 - сообщения об ошибках по-английски: в FuturaOS не задан `LANG`/`TB_LANG`
