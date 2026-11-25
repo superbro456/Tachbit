@@ -263,6 +263,9 @@ func llvm_lib(bin: text, gfx: bool, snd: bool, native: bool) gives lib: text, ta
         lib, target, cpu = llvm_lib_ready(gfx, snd, false)
 
 func llvm_lib_build(bin: text, gfx: bool, snd: bool, native: bool) gives lib: text, target: text, cpu: text
+    // без HOME (программы, которые запускает init в FuturaOS) класть некуда
+    if env("HOME") == ""
+        return
     dir = env("HOME") + "/.cache/tachbit"
     src = runtime_text()
     kind = "o"
