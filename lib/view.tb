@@ -87,6 +87,10 @@ obj TbsView
 
 // цвета и размеры ui, которые вещь меняет на время своего рисования
 obj TbsKeep
+    panel: int
+    hover: int
+    sel: int
+    glass: bool
     ink: int
     dim: int
     accent: int
@@ -273,12 +277,12 @@ func screen_prop(v: TbsView, s: TbsScreen, key: text, val: text, n: int)
             s.pad = 20
     else
         k, val2 = canon(key, val)
-        if k == "backcolor" or k == "backimage" or k == "backfit" or k == "backblur" or k == "backdim" or k == "blur"
+        if k == "backcolor" or k == "backimage" or k == "backfit" or k == "backblur" or k == "backdim" or k == "blur" or k == "theme"
             if k == "blur"
                 k = "backblur"
             s.back[k] = val2
         else
-            oops(v, n, "у экрана есть только cols, rows, gap, pad, space, narrow и фон: backcolor, backimage, backfit, backblur, backdim; свойство вещи пиши под ней с отступом")
+            oops(v, n, "у экрана есть только cols, rows, gap, pad, space, narrow, theme и фон: backcolor, backimage, backfit, backblur, backdim; свойство вещи пиши под ней с отступом")
 
 // строка вещи: вид [имя] (клетки). Отдаёт номер вещи или −1
 func item(v: TbsView, s: TbsScreen, body: text, ind: int, n: int)
@@ -583,7 +587,22 @@ func split_words(s: text) gives words: list text
 // ---------- рисование ----------
 
 // нарисовать экран name на всё свободное место (или в текущем месте раскладки ui)
+// нарисовать экран. По умолчанию стекло: картинка на фоне, полупрозрачные карточки, поля и кнопки.
+// theme: solid у экрана — обычный сплошной вид
 modpub func screen(u: Ui, v: TbsView, name: text)
+    glass = true
+    each sc in v.screens
+        if sc.name == name and sc.back.has("theme") and sc.back["theme"] != "glass"
+            glass = false
+    if not glass or len(v.errors) > 0
+        screen_body(u, v, name)
+        return
+    kept = keep(u)
+    ui.glass(u)
+    screen_body(u, v, name)
+    restore(u, kept)
+
+func screen_body(u: Ui, v: TbsView, name: text)
     v.hits.clear()
     v.tick += 1
     if v.path != "" and v.tick % 30 == 0
@@ -600,7 +619,7 @@ modpub func screen(u: Ui, v: TbsView, name: text)
         ui.txt(u, bx + ui.px(u, 12), by + ui.px(u, 12), "в .tbs нет экрана " + name, u.red)
         return
     s = v.screens[si]
-    if len(s.back) > 0
+    if u.glass or len(s.back) > 0
         screen_back(u, v, s, bx, by, bw, bh)
     gap = ui.px(u, 12)
     pad = ui.px(u, 20)
@@ -696,7 +715,7 @@ func draw_any(u: Ui, v: TbsView, it: TbsItem, x0: int, y0: int, w0: int, h0: int
     if prop(v, it, "tip") != ""
         ui.tip_at(u, x, y, w, h, prop(v, it, "tip"))
     sh = prop(v, it, "shadow")
-    if sh == "" and it.kind == "card"
+    if sh == "" and it.kind == "card" and not u.glass
         sh = "small"
     gl = prop(v, it, "glow")
     if gl != "" and gl != "none" and gl != "no"
@@ -722,6 +741,8 @@ func draw_any(u: Ui, v: TbsView, it: TbsItem, x0: int, y0: int, w0: int, h0: int
         ui.shadow_under(u, x, y, w, h, r, depth)
     // blur: то, что под вещью, размывается (матовое стекло, как backdrop-filter в CSS)
     bl = num(v, it, "blur", 0)
+    if u.glass and it.kind == "card" and prop(v, it, "blur") == ""
+        bl = 16
     if bl > 0
         blur_rect(x, y, w, h, ui.px(u, bl))
     if it.kind == "card"
@@ -922,6 +943,15 @@ func screen_back(u: Ui, v: TbsView, s: TbsScreen, x: int, y: int, w: int, h: int
         gradient(u, x, y, w, h, 0, bc, 100)
     else if bc != ""
         draw_rect(x, y, w, h, color(u, bc, u.bg))
+    if u.glass and bc == "" and not s.back.has("backimage")
+        // стекло без своего фона: картинка из библиотеки (lib/back/glass.jpg), её нет — тёмный градиент
+        if not v.imgs.has("@glass")
+            v.imgs["@glass"] = ui.glass_image(u)
+        g = v.imgs["@glass"]
+        if g >= 0
+            pic_id(u, v, g, "@glass", x, y, w, h, "cover")
+        else
+            gradient(u, x, y, w, h, 0, "gradient(#1b2140, #2c2150, #3a1f45)", 100)
     if s.back.has("backimage")
         fit = "cover"
         if s.back.has("backfit")
@@ -1258,9 +1288,13 @@ func yes(s: text)
 
 // на время рисования вещи её свойства становятся цветами и размерами ui, потом всё возвращается
 func keep(u: Ui) gives k: TbsKeep
-    k = TbsKeep(ink: u.ink, dim: u.dim, accent: u.accent, on_accent: u.on_accent, raised: u.raised, fieldbg: u.fieldbg, line: u.line, red: u.red, radius: u.radius, fs: u.fs, bold: u.bold, k: u.k, line_h: u.line_h)
+    k = TbsKeep(panel: u.panel, hover: u.hover, sel: u.sel, glass: u.glass, ink: u.ink, dim: u.dim, accent: u.accent, on_accent: u.on_accent, raised: u.raised, fieldbg: u.fieldbg, line: u.line, red: u.red, radius: u.radius, fs: u.fs, bold: u.bold, k: u.k, line_h: u.line_h)
 
 func restore(u: Ui, k: TbsKeep)
+    u.panel = k.panel
+    u.hover = k.hover
+    u.sel = k.sel
+    u.glass = k.glass
     u.ink = k.ink
     u.dim = k.dim
     u.accent = k.accent
@@ -1437,6 +1471,9 @@ func pic(u: Ui, v: TbsView, path: text, x: int, y: int, w: int, h: int, fit: tex
     if img < 0
         ui.txt(u, x, y, "нет картинки " + path, u.red)
         return
+    pic_id(u, v, img, path, x, y, w, h, fit)
+
+func pic_id(u: Ui, v: TbsView, img: int, path: text, x: int, y: int, w: int, h: int, fit: text)
     iw = image_w(img)
     ih = image_h(img)
     if iw <= 0 or ih <= 0 or w <= 0 or h <= 0

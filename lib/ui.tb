@@ -128,6 +128,8 @@ obj Ui
     raised: int          // приподнятое: обычная кнопка, выбранная вкладка, всплывающий список
     fieldbg: int         // фон поля ввода
     faint: int           // совсем бледное: выключенная кнопка
+    glass: bool          // стеклянный вид (ui.glass): полупрозрачные панели поверх картинки
+    libdir: text         // где лежит библиотека (шрифты, картинки фона)
     boxes: list Box      // раскладка: вложенные ряды и столбцы, последний — текущий
 
 // место раскладки: прямоугольник, который отдаёт себя по кускам
@@ -160,6 +162,7 @@ modpub func start() gives u: Ui
             u.font = font_or(d + "/fonts/Inter-Regular.ttf")
             u.bold = font_or(d + "/fonts/Inter-SemiBold.ttf")
             u.mono = font_or(d + "/fonts/JetBrainsMono-Regular.ttf")
+            u.libdir = d
     // свой шрифт можно дать в TB_UI_FONT или потом ui.use_font(u, "шрифт.ttf")
     if env("TB_UI_FONT") != "" and file_exists(env("TB_UI_FONT"))
         u.font = font_or(env("TB_UI_FONT"))
@@ -206,6 +209,28 @@ modpub func dark(u: Ui)
     u.sel = rgb(26, 74, 72)
     u.red = rgb(240, 96, 106)
     u.shadow = rgba(0, 0, 0, 110)
+// стеклянный вид: панели, кнопки и поля полупрозрачные, сквозь них видно фон-картинку.
+// Фон нарисуй сам (ui.glass_back) — или его рисует .tbs (там стекло по умолчанию)
+modpub func glass(u: Ui)
+    u.panel = rgba(255, 255, 255, 22)
+    u.raised = rgba(255, 255, 255, 30)
+    u.fieldbg = rgba(0, 0, 0, 70)
+    u.line = rgba(255, 255, 255, 56)
+    u.hover = rgba(255, 255, 255, 36)
+    u.sel = rgba(58, 214, 193, 70)
+    u.ink = rgb(244, 246, 250)
+    u.dim = rgb(190, 196, 212)
+    u.glass = true
+
+// картинка фона для стекла (lib/back/glass.jpg): номер картинки или −1
+modpub func glass_image(u: Ui)
+    p = u.libdir + "/back/glass.jpg"
+    if u.libdir == "" or not file_exists(p)
+        return -1
+    im = load_image(p) else err
+        return -1
+    return im
+
 // светлая тема
 modpub func light(u: Ui)
     u.bg = rgb(243, 244, 247)

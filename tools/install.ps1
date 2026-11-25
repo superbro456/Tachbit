@@ -57,6 +57,8 @@ New-Item -ItemType Directory -Force -Path $lib | Out-Null
 Copy-Item -Force lib\*.tb $lib
 New-Item -ItemType Directory -Force -Path (Join-Path $lib 'fonts') | Out-Null
 Copy-Item -Force lib\fonts\* (Join-Path $lib 'fonts')
+New-Item -ItemType Directory -Force -Path (Join-Path $lib 'back') | Out-Null
+Copy-Item -Force lib\back\* (Join-Path $lib 'back')
 
 # 5) эта папка — в PATH пользователя, чтобы tb работал в любом терминале
 $path = [Environment]::GetEnvironmentVariable('Path', 'User')

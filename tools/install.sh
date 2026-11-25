@@ -11,7 +11,7 @@ mkdir -p "$bin" || exit 1
 cp ./build/tb "$bin/tb"
 echo "стоит компилятор на Tachbit (собран сам собой)"
 # общие библиотеки (use ui): lib/*.tb → ~/.tachbit/lib
-mkdir -p "$HOME/.tachbit/lib/fonts" && cp lib/*.tb "$HOME/.tachbit/lib/" && cp lib/fonts/* "$HOME/.tachbit/lib/fonts/" && echo "библиотеки: $HOME/.tachbit/lib"
+mkdir -p "$HOME/.tachbit/lib/fonts" "$HOME/.tachbit/lib/back" && cp lib/*.tb "$HOME/.tachbit/lib/" && cp lib/fonts/* "$HOME/.tachbit/lib/fonts/" && cp lib/back/* "$HOME/.tachbit/lib/back/" && echo "библиотеки: $HOME/.tachbit/lib"
 
 # помощник языка для редакторов (LSP): ~/.tachbit/lsp и команда tb-lsp (нужен node)
 mkdir -p "$HOME/.tachbit/lsp" && cp tools/vscode/lsp/*.js tools/vscode/lsp/*.json "$HOME/.tachbit/lsp/"

@@ -71,6 +71,8 @@ Section "Tachbit (команда tb)" SecMain
   File "lib\*.tb"
   SetOutPath "$INSTDIR\lib\fonts"
   File "lib\fonts\*.*"
+  SetOutPath "$INSTDIR\lib\back"
+  File "lib\back\*.*"
   RMDir /r "$INSTDIR\examples"
   SetOutPath "$INSTDIR\examples"
   File /r "examples\*.*"

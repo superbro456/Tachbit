@@ -24,7 +24,7 @@ cp tools/windows/installer.nsi tools/windows/setup-helper.ps1 tools/windows/tach
 cp LICENSE "$out/stage/LICENSE.txt"
 cp README.md README.en.md "$out/stage/"
 cp -r examples "$out/stage/examples"
-mkdir -p "$out/stage/lib/fonts" && cp lib/*.tb "$out/stage/lib/" && cp lib/fonts/* "$out/stage/lib/fonts/"
+mkdir -p "$out/stage/lib/fonts" "$out/stage/lib/back" && cp lib/*.tb "$out/stage/lib/" && cp lib/fonts/* "$out/stage/lib/fonts/" && cp lib/back/* "$out/stage/lib/back/"
 
 # 3) установщик
 (cd "$out/stage" && makensis -V2 -DVERSION="$version" -DOUTFILE="../Tachbit-Setup-$version.exe" installer.nsi)
