@@ -63,6 +63,7 @@ obj TbsScreen
     pad: int
     items: list TbsItem
     narrow: text             // узкое окно (как телефон): "" — 560 точек, "off" — выключено, число — своя граница
+    back: dict text text     // фон экрана: backcolor (цвет или градиент), backimage, backfit, backblur, backdim
 
 obj TbsStyle
     name: text
@@ -271,7 +272,13 @@ func screen_prop(v: TbsView, s: TbsScreen, key: text, val: text, n: int)
             s.gap = 12
             s.pad = 20
     else
-        oops(v, n, "у экрана есть только cols, rows, gap, pad, space, narrow; свойство вещи пиши под ней с отступом")
+        k, val2 = canon(key, val)
+        if k == "backcolor" or k == "backimage" or k == "backfit" or k == "backblur" or k == "backdim" or k == "blur"
+            if k == "blur"
+                k = "backblur"
+            s.back[k] = val2
+        else
+            oops(v, n, "у экрана есть только cols, rows, gap, pad, space, narrow и фон: backcolor, backimage, backfit, backblur, backdim; свойство вещи пиши под ней с отступом")
 
 // строка вещи: вид [имя] (клетки). Отдаёт номер вещи или −1
 func item(v: TbsView, s: TbsScreen, body: text, ind: int, n: int)
@@ -346,7 +353,7 @@ func known_prop(k0: text)
     k = k0
     if starts_with(k, "hover.")
         k = cut(k, 6, len(k) - 1)
-    each w in ["text", "color", "backcolor", "corner.radius", "corner.color", "corner.width", "size", "font", "align", "look", "hint", "value", "on", "min", "max", "items", "style", "accent", "width", "height", "scale", "padding", "margin", "opacity", "shadow", "visible", "cursor", "tip", "disabled", "spacing", "transform", "decoration", "wrap", "line.height", "min.width", "max.width", "min.height", "max.height", "layer", "src", "fit", "narrow", "order", "span"]
+    each w in ["text", "color", "backcolor", "corner.radius", "corner.color", "corner.width", "size", "font", "align", "look", "hint", "value", "on", "min", "max", "items", "style", "accent", "width", "height", "scale", "padding", "margin", "opacity", "shadow", "visible", "cursor", "tip", "disabled", "spacing", "transform", "decoration", "wrap", "line.height", "min.width", "max.width", "min.height", "max.height", "layer", "src", "fit", "narrow", "order", "span", "backimage", "backfit", "backdim", "blur", "glow", "text.shadow", "transition"]
         if w == k
             return true
     return false
@@ -395,6 +402,20 @@ func canon(key: text, val: text) gives k: text, v: text
         k = replace(k, "-", ".")
     else if k == "box-shadow"
         k = "shadow"
+    else if k == "background-image" or k == "back.image" or k == "image"
+        k = "backimage"
+        v = url_of(v)
+    else if k == "background-size" or k == "back.fit" or k == "object-fit"
+        k = "backfit"
+    else if k == "backdrop-filter" or k == "filter" or k == "back.blur"
+        k = "blur"
+        v = no_fn(v)
+    else if k == "back.dim"
+        k = "backdim"
+    else if k == "text-shadow"
+        k = "text.shadow"
+    else if k == "transition" or k == "transition-duration"
+        k = "transition"
     else if k == "z-index"
         k = "layer"
     else if k == "title" or k == "tooltip"
@@ -414,6 +435,23 @@ func canon(key: text, val: text) gives k: text, v: text
         else
             v = "yes"
     k = hov + k
+
+// url(bg.png) или "bg.png" → bg.png
+func url_of(s: text)
+    t = trim(s)
+    if starts_with(t, "url(") and ends_with(t, ")")
+        t = trim(cut(t, 4, len(t) - 2))
+    if len(t) >= 2 and (starts_with(t, "\"") or starts_with(t, "'"))
+        t = cut(t, 1, len(t) - 2)
+    return t
+
+// blur(12px) → 12
+func no_fn(s: text)
+    t = trim(s)
+    a = find(t, "(")
+    if a >= 0 and ends_with(t, ")")
+        t = cut(t, a + 1, len(t) - 2)
+    return no_px(t)
 
 func is_number(w: text)
     if len(w) == 0
@@ -562,6 +600,8 @@ modpub func screen(u: Ui, v: TbsView, name: text)
         ui.txt(u, bx + ui.px(u, 12), by + ui.px(u, 12), "в .tbs нет экрана " + name, u.red)
         return
     s = v.screens[si]
+    if len(s.back) > 0
+        screen_back(u, v, s, bx, by, bw, bh)
     gap = ui.px(u, 12)
     pad = ui.px(u, 20)
     if s.gap >= 0
@@ -658,6 +698,16 @@ func draw_any(u: Ui, v: TbsView, it: TbsItem, x0: int, y0: int, w0: int, h0: int
     sh = prop(v, it, "shadow")
     if sh == "" and it.kind == "card"
         sh = "small"
+    gl = prop(v, it, "glow")
+    if gl != "" and gl != "none" and gl != "no"
+        // цветное свечение вокруг: glow: accent (или любой цвет)
+        r = ui.px(u, num(v, it, "corner.radius", 10))
+        if it.kind == "card"
+            r = ui.px(u, num(v, it, "corner.radius", 14))
+        gc = color(u, gl, u.accent)
+        if gl == "yes"
+            gc = u.accent
+        draw_shadow(x, y, w, h, r, ui.px(u, 18), ui.alpha_of(gc, 120))
     if sh != "" and sh != "none" and sh != "no"
         depth = 1
         if sh == "medium"
@@ -670,14 +720,220 @@ func draw_any(u: Ui, v: TbsView, it: TbsItem, x0: int, y0: int, w0: int, h0: int
         if it.kind == "card"
             r = ui.px(u, num(v, it, "corner.radius", 14))
         ui.shadow_under(u, x, y, w, h, r, depth)
+    // blur: то, что под вещью, размывается (матовое стекло, как backdrop-filter в CSS)
+    bl = num(v, it, "blur", 0)
+    if bl > 0
+        blur_rect(x, y, w, h, ui.px(u, bl))
     if it.kind == "card"
         r = ui.px(u, num(v, it, "corner.radius", 14))
-        fill = fade(u, v, it, color(u, prop(v, it, "backcolor"), u.panel))
-        border = fade(u, v, it, color(u, prop(v, it, "corner.color"), u.line))
-        frame(u, x, y, w, h, r, ui.px(u, num(v, it, "corner.width", 1)), fill, border)
+        op = pct(prop(v, it, "opacity"), 100)
+        spec = hover_spec(u, v, it, "backcolor")
+        bw = ui.px(u, num(v, it, "corner.width", 1))
+        border = alpha_mul(hover_color(u, v, it, "corner.color", u.line), op)
+        if is_gradient(spec)
+            if bw > 0
+                ui.rbox(u, x, y, w, h, r, border)
+            gradient(u, x + bw, y + bw, w - 2 * bw, h - 2 * bw, max(0, r - bw), spec, op)
+        else
+            fill = alpha_mul(color(u, spec, u.panel), op)
+            if alpha_of_c(fill) < 255
+                // полупрозрачная карточка: заливка отдельно, рамка тонким кольцом поверх
+                ui.rbox(u, x, y, w, h, r, fill)
+                if bw > 0
+                    ring(x, y, w, h, r, bw, border)
+            else
+                frame(u, x, y, w, h, r, bw, fill, border)
+        if prop(v, it, "backimage") != ""
+            fit = prop(v, it, "backfit")
+            if fit == "" or fit == "cover"
+                fit = "fill"
+            pic(u, v, prop(v, it, "backimage"), x, y, w, h, fit)
+        if prop(v, it, "backdim") != ""
+            ui.rbox(u, x, y, w, h, r, rgba(0, 0, 0, pct(prop(v, it, "backdim"), 0) * 255 / 100))
     else
+        if prop(v, it, "backimage") != ""
+            pic(u, v, prop(v, it, "backimage"), x, y, w, h, prop(v, it, "backfit"))
         draw_item(u, v, it, x, y, w, h)
     v.hov = false
+
+// --- косметика: прозрачность, градиенты, фон-картинка, плавное наведение ---
+
+// сколько в цвете непрозрачности: 255 — сплошной
+func alpha_of_c(c: int)
+    return 255 - bit_and(shift_right(c, 24), 255)
+
+// цвет с прозрачностью op% (поверх своей)
+func alpha_mul(c: int, op: int)
+    if op >= 100
+        return c
+    return ui.alpha_of(bit_and(c, 16777215), alpha_of_c(c) * op / 100)
+
+// transition: 200 — свойства hover.* меняются плавно. Отдаёт 0..100: насколько сейчас «наведено»
+func hover_p(u: Ui, v: TbsView, it: TbsItem)
+    if prop_raw(v, it, "transition") == "" or prop_raw(v, it, "transition") == "none"
+        if v.hov
+            return 100
+        return 0
+    return ui.ease_to(u, "tbs" + it.line, v.hov)
+
+// цвет свойства с плавным переходом к hover.*
+func hover_color(u: Ui, v: TbsView, it: TbsItem, key: text, dflt: int)
+    base = color(u, prop_raw(v, it, key), dflt)
+    hv = prop_raw(v, it, "hover." + key)
+    if hv == "" or is_gradient(hv)
+        return base
+    p = hover_p(u, v, it)
+    if p <= 0
+        return base
+    hc = color(u, hv, base)
+    if p >= 100
+        return hc
+    return ui.alpha_of(ui.mix(base, hc, p), (alpha_of_c(base) * (100 - p) + alpha_of_c(hc) * p) / 100)
+
+// значение цвета/градиента: при наведении — hover.*, если есть (градиент меняется сразу)
+func hover_spec(u: Ui, v: TbsView, it: TbsItem, key: text)
+    hv = prop_raw(v, it, "hover." + key)
+    if hv != "" and (is_gradient(hv) or is_gradient(prop_raw(v, it, key)))
+        return prop(v, it, key)
+    if hv != "" and prop_raw(v, it, "transition") != ""
+        // плавный переход: отдаём готовый цвет как #rrggbbaa
+        return hex_of(hover_color(u, v, it, key, u.panel))
+    return prop(v, it, key)
+
+func hex_of(c: int)
+    d = "0123456789abcdef"
+    res = "#"
+    each sh in [16, 8, 0]
+        b = bit_and(shift_right(c, sh), 255)
+        res += cut(d, b / 16, b / 16) + cut(d, b % 16, b % 16)
+    a = alpha_of_c(c)
+    res += cut(d, a / 16, a / 16) + cut(d, a % 16, a % 16)
+    return res
+
+func is_gradient(s: text)
+    t = lower(trim(s))
+    return starts_with(t, "gradient(") or starts_with(t, "linear-gradient(")
+
+// градиент: gradient(#3ad6c1, #6b5bff) — сверху вниз; gradient(to right, a, b, c) — слева направо
+func gradient(u: Ui, x: int, y: int, w: int, h: int, r: int, spec: text, op: int)
+    if w <= 0 or h <= 0
+        return
+    t = trim(spec)
+    inner = cut(t, find(t, "(") + 1, len(t) - 2)
+    parts = split_top(inner)
+    across = false
+    cols = list int
+    each p in parts
+        q = lower(trim(p))
+        if q == "to right" or q == "to left" or q == "90deg" or q == "270deg" or q == "horizontal"
+            across = true
+        else if q == "to bottom" or q == "to top" or q == "180deg" or q == "0deg" or q == "vertical"
+            across = false
+        else
+            // «#fff 30%» — место цвета пока не учитываем, цвета идут поровну
+            ws = split_words(q)
+            if len(ws) > 0
+                cols.add(color(u, ws[0], u.panel))
+    if len(cols) == 0
+        return
+    if len(cols) == 1
+        cols.add(cols[0])
+    if q_flip(parts)
+        cols2 = list int
+        count i from 0 to len(cols) - 1
+            cols2.add(cols[len(cols) - 1 - i])
+        cols = cols2
+    n = h
+    if across
+        n = w
+    count i from 0 to n - 1
+        // где мы между цветами
+        f = i * (len(cols) - 1) * 1000 / max(1, n - 1)
+        k = min(len(cols) - 2, f / 1000)
+        c = ui.mix(cols[k], cols[k + 1], (f - k * 1000) / 10)
+        c = alpha_mul(c, op)
+        // скруглённые углы: у краёв полоска короче
+        d = min(i, n - 1 - i)
+        ins = 0
+        if d < r
+            e = r - d - 0.5
+            ins = r - round(sqrt(max(0.0, r * r - e * e)))
+        if across
+            draw_rect(x + i, y + ins, 1, h - 2 * ins, c)
+        else
+            draw_rect(x + ins, y + i, w - 2 * ins, 1, c)
+
+func q_flip(parts: list text)
+    each p in parts
+        q = lower(trim(p))
+        if q == "to left" or q == "to top" or q == "270deg" or q == "0deg"
+            return true
+    return false
+
+// «a, rgb(1, 2, 3), b» → три куска (запятые внутри скобок не режут)
+func split_top(s: text) gives res: list text
+    depth = 0
+    cur = ""
+    each ch in s
+        if ch == "("
+            depth += 1
+        else if ch == ")"
+            depth -= 1
+        if ch == "," and depth == 0
+            res.add(cur)
+            cur = ""
+        else
+            cur += ch
+    if trim(cur) != ""
+        res.add(cur)
+
+// тонкая рамка со скруглёнными углами без заливки (для полупрозрачных карточек)
+func ring(x: int, y: int, w: int, h: int, r: int, bw: int, c: int)
+    if r <= 0
+        draw_rect(x, y, w, bw, c)
+        draw_rect(x, y + h - bw, w, bw, c)
+        draw_rect(x, y + bw, bw, h - 2 * bw, c)
+        draw_rect(x + w - bw, y + bw, bw, h - 2 * bw, c)
+        return
+    draw_rect(x + r, y, w - 2 * r, bw, c)
+    draw_rect(x + r, y + h - bw, w - 2 * r, bw, c)
+    draw_rect(x, y + r, bw, h - 2 * r, c)
+    draw_rect(x + w - bw, y + r, bw, h - 2 * r, c)
+    // дуги углов: по точке на каждый шаг
+    count i from 0 to r - 1
+        e = r - i - 0.5
+        o = r - round(sqrt(max(0.0, r * r - e * e)))
+        // по вертикали (крутая часть дуги) и по горизонтали (пологая)
+        draw_rect(x + o, y + i, bw, 1, c)
+        draw_rect(x + w - o - bw, y + i, bw, 1, c)
+        draw_rect(x + o, y + h - 1 - i, bw, 1, c)
+        draw_rect(x + w - o - bw, y + h - 1 - i, bw, 1, c)
+        draw_rect(x + i, y + o, 1, bw, c)
+        draw_rect(x + i, y + h - o - bw, 1, bw, c)
+        draw_rect(x + w - 1 - i, y + o, 1, bw, c)
+        draw_rect(x + w - 1 - i, y + h - o - bw, 1, bw, c)
+
+// фон экрана: цвет или градиент, картинка (backfit: cover — заполнить, обрезая края; contain; fill), размытие, затемнение
+func screen_back(u: Ui, v: TbsView, s: TbsScreen, x: int, y: int, w: int, h: int)
+    bc = ""
+    if s.back.has("backcolor")
+        bc = s.back["backcolor"]
+    if is_gradient(bc)
+        gradient(u, x, y, w, h, 0, bc, 100)
+    else if bc != ""
+        draw_rect(x, y, w, h, color(u, bc, u.bg))
+    if s.back.has("backimage")
+        fit = "cover"
+        if s.back.has("backfit")
+            fit = s.back["backfit"]
+        pic(u, v, s.back["backimage"], x, y, w, h, fit)
+    if s.back.has("backblur")
+        bl = to_int(no_fn(s.back["backblur"])) or 0
+        if bl > 0
+            blur_rect(x, y, w, h, ui.px(u, bl))
+    if s.back.has("backdim")
+        a = pct(s.back["backdim"], 0)
+        draw_rect(x, y, w, h, rgba(0, 0, 0, a * 255 / 100))
 
 // рамка толщиной bw (0 — без рамки) и заливка
 func frame(u: Ui, x: int, y: int, w: int, h: int, r: int, bw: int, fill: int, border: int)
@@ -687,12 +943,9 @@ func frame(u: Ui, x: int, y: int, w: int, h: int, r: int, bw: int, fill: int, bo
     ui.rbox(u, x, y, w, h, r, border)
     ui.rbox(u, x + bw, y + bw, w - 2 * bw, h - 2 * bw, max(0, r - bw), fill)
 
-// opacity: цвет ближе к фону окна (на сплошном фоне — то же, что прозрачность)
+// opacity: настоящая прозрачность цвета
 func fade(u: Ui, v: TbsView, it: TbsItem, c: int)
-    op = pct(prop(v, it, "opacity"), 100)
-    if op >= 100
-        return c
-    return ui.mix(c, u.bg, 100 - op)
+    return alpha_mul(c, pct(prop(v, it, "opacity"), 100))
 
 // rows: auto — высота строки по самой высокой вещи в ней (как auto в CSS grid)
 func auto_rows(u: Ui, v: TbsView, s: TbsScreen) gives sizes: list text
@@ -1057,15 +1310,15 @@ func apply(u: Ui, v: TbsView, it: TbsItem, look: text)
         u.bold = u.font
     op = pct(prop(v, it, "opacity"), 100)
     if op < 100
-        f = 100 - op
-        u.ink = ui.mix(u.ink, u.bg, f)
-        u.dim = ui.mix(u.dim, u.bg, f)
-        u.accent = ui.mix(u.accent, u.bg, f)
-        u.on_accent = ui.mix(u.on_accent, u.bg, f)
-        u.raised = ui.mix(u.raised, u.bg, f)
-        u.fieldbg = ui.mix(u.fieldbg, u.bg, f)
-        u.line = ui.mix(u.line, u.bg, f)
-        u.red = ui.mix(u.red, u.bg, f)
+        // настоящая прозрачность: сквозь вещь видно фон и картинку под ней
+        u.ink = alpha_mul(u.ink, op)
+        u.dim = alpha_mul(u.dim, op)
+        u.accent = alpha_mul(u.accent, op)
+        u.on_accent = alpha_mul(u.on_accent, op)
+        u.raised = alpha_mul(u.raised, op)
+        u.fieldbg = alpha_mul(u.fieldbg, op)
+        u.line = alpha_mul(u.line, op)
+        u.red = alpha_mul(u.red, op)
 
 func draw_item(u: Ui, v: TbsView, it: TbsItem, x: int, y: int, w: int, h: int)
     if w < ui.px(u, 8) or h < ui.px(u, 8)
@@ -1088,6 +1341,8 @@ func draw_item(u: Ui, v: TbsView, it: TbsItem, x: int, y: int, w: int, h: int)
         draw_image_item(u, v, it, x, y, w, h)
     else if k == "btn" and yes(prop(v, it, "disabled"))
         ui.button_off(u, x, cy, w, ch, label)
+    else if k == "btn" and is_gradient(prop(v, it, "backcolor"))
+        tap(v, id, grad_btn(u, v, it, x, cy, w, ch, label, look))
     else if k == "btn"
         hit = false
         if look == "main"
@@ -1154,6 +1409,10 @@ func draw_image_item(u: Ui, v: TbsView, it: TbsItem, x: int, y: int, w: int, h: 
     path = prop(v, it, "src")
     if path == ""
         return
+    pic(u, v, path, x, y, w, h, prop(v, it, "fit"))
+
+// номер картинки по пути (от программы или от папки файла .tbs); −1 — нет такой
+func image_id(v: TbsView, path: text)
     if not v.imgs.has(path)
         v.imgs[path] = -1
         if file_exists(path)
@@ -1161,7 +1420,6 @@ func draw_image_item(u: Ui, v: TbsView, it: TbsItem, x: int, y: int, w: int, h: 
                 im = -1
             v.imgs[path] = im
         else if v.path != ""
-            // путь от папки файла .tbs
             dir = ""
             parts = split(v.path, "/")
             count i from 0 to len(parts) - 2
@@ -1170,17 +1428,30 @@ func draw_image_item(u: Ui, v: TbsView, it: TbsItem, x: int, y: int, w: int, h: 
                 im2 = load_image(dir + path) else err
                     im2 = -1
                 v.imgs[path] = im2
-    img = v.imgs[path]
+    return v.imgs[path]
+
+// нарисовать картинку в месте: fit contain (по умолчанию) — вписать целиком, fill — растянуть,
+// cover — заполнить всё место, края картинки уходят за место (для фона экрана), center — как есть, по центру
+func pic(u: Ui, v: TbsView, path: text, x: int, y: int, w: int, h: int, fit: text)
+    img = image_id(v, path)
     if img < 0
         ui.txt(u, x, y, "нет картинки " + path, u.red)
         return
     iw = image_w(img)
     ih = image_h(img)
-    if iw <= 0 or ih <= 0
+    if iw <= 0 or ih <= 0 or w <= 0 or h <= 0
         return
     tw = w
     th = h
-    if prop(v, it, "fit") != "fill"
+    if fit == "center" or fit == "none"
+        tw = iw
+        th = ih
+    else if fit == "cover"
+        if iw * h > ih * w
+            tw = iw * h / ih
+        else
+            th = ih * w / iw
+    else if fit != "fill"
         if iw * h > ih * w
             th = ih * w / iw
         else
@@ -1189,10 +1460,34 @@ func draw_image_item(u: Ui, v: TbsView, it: TbsItem, x: int, y: int, w: int, h: 
     th = max(1, th)
     key = path + "@" + tw + "x" + th
     if not v.imgs.has(key)
-        sc = image_scaled(img, tw, th) else err
-            sc = img
+        sc = img
+        if tw != iw or th != ih
+            sc = image_scaled(img, tw, th) else err
+                sc = img
         v.imgs[key] = sc
     draw_image_alpha(v.imgs[key], x + (w - tw) / 2, y + (h - th) / 2)
+
+// кнопка с градиентом: backcolor: gradient(...). Наведение — светлее, нажатие — чуть ниже
+func grad_btn(u: Ui, v: TbsView, it: TbsItem, x: int, y: int, w: int, h: int, s: text, look: text) gives hit: bool
+    over = ui.free(u) and ui.inside(u, x, y, w, h)
+    if over
+        ui.cursor(u, "hand")
+    t = ui.ease_to(u, "tbsg" + it.line, over)
+    hit = over and u.press
+    dy = 0
+    if over and u.down
+        dy = max(1, round(u.k))
+    r = u.radius
+    gradient(u, x, y + dy, w, h, r, prop(v, it, "backcolor"), pct(prop(v, it, "opacity"), 100))
+    if t > 0
+        ui.rbox(u, x, y + dy, w, h, r, rgba(255, 255, 255, 40 * t / 100))
+    tc = rgb(255, 255, 255)
+    if look == "main"
+        tc = u.on_accent
+    if prop(v, it, "color") != ""
+        tc = color(u, prop(v, it, "color"), tc)
+    tw = ui.style_w(u, s, "strong")
+    ui.styled_in(u, x + (w - tw) / 2, y + dy, h, s, "strong", tc)
 
 func tap(v: TbsView, id: text, on: bool)
     if on
@@ -1237,7 +1532,7 @@ func draw_text_item(u: Ui, v: TbsView, it: TbsItem, x: int, y: int, w: int, h: i
         st = "code"
         f = u.mono
         size = ui.px(u, 13)
-    c = fade(u, v, it, color(u, prop(v, it, "color"), c))
+    c = fade(u, v, it, hover_color(u, v, it, "color", c))
     bg = prop(v, it, "backcolor")
     if k == "code" and bg == ""
         bg = "field"
@@ -1312,6 +1607,12 @@ func draw_text_item(u: Ui, v: TbsView, it: TbsItem, x: int, y: int, w: int, h: i
     if yes(prop(v, it, "wrap"))
         ty = y + pad
     deco = prop(v, it, "decoration")
+    tsh = prop(v, it, "text.shadow")
+    if tsh == "no" or tsh == "none"
+        tsh = ""
+    tsc = rgba(0, 0, 0, 150)
+    if tsh != "" and tsh != "yes"
+        tsc = color(u, split_words(tsh)[len(split_words(tsh)) - 1], tsc)
     each ln in lines
         tw = wide(f, ln, size, sp)
         tx = x + pad
@@ -1320,6 +1621,16 @@ func draw_text_item(u: Ui, v: TbsView, it: TbsItem, x: int, y: int, w: int, h: i
         else if al == "right"
             tx = x + w - tw - pad
         gy = ty + (lh - size * 5 / 4) / 2
+        if tsh != ""
+            // тень у текста: text.shadow: yes (тёмная) или цвет
+            so = max(1, size / 16)
+            if sp == 0
+                draw_font(f, tx + so, gy + so, ln, size, tsc)
+            else
+                sx = tx + so
+                each ch in ln
+                    draw_font(f, sx, gy + so, ch, size, tsc)
+                    sx += text_width(f, ch, size) + sp
         if sp == 0
             draw_font(f, tx, gy, ln, size, c)
         else
@@ -1375,6 +1686,21 @@ func color(u: Ui, name: text, fallback: int)
         return rgb(255, 255, 255)
     if n == "black"
         return rgb(0, 0, 0)
+    if starts_with(n, "#") and len(n) == 9
+        return rgba(hex2(cut(n, 1, 2)), hex2(cut(n, 3, 4)), hex2(cut(n, 5, 6)), hex2(cut(n, 7, 8)))
+    // rgba(10, 20, 30, 0.5) как в CSS: прозрачность от 0 до 1 (или 0..255)
+    if starts_with(n, "rgba(") and ends_with(n, ")")
+        parts = split(cut(n, 5, len(n) - 2), ",")
+        if len(parts) >= 4
+            a = trim(parts[3])
+            al = 255
+            if find(a, ".") >= 0 or a == "0" or a == "1"
+                al = round((to_dec(a) or 1.0) * 255)
+            else if ends_with(a, "%")
+                al = pct(a, 100) * 255 / 100
+            else
+                al = to_int(a) or 255
+            return rgba(to_int(trim(parts[0])) or 0, to_int(trim(parts[1])) or 0, to_int(trim(parts[2])) or 0, al)
     if starts_with(n, "#") and len(n) == 7
         return rgb(hex2(cut(n, 1, 2)), hex2(cut(n, 3, 4)), hex2(cut(n, 5, 6)))
     if starts_with(n, "#") and len(n) == 4
@@ -1385,7 +1711,7 @@ func color(u: Ui, name: text, fallback: int)
         if len(parts) >= 3
             return rgb(to_int(trim(parts[0])) or 0, to_int(trim(parts[1])) or 0, to_int(trim(parts[2])) or 0)
     if n == "transparent" or n == "none"
-        return u.bg
+        return rgba(0, 0, 0, 0)
     // имена цветов из CSS
     if n == "red"
         return u.red

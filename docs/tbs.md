@@ -135,6 +135,40 @@ screen main 4x7          // экран main: 4 столбца, 7 строк
 Картинка: `image (A1:B3)` и `src: cat.png` (путь от программы или от папки файла .tbs). Вписывается в место целиком;
 `fit: fill` — растянуть на всё место.
 
+## Фон, стекло и прочая красота
+
+| Свойство | CSS | Где | Что |
+|---|---|---|---|
+| `backimage: sky.jpg` | `background-image: url(sky.jpg)` | экран, `card`, любая вещь | картинка на фоне |
+| `backfit: cover` | `background-size` | там же | `cover` — заполнить всё (у экрана так по умолчанию), `contain` — вписать целиком, `fill` — растянуть, `center` — как есть |
+| `backblur: 12` | `filter: blur(12px)` | экран | размыть фон-картинку |
+| `backdim: 30%` | — | экран, `card` | затемнить фон (текст поверх читается лучше) |
+| `blur: 18` | `backdrop-filter: blur(18px)` | любая вещь | размыть то, что под вещью: матовое стекло |
+| `backcolor: rgba(255, 255, 255, 0.12)` | так же | любая вещь | полупрозрачный цвет; ещё `#ffffff20` и `transparent` |
+| `backcolor: gradient(#3ad6c1, #6b5bff)` | `linear-gradient(...)` | экран, `card`, `btn` | градиент сверху вниз; `gradient(to right, a, b, c)` — слева направо, цветов сколько угодно |
+| `glow: accent` | `box-shadow: 0 0 18px цвет` | любая вещь | цветное свечение вокруг |
+| `text.shadow: yes` | `text-shadow` | текст | тень у букв (`yes` — тёмная, или свой цвет) |
+| `transition: 200` | `transition` | любая вещь | `hover.*` цвета меняются плавно, а не сразу |
+| `opacity: 60%` | `opacity` | любая вещь | теперь настоящая прозрачность: сквозь вещь видно картинку |
+
+Свойства фона экрана пишутся сразу под `screen`, как `cols` и `rows`:
+
+```
+screen glass 3x4
+    backimage: sky.jpg
+    backdim: 15%
+    card login (A2:B4)
+        backcolor: rgba(255, 255, 255, 0.12)
+        corner.color: rgba(255, 255, 255, 0.35)
+        blur: 18
+    btn go (A4:B4)
+        text: Войти
+        backcolor: gradient(to right, #3ad6c1, #6b5bff)
+        glow: #6b5bff
+```
+
+Весь пример — экран `glass` в `examples/apps/tbs_demo/app.tbs` (`TBS_PAGE=glass tb run examples/apps/tbs_demo/main.tb`).
+
 ## Стили
 
 Это как классы в CSS: стиль пишется один раз, а вещь берёт его через `style:`. Её собственные свойства важнее свойств стиля.

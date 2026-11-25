@@ -677,11 +677,15 @@ modpub func button_off(u: Ui, x: int, y: int, w: int, h: int, s: text)
 modpub func button_main(u: Ui, x: int, y: int, w: int, h: int, s: text) gives hit: bool
     hit = draw_btn(u, x, y, w, h, s, "main")
 // смесь двух цветов: p процентов второго
+// (прозрачность тоже смешивается: полупрозрачные цвета остаются полупрозрачными)
 modpub func mix(a: int, b: int, p: int)
-    r = (shift_right(a, 16) * (100 - p) + shift_right(b, 16) * p) / 100
+    r = (bit_and(shift_right(a, 16), 255) * (100 - p) + bit_and(shift_right(b, 16), 255) * p) / 100
     g = (bit_and(shift_right(a, 8), 255) * (100 - p) + bit_and(shift_right(b, 8), 255) * p) / 100
     bl = (bit_and(a, 255) * (100 - p) + bit_and(b, 255) * p) / 100
-    return rgb(r, g, bl)
+    ta = (bit_and(shift_right(a, 24), 255) * (100 - p) + bit_and(shift_right(b, 24), 255) * p) / 100
+    if ta == 0
+        return rgb(r, g, bl)
+    return rgba(r, g, bl, 255 - ta)
 
 // переключатель: [x] текст; отдаёт новое значение
 modpub func check(u: Ui, x: int, y: int, s: text, on: bool) gives now: bool
