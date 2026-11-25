@@ -1,0 +1,207 @@
+#pragma once
+
+#include <stdint.h>
+#include <stddef.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <bits/dirent.h>
+#include <kernel/mmu.h>
+#include <kernel/spinlock.h>
+#include <kernel/etree.h>
+#include <bits/timespec.h>
+
+#define PATH_SEPARATOR '/'
+#define PATH_SEPARATOR_STRING "/"
+#define PATH_UP  ".."
+#define PATH_DOT "."
+
+#include <fcntl.h>
+
+enum ino_type {
+	INO_REG = 1,
+	INO_DIR,
+	INO_CHR,
+	INO_BLK,
+	INO_FIFO,
+	INO_LNK,
+	INO_SOCK,
+	INO_MOUNT,
+};
+
+struct fs_node;
+struct fs_file_description;
+
+typedef ssize_t (*read_type_t) (struct fs_node *,  off_t, size_t, uint8_t *, uint64_t flags);
+typedef ssize_t (*write_type_t) (struct fs_node *, off_t, size_t, uint8_t *, uint64_t flags);
+typedef void (*open_type_t) (struct fs_node *, unsigned int flags);
+typedef void (*close_type_t) (struct fs_node *);
+typedef int (*readdir_type_t) (struct fs_node *, unsigned long, struct dirent *);
+typedef struct fs_node *(*finddir_type_t) (struct fs_node *, const char *name);
+typedef int (*create_type_t) (struct fs_node *, const char *name, mode_t permission, struct fs_node **out);
+typedef int (*unlink_type_t) (struct fs_node *, const char *name);
+typedef int (*mkdir_type_t) (struct fs_node *, const char *name, mode_t permission, struct fs_node **out);
+typedef int (*ioctl_type_t) (struct fs_node *, unsigned long request, void * argp);
+typedef ssize_t (*get_size_type_t) (struct fs_node *);
+typedef int (*chmod_type_t) (struct fs_node *, mode_t mode);
+typedef int (*symlink_type_t) (struct fs_node *, const char * name, const char * value);
+typedef ssize_t (*readlink_type_t) (struct fs_node *, char * buf, size_t size);
+typedef int (*selectcheck_type_t) (struct fs_node *);
+typedef int (*selectwait_type_t) (struct fs_node *, void * process);
+typedef int (*chown_type_t) (struct fs_node *, uid_t, gid_t);
+typedef int (*truncate_type_t) (struct fs_node *, size_t size);
+typedef int (*rename_type_t) (struct fs_node *, struct fs_node *, const char *, struct fs_node *, const char *);
+typedef int (*fault_map_t) (struct fs_node *, union PML *, off_t offset, int fault_flags, int map_flags, int prot, int *mmu_flags);
+typedef int (*utimens_type_t) (struct fs_node *, struct timespec access, struct timespec modify);
+typedef int (*hardlink_type_t) (struct fs_node *, const char *, struct fs_node *);
+typedef int (*poll_type_t) (struct fs_file_description *, void *);
+
+typedef struct fs_vtable {
+	read_type_t read;
+	write_type_t write;
+	open_type_t open;
+	close_type_t close;
+	readdir_type_t readdir;
+	finddir_type_t finddir;
+	create_type_t create;
+	mkdir_type_t mkdir;
+	ioctl_type_t ioctl;
+	get_size_type_t get_size;
+	chmod_type_t chmod;
+	unlink_type_t unlink;
+	symlink_type_t symlink;
+	readlink_type_t readlink;
+	truncate_type_t truncate;
+	selectcheck_type_t selectcheck;
+	selectwait_type_t selectwait;
+	chown_type_t chown;
+	rename_type_t rename;
+	fault_map_t fault_map;
+	utimens_type_t utimens;
+	hardlink_type_t hardlink;
+	int can_mount;
+	poll_type_t poll;
+} fs_vtable_t;
+
+/* These paths are a temporary stop-gap implementation.
+ *
+ * The intention is to eventually have proper separation of an "opened file"
+ * from an underlying at-most-one "inode"; the inode won't have a path, but
+ * the "opened file" will be associated with one that was originally used
+ * to open the file, and there may be may "opened file"s that reference a
+ * particular inode.
+ *
+ * Currently this is storing the whole path as a single string, but the
+ * future implementation should use a tree of cached names which eventually
+ * should become a proper directory entry cache.
+ *
+ * To avoid complication with the migration to later implementations, these
+ * names should only be allocated either when a fresh "anonymous" fs_node is
+ * being attached to a process's file descriptor table (where creation of a
+ * new "opened file" will happen in the future), or in @c kopen_error where
+ * we have access to a canonicalized path - that function will return an
+ * "opened file" instead of directly returning an @c fs_node_t eventually.
+ */
+struct fs_path {
+	size_t len;
+	char chars[];
+};
+
+typedef struct fs_node {
+	struct fs_node * mount;    /* Root fs_node_t entry of mountpoint. */
+	struct fs_vtable *ops;     /* operations table */
+	void * device;             /* Device object (optional) */
+	mode_t mask;               /* The permissions mask. */
+	uid_t uid;                 /* The owning user. */
+	uid_t gid;                 /* The owning group. */
+	enum ino_type type;        /* Flags (node type, etc). */
+	uint64_t inode;            /* Inode number. */
+	uint64_t length;           /* Size of the file, in byte. */
+	uint64_t impl;             /* Used to keep track which fs it belongs to. */
+	int64_t refcount;          /* Node reference count */
+	uint64_t nlink;            /* Number of links in underlying filesystem */
+	time_t atime;              /* Accessed */
+	long   atime_nsec;         /* ... nanoseconds. */
+	time_t mtime;              /* Modified */
+	long   mtime_nsec;         /* ... nanoseconds. */
+	time_t ctime;              /* Created  */
+	long   ctime_nsec;         /* ... nanoseconds. */
+} fs_node_t;
+
+typedef struct fs_file_description {
+	spin_lock_t        lock;
+	int64_t            refcount;
+	struct fs_node   * inode;
+	struct fs_path   * path;
+	uint64_t           flags;
+	off_t              offset;
+} fs_file_t;
+
+struct vfs_entry {
+	char * name;
+	fs_node_t * file;
+	char * device;
+	char * fs_type;
+
+	struct etree tree_entry;
+};
+
+extern fs_node_t *fs_root;
+extern struct pty * pty_create(void *, fs_node_t **, fs_node_t **);
+
+#include <bits/access.h>
+
+int has_permission(fs_node_t *node, int permission_bit);
+ssize_t read_fs(fs_node_t *node,  off_t offset, size_t size, uint8_t *buffer);
+ssize_t write_fs(fs_node_t *node, off_t offset, size_t size, uint8_t *buffer);
+void open_fs(fs_node_t *node, unsigned int flags);
+void close_fs(fs_node_t *node);
+int readdir_fs(fs_node_t *node, unsigned long index, struct dirent *dent);
+fs_node_t *finddir_fs(fs_node_t *node, const char *name);
+fs_node_t *kopen_error(const char *filename, unsigned int flags, int *error);
+struct fs_file_description * kopen_at(struct fs_file_description *, const char *, unsigned int, mode_t, int*);
+int kopen_parent(struct fs_file_description * dirfd, const char *filename, fs_node_t ** parent, fs_node_t ** file);
+int ioctl_fs(fs_node_t *node, unsigned long request, void * argp);
+int chmod_fs(fs_node_t *node, mode_t mode);
+int chown_fs(fs_node_t *node, uid_t uid, gid_t gid);
+int unlink_fs_at(struct fs_file_description * fd, const char * name, int flag);
+int symlink_fs(const char * value, const char * name);
+int symlink_fs_at(const char * target, struct fs_file_description * dirfd, const char * name);
+ssize_t readlink_fs(fs_node_t * node, char * buf, size_t size);
+int selectcheck_fs(fs_node_t * node);
+int selectwait_fs(fs_node_t * node, void * process);
+int truncate_fs(fs_node_t * node, size_t size);
+int utimens_fs(fs_node_t * node, struct timespec access, struct timespec modify);
+int rename_file_fs_at(struct fs_file_description * src_fd, const char * src, struct fs_file_description * dest_fd, const char * dest);
+int link_fs_at(struct fs_file_description * dest_fd, const char * dest_path, struct fs_file_description * src_fd, const char * src_path, int flag);
+
+void vfs_install(void);
+typedef fs_node_t * (*vfs_mount_callback)(const char * arg, const char * mount_point);
+int vfs_register(const char * name, vfs_mount_callback callback);
+int vfs_mount_type(const char * type, const char * arg, const char * mountpoint);
+void vfs_lock(fs_node_t * node);
+void vfs_add_dev(const char * name, fs_node_t * node);
+fs_node_t * vfs_dev_subdir(const char*);
+
+int make_unix_pipe(fs_node_t ** pipes);
+
+int fprintf(fs_node_t * f, const char * fmt, ...);
+
+static inline dev_t fs_device_identifier(fs_node_t * fn) {
+	dev_t base = fn->mount ? (uintptr_t)fn->mount :
+		fn->device ? (uintptr_t)fn->device :
+		(uintptr_t)fn;
+	return (base & 0xffffffffff) >> 5;
+}
+
+char * fs_current_wd(void);
+struct fs_path * fs_alloc_path_from(const char * src, const char * called_from);
+struct fs_path * fs_path_printf(const char * fmt, ...);
+struct fs_file_description * fs_fresh_descriptor(fs_node_t * node, int flags, struct fs_path * path);
+int fs_close_desc(struct fs_file_description *);
+uintptr_t fs_clone_desc(struct fs_file_description *, int);
+uint64_t fs_convert_descriptor_flags(uintptr_t desc_ptr);
+const char * fs_basename(const char * path);
+
+/* New interfaces to support O_NONBLOCK */
+ssize_t read_fs_ex(struct fs_file_description * fd, off_t offset, size_t size, uint8_t *buffer);
+ssize_t write_fs_ex(struct fs_file_description * fd, off_t offset, size_t size, uint8_t *buffer);

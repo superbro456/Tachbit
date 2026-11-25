@@ -1,0 +1,77 @@
+#pragma once
+
+#include <_cheader.h>
+#include <sys/types.h>
+
+_Begin_C_Header
+
+#define O_RDONLY     0x0000
+#define O_WRONLY     0x0001
+#define O_RDWR       0x0002
+#define O_APPEND     0x0008
+#define O_NOCTTY     0x0100
+#define O_CREAT      0x0200
+#define O_TRUNC      0x0400
+#define O_EXCL       0x0800
+#define O_NOFOLLOW   0x1000
+#define O_PATH       0x2000
+#define O_NONBLOCK   0x4000
+#define O_DIRECTORY  0x8000
+#define O_CLOEXEC   0x10000
+#define O_CLOFORK   0x20000
+
+#define O_ACCMODE   (O_WRONLY | O_RDWR)
+
+#define F_GETFD 1
+#define F_SETFD 2
+
+#define F_GETFL 3
+#define F_SETFL 4
+
+#define F_DUPFD 10
+#define F_DUPFD_CLOEXEC 11
+#define F_DUPFD_CLOFORK 12
+#define F_DUPFD_QUERY   13
+#define F_CREATED_QUERY 14
+
+/* Advisory locks are not currently supported;
+ * these definitions are stubs. */
+#define F_GETLK  5
+#define F_SETLK  6
+#define F_SETLKW 7
+
+#define F_RDLCK  0
+#define F_WRLCK  1
+#define F_UNLCK  2
+
+struct flock {
+	short l_type;
+	short l_whence;
+	off_t l_start;
+	off_t l_len;
+	pid_t l_pid;
+};
+
+#define FD_CLOEXEC (1 << 0)
+#define FD_CLOFORK (1 << 1)
+
+#define AT_FDCWD (-100)
+
+/*
+ * All of these should be mutually exclusive in use,
+ * but let's make them all different just in case, and
+ * so we can be rude and reject them when they're wrong.
+ */
+#define AT_EACCESS           0x0001
+#define AT_SYMLINK_NOFOLLOW  0x0002
+#define AT_SYMLINK_FOLLOW    0x0004
+#define AT_REMOVEDIR         0x0008
+
+#ifndef __kernel__
+extern int open (const char *, int, ...);
+extern int fcntl(int fd, int cmd, ...);
+extern int creat(const char *path, mode_t mode);
+extern int openat(int dirfd, const char *name, int flags, ...);
+#endif
+
+_End_C_Header
