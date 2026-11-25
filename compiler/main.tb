@@ -221,8 +221,17 @@ func ll_probe(exe: text, native: bool) gives target: text, cpu: text
     remove(probe + ".ll") else err
         ignored = err
 
+// opt, llc и llvm-link без shell: в TB_LLVM или в /bin (так в FuturaOS: там shell почти ничего не умеет)
+func llvm_bin_quick() gives d: text
+    each dir in [env("TB_LLVM"), "/bin"]
+        if dir != "" and is_file(dir + "/opt") and is_file(dir + "/llc") and is_file(dir + "/llvm-link")
+            return dir
+
 // где лежат opt, llc и llvm-link: TB_LLVM, llvm-config, brew (Mac), PATH; "" — нигде
 func llvm_bin(tmp: text) gives d: text
+    d = llvm_bin_quick()
+    if d != ""
+        return
     probe = "d=\"${TB_LLVM:-}\"; ok() { [ -n \"$1\" ] && [ -x \"$1/opt\" ] && [ -x \"$1/llc\" ] && [ -x \"$1/llvm-link\" ]; }; "
     probe += "ok \"$d\" || d=$(llvm-config --bindir 2> /dev/null); "
     probe += "ok \"$d\" || d=/opt/homebrew/opt/llvm/bin; ok \"$d\" || d=/usr/local/opt/llvm/bin; "
@@ -244,6 +253,16 @@ func text_hash(s: text) gives h: int
 // Делается один раз на версию библиотеки (clang переводит C — так же, как готовят libc)
 // и лежит в ~/.cache/tachbit; дальше программы собираются без clang
 func llvm_lib(bin: text, gfx: bool, snd: bool, native: bool) gives lib: text, target: text, cpu: text
+    // готовая (в ~/.cache или положенная вместе с Tachbit: FuturaOS, /usr/lib/tachbit — там нет clang)
+    lib, target, cpu = llvm_lib_ready(gfx, snd, native)
+    if lib != ""
+        return
+    lib, target, cpu = llvm_lib_build(bin, gfx, snd, native)
+    // clang нет: под «свой процессор» не собрать — берём обычную готовую
+    if lib == "" and native
+        lib, target, cpu = llvm_lib_ready(gfx, snd, false)
+
+func llvm_lib_build(bin: text, gfx: bool, snd: bool, native: bool) gives lib: text, target: text, cpu: text
     dir = env("HOME") + "/.cache/tachbit"
     src = runtime_text()
     kind = "o"
@@ -281,6 +300,28 @@ func llvm_lib(bin: text, gfx: bool, snd: bool, native: bool) gives lib: text, ta
             return
     target, cpu = ll_probe_parse(read_file(tpath) or "")
 
+// имя готовой библиотеки этой версии runtime.h: rt-<отпечаток>-<длина>-<вид>
+func llvm_lib_name(gfx: bool, snd: bool, native: bool) gives name: text
+    src = runtime_text()
+    kind = "o"
+    if gfx
+        kind = "g"
+    if snd
+        kind += "s"
+    if native
+        kind += "n"
+    name = "rt-" + text_hash(src) + "-" + len(src) + "-" + kind
+
+// уже готовая библиотека (без clang): ~/.cache/tachbit или /usr/lib/tachbit
+func llvm_lib_ready(gfx: bool, snd: bool, native: bool) gives lib: text, target: text, cpu: text
+    name = llvm_lib_name(gfx, snd, native)
+    each dir in [env("HOME") + "/.cache/tachbit", "/usr/lib/tachbit"]
+        b = dir + "/" + name
+        if is_file(b + ".bc") and is_file(b + ".target")
+            lib = b + ".bc"
+            target, cpu = ll_probe_parse(read_file(b + ".target") or "")
+            return
+
 // вся программа в .ll: llvm-link (+ библиотека .bc) → opt → llc → готовая программа.
 // false — что-то не вышло (нет LLVM, старая версия ...): тогда собираем как раньше, через clang
 func build_pure(c: Comp, program: Node, exe: text, native: bool) gives ok: bool
@@ -296,15 +337,21 @@ func build_pure(c: Comp, program: Node, exe: text, native: bool) gives ok: bool
     bc = exe + ".bc"
     ofile = exe + ".o"
     log = exe + ".llvm.log"
-    cmd = quote(bin + "/llvm-link") + " " + quote(ll_path) + " " + quote(lib) + " -o " + quote(bc)
+    // шаги по одному, без && (shell FuturaOS его не знает)
+    steps = list text
+    steps.add(quote(bin + "/llvm-link") + " " + quote(ll_path) + " " + quote(lib) + " -o " + quote(bc))
     // internalize: снаружи видна только main — opt встраивает библиотеку и выбрасывает лишнее
-    cmd += " && " + quote(bin + "/opt") + " -passes='internalize,default<O2>' -internalize-public-api-list=main " + quote(bc) + " -o " + quote(bc)
-    cmd += " && " + quote(bin + "/llc") + " -O2 -filetype=obj -relocation-model=pic " + quote(bc) + " -o " + quote(ofile)
+    steps.add(quote(bin + "/opt") + " -passes='internalize,default<O2>' -internalize-public-api-list=main " + quote(bc) + " -o " + quote(bc))
+    steps.add(quote(bin + "/llc") + " -O2 -filetype=obj -relocation-model=pic " + quote(bc) + " -o " + quote(ofile))
     // склеить с системными библиотеками: обычный линкер системы (через cc)
-    cmd += " && " + cc_or("cc") + " -o " + quote(exe) + " " + quote(ofile) + c.c_link + " -lm -lpthread"
+    glue = cc_or("cc") + " -o " + quote(exe) + " " + quote(ofile) + c.c_link + " -lm -lpthread"
     if c.gfx
-        cmd += " $( [ \"$(uname)\" = Darwin ] && echo '-framework Cocoa -framework CoreGraphics -framework QuartzCore -lobjc' || echo '-lX11' )"
-    ok = run(cmd + " 2> " + quote(log)) == 0
+        glue += " $( [ \"$(uname)\" = Darwin ] && echo '-framework Cocoa -framework CoreGraphics -framework QuartzCore -lobjc' || echo '-lX11' )"
+    steps.add(glue)
+    ok = true
+    each step in steps
+        if ok and run(step + " 2> " + quote(log)) != 0
+            ok = false
     if not ok and env("TB_PURE_WHY") != ""
         say("без clang не вышло, смотри " + log)
     each f in [bc, ofile]
@@ -320,6 +367,11 @@ func ll_default() gives r: bool
         return false
     if find(cc_or("clang"), "clang") < 0
         return false
+    // LLVM без clang (FuturaOS): инструменты LLVM и готовая библиотека Tachbit на месте
+    if llvm_bin_quick() != ""
+        lib, target, cpu = llvm_lib_ready(false, false, false)
+        if lib != ""
+            return true
     return run("command -v clang > /dev/null 2>&1") == 0
 
 func build(c: Comp, path: text, exe: text, native: bool)
@@ -686,6 +738,10 @@ func main()
         return
     if mode == "version" or mode == "--version"
         say("Tachbit 1.3 (компилятор на Tachbit)")
+        return
+    // имя готовой библиотеки для LLVM без clang (её кладут в /usr/lib/tachbit, см. tools/futura)
+    if mode == "llvm-lib-name"
+        print(llvm_lib_name(false, false, false))
         return
     if mode == "start"
         mode = "run"

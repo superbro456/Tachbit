@@ -3,6 +3,8 @@
 #   tools/futura/inside.sh папка_tinycc папка_выхода
 # Нужно: TB_FUTURA_INCLUDE (его include/), TB_FUTURA_SYSROOT (libc.so, crt*.o), clang, ld.lld.
 # Исходники tcc: git clone https://github.com/TinyCC/tinycc
+# С LLVM (быстрые программы): TB_FUTURA_LLVM=папка с llc, opt, llvm-link, ld.lld для FuturaOS
+# (их делает tools/futura/llvm/build.sh). Тогда tb run в FuturaOS идёт через LLVM, tcc — запасной.
 # Потом всё из папки_выхода кладётся в ramdisk:
 #   cd папка_выхода && python3 ramdisk.py add ramdisk.tar new.igz $(find . -type f | sed 's|^\./||;s|.*|&=&|')
 set -e
@@ -48,4 +50,15 @@ link "$out/bin/cc" "$tmp/cc.o"
 (cd "$inc" && tar cf - --exclude=c++ --exclude=libxml2 --exclude='GL*' --exclude=EGL --exclude=KHR \
     --exclude=kernel --exclude='*.bak' --exclude='*.backup*' .) | (cd "$out/usr/include" && tar xf -)
 cp -r "$here/sdk-include/." "$out/usr/include/"
+# 5. LLVM (если есть) + готовая библиотека Tachbit в LLVM (.bc): в FuturaOS нет clang, чтобы её сделать
+if [ -n "$TB_FUTURA_LLVM" ]; then
+    for t in llc opt llvm-link ld.lld; do cp "$TB_FUTURA_LLVM/$t" "$out/bin/"; done
+    mkdir -p "$out/usr/lib/tachbit"
+    name=$("$tb" llvm-lib-name)
+    rt="$out/usr/lib/tachbit/$name"
+    clang --target=x86_64-unknown-elf -O2 -w -nostdinc -isystem "$here/sdk-include" -isystem "$inc" -isystem "$res/include" \
+        -fno-stack-protector -include tb_futura_sdk.h -c -emit-llvm -DTB_LL -x c "$here/../../compiler/runtime.h" -o "$rt.bc"
+    dis=$(command -v llvm-dis || command -v llvm-dis-18)
+    "$dis" "$rt.bc" -o - | grep -E '^target |^attributes #0 ' > "$rt.target"
+fi
 echo "готово: $out (bin/tb, bin/tcc, bin/cc, usr/lib/tcc, usr/include)"
