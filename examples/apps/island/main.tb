@@ -1,4 +1,4 @@
-// «Остров-защита» — 3D защита острова от пиратов.
+// «Остров-защита» — 3D защита острова: башни, пушки, стены, войска и крепость против троллей, крабов, гоблинов и колдунов.
 //   data.tb    — данные (что хранится)
 //   logic.tb   — правила (что происходит)
 //   view3d.tb  — вывод в 3D (рисует остров)      view2d.tb — временный вид сверху
@@ -104,15 +104,25 @@ func main()
             if view.pressed(v, "back")
                 page = "menu"
         else if page == "hud"
-            count k from 0 to tower_count() - 1
-                if view.pressed(v, "t" + k)
-                    choose(g, k)
+            count k from 0 to build_count() - 1
+                if view.pressed(v, "b" + k)
+                    choose(g, "b" + k)
+            count k from 0 to troop_count() - 1
+                if view.pressed(v, "u" + k)
+                    ok = hire(g, k)
+                    g.sel = "t" + k
+                    g.tool = ""
+            if view.pressed(v, "flag")
+                choose(g, "flag")
+            if view.pressed(v, "fort")
+                g.sel = "fort"
+                g.tool = ""
             if view.pressed(v, "go")
                 start_wave(g)
             if view.pressed(v, "up")
-                ok = upgrade(g, g.sel)
+                ok = upgrade_sel(g)
             if view.pressed(v, "sell")
-                sell(g, g.sel)
+                sell_sel(g)
             if view.pressed(v, "speed")
                 g.speed = 3 - g.speed
             if view.pressed(v, "pause")
@@ -143,7 +153,7 @@ func main()
         if page == "end"
             ended += 1
         if demo and (frames >= 20000 or ended > 180)
-            print(g.name + ": " + g.state + ", волна " + (g.wave + 1) + " / " + len(g.waves) + ", жизни " + g.lives + ", счёт " + g.score + ", башен " + len(g.towers) + ", кадров " + frames)
+            print(g.name + ": " + g.state + ", волна " + (g.wave + 1) + " / " + len(g.waves) + ", жизни " + g.lives + ", счёт " + g.score + ", строений " + len(g.builds) + ", воинов " + alive_troops(g) + ", крепость " + g.fort + ", кадров " + frames)
             exit(0)
 
 // папка этой игры (чтобы ui.tbs нашёлся, откуда ни запускай)
@@ -160,26 +170,35 @@ func here()
         return ""
     return "examples/apps/island/"
 
-func choose(g: Game, k: int)
-    if g.pick == k
-        g.pick = -1
+// взять инструмент (строить / флаг); тот же ещё раз — убрать
+func choose(g: Game, tool: text)
+    if g.tool == tool
+        g.tool = ""
     else
-        g.pick = k
-        g.sel = -1
+        g.tool = tool
+        g.sel = ""
 
-// клавиши: 1–4 башня, пробел волна, F скорость, U улучшить, Delete продать, Esc пауза
+// клавиши: 1–3 строить, Q W E нанять, G флаг, пробел волна, F скорость, U улучшить, X продать, Esc пауза
 func keys_in(g: Game, keys: dict text bool)
-    count k from 0 to tower_count() - 1
+    count k from 0 to build_count() - 1
         if pressed_key(keys, "" + (k + 1))
-            choose(g, k)
+            choose(g, "b" + k)
+    hk = ["q", "w", "e"]
+    count k from 0 to troop_count() - 1
+        if pressed_key(keys, hk[k])
+            ok = hire(g, k)
+            g.sel = "t" + k
+            g.tool = ""
+    if pressed_key(keys, "g")
+        choose(g, "flag")
     if pressed_key(keys, "space")
         start_wave(g)
     if pressed_key(keys, "f")
         g.speed = 3 - g.speed
     if pressed_key(keys, "u")
-        ok = upgrade(g, g.sel)
+        ok = upgrade_sel(g)
     if pressed_key(keys, "x")
-        sell(g, g.sel)
+        sell_sel(g)
 
 // клавишу нажали только что (а не держат)
 func pressed_key(keys: dict text bool, name: text)
@@ -195,37 +214,80 @@ func fill_hud(v: TbsView, g: Game)
     view.put_prop(v, "lives", "text", "Жизни " + g.lives + " / " + g.max_lives)
     view.put_prop(v, "wave", "text", "Волна " + (g.wave + 1) + " / " + len(g.waves))
     view.put_prop(v, "score", "text", "Счёт " + g.score)
-    count k from 0 to tower_count() - 1
-        info = tower_info(k)
-        id = "t" + k
+    count k from 0 to build_count() - 1
+        info = build_info(k, 1)
+        id = "b" + k
         view.put_prop(v, id, "text", "" + (k + 1) + "  " + info.name + " · " + info.price)
-        if g.pick == k
-            view.put_prop(v, id, "style", "picked")
+        pick(v, id, g.tool == id, g.money >= info.price)
+    pick(v, "flag", g.tool == "flag", true)
+    full = alive_troops(g) >= troop_cap(g.fort)
+    count k from 0 to troop_count() - 1
+        info = troop_info(k, g.troop_lvl[k])
+        id = "u" + k
+        view.put_prop(v, id, "text", info.name + " " + g.troop_lvl[k] + " · " + info.price)
+        pick(v, id, g.sel == "t" + k, g.money >= info.price and not full)
+    view.put_prop(v, "fort", "text", "Крепость " + g.fort)
+    pick(v, "fort", g.sel == "fort", true)
+    // что выбрано
+    can_up = false
+    can_sell = false
+    up_text = ""
+    bi = sel_build(g)
+    if bi >= 0
+        b = g.builds[bi]
+        info = build_info(b.kind, b.lvl)
+        cap = lvl_cap(g, info.max_lvl)
+        if b.kind == 2
+            view.put_prop(v, "info", "text", info.name + ", уровень " + b.lvl + " из " + info.max_lvl + ". Прочность " + round(b.hp) + " / " + round(b.max_hp) + ".")
         else
-            view.put_prop(v, id, "style", "")
-        if g.money < info.price
-            view.put_prop(v, id, "opacity", "45%")
+            rng = info.range
+            if b.hill
+                rng *= 1.25
+            view.put_prop(v, "info", "text", info.name + ", уровень " + b.lvl + " из " + info.max_lvl + ". Урон " + round(info.dmg) + ", дальность " + round(rng * 10.0) / 10.0 + ".")
+        can_sell = true
+        can_up = true
+        up_text = up_line(b.lvl, info.max_lvl, cap, build_up_price(b.kind, b.lvl + 1))
+    else if starts_with(g.sel, "t")
+        k = to_int(cut(g.sel, 1, len(g.sel) - 1)) or 0
+        lvl = g.troop_lvl[k]
+        info = troop_info(k, lvl)
+        view.put_prop(v, "info", "text", info.name + ", уровень " + lvl + " из " + info.max_lvl + ": " + info.about + ". Воинов " + alive_troops(g) + " / " + troop_cap(g.fort) + ". G — переставить флаг.")
+        can_up = true
+        up_text = up_line(lvl, info.max_lvl, lvl_cap(g, info.max_lvl), troop_up_price(k, lvl + 1))
+    else if g.sel == "fort"
+        about = "Крепость, уровень " + g.fort + " из " + fort_max() + ". Золото за волну " + fort_income(g.fort) + "."
+        if fort_dmg(g.fort) > 0.0
+            about = about + " Стреляет сама, урон " + round(fort_dmg(g.fort)) + "."
         else
-            view.put_prop(v, id, "opacity", "")
-    has_sel = g.sel >= 0 and g.sel < len(g.towers)
-    view.show_item(v, "up", has_sel)
-    view.show_item(v, "sell", has_sel)
-    if has_sel
-        tw = g.towers[g.sel]
-        st = stats(tw)
-        view.put_prop(v, "info", "text", st.name + ", уровень " + tw.lvl + ". Урон " + round(st.dmg) + ", дальность " + round(st.range * 10.0) / 10.0 + ", выстрелов в секунду " + round(st.rate * 10.0) / 10.0 + ".")
-        if tw.lvl < 3
-            view.put_prop(v, "up", "text", "Улучшить · " + upgrade_price(tw.kind, tw.lvl + 1))
+            about = about + " С 3-го уровня стреляет сама."
+        view.put_prop(v, "info", "text", about + " Всё остальное улучшается не выше её уровня.")
+        can_up = true
+        up_text = up_line(g.fort, fort_max(), fort_max(), fort_up_price(g.fort + 1))
+    else if starts_with(g.sel, "ruin")
+        view.put_prop(v, "info", "text", "Заброшенная башня. Почини — станет башней 2-го уровня.")
+        can_up = true
+        up_text = "Починить · " + ruin_price()
+    else if starts_with(g.tool, "b")
+        k = to_int(cut(g.tool, 1, 1)) or 0
+        info = build_info(k, 1)
+        where = "Нажми на песок, траву или холм."
+        if k == 2
+            where = "Нажми на тропу."
+        view.put_prop(v, "info", "text", info.name + ": " + info.about + ". " + where)
+    else if g.tool == "flag"
+        view.put_prop(v, "info", "text", "Нажми на тропу: войска пойдут туда.")
+    else
+        view.put_prop(v, "info", "text", "Выбери, что строить, или найми войска. Нажми на строение или крепость, чтобы улучшить.")
+    view.show_item(v, "up", can_up)
+    view.show_item(v, "sell", can_sell)
+    if can_up
+        view.put_prop(v, "up", "text", up_text)
+        if starts_with(up_text, "Улучшить") or starts_with(up_text, "Починить")
             view.put_prop(v, "up", "disabled", "")
         else
-            view.put_prop(v, "up", "text", "Уровень 3 — максимум")
             view.put_prop(v, "up", "disabled", "yes")
-        view.put_prop(v, "sell", "text", "Продать · " + tw.spent * 7 / 10)
-    else if g.pick >= 0
-        info = tower_info(g.pick)
-        view.put_prop(v, "info", "text", info.name + ": " + info.about + ". Нажми на песок или траву.")
-    else
-        view.put_prop(v, "info", "text", "Выбери башню и нажми на песок или траву. Нажми на башню, чтобы улучшить.")
+    if can_sell
+        view.put_prop(v, "sell", "text", "Продать · " + g.builds[bi].spent * 7 / 10)
     if g.state == "wave"
         view.put_prop(v, "go", "text", "Идёт волна…")
         view.put_prop(v, "go", "disabled", "yes")
@@ -233,6 +295,32 @@ func fill_hud(v: TbsView, g: Game)
         view.put_prop(v, "go", "text", "Волна " + (g.wave + 2) + "  ▶")
         view.put_prop(v, "go", "disabled", "")
     view.put_prop(v, "speed", "text", "Скорость ×" + g.speed)
+
+// кнопка выбрана / хватает ли денег
+func pick(v: TbsView, id: text, on: bool, can: bool)
+    if on
+        view.put_prop(v, id, "style", "picked")
+    else
+        view.put_prop(v, id, "style", "")
+    if can
+        view.put_prop(v, id, "opacity", "")
+    else
+        view.put_prop(v, id, "opacity", "45%")
+
+// надпись на кнопке «Улучшить»
+func up_line(lvl: int, max_lvl: int, cap: int, price: int)
+    if lvl >= max_lvl
+        return "Уровень " + lvl + " — максимум"
+    if lvl >= cap
+        return "Сначала улучши крепость"
+    return "Улучшить до " + (lvl + 1) + " · " + price
+
+func alive_troops(g: Game)
+    n = 0
+    each t in g.troops
+        if t.alive
+            n += 1
+    return n
 
 func fill_end(v: TbsView, g: Game)
     if g.state == "won"
@@ -253,17 +341,17 @@ func sounds(g: Game)
             if shot
                 skip
             shot = true
-            hz = 900
-            ms = 25
+            hz = 1300
+            ms = 30
             if e == "shot1"
                 hz = 150
                 ms = 90
-            else if e == "shot2"
-                hz = 1300
-                ms = 35
-            else if e == "shot3"
-                hz = 1700
-                ms = 45
+        else if e == "sword"
+            hz = 1800
+            ms = 20
+        else if e == "magic"
+            hz = 520
+            ms = 120
         else if e == "boom"
             hz = 90
             ms = 160
@@ -273,15 +361,24 @@ func sounds(g: Game)
         else if e == "base"
             hz = 220
             ms = 220
-        else if e == "build" or e == "upgrade"
+        else if e == "build" or e == "upgrade" or e == "hire"
             hz = 520
             ms = 90
+        else if e == "fort_up"
+            hz = 780
+            ms = 260
+        else if e == "flag"
+            hz = 600
+            ms = 60
         else if e == "sell"
             hz = 400
             ms = 80
         else if e == "no"
             hz = 140
             ms = 90
+        else if e == "troop_down" or e == "wall_down"
+            hz = 180
+            ms = 180
         else if e == "wave"
             hz = 440
             ms = 160
@@ -299,27 +396,60 @@ func sounds(g: Game)
 
 // ISLAND_DEMO=1: игра играет сама (для проверки и скриншотов)
 func autoplay(g: Game, frame: int)
-    if g.state == "build" and frame % 30 == 0
-        // ставим башни у тропы, пока есть деньги
-        k = (len(g.towers) + g.wave) % tower_count()
-        if g.money >= tower_info(k).price
-            each i in [3, 7, 11, 15, 19, 23, 27, 31, 35, 39, 43]
-                if i < len(g.path_c)
-                    c = g.path_c[i]
-                    r = g.path_r[i]
-                    count d from 0 to 3
-                        nc = c + 1
-                        nr = r
-                        if d == 1
-                            nc = c - 1
-                        else if d == 2
-                            nc = c
-                            nr = r + 1
-                        else if d == 3
-                            nc = c
-                            nr = r - 1
-                        if can_build(g, nc, nr) and g.money >= tower_info(k).price
-                            ok = build(g, k, nc, nr)
-                            return
-        else
-            start_wave(g)
+    if g.state != "build" or frame % 30 != 0
+        return
+    nb = 0
+    each b in g.builds
+        if b.kind != 2
+            nb += 1
+    // 1) крепость, если не отстаёт
+    if nb >= 3 and g.fort < 2 + g.wave / 2 and g.money >= fort_up_price(g.fort + 1)
+        g.sel = "fort"
+        ok = upgrade_sel(g)
+        return
+    // 2) войска: немного, но всегда
+    if nb >= 2 and alive_troops(g) < min(troop_cap(g.fort), 2 + g.wave / 2)
+        k = (g.wave + 1 + alive_troops(g)) % troop_count()
+        if g.money >= troop_info(k, g.troop_lvl[k]).price
+            ok = hire(g, k)
+            return
+    // 3) стена на тропе перед флагом, если её нет
+    walls = 0
+    each b in g.builds
+        if b.kind == 2
+            walls += 1
+    if walls == 0 and g.wave >= 1 and g.money >= build_info(2, 1).price
+        i = round(g.flag) - 2
+        if build(g, 2, g.path_c[i], g.path_r[i])
+            return
+    // 4) башни и пушки у тропы
+    k = nb % 2
+    if nb < 3 + g.wave and g.money >= build_info(k, 1).price
+        count j from 0 to len(g.path_c) / 2 - 2
+            // сначала середина тропы, потом края
+            i = (len(g.path_c) / 2 + (j % 2 * 2 - 1) * (j / 2) * 2 + len(g.path_c)) % len(g.path_c)
+            if i >= 2
+                c = g.path_c[i]
+                r = g.path_r[i]
+                count d from 0 to 3
+                    nc = c + 1
+                    nr = r
+                    if d == 1
+                        nc = c - 1
+                    else if d == 2
+                        nc = c
+                        nr = r + 1
+                    else if d == 3
+                        nc = c
+                        nr = r - 1
+                    if can_build(g, k, nc, nr)
+                        ok = build(g, k, nc, nr)
+                        return
+    // 5) улучшить первое, что можно
+    count i from 0 to len(g.builds) - 1
+        b = g.builds[i]
+        if b.lvl < lvl_cap(g, build_info(b.kind, 1).max_lvl) and g.money >= build_up_price(b.kind, b.lvl + 1)
+            g.sel = "b" + i
+            ok = upgrade_sel(g)
+            return
+    start_wave(g)

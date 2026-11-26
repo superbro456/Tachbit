@@ -18,11 +18,11 @@ style stat
     text.shadow: yes
 
 // ---------- игра: верхняя полоса и панель справа ----------
-screen hud 6x10
+screen hud 7x10
     backcolor: transparent
     backdim: 0
-    cols: * * * * * 250
-    rows: 56 46 46 46 46 * 44 44 46 52
+    cols: * * * * * 150 150
+    rows: 56 30 46 46 46 46 * 44 44 52
     pad: 10
     gap: 8
 
@@ -47,43 +47,65 @@ screen hud 6x10
         text: Счёт 0
         style: stat
 
-    card side (F1:F10)
+    card side (F1:G10)
         corner.radius: 20
     btn pause (F1)
-        text: Пауза  Esc
+        text: Пауза
         look: soft
-    btn t0 (F2)
-        text: 1  Лучник · 50
+    btn speed (G1)
+        text: Скорость ×1
+        look: soft
+    text cap1 (F2)
+        text: Строить
+        size: 14
+        color: rgba(255, 255, 255, 0.7)
+        align: center
+    text cap2 (G2)
+        text: Войска
+        size: 14
+        color: rgba(255, 255, 255, 0.7)
+        align: center
+    btn b0 (F3)
+        text: 1  Башня · 50
         style: tower
-    btn t1 (F3)
+    btn b1 (F4)
         text: 2  Пушка · 90
         style: tower
-    btn t2 (F4)
-        text: 3  Мороз · 70
+    btn b2 (F5)
+        text: 3  Стена · 40
         style: tower
-    btn t3 (F5)
-        text: 4  Молния · 140
+    btn flag (F6)
+        text: Флаг войскам
         style: tower
-    text info (F6)
-        text: Выбери башню и нажми на песок или траву.
+    btn u0 (G3)
+        text: Мечник · 30
+        style: tower
+    btn u1 (G4)
+        text: Лучник · 40
+        style: tower
+    btn u2 (G5)
+        text: Конница · 75
+        style: tower
+    btn fort (G6)
+        text: Крепость 1
+        style: tower
+    text info (F7:G7)
+        text: Выбери, что строить, и нажми на остров.
         wrap: yes
         size: 14
         color: rgba(255, 255, 255, 0.85)
         padding: 6
-    btn up (F7)
+    btn up (F8:G8)
         text: Улучшить · 40
         backcolor: rgba(90, 230, 150, 0.25)
         corner.color: #5ae69a
         corner.radius: 14
-    btn sell (F8)
+    btn sell (F9:G9)
         text: Продать · 35
         color: #ff9a9a
         backcolor: rgba(255, 90, 90, 0.18)
         corner.radius: 14
-    btn speed (F9)
-        text: Скорость ×1
-        look: soft
-    btn go (F10)
+    btn go (F10:G10)
         text: Волна 1  ▶
         look: main
         height: 46
@@ -128,11 +150,11 @@ screen help 3x3
     backblur: 8
     backdim: 45%
     cols: * 520 *
-    rows: * 360 60
+    rows: * 400 60
     card (B2)
         corner.radius: 22
     text howto (B2)
-        text: Враги идут по тропе от причала к крепости. Выбери башню справа (или клавиши 1–4) и нажми на песок или траву. Лучник быстрый и бьёт чаек. Пушка бьёт ядром по площади, но не достаёт птиц. Мороз замедляет. Молния цепляет сразу нескольких, броня черепах её не держит. Нажми на башню — можно улучшить или продать. Пробел — следующая волна, Esc — пауза, F — быстрее.
+        text: Враги (крабы, гоблины, тролли, колдуны) идут по тропе от причала к крепости. Строй башни и пушки на песке, траве и холмах (с холма бьют дальше), стены — прямо на тропу. Нанимай мечников, лучников и конницу: они идут к флагу и держат врагов. Улучшай крепость — она даёт жизни, золото за волну, с 3-го уровня стреляет сама, и до её уровня можно улучшать всё остальное. Заброшенную башню можно починить. Клавиши: 1–3 строить, Q W E войска, Пробел — волна, U улучшить, X продать, F быстрее, Esc пауза.
         wrap: yes
         line.height: 1.5
         padding: 12

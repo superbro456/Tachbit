@@ -26,7 +26,31 @@ modpub func cell_under(g: Game, mx: int, my: int, x: int, y: int, w: int, h: int
 modpub func draw_world(u: Ui, g: Game, t: dec, x: int, y: int, w: int, h: int)
     draw_rect(x, y, w, h, rgb(24, 92, 140))
     ox, oy, s = layout(g, x, y, w, h)
-    // клетки
+    draw_ground(g, t, ox, oy, s)
+    draw_flag(g, ox, oy, s)
+    draw_hover(g, ox, oy, s)
+    draw_fort(g, t, ox, oy, s)
+    each b in g.builds
+        draw_build(g, b, ox, oy, s)
+    each tr in g.troops
+        if tr.alive
+            draw_troop(g, tr, ox, oy, s)
+    each e in g.enemies
+        if e.alive
+            draw_enemy(g, e, t, ox, oy, s)
+    each sh in g.shots
+        draw_shot(g, sh, ox, oy, s)
+    each f in g.fx
+        draw_fx(g, f, ox, oy, s)
+
+// 3D-точка → экран
+func sx(g: Game, x: dec, ox: int, s: int)
+    return ox + round((x + g.w / 2.0) * s)
+
+func sz(g: Game, z: dec, oy: int, s: int)
+    return oy + round((z + g.h / 2.0) * s)
+
+func draw_ground(g: Game, t: dec, ox: int, oy: int, s: int)
     count r from 0 to g.h - 1
         count c from 0 to g.w - 1
             k = cell(g, c, r)
@@ -35,16 +59,33 @@ modpub func draw_world(u: Ui, g: Game, t: dec, x: int, y: int, w: int, h: int)
             if k == 0
                 wave = round(18.0 * sin(t * 1.5 + c * 0.7 + r * 0.5))
                 draw_rect(px, py, s, s, rgb(30, 110 + wave / 2, 165 + wave))
-            else
-                draw_rect(px, py, s, s, ground_color(k, c, r))
-                if k == 4
-                    draw_circle(px + s / 2, py + s / 2, s * 3 / 8, rgb(110, 116, 108))
-                    draw_circle(px + s / 2 - s / 8, py + s / 2 - s / 8, s / 6, rgb(140, 146, 136))
-                else if k == 5
-                    draw_round(px + s / 8, py + s / 8, s * 3 / 4, s * 3 / 4, s / 8, "", rgb(200, 190, 170))
-                    draw_rect(px + s / 3, py - s / 6, s / 3, s / 2, rgb(170, 60, 60))
-                else if k == 6
-                    draw_rect(px + s / 6, py + s / 3, s * 2 / 3, s / 3, rgb(130, 90, 55))
+                skip
+            draw_rect(px, py, s, s, ground_color(k, c, r))
+            m = px + s / 2
+            n = py + s / 2
+            if k == 4
+                // камень
+                draw_circle(m, n, s * 3 / 8, rgb(110, 116, 108))
+                draw_circle(m - s / 8, n - s / 8, s / 6, rgb(140, 146, 136))
+            else if k == 6
+                // причал
+                draw_rect(px + s / 6, py + s / 3, s * 2 / 3, s / 3, rgb(130, 90, 55))
+            else if k == 7
+                // дерево
+                draw_circle(m + s / 10, n + s / 8, s * 3 / 8, rgba(0, 0, 0, 60))
+                draw_circle(m, n, s * 3 / 8, rgb(46, 120, 58))
+                draw_circle(m - s / 8, n - s / 8, s / 5, rgb(70, 150, 76))
+            else if k == 8
+                // холм: кольца как на карте высот
+                draw_circle(m, n, s * 9 / 20, rgb(132, 168, 92))
+                draw_circle(m, n, s * 3 / 10, rgb(150, 184, 104))
+                draw_circle(m, n, s / 7, rgb(168, 198, 118))
+            else if k == 9
+                if build_at(g, c, r) < 0
+                    // заброшенная башня: серые обломки
+                    draw_round(px + s / 5, py + s / 5, s * 3 / 5, s * 3 / 5, s / 10, "", rgb(128, 122, 112))
+                    draw_rect(px + s / 3, py + s / 3, s / 3, s / 3, rgb(90, 86, 80))
+                    draw_rect(px + s / 5, py + s / 5, s / 5, s / 8, rgb(150, 144, 132))
     // тропа: линия по центрам
     if len(g.path_c) > 1
         count i from 0 to len(g.path_c) - 2
@@ -53,81 +94,191 @@ modpub func draw_world(u: Ui, g: Game, t: dec, x: int, y: int, w: int, h: int)
             bx = ox + g.path_c[i + 1] * s + s / 2
             by = oy + g.path_r[i + 1] * s + s / 2
             ui.smooth_line(ax + 0.0, ay + 0.0, bx + 0.0, by + 0.0, s * 0.12, rgba(120, 80, 40, 120))
-    // подсветка клетки под мышью и дальность
-    if g.hov_c >= 0 and g.pick >= 0
-        hx = ox + g.hov_c * s
-        hy = oy + g.hov_r * s
+
+// крепость: чем выше уровень, тем больше башенок
+func draw_fort(g: Game, t: dec, ox: int, oy: int, s: int)
+    if len(g.path_c) == 0
+        return
+    n = len(g.path_c) - 1
+    px = ox + g.path_c[n] * s
+    py = oy + g.path_r[n] * s
+    m = px + s / 2
+    q = py + s / 2
+    draw_circle(m, q + s / 8, s * 11 / 20, rgba(0, 0, 0, 70))
+    draw_round(px - s / 10, py - s / 10, s + s / 5, s + s / 5, s / 6, "", rgb(214, 204, 182))
+    draw_round(px + s / 8, py + s / 8, s * 3 / 4, s * 3 / 4, s / 8, "", rgb(190, 180, 158))
+    // башенки по углам: 1 на уровнях 1–2, до 4 к 10-му
+    k = min(4, 1 + g.fort / 3)
+    count i from 0 to k - 1
+        cx = px
+        cy = py
+        if i == 1 or i == 2
+            cx = px + s
+        if i >= 2
+            cy = py + s
+        draw_circle(cx, cy, s / 5, rgb(170, 160, 140))
+        draw_circle(cx, cy, s / 9, rgb(120, 70, 60))
+    // флаг крепости
+    wav = round(sin(t * 4.0) * s / 12.0)
+    draw_rect(m, py - s / 2, 2, s / 2, rgb(70, 60, 50))
+    draw_rect(m + 2, py - s / 2, s / 3 + wav / 2, s / 5, rgb(200, 50, 50))
+    draw_text(m - s / 4, q - s / 6, "" + g.fort, 2, rgb(60, 40, 30))
+    if g.sel == "fort" and fort_dmg(g.fort) > 0.0
+        ring(m, q, round(3.5 * s), rgba(255, 240, 160, 160))
+
+func draw_flag(g: Game, ox: int, oy: int, s: int)
+    if len(g.path_c) < 2
+        return
+    x, z, yaw = point_on_path(g, g.flag)
+    cx = sx(g, x, ox, s)
+    cy = sz(g, z, oy, s)
+    draw_rect(cx, cy - s * 2 / 3, 2, s * 2 / 3, rgb(60, 50, 40))
+    draw_rect(cx + 2, cy - s * 2 / 3, s / 3, s / 4, rgb(70, 130, 240))
+
+func draw_hover(g: Game, ox: int, oy: int, s: int)
+    if g.hov_c < 0
+        return
+    hx = ox + g.hov_c * s
+    hy = oy + g.hov_r * s
+    if starts_with(g.tool, "b")
+        k = to_int(cut(g.tool, 1, 1)) or 0
         col = rgba(90, 230, 120, 110)
-        if not can_build(g, g.hov_c, g.hov_r)
+        if not can_build(g, k, g.hov_c, g.hov_r)
             col = rgba(240, 80, 80, 110)
         draw_rect(hx, hy, s, s, col)
-        ring(hx + s / 2, hy + s / 2, round(tower_info(g.pick).range * s), rgba(255, 255, 255, 90))
-    if g.sel >= 0 and g.sel < len(g.towers)
-        tw = g.towers[g.sel]
-        ring(ox + tw.col * s + s / 2, oy + tw.row * s + s / 2, round(stats(tw).range * s), rgba(255, 240, 160, 160))
-    // башни
-    each tw in g.towers
-        cx = ox + tw.col * s + s / 2
-        cy = oy + tw.row * s + s / 2
+        if k != 2
+            rng = build_info(k, 1).range
+            if cell(g, g.hov_c, g.hov_r) == 8
+                rng *= 1.25
+            ring(hx + s / 2, hy + s / 2, round(rng * s), rgba(255, 255, 255, 90))
+    else if g.tool == "flag"
+        col = rgba(90, 160, 255, 110)
+        if path_index(g, g.hov_c, g.hov_r) < 1
+            col = rgba(240, 80, 80, 110)
+        draw_rect(hx, hy, s, s, col)
+    else
+        draw_rect(hx, hy, s, s, rgba(255, 255, 255, 40))
+
+func draw_build(g: Game, b: Building, ox: int, oy: int, s: int)
+    px = ox + b.col * s
+    py = oy + b.row * s
+    cx = px + s / 2
+    cy = py + s / 2
+    chosen = g.sel == "b" + build_at(g, b.col, b.row)
+    if b.kind == 2
+        // стена поперёк тропы: камни, чем выше уровень — тем темнее
+        tone = 190 - b.lvl * 25
+        draw_rect(px + s / 10, py + s / 4, s * 4 / 5, s / 2, rgba(0, 0, 0, 60))
+        draw_round(px + s / 12, py + s / 5, s * 5 / 6, s / 2, s / 10, "", rgb(tone, tone - 6, tone - 18))
+        count i from 0 to 2
+            draw_rect(px + s / 8 + i * s / 4, py + s / 4, s / 5, s / 6, rgb(tone + 20, tone + 14, tone))
+        bar(cx, py + s / 8, s * 3 / 4, b.hp / max(1.0, b.max_hp), rgb(230, 200, 90))
+    else
         draw_circle(cx, cy + s / 10, s * 2 / 5, rgba(0, 0, 0, 70))
         draw_circle(cx, cy, s * 2 / 5, rgb(235, 232, 222))
-        draw_circle(cx, cy, s * 3 / 10, tower_color(tw.kind))
-        // ствол туда, куда смотрит
-        a = tw.aim * pi() / 180.0
+        draw_circle(cx, cy, s * 3 / 10, build_color(b.kind))
+        a = b.aim * pi() / 180.0
         ex = cx + round(sin(a) * s * 0.42)
         ey = cy + round(cos(a) * s * 0.42)
-        ui.smooth_line(cx + 0.0, cy + 0.0, ex + 0.0, ey + 0.0, s * 0.12, rgb(40, 40, 50))
-        count i from 1 to tw.lvl
-            draw_circle(cx - s / 3 + i * s / 6, cy + s * 3 / 8, max(1, s / 14), rgb(255, 210, 70))
-        if tw.flash > 0.0
-            draw_circle(ex, ey, round(s * 0.15 * tw.flash) + 1, rgba(255, 240, 180, round(200 * tw.flash)))
-    // враги
-    each e in g.enemies
-        info = enemy_info(e.kind)
-        cx = ox + round((e.x + g.w / 2.0) * s)
-        cy = oy + round((e.z + g.h / 2.0) * s)
-        rr = round(s * 0.32 * info.size) + 1
-        if info.fly
-            draw_circle(cx + s / 6, cy + s / 4, rr, rgba(0, 0, 0, 60))
-            cy -= s / 4
-        col = enemy_color(e.kind)
-        if e.hit > 0.0
-            col = ui.mix(col, rgb(255, 255, 255), round(e.hit * 70))
-        if e.slow > 0.0
-            col = ui.mix(col, rgb(140, 210, 255), 50)
-        draw_circle(cx, cy, rr, col)
-        // полоска жизни
-        bw = rr * 2
-        draw_rect(cx - rr, cy - rr - 6, bw, 3, rgba(0, 0, 0, 140))
-        draw_rect(cx - rr, cy - rr - 6, round(bw * max(0.0, e.hp / e.max_hp)), 3, rgb(110, 230, 110))
-    // снаряды
-    each sh in g.shots
-        cx = ox + round((sh.x + g.w / 2.0) * s)
-        cy = oy + round((sh.z + g.h / 2.0) * s) - round(sh.y * s * 0.3)
-        r = max(2, s / 12)
-        if sh.kind == 1
-            r = max(3, s / 7)
-        draw_circle(cx, cy, r, tower_color(sh.kind))
-    // вспышки
-    each f in g.fx
-        k = f.age / max(0.01, f.life)
-        cx = ox + round((f.x + g.w / 2.0) * s)
-        cy = oy + round((f.z + g.h / 2.0) * s)
-        al = round(220 * (1.0 - k))
-        if f.kind == 0
-            draw_circle(cx, cy, round(s * (0.3 + 0.9 * k)), rgba(255, 170, 60, al))
-        else if f.kind == 1
-            draw_circle(cx, cy, round(s * 0.2), rgba(255, 255, 255, al))
-        else if f.kind == 2
-            bx = ox + round((f.x2 + g.w / 2.0) * s)
-            by = oy + round((f.z2 + g.h / 2.0) * s)
-            ui.smooth_line(cx + 0.0, cy + 0.0, bx + 0.0, by + 0.0, 3.0, rgba(190, 220, 255, al))
-        else if f.kind == 3
-            draw_circle(cx, cy - round(k * s), max(2, s / 8), rgba(255, 210, 60, al))
-        else if f.kind == 4
-            draw_circle(cx, cy, round(s * 0.35), rgba(170, 225, 255, al / 2))
-        else if f.kind == 5
-            draw_circle(cx, cy - round(k * s * 0.5), round(s * (0.2 + 0.4 * k)), rgba(230, 230, 230, al / 2))
+        w = 0.12
+        if b.kind == 1
+            w = 0.2
+        ui.smooth_line(cx + 0.0, cy + 0.0, ex + 0.0, ey + 0.0, s * w, rgb(40, 40, 50))
+        if b.flash > 0.0
+            draw_circle(ex, ey, round(s * 0.15 * b.flash) + 1, rgba(255, 240, 180, round(200 * b.flash)))
+        if chosen
+            rng = build_info(b.kind, b.lvl).range
+            if b.hill
+                rng *= 1.25
+            ring(cx, cy, round(rng * s), rgba(255, 240, 160, 160))
+    // точки уровня
+    count i from 1 to b.lvl
+        draw_circle(px + i * s / 6, py + s - s / 10, max(1, s / 16), rgb(255, 210, 70))
+    if chosen
+        draw_rect(px, py, s, 2, rgb(255, 230, 120))
+        draw_rect(px, py + s - 2, s, 2, rgb(255, 230, 120))
+
+func draw_troop(g: Game, tr: Troop, ox: int, oy: int, s: int)
+    cx = sx(g, tr.x, ox, s)
+    cy = sz(g, tr.z, oy, s)
+    rr = max(3, s / 6)
+    if tr.kind == 2
+        rr = max(4, s / 4)
+    col = troop_color(tr.kind)
+    if tr.hit > 0.0
+        col = ui.mix(col, rgb(255, 80, 80), round(tr.hit * 70))
+    draw_circle(cx + 1, cy + 2, rr, rgba(0, 0, 0, 70))
+    draw_circle(cx, cy, rr, col)
+    draw_circle(cx, cy, max(1, rr / 2), rgb(240, 225, 200))
+    if g.sel == "t" + tr.kind
+        ring(cx, cy, rr + 3, rgb(255, 230, 120))
+    // меч: короткая линия, куда смотрит; при взмахе — длиннее
+    a = tr.yaw * pi() / 180.0
+    ln = rr + 2 + round(tr.swing * rr)
+    ui.smooth_line(cx + 0.0, cy + 0.0, cx + sin(a) * ln, cy + cos(a) * ln, 2.0, rgb(220, 220, 230))
+    bar(cx, cy - rr - 5, rr * 2, tr.hp / tr.max_hp, rgb(110, 170, 255))
+
+func draw_enemy(g: Game, e: Enemy, t: dec, ox: int, oy: int, s: int)
+    info = enemy_info(e.kind)
+    cx = sx(g, e.x, ox, s)
+    cy = sz(g, e.z, oy, s)
+    rr = round(s * 0.3 * info.size) + 1
+    col = enemy_color(e.kind)
+    if e.hit > 0.0
+        col = ui.mix(col, rgb(255, 255, 255), round(e.hit * 70))
+    draw_circle(cx + 1, cy + 2, rr, rgba(0, 0, 0, 70))
+    draw_circle(cx, cy, rr, col)
+    if e.kind == 3
+        // колдун: остроконечная шапка-звёздочка
+        draw_circle(cx, cy, max(1, rr / 2), rgb(250, 220, 90))
+    else if e.kind == 2
+        draw_circle(cx - rr / 3, cy - rr / 4, max(1, rr / 5), rgb(255, 230, 120))
+        draw_circle(cx + rr / 3, cy - rr / 4, max(1, rr / 5), rgb(255, 230, 120))
+    if e.swing > 0.0
+        draw_circle(cx, cy, rr + round(e.swing * 3), rgba(255, 255, 255, round(e.swing * 90)))
+    bar(cx, cy - rr - 5, rr * 2, e.hp / e.max_hp, rgb(110, 230, 110))
+
+func draw_shot(g: Game, sh: Shot, ox: int, oy: int, s: int)
+    cx = sx(g, sh.x, ox, s)
+    cy = sz(g, sh.z, oy, s) - round(sh.y * s * 0.3)
+    if sh.kind == 1
+        draw_circle(cx, cy, max(3, s / 7), rgb(40, 40, 46))
+    else if sh.kind == 2
+        draw_circle(cx, cy, max(3, s / 8), rgba(200, 110, 255, 220))
+        draw_circle(cx, cy, max(1, s / 16), rgb(255, 230, 255))
+    else
+        // стрела: чёрточка по направлению полёта
+        dx = sh.tx - sh.x0
+        dz = sh.tz - sh.z0
+        d = max(0.01, sqrt(dx * dx + dz * dz))
+        ln = s * 0.25
+        ui.smooth_line(cx + 0.0, cy + 0.0, cx - dx / d * ln, cy - dz / d * ln, 2.0, rgb(110, 80, 50))
+
+func draw_fx(g: Game, f: Fx, ox: int, oy: int, s: int)
+    k = f.age / max(0.01, f.life)
+    cx = sx(g, f.x, ox, s)
+    cy = sz(g, f.z, oy, s)
+    al = round(220 * (1.0 - k))
+    if f.kind == 0
+        draw_circle(cx, cy, round(s * (0.3 + 0.9 * k)), rgba(255, 170, 60, al))
+    else if f.kind == 1
+        draw_circle(cx, cy, round(s * 0.2), rgba(255, 255, 255, al))
+    else if f.kind == 2
+        draw_circle(cx, cy, round(s * (0.2 + 0.5 * k)), rgba(190, 100, 255, al))
+    else if f.kind == 3
+        draw_circle(cx, cy - round(k * s), max(2, s / 8), rgba(255, 210, 60, al))
+    else if f.kind == 4
+        draw_circle(cx, cy - round(k * s * 0.6), round(s * 0.35), rgba(255, 230, 120, al / 2))
+    else if f.kind == 5
+        draw_circle(cx, cy - round(k * s * 0.5), round(s * (0.2 + 0.4 * k)), rgba(230, 230, 230, al / 2))
+    else if f.kind == 6
+        // взмах мечей: дуга-полумесяц
+        ring(cx, cy, round(s * (0.15 + 0.25 * k)), rgba(240, 240, 255, al))
+
+// полоска жизни с серединой в cx
+func bar(cx: int, y: int, w: int, part: dec, c: int)
+    draw_rect(cx - w / 2, y, w, 3, rgba(0, 0, 0, 140))
+    draw_rect(cx - w / 2, y, round(w * max(0.0, min(1.0, part))), 3, c)
 
 func ring(x: int, y: int, r: int, c: int)
     n = 48
@@ -140,30 +291,29 @@ func ground_color(k: int, c: int, r: int)
     d = ((c * 7 + r * 13) % 5) * 3
     if k == 1 or k == 6
         return rgb(226 - d, 206 - d, 150 - d)
-    if k == 2 or k == 4
-        return rgb(108 - d, 170 - d, 92 - d)
     if k == 3
         return rgb(186 - d, 150 - d, 104 - d)
-    if k == 5
-        return rgb(108 - d, 170 - d, 92 - d)
-    return rgb(30, 110, 165)
+    if k == 8
+        return rgb(120 - d, 160 - d, 86 - d)
+    return rgb(108 - d, 170 - d, 92 - d)
 
-modpub func tower_color(k: int)
+modpub func build_color(k: int)
     if k == 1
         return rgb(60, 60, 70)
-    if k == 2
-        return rgb(120, 200, 255)
-    if k == 3
-        return rgb(190, 140, 255)
     return rgb(160, 110, 60)
+
+modpub func troop_color(k: int)
+    if k == 1
+        return rgb(60, 150, 80)
+    if k == 2
+        return rgb(150, 100, 60)
+    return rgb(70, 110, 210)
 
 modpub func enemy_color(k: int)
     if k == 1
-        return rgb(200, 60, 60)
+        return rgb(120, 170, 60)
     if k == 2
-        return rgb(60, 130, 80)
+        return rgb(110, 120, 140)
     if k == 3
-        return rgb(240, 240, 245)
-    if k == 4
-        return rgb(40, 30, 30)
+        return rgb(120, 60, 180)
     return rgb(240, 110, 70)

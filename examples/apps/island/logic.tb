@@ -4,8 +4,12 @@ use data
 // ---------- начало ----------
 
 modpub func new_game(level: int) gives g: Game
-    g = Game(level: level, name: level_name(level), wave: -1, money: 170 + 60 * level, lives: 20, max_lives: 20, state: "build", speed: 1, pick: -1, sel: -1, hov_c: -1, hov_r: -1)
+    g = Game(level: level, name: level_name(level), wave: -1, fort: 1, money: 250 + 60 * level, state: "build", speed: 1, tool: "", sel: "", hov_c: -1, hov_r: -1)
+    g.lives = fort_lives(1)
+    g.max_lives = g.lives
     g.cam = Cam()
+    count k from 1 to troop_count()
+        g.troop_lvl.add(1)
     m = level_map(level)
     g.h = len(m)
     g.w = len(m[0])
@@ -13,6 +17,7 @@ modpub func new_game(level: int) gives g: Game
         count c from 0 to g.w - 1
             g.cells.add(cell_of(line[c]))
     find_path(g)
+    g.flag = len(g.path_c) * 0.55
     g.waves = level_waves(level)
     g.best = load_best(level)
 
@@ -29,6 +34,12 @@ func cell_of(ch: text)
         return 5
     if ch == "S"
         return 6
+    if ch == "T"
+        return 7
+    if ch == "h"
+        return 8
+    if ch == "R"
+        return 9
     return 0
 
 modpub func cell(g: Game, c: int, r: int)
@@ -98,6 +109,36 @@ func find_path(g: Game)
         g.path_r.add(back[q] / g.w)
         q -= 1
 
+// место на тропе по пройденному пути: x, z и куда смотреть, если идти вперёд
+modpub func point_on_path(g: Game, d: dec) gives x: dec, z: dec, yaw: dec
+    n = len(g.path_c)
+    x = 0.0
+    z = 0.0
+    yaw = 0.0
+    if n == 0
+        return
+    d = max(0.0, min(d, n - 1.0))
+    i = min(n - 1, round(floor(d)))
+    j = min(n - 1, i + 1)
+    f = d - i
+    ax = cell_x(g, g.path_c[i])
+    az = cell_z(g, g.path_r[i])
+    bx = cell_x(g, g.path_c[j])
+    bz = cell_z(g, g.path_r[j])
+    x = ax + (bx - ax) * f
+    z = az + (bz - az) * f
+    if j != i
+        yaw = atan2(bx - ax, bz - az) * 180.0 / pi()
+    else if i > 0
+        yaw = atan2(ax - cell_x(g, g.path_c[i - 1]), az - cell_z(g, g.path_r[i - 1])) * 180.0 / pi()
+
+// номер клетки тропы, где стоит (c, r), или −1
+modpub func path_index(g: Game, c: int, r: int)
+    count i from 0 to len(g.path_c) - 1
+        if g.path_c[i] == c and g.path_r[i] == r
+            return i
+    return -1
+
 // ---------- ход игры ----------
 
 // начать следующую волну (кнопка «Волна!»)
@@ -122,15 +163,18 @@ modpub func update(g: Game, dt: dec)
         return
     dt = min(dt, 0.05) * g.speed
     fade(g, dt)
-    if g.state != "wave"
-        return
-    g.time += dt
-    spawn(g)
-    walk(g, dt)
-    fire(g, dt)
+    troops_walk(g, dt)
+    troops_fight(g, dt)
+    if g.state == "wave"
+        g.time += dt
+        spawn(g)
+    enemies_walk(g, dt)
+    enemies_fight(g, dt)
+    builds_fire(g, dt)
+    fort_fire(g, dt)
     fly(g, dt)
     clean(g)
-    if len(g.q_kind) == 0 and len(g.enemies) == 0 and g.state == "wave"
+    if g.state == "wave" and len(g.q_kind) == 0 and len(g.enemies) == 0
         end_wave(g)
 
 func spawn(g: Game)
@@ -148,51 +192,37 @@ func spawn(g: Game)
 func add_enemy(g: Game, k: int)
     info = enemy_info(k)
     hp = info.hp * hp_factor(g.level, g.wave)
-    e = Enemy(id: g.next_id, kind: k, hp: hp, max_hp: hp, alive: true)
+    e = Enemy(id: g.next_id, kind: k, hp: hp, max_hp: hp, held: -1, alive: true)
     g.next_id += 1
-    place(g, e)
+    e.x, e.z, e.yaw = point_on_path(g, 0.0)
     g.enemies.add(e)
 
-// где враг в 3D по пройденному пути
-func place(g: Game, e: Enemy)
-    n = len(g.path_c)
-    if n == 0
-        return
-    i = min(n - 1, round(floor(e.dist)))
-    j = min(n - 1, i + 1)
-    f = e.dist - i
-    if f > 1.0
-        f = 1.0
-    ax = cell_x(g, g.path_c[i])
-    az = cell_z(g, g.path_r[i])
-    bx = cell_x(g, g.path_c[j])
-    bz = cell_z(g, g.path_r[j])
-    e.x = ax + (bx - ax) * f
-    e.z = az + (bz - az) * f
-    e.y = 0.0
-    if enemy_info(e.kind).fly
-        e.y = 1.2 + 0.15 * sin(e.dist * 3.0)
-    if j != i
-        e.yaw = atan2(bx - ax, bz - az) * 180.0 / pi()
+// ---------- враги ----------
 
-func walk(g: Game, dt: dec)
-    last = len(g.path_c) - 1
+func enemies_walk(g: Game, dt: dec)
+    last = len(g.path_c) - 1.0
     each e in g.enemies
         if not e.alive
             skip
-        sp = enemy_info(e.kind).speed
-        if e.slow > 0.0
-            sp = sp * 0.5
-            e.slow -= dt
-        e.dist += sp * dt
-        if e.hit > 0.0
-            e.hit = max(0.0, e.hit - dt * 4.0)
+        info = enemy_info(e.kind)
+        e.hit = max(0.0, e.hit - dt * 4.0)
+        e.swing = max(0.0, e.swing - dt * 3.0)
+        // держит воин — стоит
+        if e.held >= 0 and find_troop(g, e.held) < 0
+            e.held = -1
+        e.stuck = wall_ahead(g, e.dist) >= 0
+        if e.held >= 0 or e.stuck
+            skip
+        // колдун останавливается, когда видит цель
+        if e.kind == 3 and magic_target(g, e) != ""
+            skip
+        e.dist += info.speed * dt
         if e.dist >= last
             // дошёл до крепости
             e.alive = false
             hurt = 1
-            if e.kind == 4
-                hurt = 5
+            if e.kind == 2
+                hurt = 3
             g.lives = max(0, g.lives - hurt)
             g.events.add("base")
             if g.lives == 0
@@ -200,105 +230,313 @@ func walk(g: Game, dt: dec)
                 g.events.add("lost")
                 save_best(g)
         else
-            place(g, e)
+            e.x, e.z, e.yaw = point_on_path(g, e.dist)
 
-// башни ищут цель и стреляют
-func fire(g: Game, dt: dec)
-    each t in g.towers
-        t.flash = max(0.0, t.flash - dt * 3.0)
-        t.cool -= dt
-        info = stats(t)
-        tx = cell_x(g, t.col)
-        tz = cell_z(g, t.row)
-        best = -1
-        bestd = -1.0
-        count i from 0 to len(g.enemies) - 1
-            e = g.enemies[i]
-            if not e.alive
-                skip
-            fl = enemy_info(e.kind).fly
-            if (fl and not info.air) or (not fl and not info.ground)
-                skip
-            d = dist2(tx, tz, e.x, e.z)
-            // первый по тропе — тот, кто прошёл больше
-            if d <= info.range * info.range and e.dist > bestd
-                best = i
-                bestd = e.dist
-        if best < 0
+// стена прямо впереди (номер в builds) или −1
+func wall_ahead(g: Game, d: dec)
+    count i from 0 to len(g.builds) - 1
+        b = g.builds[i]
+        if b.kind == 2
+            wi = path_index(g, b.col, b.row)
+            if wi >= 0 and d < wi and d > wi - 0.75
+                return i
+    return -1
+
+// враги бьют: того, кто держит, стену впереди; колдун — магией издалека
+func enemies_fight(g: Game, dt: dec)
+    each e in g.enemies
+        if not e.alive
             skip
-        e = g.enemies[best]
-        t.aim = atan2(e.x - tx, e.z - tz) * 180.0 / pi()
+        info = enemy_info(e.kind)
+        e.cool -= dt
+        if e.cool > 0.0
+            skip
+        if e.kind == 3
+            tg = magic_target(g, e)
+            if tg != ""
+                e.cool = 1.0 / info.rate
+                e.swing = 1.0
+                cast(g, e, tg, info.dmg)
+            skip
+        if e.held >= 0
+            ti = find_troop(g, e.held)
+            if ti >= 0
+                e.cool = 1.0 / info.rate
+                e.swing = 1.0
+                hurt_troop(g, g.troops[ti], info.dmg)
+            skip
+        wi = wall_ahead(g, e.dist)
+        if wi >= 0
+            e.cool = 1.0 / info.rate
+            e.swing = 1.0
+            hurt_wall(g, wi, info.dmg * info.walls)
+
+// цель колдуна: "t" + id воина или "w" + номер стены в пределах дальности, или ""
+func magic_target(g: Game, e: Enemy)
+    r = enemy_info(e.kind).range
+    best = ""
+    bd = r * r
+    each t in g.troops
+        if t.alive
+            d = dist2(e.x, e.z, t.x, t.z)
+            if d <= bd
+                bd = d
+                best = "t" + t.id
+    count i from 0 to len(g.builds) - 1
+        b = g.builds[i]
+        if b.kind == 2
+            d = dist2(e.x, e.z, cell_x(g, b.col), cell_z(g, b.row))
+            if d <= bd
+                bd = d
+                best = "w" + i
+    return best
+
+// колдун пускает магию
+func cast(g: Game, e: Enemy, tg: text, dmg: dec)
+    n = to_int(cut(tg, 1, len(tg) - 1)) or -1
+    s = Shot(kind: 2, x: e.x, y: 0.8, z: e.z, x0: e.x, y0: 0.8, z0: e.z, target: -1, dmg: dmg, speed: 5.0, alive: true)
+    if starts_with(tg, "t")
+        ti = find_troop(g, n)
+        if ti < 0
+            return
+        s.target = n
+        s.at_troop = true
+        s.tx = g.troops[ti].x
+        s.ty = 0.4
+        s.tz = g.troops[ti].z
+    else
+        if n < 0 or n >= len(g.builds)
+            return
+        s.target = n
+        s.tx = cell_x(g, g.builds[n].col)
+        s.ty = 0.5
+        s.tz = cell_z(g, g.builds[n].row)
+    g.shots.add(s)
+    g.events.add("magic")
+
+func hurt_wall(g: Game, i: int, dmg: dec)
+    b = g.builds[i]
+    b.hp -= dmg
+    b.flash = 1.0
+    g.fx.add(Fx(kind: 1, x: cell_x(g, b.col), y: 0.5, z: cell_z(g, b.row), life: 0.2))
+    if b.hp <= 0.0
+        g.fx.add(Fx(kind: 0, x: cell_x(g, b.col), y: 0.2, z: cell_z(g, b.row), life: 0.6))
+        g.events.add("wall_down")
+        remove_build(g, i)
+
+func hurt_troop(g: Game, t: Troop, dmg: dec)
+    t.hp -= dmg
+    t.hit = 1.0
+    if t.hp <= 0.0 and t.alive
+        t.alive = false
+        g.events.add("troop_down")
+
+// ---------- войска ----------
+
+// нанять воина вида k: появляется у крепости и идёт к флагу
+modpub func hire(g: Game, k: int)
+    lvl = g.troop_lvl[k]
+    info = troop_info(k, lvl)
+    if len(g.troops) >= troop_cap(g.fort)
+        g.events.add("no")
+        return false
+    if g.money < info.price
+        g.events.add("no")
+        return false
+    g.money -= info.price
+    last = len(g.path_c) - 1.0
+    // место в строю: соседи одного вида встают рядом
+    same = 0
+    each t in g.troops
+        if t.kind == k
+            same += 1
+    side = ((same % 3) - 1) * 0.28
+    row = (same / 3) * 0.45
+    t = Troop(id: g.next_id, kind: k, hp: info.hp, max_hp: info.hp, dist: last, side: side, foe: -1, alive: true)
+    t.post = row + info.back
+    g.next_id += 1
+    place_troop(g, t)
+    g.troops.add(t)
+    g.events.add("hire")
+    return true
+
+func place_troop(g: Game, t: Troop)
+    x, z, yaw = point_on_path(g, t.dist)
+    a = (yaw + 90.0) * pi() / 180.0
+    t.x = x + sin(a) * t.side
+    t.z = z + cos(a) * t.side
+    t.y = 0.0
+
+func troops_walk(g: Game, dt: dec)
+    last = len(g.path_c) - 1.0
+    each t in g.troops
+        if not t.alive
+            skip
+        t.hit = max(0.0, t.hit - dt * 4.0)
+        t.swing = max(0.0, t.swing - dt * 3.0)
+        if t.foe >= 0 and find_enemy(g, t.foe) < 0
+            t.foe = -1
+        holding = t.foe >= 0 and troop_info(t.kind, 1).holds > 0
+        if holding
+            skip
+        goal = max(0.5, min(last, g.flag + t.post))
+        sp = troop_info(t.kind, g.troop_lvl[t.kind]).speed
+        if abs(goal - t.dist) > 0.02
+            if goal < t.dist
+                t.dist = max(goal, t.dist - sp * dt)
+            else
+                t.dist = min(goal, t.dist + sp * dt)
+        place_troop(g, t)
+        x, z, yaw = point_on_path(g, t.dist)
+        // смотрит к причалу (откуда идут враги)
+        t.yaw = yaw + 180.0
+
+// воины ловят и бьют врагов
+func troops_fight(g: Game, dt: dec)
+    each t in g.troops
+        if not t.alive
+            skip
+        info = troop_info(t.kind, g.troop_lvl[t.kind])
+        // мечник и конница: берут врагов, которые подошли вплотную
+        if info.holds > 0
+            held = 0
+            each e in g.enemies
+                if e.alive and e.held == t.id
+                    held += 1
+            if held < info.holds
+                each e in g.enemies
+                    if held >= info.holds
+                        stop
+                    if e.alive and e.held < 0 and e.kind != 3 and e.dist <= t.dist and e.dist > t.dist - 0.7
+                        e.held = t.id
+                        held += 1
+                        if t.foe < 0
+                            t.foe = e.id
+        t.cool -= dt
         if t.cool > 0.0
             skip
+        // по кому бить: свой враг или ближайший в дальности
+        fi = -1
+        if t.foe >= 0
+            fi = find_enemy(g, t.foe)
+        if fi < 0
+            bd = info.range * info.range
+            count i from 0 to len(g.enemies) - 1
+                e = g.enemies[i]
+                if e.alive
+                    d = dist2(t.x, t.z, e.x, e.z)
+                    if d <= bd
+                        bd = d
+                        fi = i
+        if fi < 0
+            skip
+        e = g.enemies[fi]
         t.cool = 1.0 / info.rate
-        t.flash = 1.0
-        g.events.add("shot" + t.kind)
-        if t.kind == 3
-            zap(g, t, info, best)
+        t.yaw = atan2(e.x - t.x, e.z - t.z) * 180.0 / pi()
+        if t.kind == 1
+            g.shots.add(Shot(kind: 0, x: t.x, y: 0.5, z: t.z, x0: t.x, y0: 0.5, z0: t.z, tx: e.x, ty: e.y + 0.3, tz: e.z, target: e.id, dmg: info.dmg, speed: 7.0, alive: true))
+            g.events.add("shot0")
         else
-            sh = Shot(kind: t.kind, x: tx, y: 0.9, z: tz, x0: tx, y0: 0.9, z0: tz, tx: e.x, ty: e.y + 0.3, tz: e.z, target: e.id, dmg: info.dmg, splash: info.splash, slow: info.slow, speed: 7.0, alive: true)
-            if t.kind == 1
-                // ядро летит дугой в то место, где враг будет
-                sh.target = -1
-                sh.speed = 3.0
-                ahead = enemy_info(e.kind).speed * 0.5
-                fx, fz = point_on_path(g, e.dist + ahead)
-                sh.tx = fx
-                sh.tz = fz
-                sh.ty = 0.0
-            g.shots.add(sh)
+            t.swing = 1.0
+            g.fx.add(Fx(kind: 6, x: (t.x + e.x) / 2.0, y: 0.5, z: (t.z + e.z) / 2.0, life: 0.25))
+            g.events.add("sword")
+            damage(g, e, info.dmg, false)
 
-// молния: сразу бьёт цель и ещё соседей по цепочке
-func zap(g: Game, t: Tower, info: TowerInfo, first: int)
-    hit = list int
-    hit.add(first)
-    px = cell_x(g, t.col)
-    py = 1.2
-    pz = cell_z(g, t.row)
-    cur = first
-    count n from 1 to info.chain
-        e = g.enemies[cur]
-        g.fx.add(Fx(kind: 2, x: px, y: py, z: pz, x2: e.x, y2: e.y + 0.4, z2: e.z, life: 0.25))
-        damage(g, e, info.dmg, 0.0, true)
-        px = e.x
-        py = e.y + 0.4
-        pz = e.z
-        // следующий — ближайший, кого ещё не били
-        nxt = -1
-        nd = 2.0 * 2.0
-        count i from 0 to len(g.enemies) - 1
-            o = g.enemies[i]
-            if o.alive and not has(hit, i)
-                d = dist2(px, pz, o.x, o.z)
-                if d < nd
-                    nd = d
-                    nxt = i
-        if nxt < 0
-            stop
-        hit.add(nxt)
-        cur = nxt
+// поставить флаг на клетку тропы: войска пойдут туда
+modpub func set_flag(g: Game, c: int, r: int)
+    i = path_index(g, c, r)
+    if i < 1
+        return false
+    g.flag = i + 0.0
+    g.events.add("flag")
+    return true
 
-func has(l: list int, x: int)
-    each v in l
-        if v == x
-            return true
-    return false
+// ---------- строения ----------
 
-// снаряды летят
+func builds_fire(g: Game, dt: dec)
+    each b in g.builds
+        b.flash = max(0.0, b.flash - dt * 3.0)
+        if b.kind == 2
+            skip
+        b.cool -= dt
+        info = build_info(b.kind, b.lvl)
+        rng = info.range
+        if b.hill
+            rng = rng * 1.25
+        bx = cell_x(g, b.col)
+        bz = cell_z(g, b.row)
+        fi = first_in_range(g, bx, bz, rng)
+        if fi < 0
+            skip
+        e = g.enemies[fi]
+        b.aim = atan2(e.x - bx, e.z - bz) * 180.0 / pi()
+        if b.cool > 0.0
+            skip
+        b.cool = 1.0 / info.rate
+        b.flash = 1.0
+        g.events.add("shot" + b.kind)
+        if b.kind == 0
+            g.shots.add(Shot(kind: 0, x: bx, y: 1.0, z: bz, x0: bx, y0: 1.0, z0: bz, tx: e.x, ty: e.y + 0.3, tz: e.z, target: e.id, dmg: info.dmg, speed: 8.0, alive: true))
+        else
+            // ядро летит дугой туда, где враг будет
+            sp = enemy_info(e.kind).speed
+            if e.held >= 0 or e.stuck
+                sp = 0.0
+            fx, fz, fy = point_on_path(g, e.dist + sp * 0.6)
+            g.shots.add(Shot(kind: 1, x: bx, y: 0.8, z: bz, x0: bx, y0: 0.8, z0: bz, tx: fx, ty: 0.0, tz: fz, target: -1, dmg: info.dmg, splash: info.splash, speed: 3.0, alive: true))
+
+// крепость с 3-го уровня стреляет сама
+func fort_fire(g: Game, dt: dec)
+    dmg = fort_dmg(g.fort)
+    if dmg <= 0.0 or len(g.path_c) == 0
+        return
+    g.fort_cool -= dt
+    n = len(g.path_c) - 1
+    fx = cell_x(g, g.path_c[n])
+    fz = cell_z(g, g.path_r[n])
+    fi = first_in_range(g, fx, fz, 3.5)
+    if fi < 0
+        return
+    e = g.enemies[fi]
+    g.fort_aim = atan2(e.x - fx, e.z - fz) * 180.0 / pi()
+    if g.fort_cool > 0.0
+        return
+    g.fort_cool = 0.8
+    g.shots.add(Shot(kind: 0, x: fx, y: 1.6, z: fz, x0: fx, y0: 1.6, z0: fz, tx: e.x, ty: e.y + 0.3, tz: e.z, target: e.id, dmg: dmg, speed: 8.0, alive: true))
+    g.events.add("shot0")
+
+// враг в дальности, который прошёл больше всех (ближе всех к крепости)
+func first_in_range(g: Game, x: dec, z: dec, rng: dec)
+    best = -1
+    bestd = -1.0
+    count i from 0 to len(g.enemies) - 1
+        e = g.enemies[i]
+        if e.alive and dist2(x, z, e.x, e.z) <= rng * rng and e.dist > bestd
+            best = i
+            bestd = e.dist
+    return best
+
+// ---------- снаряды ----------
+
 func fly(g: Game, dt: dec)
     each s in g.shots
         if not s.alive
             skip
-        if s.target >= 0
-            e = find_enemy(g, s.target)
-            if e >= 0
-                s.tx = g.enemies[e].x
-                s.ty = g.enemies[e].y + 0.3
-                s.tz = g.enemies[e].z
+        // стрела и магия догоняют цель
+        if s.target >= 0 and s.kind != 1
+            if s.at_troop
+                ti = find_troop(g, s.target)
+                if ti >= 0
+                    s.tx = g.troops[ti].x
+                    s.tz = g.troops[ti].z
+            else if s.kind == 0
+                ei = find_enemy(g, s.target)
+                if ei >= 0
+                    s.tx = g.enemies[ei].x
+                    s.ty = g.enemies[ei].y + 0.3
+                    s.tz = g.enemies[ei].z
         len0 = sqrt(dist2(s.x0, s.z0, s.tx, s.tz) + (s.y0 - s.ty) * (s.y0 - s.ty))
-        s.t += s.speed * dt / max(0.3, len0)
-        if s.t >= 1.0
-            s.t = 1.0
+        s.t = min(1.0, s.t + s.speed * dt / max(0.3, len0))
         s.x = s.x0 + (s.tx - s.x0) * s.t
         s.z = s.z0 + (s.tz - s.z0) * s.t
         s.y = s.y0 + (s.ty - s.y0) * s.t
@@ -309,23 +547,30 @@ func fly(g: Game, dt: dec)
 
 func land(g: Game, s: Shot)
     s.alive = false
+    if s.kind == 2
+        // магия колдуна
+        g.fx.add(Fx(kind: 2, x: s.tx, y: s.ty, z: s.tz, life: 0.35))
+        if s.at_troop
+            ti = find_troop(g, s.target)
+            if ti >= 0
+                hurt_troop(g, g.troops[ti], s.dmg)
+        else if s.target >= 0 and s.target < len(g.builds) and g.builds[s.target].kind == 2
+            hurt_wall(g, s.target, s.dmg)
+        return
     if s.splash > 0.0
         g.fx.add(Fx(kind: 0, x: s.tx, y: 0.1, z: s.tz, life: 0.5))
         g.events.add("boom")
         each e in g.enemies
-            if e.alive and not enemy_info(e.kind).fly and dist2(e.x, e.z, s.tx, s.tz) <= s.splash * s.splash
-                damage(g, e, s.dmg, 0.0, false)
+            if e.alive and dist2(e.x, e.z, s.tx, s.tz) <= s.splash * s.splash
+                damage(g, e, s.dmg, false)
         return
     e = find_enemy(g, s.target)
     if e < 0
         return
-    if s.slow > 0.0
-        g.fx.add(Fx(kind: 4, x: s.tx, y: s.ty, z: s.tz, life: 0.4))
-    else
-        g.fx.add(Fx(kind: 1, x: s.tx, y: s.ty, z: s.tz, life: 0.2))
-    damage(g, g.enemies[e], s.dmg, s.slow, false)
+    g.fx.add(Fx(kind: 1, x: s.tx, y: s.ty, z: s.tz, life: 0.2))
+    damage(g, g.enemies[e], s.dmg, false)
 
-func damage(g: Game, e: Enemy, dmg: dec, slow: dec, pierce: bool)
+func damage(g: Game, e: Enemy, dmg: dec, pierce: bool)
     if not e.alive
         return
     info = enemy_info(e.kind)
@@ -334,8 +579,6 @@ func damage(g: Game, e: Enemy, dmg: dec, slow: dec, pierce: bool)
         d = max(dmg * 0.25, dmg - info.armor)
     e.hp -= d
     e.hit = 1.0
-    if slow > 0.0
-        e.slow = max(e.slow, slow)
     if e.hp <= 0.0
         e.alive = false
         g.money += info.reward
@@ -350,6 +593,12 @@ func find_enemy(g: Game, id: int)
             return i
     return -1
 
+func find_troop(g: Game, id: int)
+    count i from 0 to len(g.troops) - 1
+        if g.troops[i].id == id and g.troops[i].alive
+            return i
+    return -1
+
 // убрать мёртвых и долетевшее
 func clean(g: Game)
     keep = 0
@@ -359,6 +608,13 @@ func clean(g: Game)
             keep += 1
     repeat while len(g.enemies) > keep
         gone = g.enemies.pop()
+    keep = 0
+    count i from 0 to len(g.troops) - 1
+        if g.troops[i].alive
+            g.troops[keep] = g.troops[i]
+            keep += 1
+    repeat while len(g.troops) > keep
+        gone_t = g.troops.pop()
     keep = 0
     count i from 0 to len(g.shots) - 1
         if g.shots[i].alive
@@ -380,9 +636,12 @@ func fade(g: Game, dt: dec)
         gone = g.fx.pop()
 
 func end_wave(g: Game)
-    bonus = 20 + g.wave * 5
+    bonus = 15 + g.wave * 4 + fort_income(g.fort)
     g.money += bonus
     g.score += bonus * 5
+    // воины после волны подлечиваются
+    each t in g.troops
+        t.hp = min(t.max_hp, t.hp + t.max_hp * 0.5)
     if g.wave + 1 >= len(g.waves)
         g.state = "won"
         g.score += g.lives * 100
@@ -392,87 +651,186 @@ func end_wave(g: Game)
         g.state = "build"
         g.events.add("wave_done")
 
-// ---------- башни: построить, улучшить, продать ----------
+// ---------- строить, улучшать, продавать ----------
 
-// свойства башни с учётом уровня
-modpub func stats(t: Tower) gives info: TowerInfo
-    info = tower_info(t.kind)
-    if t.lvl >= 2
-        info.dmg = info.dmg * 1.5
-        info.range = info.range + 0.4
-        info.rate = info.rate * 1.15
-    if t.lvl >= 3
-        info.dmg = info.dmg * 1.5
-        info.range = info.range + 0.4
-        info.rate = info.rate * 1.15
-        info.chain = info.chain + 1
-
-modpub func can_build(g: Game, c: int, r: int)
-    k = cell(g, c, r)
-    if k != 1 and k != 2
+// можно ли поставить строение вида k на клетку
+modpub func can_build(g: Game, k: int, c: int, r: int)
+    if build_at(g, c, r) >= 0
         return false
-    return tower_at(g, c, r) < 0
+    cl = cell(g, c, r)
+    if k == 2
+        // стена — только на тропу, не у самого причала и не у крепости
+        i = path_index(g, c, r)
+        return i >= 2 and i <= len(g.path_c) - 3
+    return cl == 1 or cl == 2 or cl == 8
 
-modpub func tower_at(g: Game, c: int, r: int)
-    count i from 0 to len(g.towers) - 1
-        if g.towers[i].col == c and g.towers[i].row == r
+modpub func build_at(g: Game, c: int, r: int)
+    count i from 0 to len(g.builds) - 1
+        if g.builds[i].col == c and g.builds[i].row == r
             return i
     return -1
 
-modpub func build(g: Game, kind: int, c: int, r: int)
-    price = tower_info(kind).price
-    if not can_build(g, c, r) or g.money < price
+// уровень не выше уровня крепости
+modpub func lvl_cap(g: Game, max_lvl: int)
+    return min(max_lvl, g.fort)
+
+modpub func build(g: Game, k: int, c: int, r: int)
+    info = build_info(k, 1)
+    if not can_build(g, k, c, r) or g.money < info.price
         g.events.add("no")
         return false
-    g.money -= price
-    g.towers.add(Tower(kind: kind, lvl: 1, col: c, row: r, spent: price))
+    g.money -= info.price
+    b = Building(kind: k, lvl: 1, col: c, row: r, spent: info.price, hp: info.hp, max_hp: info.hp, hill: cell(g, c, r) == 8)
+    g.builds.add(b)
     g.events.add("build")
     g.fx.add(Fx(kind: 5, x: cell_x(g, c), y: 0.2, z: cell_z(g, r), life: 0.6))
     return true
 
-modpub func upgrade(g: Game, i: int)
-    if i < 0 or i >= len(g.towers)
-        return false
-    t = g.towers[i]
-    if t.lvl >= 3
-        return false
-    p = upgrade_price(t.kind, t.lvl + 1)
-    if g.money < p
+// заброшенная башня: починить — станет башней 2-го уровня
+modpub func ruin_price()
+    return 45
+
+modpub func repair_ruin(g: Game, c: int, r: int)
+    if cell(g, c, r) != 9 or build_at(g, c, r) >= 0 or g.money < ruin_price()
         g.events.add("no")
         return false
-    g.money -= p
-    t.spent += p
-    t.lvl += 1
+    g.money -= ruin_price()
+    g.builds.add(Building(kind: 0, lvl: min(2, max(1, g.fort)), col: c, row: r, spent: ruin_price()))
     g.events.add("upgrade")
-    g.fx.add(Fx(kind: 5, x: cell_x(g, t.col), y: 0.6, z: cell_z(g, t.row), life: 0.6))
+    g.fx.add(Fx(kind: 4, x: cell_x(g, c), y: 0.8, z: cell_z(g, r), life: 0.8))
+    g.sel = "b" + (len(g.builds) - 1)
     return true
 
-modpub func sell(g: Game, i: int)
-    if i < 0 or i >= len(g.towers)
+// номер выбранного строения в g.builds (−1 — выбрано не строение)
+modpub func sel_build(g: Game)
+    if not starts_with(g.sel, "b")
+        return -1
+    i = to_int(cut(g.sel, 1, len(g.sel) - 1)) or -1
+    if i < 0 or i >= len(g.builds)
+        return -1
+    return i
+
+// улучшить выбранное: строение, вид войск, крепость или починить заброшенную башню
+modpub func upgrade_sel(g: Game)
+    if starts_with(g.sel, "ruin")
+        ci = to_int(cut(g.sel, 4, len(g.sel) - 1)) or -1
+        if ci < 0
+            return false
+        return repair_ruin(g, ci % g.w, ci / g.w)
+    if starts_with(g.sel, "b")
+        i = to_int(cut(g.sel, 1, len(g.sel) - 1)) or -1
+        if i < 0 or i >= len(g.builds)
+            return false
+        b = g.builds[i]
+        if b.lvl >= lvl_cap(g, build_info(b.kind, 1).max_lvl)
+            g.events.add("no")
+            return false
+        p = build_up_price(b.kind, b.lvl + 1)
+        if g.money < p
+            g.events.add("no")
+            return false
+        g.money -= p
+        b.spent += p
+        b.lvl += 1
+        if b.kind == 2
+            nh = build_info(2, b.lvl).hp
+            b.hp = b.hp + nh - b.max_hp
+            b.max_hp = nh
+        g.fx.add(Fx(kind: 4, x: cell_x(g, b.col), y: 0.8, z: cell_z(g, b.row), life: 0.8))
+        g.events.add("upgrade")
+        return true
+    if starts_with(g.sel, "t")
+        k = to_int(cut(g.sel, 1, len(g.sel) - 1)) or -1
+        if k < 0 or k >= troop_count()
+            return false
+        lvl = g.troop_lvl[k]
+        if lvl >= lvl_cap(g, troop_info(k, 1).max_lvl)
+            g.events.add("no")
+            return false
+        p = troop_up_price(k, lvl + 1)
+        if g.money < p
+            g.events.add("no")
+            return false
+        g.money -= p
+        g.troop_lvl[k] = lvl + 1
+        // все воины этого вида становятся сильнее
+        nw = troop_info(k, lvl + 1)
+        each t in g.troops
+            if t.kind == k
+                t.hp = t.hp + nw.hp - t.max_hp
+                t.max_hp = nw.hp
+                g.fx.add(Fx(kind: 4, x: t.x, y: 0.6, z: t.z, life: 0.8))
+        g.events.add("upgrade")
+        return true
+    if g.sel == "fort"
+        if g.fort >= fort_max()
+            return false
+        p = fort_up_price(g.fort + 1)
+        if g.money < p
+            g.events.add("no")
+            return false
+        g.money -= p
+        g.fort += 1
+        add = fort_lives(g.fort) - g.max_lives
+        g.max_lives = fort_lives(g.fort)
+        g.lives = min(g.max_lives, g.lives + add)
+        n = len(g.path_c) - 1
+        g.fx.add(Fx(kind: 4, x: cell_x(g, g.path_c[n]), y: 1.2, z: cell_z(g, g.path_r[n]), life: 1.0))
+        g.events.add("fort_up")
+        return true
+    return false
+
+// продать выбранное строение
+modpub func sell_sel(g: Game)
+    if not starts_with(g.sel, "b")
         return
-    t = g.towers[i]
-    g.money += t.spent * 7 / 10
-    g.fx.add(Fx(kind: 3, x: cell_x(g, t.col), y: 0.6, z: cell_z(g, t.row), life: 0.8))
-    g.towers[i] = g.towers[len(g.towers) - 1]
-    gone = g.towers.pop()
-    g.sel = -1
+    i = to_int(cut(g.sel, 1, len(g.sel) - 1)) or -1
+    if i < 0 or i >= len(g.builds)
+        return
+    b = g.builds[i]
+    g.money += b.spent * 7 / 10
+    g.fx.add(Fx(kind: 3, x: cell_x(g, b.col), y: 0.6, z: cell_z(g, b.row), life: 0.8))
+    remove_build(g, i)
     g.events.add("sell")
+
+func remove_build(g: Game, i: int)
+    g.builds[i] = g.builds[len(g.builds) - 1]
+    gone = g.builds.pop()
+    g.sel = ""
 
 // нажали на клетку острова
 modpub func click_cell(g: Game, c: int, r: int)
     if g.state == "won" or g.state == "lost"
         return
-    ti = tower_at(g, c, r)
-    if ti >= 0
-        g.sel = ti
-        g.pick = -1
+    if g.tool == "flag"
+        if set_flag(g, c, r)
+            g.tool = ""
         return
-    g.sel = -1
-    if g.pick >= 0
-        if build(g, g.pick, c, r)
-            // Shift не нужен: строим по одной, выбор остаётся, пока хватает денег
-            if g.money < tower_info(g.pick).price
-                g.pick = -1
+    if starts_with(g.tool, "b")
+        k = to_int(cut(g.tool, 1, 1)) or 0
+        if build(g, k, c, r)
+            if g.money < build_info(k, 1).price
+                g.tool = ""
+        return
+    bi = build_at(g, c, r)
+    if bi >= 0
+        g.sel = "b" + bi
+        return
+    cl = cell(g, c, r)
+    if cl == 5
+        g.sel = "fort"
+        return
+    if cl == 9
+        g.sel = "ruin" + (r * g.w + c)
+        return
+    // нажали рядом с воином — выбираем его вид
+    x = cell_x(g, c)
+    z = cell_z(g, r)
+    each t in g.troops
+        if dist2(x, z, t.x, t.z) < 0.5
+            g.sel = "t" + t.kind
+            return
+    g.sel = ""
 
 // ---------- мышь → клетка (по той же камере, что у вывода) ----------
 
@@ -523,15 +881,6 @@ modpub func mouse_cell(g: Game, mx: int, my: int, sw: int, sh: int) gives c: int
 
 func dist2(ax: dec, az: dec, bx: dec, bz: dec)
     return (ax - bx) * (ax - bx) + (az - bz) * (az - bz)
-
-modpub func point_on_path(g: Game, d: dec) gives x: dec, z: dec
-    n = len(g.path_c)
-    d = max(0.0, min(d, n - 1.0))
-    i = min(n - 1, round(floor(d)))
-    j = min(n - 1, i + 1)
-    f = d - i
-    x = cell_x(g, g.path_c[i]) + (cell_x(g, g.path_c[j]) - cell_x(g, g.path_c[i])) * f
-    z = cell_z(g, g.path_r[i]) + (cell_z(g, g.path_r[j]) - cell_z(g, g.path_r[i])) * f
 
 func best_file(level: int)
     return env("HOME") + "/.tachbit_island_" + level + ".txt"

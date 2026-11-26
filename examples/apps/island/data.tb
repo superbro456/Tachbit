@@ -3,9 +3,10 @@
 //
 // Мир: остров из клеток w × h. Клетка (col, row) стоит в 3D в точке
 //   x = col − w/2 + 0.5,   y = 0 (земля),   z = row − h/2 + 0.5     (одна клетка = 1.0)
-
-// что лежит в клетке
-//   0 вода, 1 песок, 2 трава, 3 тропа, 4 скала или дерево (строить нельзя), 5 крепость, 6 причал (отсюда идут враги)
+//
+// Что лежит в клетке (g.cells):
+//   0 вода, 1 песок, 2 трава, 3 тропа, 4 камень, 5 крепость, 6 причал (отсюда идут враги),
+//   7 дерево, 8 холм (строить можно, бьют дальше), 9 заброшенная башня (можно починить)
 
 // камера: где стоит и куда смотрит (её ставит вывод, по ней же логика узнаёт клетку под мышью)
 obj Cam
@@ -16,26 +17,51 @@ obj Cam
     ly: dec
     lz: dec
 
-// башня на клетке
-obj Tower
-    kind: int            // 0 лучник, 1 пушка, 2 мороз, 3 молния
-    lvl: int             // 1, 2, 3
+// строение на клетке
+obj Building
+    kind: int            // 0 башня, 1 пушка, 2 стена (стоит на тропе)
+    lvl: int             // башня и пушка 1–5, стена 1–3
     col: int
     row: int
+    hp: dec              // у стены (у башни и пушки не тратится)
+    max_hp: dec
     cool: dec            // сколько секунд до следующего выстрела
-    aim: dec             // куда повернута, в градусах (0 — к +z, 90 — к +x)
-    spent: int           // сколько монет в неё вложено (для продажи)
+    aim: dec             // куда повёрнута, в градусах (0 — к +z, 90 — к +x)
+    spent: int           // сколько монет вложено (для продажи)
     flash: dec           // вспышка после выстрела: 1 → 0
+    hill: bool           // стоит на холме
+
+// воин на тропе
+obj Troop
+    id: int
+    kind: int            // 0 мечник, 1 лучник, 2 конница
+    hp: dec
+    max_hp: dec
+    dist: dec            // где на тропе (в клетках от причала)
+    post: dec            // где ему стоять (флаг + своё место в строю)
+    side: dec            // сдвиг вбок от середины тропы (чтобы не стояли друг в друге)
+    x: dec               // где сейчас в 3D (считает логика)
+    y: dec
+    z: dec
+    yaw: dec             // куда смотрит, в градусах
+    cool: dec
+    hit: dec             // мигание от удара: 1 → 0
+    swing: dec           // взмах мечом: 1 → 0
+    foe: int             // id врага, которого держит или бьёт (−1 — нет)
+    alive: bool
 
 // враг на тропе
 obj Enemy
     id: int
-    kind: int            // 0 краб, 1 пират, 2 черепаха, 3 чайка (летит), 4 капитан
+    kind: int            // 0 краб, 1 гоблин, 2 тролль, 3 колдун
     hp: dec
     max_hp: dec
     dist: dec            // сколько клеток прошёл по тропе
-    slow: dec            // сколько секунд ещё замедлен
     hit: dec             // мигание от удара: 1 → 0
+    swing: dec           // замах: 1 → 0
+    cool: dec
+    held: int            // id воина, который его держит (−1 — свободен)
+    stuck: bool          // стоит у стены
     x: dec               // где сейчас в 3D (считает логика)
     y: dec
     z: dec
@@ -44,7 +70,7 @@ obj Enemy
 
 // снаряд в полёте
 obj Shot
-    kind: int            // как у башни: 0 стрела, 1 ядро, 2 ледышка
+    kind: int            // 0 стрела, 1 ядро, 2 магия колдуна
     x: dec
     y: dec
     z: dec
@@ -54,23 +80,20 @@ obj Shot
     tx: dec              // куда летит
     ty: dec
     tz: dec
-    target: int          // id врага (−1 — в точку)
+    target: int          // id цели (−1 — в точку)
+    at_troop: bool       // цель — воин (у колдуна), иначе враг
     dmg: dec
     splash: dec          // радиус взрыва (0 — бьёт одного)
-    slow: dec            // на сколько секунд замедлит
     t: dec               // 0 → 1 — часть пути
     speed: dec           // клеток в секунду
     alive: bool
 
 // вспышки и следы, чисто для красоты
 obj Fx
-    kind: int            // 0 взрыв, 1 удар, 2 молния (x → x2), 3 монетка, 4 лёд, 5 дым башни
+    kind: int            // 0 взрыв, 1 удар, 2 магия, 3 монетка, 4 новый уровень, 5 пыль стройки, 6 взмах мечей
     x: dec
     y: dec
     z: dec
-    x2: dec
-    y2: dec
-    z2: dec
     age: dec             // сколько секунд живёт
     life: dec            // сколько всего проживёт
 
@@ -86,19 +109,25 @@ obj Wave
 
 // вся игра
 obj Game
-    level: int           // 0, 1, 2
-    name: text           // имя уровня
+    level: int           // остров: 0, 1, 2
+    name: text
     w: int
     h: int
     cells: list int      // w × h, по строкам
     path_c: list int     // тропа от причала до крепости: клетки по порядку
     path_r: list int
-    towers: list Tower
+    builds: list Building
+    troops: list Troop
     enemies: list Enemy
     shots: list Shot
     fx: list Fx
     waves: list Wave
     wave: int            // номер текущей волны (−1 — ещё не начали)
+    fort: int            // уровень крепости 1–10
+    fort_cool: dec
+    fort_aim: dec
+    troop_lvl: list int  // уровень мечников, лучников, конницы (у всех воинов одного вида — один)
+    flag: dec            // где на тропе флаг войскам (в клетках от причала)
     money: int
     lives: int
     max_lives: int
@@ -111,70 +140,125 @@ obj Game
     q_kind: list int     // кто ещё выйдет в этой волне и когда
     q_time: list dec
     next_id: int
-    pick: int            // какую башню строим (−1 — никакую)
-    sel: int             // выбранная башня (номер в towers, −1 — нет)
+    tool: text           // что делаем мышью: "" — выбирать, "b0" "b1" "b2" — строить, "flag" — ставить флаг
+    sel: text            // что выбрано: "" , "b" + номер строения, "t" + вид войск, "fort", "ruin" + клетка
     hov_c: int           // клетка под мышью (−1 — не на острове)
     hov_r: int
     events: list text    // что случилось в этом кадре (для звука): "shot0", "boom", "kill", "base", "build" ...
     cam: Cam
-    best: int            // лучший счёт на этом уровне
+    best: int            // лучший счёт на этом острове
 
-// свойства вида башни
-obj TowerInfo
+// ---------- строения ----------
+
+obj BuildInfo
     name: text
     price: int
+    max_lvl: int
     range: dec           // в клетках
     dmg: dec
     rate: dec            // выстрелов в секунду
     splash: dec
-    slow: dec
-    air: bool            // бьёт летящих
-    ground: bool         // бьёт идущих
-    chain: int           // молния: сколько врагов цепляет
+    hp: dec              // у стены
     about: text
 
-// свойства вида врага
+modpub func build_count()
+    return 3
+
+// свойства строения вида k на уровне lvl
+modpub func build_info(k: int, lvl: int) gives b: BuildInfo
+    up = lvl - 1.0
+    if k == 0
+        b = BuildInfo(name: "Башня", price: 50, max_lvl: 5, range: 3.0 + 0.25 * up, dmg: 11.0 * (1.0 + 0.45 * up), rate: 1.5 + 0.15 * up, about: "стрелы, быстро")
+    else if k == 1
+        b = BuildInfo(name: "Пушка", price: 90, max_lvl: 5, range: 2.6 + 0.2 * up, dmg: 30.0 * (1.0 + 0.5 * up), rate: 0.5 + 0.05 * up, splash: 1.0 + 0.1 * up, about: "ядра по площади")
+    else
+        b = BuildInfo(name: "Стена", price: 40, max_lvl: 3, hp: 160.0 * pow(2.2, up), about: "ставится на тропу и держит врагов")
+
+// цена улучшения до уровня lvl
+modpub func build_up_price(k: int, lvl: int)
+    return build_info(k, 1).price * (lvl - 1) * 3 / 4 + 20
+
+// ---------- крепость ----------
+
+modpub func fort_max()
+    return 10
+
+modpub func fort_up_price(lvl: int)
+    return 80 + 70 * (lvl - 1)
+
+// жизни крепости на уровне
+modpub func fort_lives(lvl: int)
+    return 15 + 5 * lvl
+
+// золото за каждую волну
+modpub func fort_income(lvl: int)
+    return 10 * lvl
+
+// с 3-го уровня крепость стреляет сама
+modpub func fort_dmg(lvl: int)
+    if lvl < 3
+        return 0.0
+    return 8.0 + 5.0 * (lvl - 3)
+
+// ---------- войска ----------
+
+obj TroopInfo
+    name: text
+    price: int           // нанять одного
+    max_lvl: int
+    hp: dec
+    dmg: dec
+    rate: dec            // ударов (выстрелов) в секунду
+    range: dec           // ближний бой ~0.6, лучник дальше
+    speed: dec           // клеток в секунду
+    holds: int           // скольких врагов держит (лучник — 0)
+    back: dec            // насколько позади флага стоит
+    about: text
+
+modpub func troop_count()
+    return 3
+
+modpub func troop_info(k: int, lvl: int) gives t: TroopInfo
+    up = lvl - 1.0
+    if k == 0
+        t = TroopInfo(name: "Мечник", price: 30, max_lvl: 5, hp: 70.0 * (1.0 + 0.4 * up), dmg: 8.0 * (1.0 + 0.4 * up), rate: 1.0, range: 0.6, speed: 1.4, holds: 1, back: 0.0, about: "держит врага на тропе")
+    else if k == 1
+        t = TroopInfo(name: "Лучник", price: 40, max_lvl: 6, hp: 40.0 * (1.0 + 0.3 * up), dmg: 9.0 * (1.0 + 0.35 * up), rate: 1.1, range: 2.4 + 0.15 * up, speed: 1.4, holds: 0, back: 1.2, about: "стреляет из-за мечников")
+    else
+        t = TroopInfo(name: "Конница", price: 75, max_lvl: 3, hp: 150.0 * (1.0 + 0.5 * up), dmg: 18.0 * (1.0 + 0.5 * up), rate: 0.9, range: 0.7, speed: 3.0, holds: 2, back: -0.4, about: "быстрая, держит двоих")
+
+modpub func troop_up_price(k: int, lvl: int)
+    return troop_info(k, 1).price * lvl + 20
+
+// сколько воинов можно держать сразу
+modpub func troop_cap(fort: int)
+    return 2 + fort
+
+// ---------- враги ----------
+
 obj EnemyInfo
     name: text
     hp: dec
     speed: dec           // клеток в секунду
     reward: int
     armor: dec           // отнимается от каждого удара
-    fly: bool
+    dmg: dec             // удар по воину или стене
+    rate: dec
+    range: dec           // колдун бьёт издалека, остальные — вплотную
+    walls: dec           // во сколько раз сильнее бьёт стены
     size: dec            // для рисования: 1 — обычный
 
-modpub func tower_count()
-    return 4
-
-modpub func tower_info(k: int) gives t: TowerInfo
-    t = TowerInfo(name: "Лучник", price: 50, range: 3.0, dmg: 12.0, rate: 1.6, air: true, ground: true, chain: 1, about: "быстрый, бьёт и птиц")
-    if k == 1
-        t = TowerInfo(name: "Пушка", price: 90, range: 2.6, dmg: 32.0, rate: 0.55, splash: 1.1, ground: true, chain: 1, about: "ядро по площади, птиц не достаёт")
-    else if k == 2
-        t = TowerInfo(name: "Мороз", price: 70, range: 2.6, dmg: 6.0, rate: 1.0, slow: 1.8, air: true, ground: true, chain: 1, about: "замедляет вдвое")
-    else if k == 3
-        t = TowerInfo(name: "Молния", price: 140, range: 3.2, dmg: 24.0, rate: 0.8, air: true, ground: true, chain: 3, about: "бьёт сразу трёх, броня не спасает")
-
-// улучшение до уровня lvl (2 или 3): цена
-modpub func upgrade_price(k: int, lvl: int)
-    p = tower_info(k).price
-    if lvl == 2
-        return p * 4 / 5
-    return p * 6 / 5
-
 modpub func enemy_info(k: int) gives e: EnemyInfo
-    e = EnemyInfo(name: "Краб", hp: 30.0, speed: 1.6, reward: 4, size: 0.6)
+    e = EnemyInfo(name: "Краб", hp: 28.0, speed: 1.6, reward: 4, dmg: 4.0, rate: 1.2, range: 0.6, walls: 1.0, size: 0.6)
     if k == 1
-        e = EnemyInfo(name: "Пират", hp: 70.0, speed: 1.0, reward: 7, size: 0.8)
+        e = EnemyInfo(name: "Гоблин", hp: 50.0, speed: 1.1, reward: 7, dmg: 7.0, rate: 1.0, range: 0.6, walls: 1.0, size: 0.8)
     else if k == 2
-        e = EnemyInfo(name: "Черепаха", hp: 180.0, speed: 0.6, reward: 12, armor: 4.0, size: 0.9)
+        e = EnemyInfo(name: "Тролль", hp: 260.0, speed: 0.55, reward: 30, armor: 3.0, dmg: 24.0, rate: 0.6, range: 0.7, walls: 3.0, size: 1.3)
     else if k == 3
-        e = EnemyInfo(name: "Чайка", hp: 45.0, speed: 1.8, reward: 6, fly: true, size: 0.6)
-    else if k == 4
-        e = EnemyInfo(name: "Капитан", hp: 900.0, speed: 0.5, reward: 80, armor: 3.0, size: 1.3)
+        e = EnemyInfo(name: "Колдун", hp: 80.0, speed: 0.8, reward: 18, dmg: 12.0, rate: 0.7, range: 2.2, walls: 1.0, size: 0.9)
 
-// ---------- уровни ----------
-// ~ вода  . песок  , трава  # тропа  ^ скала/дерево  S причал  B крепость
+// ---------- острова ----------
+// ~ вода  . песок  , трава  # тропа  ^ камень  T дерево  h холм  R заброшенная башня  S причал  B крепость
 
 modpub func level_count()
     return 3
@@ -188,28 +272,26 @@ modpub func level_name(n: int)
 
 modpub func level_map(n: int) gives m: list text
     if n == 0
-        m = ["~~~~~~~~~~~~~~~~", "~~..,,,,,,,,..~~", "~S####,,^,,,,.~~", "~.,,,#,,,,####.~", "~.,^,#,,,,#,,#.~", "~.,,,######,,#.~", "~..,,,,,,,,,,#.~", "~~.,^,,#######.~", "~~.,,,,#,,,^,.~~", "~~~...,#B,,..~~~", "~~~~~~~~~~~~~~~~"]
+        m = ["~~~~~~~~~~~~~~~~", "~~..,,T,,,,,..~~", "~S####,,^,hh,.~~", "~.,,,#,,R,####.~", "~.,^,#,T,,#,,#.~", "~.,,,######,,#.~", "~..h,,,,,,,T,#.~", "~~.,^,,#######.~", "~~.T,,,#,h,^,.~~", "~~~...,#B,T..~~~", "~~~~~~~~~~~~~~~~"]
     else if n == 1
-        m = ["~~~~~~~~~~~~~~~~~~", "~~...,,,,,,,,...~~", "~S######,,^,,,,,.~", "~.,,,,,#,,,,,^,,.~", "~.,^,,,#,,#####,.~", "~.,,,,,#,,#,,,#,.~", "~..,#####,#,^,#,.~", "~~.,#,,,,,#,,,#,.~", "~~.,#,^,,,#,,,#,.~", "~~.,#######,,,#.~~", "~~~.,,,,,,,,,,#B~~", "~~~~~~~~~~~~~~~~~~"]
+        m = ["~~~~~~~~~~~~~~~~~~", "~~...,,T,,,,,...~~", "~S######,,^,,T,,.~", "~.,,,h,#,,,,,^,,.~", "~.,^,,,#,,#####,.~", "~.,T,,,#,R#,,,#,.~", "~..,#####,#,^,#,.~", "~~.,#,h,,,#,,,#T.~", "~~.,#,^,,,#,hh#,.~", "~~.,#######,,,#.~~", "~~~.,T,,,,,,,,#B~~", "~~~~~~~~~~~~~~~~~~"]
     else
-        m = ["~~~~~~~~~~~~~~~~~~", "~~.,,,,^^,,,,,..~~", "~S#####,,,,######~", "~.,,,,#,^^,#,,,,#~", "~.,^,,#,,,,#,^,,#~", "~.,,,,####,#,,,,#~", "~..,,,,,,#,#,####~", "~~.,^^,,,#,#,#,,.~", "~~.,,,,,,###,#,^.~", "~~~..,,,,,,,,#B..~", "~~~~~~~~~~~~~~~~~~"]
+        m = ["~~~~~~~~~~~~~~~~~~", "~~.,,,,^^,,,T,..~~", "~S#####,,h,######~", "~.,,,,#,^^,#,,,,#~", "~.,^,,#,R,,#,^,,#~", "~.,T,,####,#,hh,#~", "~..,,,,,,#,#,####~", "~~.,^^,T,#,#,#,,.~", "~~.,h,,,,###,#,^.~", "~~~..,T,,,,,,#B..~", "~~~~~~~~~~~~~~~~~~"]
 
-// волны уровня: чем дальше, тем больше врагов и сильнее
+// волны острова: чем дальше, тем больше врагов и сильнее
 modpub func level_waves(n: int) gives ws: list Wave
     total = 8 + n * 2
     count i from 0 to total - 1
         w = Wave()
-        w.groups.add(Group(kind: 0, amount: 5 + i, gap: 0.8, delay: 0.0))
+        w.groups.add(Group(kind: 0, amount: 4 + i, gap: 0.7, delay: 0.0))
         if i >= 1
-            w.groups.add(Group(kind: 1, amount: 2 + i, gap: 1.2, delay: 3.0))
+            w.groups.add(Group(kind: 1, amount: 2 + i, gap: 1.1, delay: 2.5))
         if i >= 3
-            w.groups.add(Group(kind: 3, amount: 2 + i / 2, gap: 0.9, delay: 6.0))
-        if i >= 4
-            w.groups.add(Group(kind: 2, amount: 1 + i / 3, gap: 2.0, delay: 8.0))
-        if i == total - 1 or i == total / 2
-            w.groups.add(Group(kind: 4, amount: 1, gap: 1.0, delay: 12.0))
+            w.groups.add(Group(kind: 3, amount: 1 + i / 3, gap: 2.2, delay: 6.0))
+        if i >= 2
+            w.groups.add(Group(kind: 2, amount: i / 2, gap: 3.0, delay: 9.0))
         ws.add(w)
 
-// сила врагов растёт с волной и уровнем
+// сила врагов растёт с волной и островом
 modpub func hp_factor(level: int, wave: int)
-    return (1.0 + 0.13 * wave) * (1.0 + 0.12 * level)
+    return (1.0 + 0.1 * wave) * (1.0 + 0.1 * level)
