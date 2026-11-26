@@ -145,7 +145,16 @@ screen main 4x7          // экран main: 4 столбца, 7 строк
 | `theme: solid` | обычный сплошной тёмный вид, без стекла |
 | `theme: glass` | стекло (так по умолчанию) |
 
-У карточки размытие по умолчанию 16: `blur: 0` — без размытия, `blur: 30` — сильнее.
+Значения по умолчанию (как на экране `glass` в примере). Что напишешь сам — важнее:
+
+| Вещь | По умолчанию |
+|---|---|
+| фон экрана | `lib/back/glass.jpg`, `backdim: 15%` |
+| `card` | `backcolor: rgba(255, 255, 255, 0.12)`, `corner.color: rgba(255, 255, 255, 0.35)`, `corner.radius: 22`, `blur: 18`, `padding: 24`, без тени |
+| `btn` с `look: main` | `backcolor: gradient(to right, #3ad6c1, #6b5bff)`, `glow: #6b5bff`, белый текст |
+| другие `btn` | полупрозрачные, `transition: 200` |
+| `field`, `area` | тёмное стекло, `corner.color: rgba(255, 255, 255, 0.3)` |
+| `title`, `heading` | `text.shadow: yes` |
 В программе без .tbs стекло включает `ui.glass(u)`, а картинку фона даёт `ui.glass_image(u)`.
 
 ## Фон, стекло и прочая красота

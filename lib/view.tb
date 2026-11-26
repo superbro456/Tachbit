@@ -84,6 +84,7 @@ obj TbsView
     hov: bool                // мышь над вещью, которую сейчас рисуем: тогда берутся свойства hover.*
     imgs: dict text int      // картинки: путь и размер → номер картинки
     scroll: dict text int    // прокрутка экрана (узкий режим, fill), в настоящих точках
+    glass: bool              // экран рисуется стеклом: у вещей свои значения по умолчанию (glass_default)
 
 // цвета и размеры ui, которые вещь меняет на время своего рисования
 obj TbsKeep
@@ -599,7 +600,9 @@ modpub func screen(u: Ui, v: TbsView, name: text)
         return
     kept = keep(u)
     ui.glass(u)
+    v.glass = true
     screen_body(u, v, name)
+    v.glass = false
     restore(u, kept)
 
 func screen_body(u: Ui, v: TbsView, name: text)
@@ -741,8 +744,6 @@ func draw_any(u: Ui, v: TbsView, it: TbsItem, x0: int, y0: int, w0: int, h0: int
         ui.shadow_under(u, x, y, w, h, r, depth)
     // blur: то, что под вещью, размывается (матовое стекло, как backdrop-filter в CSS)
     bl = num(v, it, "blur", 0)
-    if u.glass and it.kind == "card" and prop(v, it, "blur") == ""
-        bl = 16
     if bl > 0
         blur_rect(x, y, w, h, ui.px(u, bl))
     if it.kind == "card"
@@ -961,8 +962,13 @@ func screen_back(u: Ui, v: TbsView, s: TbsScreen, x: int, y: int, w: int, h: int
         bl = to_int(no_fn(s.back["backblur"])) or 0
         if bl > 0
             blur_rect(x, y, w, h, ui.px(u, bl))
+    dim = ""
     if s.back.has("backdim")
-        a = pct(s.back["backdim"], 0)
+        dim = s.back["backdim"]
+    else if u.glass
+        dim = "15%"
+    if dim != ""
+        a = pct(dim, 0)
         draw_rect(x, y, w, h, rgba(0, 0, 0, a * 255 / 100))
 
 // рамка толщиной bw (0 — без рамки) и заливка
@@ -1252,6 +1258,45 @@ func prop_raw(v: TbsView, it: TbsItem, key: text)
         each st in v.styles
             if st.name == name and st.props.has(key)
                 return st.props[key]
+    if v.glass
+        return glass_default(it, key)
+    return ""
+
+// стекло по умолчанию — то же, что на экране glass в примере: что не написали сами, берётся отсюда
+func glass_default(it: TbsItem, key: text)
+    k = it.kind
+    if k == "card"
+        if key == "backcolor"
+            return "rgba(255, 255, 255, 0.12)"
+        if key == "corner.color"
+            return "rgba(255, 255, 255, 0.35)"
+        if key == "corner.radius"
+            return "22"
+        if key == "blur"
+            return "18"
+        if key == "padding"
+            return "24"
+        if key == "shadow"
+            return "none"
+    else if k == "btn"
+        look = ""
+        if it.props.has("look")
+            look = it.props["look"]
+        if look == "main" and not it.props.has("backcolor")
+            if key == "backcolor"
+                return "gradient(to right, #3ad6c1, #6b5bff)"
+            if key == "glow"
+                return "#6b5bff"
+            if key == "color"
+                return "white"
+        if key == "transition"
+            return "200"
+    else if k == "title" or k == "heading"
+        if key == "text.shadow"
+            return "yes"
+    else if k == "field" or k == "area"
+        if key == "corner.color"
+            return "rgba(255, 255, 255, 0.3)"
     return ""
 
 func num(v: TbsView, it: TbsItem, key: text, dflt: int)
