@@ -1258,6 +1258,10 @@ func prop_raw(v: TbsView, it: TbsItem, key: text)
         each st in v.styles
             if st.name == name and st.props.has(key)
                 return st.props[key]
+    // style с именем вида (style card, style btn ...) — общие свойства всех вещей этого вида
+    each st in v.styles
+        if st.name == it.kind and st.props.has(key)
+            return st.props[key]
     if v.glass
         return glass_default(it, key)
     return ""

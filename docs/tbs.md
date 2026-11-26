@@ -157,6 +157,18 @@ screen main 4x7          // экран main: 4 столбца, 7 строк
 | `title`, `heading` | `text.shadow: yes` |
 В программе без .tbs стекло включает `ui.glass(u)`, а картинку фона даёт `ui.glass_image(u)`.
 
+**Своё стекло для всего файла.** Стиль с именем вида меняет все такие вещи сразу, без `style:` у каждой:
+
+```
+style card
+    backcolor: rgba(255, 255, 255, 0.2)
+    blur: 30
+    corner.radius: 16
+
+style btn
+    glow: none
+```
+
 ## Фон, стекло и прочая красота
 
 | Свойство | CSS | Где | Что |
