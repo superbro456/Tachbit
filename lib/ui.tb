@@ -54,6 +54,18 @@ obj Ui
     entered: bool        // в поле нажали Enter в этом кадре
     caret: int           // где чёрточка в поле с фокусом (номер буквы)
     anchor: int          // начало выделения (= caret — ничего не выделено)
+    // отменить / вернуть (cmd+Z / cmd+shift+Z) в поле с фокусом
+    undo_id: text        // чья история (другое поле — история с нуля)
+    undo_text: list text
+    undo_at: list int
+    redo_text: list text
+    redo_at: list int
+    undo_ms: int         // когда записали последний шаг: буквы подряд — один шаг
+    // Tab в однострочном поле — к следующему полю
+    fields_now: list text    // поля этого кадра по порядку
+    fields_was: list text    // и прошлого
+    tab_go: int          // 1 — к следующему, -1 — к прошлому, 0 — никуда
+    tab_from: text
     scroll: dict text int    // первая видимая строка многострочного поля
     // окно-вопрос
     ask_open: bool
@@ -456,6 +468,13 @@ modpub func px(u: Ui, n: int)
 // в начале кадра: мышь, клавиши, раскладка
 modpub func frame(u: Ui)
     u.tick += 1
+    // Tab в прошлом кадре: фокус к соседнему полю
+    u.fields_was.clear()
+    each f in u.fields_now
+        u.fields_was.add(f)
+    u.fields_now.clear()
+    if u.tab_go != 0
+        go_field(u)
     was = u.down
     u.mx = mouse_x()
     u.my = mouse_y()
@@ -1041,9 +1060,42 @@ func edit_keys(u: Ui, value: text, many: bool) gives now: text
     n = chars(now)
     u.caret = max(0, min(u.caret, n))
     u.anchor = max(0, min(u.anchor, n))
+    if u.undo_id != u.focus
+        u.undo_id = u.focus
+        u.undo_text.clear()
+        u.undo_at.clear()
+        u.redo_text.clear()
+        u.redo_at.clear()
     shift = key_down("shift")
+    // по словам: Option на Mac, Ctrl на Linux и Windows; к краю строки: Command на Mac
+    word = key_down("alt") or key_down("ctrl")
+    edge = key_down("cmd") and not word
     a = min(u.caret, u.anchor)
     b = max(u.caret, u.anchor)
+    if shortcut(u, "cmd+z") or (word and not key_down("alt") and shortcut(u, "ctrl+z"))
+        if len(u.undo_text) > 0
+            u.redo_text.add(now)
+            u.redo_at.add(u.caret)
+            last = len(u.undo_text) - 1
+            now = u.undo_text[last]
+            u.caret = u.undo_at[last]
+            u.undo_text = first_texts(u.undo_text, last)
+            u.undo_at = first_ints(u.undo_at, last)
+            u.anchor = u.caret
+            u.undo_ms = 0
+        return
+    if shortcut(u, "cmd+shift+z") or shortcut(u, "cmd+y")
+        if len(u.redo_text) > 0
+            u.undo_text.add(now)
+            u.undo_at.add(u.caret)
+            last = len(u.redo_text) - 1
+            now = u.redo_text[last]
+            u.caret = u.redo_at[last]
+            u.redo_text = first_texts(u.redo_text, last)
+            u.redo_at = first_ints(u.redo_at, last)
+            u.anchor = u.caret
+            u.undo_ms = 0
+        return
     if shortcut(u, "cmd+a")
         u.anchor = 0
         u.caret = n
@@ -1051,9 +1103,59 @@ func edit_keys(u: Ui, value: text, many: bool) gives now: text
     if (shortcut(u, "cmd+c") or shortcut(u, "cmd+x")) and a < b
         clipboard_set(mid_chars(now, a, b))
         if key_down("x")
+            remember(u, now, false)
             now = first_chars(now, a) + last_chars(now, n - b)
             u.caret = a
             u.anchor = a
+        return
+    // Tab: в многострочном — отступ (Shift+Tab — убрать), в однострочном — к соседнему полю
+    if key_repeat(u, "tab") and not key_down("cmd") and not key_down("alt")
+        if not many
+            u.tab_go = 1
+            if shift
+                u.tab_go = -1
+            u.tab_from = u.focus
+            return
+        remember(u, now, false)
+        s0 = line_start(now, a)
+        e0 = line_end(now, b)
+        if a == b and not shift
+            now = first_chars(now, a) + "    " + last_chars(now, n - a)
+            u.caret = a + 4
+            u.anchor = u.caret
+        else
+            rows = split(mid_chars(now, s0, e0), "\n")
+            out = ""
+            ca = u.caret
+            an = u.anchor
+            count r from 0 to len(rows) - 1
+                ln = rows[r]
+                if shift
+                    cut_n = 0
+                    repeat while cut_n < 4 and cut_n < chars(ln) and mid_chars(ln, cut_n, cut_n + 1) == " "
+                        cut_n += 1
+                    ln = last_chars(ln, chars(ln) - cut_n)
+                    if r == 0
+                        ca = max(s0, ca - cut_n)
+                        an = max(s0, an - cut_n)
+                    else
+                        ca -= cut_n * min(1, max(0, ca - s0 - chars(out)))
+                        an -= cut_n * min(1, max(0, an - s0 - chars(out)))
+                else
+                    ln = "    " + ln
+                    if r == 0
+                        ca += 4
+                        an += 4
+                    else
+                        ca += 4 * min(1, max(0, ca - s0 - chars(out)))
+                        an += 4 * min(1, max(0, an - s0 - chars(out)))
+                if r > 0
+                    out += "\n"
+                out += ln
+            now = first_chars(now, s0) + out + last_chars(now, n - e0)
+            u.caret = max(0, min(ca, chars(now)))
+            u.anchor = max(0, min(an, chars(now)))
+        u.focus_tick = time_ms()
         return
     put = u.typed
     if shortcut(u, "cmd+v")
@@ -1062,36 +1164,73 @@ func edit_keys(u: Ui, value: text, many: bool) gives now: text
             put = replace(put, "\n", " ")
     if many and key_repeat(u, "enter") and plain(u)
         put += "\n"
+        // новая строка с тем же отступом
+        ls = line_start(now, a)
+        sp = 0
+        repeat while ls + sp < a and mid_chars(now, ls + sp, ls + sp + 1) == " "
+            sp += 1
+        count i from 1 to sp
+            put += " "
     if put != ""
+        remember(u, now, put != " " and chars(put) == 1)
         now = first_chars(now, a) + put + last_chars(now, n - b)
         u.caret = a + chars(put)
         u.anchor = u.caret
         u.focus_tick = time_ms()
         return
     if key_repeat(u, "backspace")
+        remember(u, now, false)
         if a < b
             now = first_chars(now, a) + last_chars(now, n - b)
             u.caret = a
         else if u.caret > 0
-            now = first_chars(now, u.caret - 1) + last_chars(now, n - u.caret)
-            u.caret -= 1
+            from_i = u.caret - 1
+            if word
+                from_i = word_left(now, u.caret)
+            else if edge
+                from_i = line_start(now, u.caret)
+                if from_i == u.caret
+                    from_i = u.caret - 1
+            now = first_chars(now, from_i) + last_chars(now, n - u.caret)
+            u.caret = from_i
         u.anchor = u.caret
         u.focus_tick = time_ms()
         return
     if key_repeat(u, "delete")
+        remember(u, now, false)
         if a < b
             now = first_chars(now, a) + last_chars(now, n - b)
             u.caret = a
         else if u.caret < n
-            now = first_chars(now, u.caret) + last_chars(now, n - u.caret - 1)
+            to_i = u.caret + 1
+            if word
+                to_i = word_right(now, u.caret)
+            else if edge
+                to_i = max(u.caret + 1, line_end(now, u.caret))
+            now = first_chars(now, u.caret) + last_chars(now, n - to_i)
         u.anchor = u.caret
+        u.focus_tick = time_ms()
         return
     moved = false
     if key_repeat(u, "left")
-        u.caret = max(0, u.caret - 1)
+        if a < b and not shift
+            u.caret = a
+        else if word
+            u.caret = word_left(now, u.caret)
+        else if edge
+            u.caret = line_start(now, u.caret)
+        else
+            u.caret = max(0, u.caret - 1)
         moved = true
     if key_repeat(u, "right")
-        u.caret = min(n, u.caret + 1)
+        if a < b and not shift
+            u.caret = b
+        else if word
+            u.caret = word_right(now, u.caret)
+        else if edge
+            u.caret = line_end(now, u.caret)
+        else
+            u.caret = min(n, u.caret + 1)
         moved = true
     if key_pressed(u, "home")
         u.caret = line_start(now, u.caret)
@@ -1099,7 +1238,13 @@ func edit_keys(u: Ui, value: text, many: bool) gives now: text
     if key_pressed(u, "end")
         u.caret = line_end(now, u.caret)
         moved = true
-    if many and (key_repeat(u, "up") or key_repeat(u, "down"))
+    if edge and (key_repeat(u, "up") or key_repeat(u, "down"))
+        // cmd+↑ / cmd+↓ — к началу и концу всего текста
+        u.caret = 0
+        if key_down("down")
+            u.caret = n
+        moved = true
+    else if many and (key_repeat(u, "up") or key_repeat(u, "down"))
         col = u.caret - line_start(now, u.caret)
         if key_down("up")
             s0 = line_start(now, u.caret)
@@ -1115,6 +1260,80 @@ func edit_keys(u: Ui, value: text, many: bool) gives now: text
         if not shift
             u.anchor = u.caret
         u.focus_tick = time_ms()
+        u.undo_ms = 0
+
+// запомнить текст до правки (для cmd+Z). letter — набрали одну букву: подряд идущие — один шаг
+func remember(u: Ui, value: text, letter: bool)
+    if letter and u.undo_ms > 0 and time_ms() - u.undo_ms < 1000 and len(u.undo_text) > 0
+        u.undo_ms = time_ms()
+        return
+    u.undo_text.add(value)
+    u.undo_at.add(u.caret)
+    if len(u.undo_text) > 200
+        u.undo_text = last_texts(u.undo_text, 200)
+        u.undo_at = last_ints(u.undo_at, 200)
+    u.redo_text.clear()
+    u.redo_at.clear()
+    u.undo_ms = 0
+    if letter
+        u.undo_ms = time_ms()
+
+func first_texts(xs: list text, n: int) gives out: list text
+    count i from 0 to n - 1
+        out.add(xs[i])
+
+func first_ints(xs: list int, n: int) gives out: list int
+    count i from 0 to n - 1
+        out.add(xs[i])
+
+func last_texts(xs: list text, n: int) gives out: list text
+    count i from len(xs) - n to len(xs) - 1
+        out.add(xs[i])
+
+func last_ints(xs: list int, n: int) gives out: list int
+    count i from len(xs) - n to len(xs) - 1
+        out.add(xs[i])
+
+// буква — часть слова (буквы, цифры, _)
+func in_word(c: text)
+    if c == "" or c == " " or c == "\n"
+        return false
+    return find(".,;:!?()[]{}<>=+-*/\\\"'`|&^%$#@~", c) < 0
+
+// начало слова слева от i и конец слова справа от i
+func word_left(s: text, i: int)
+    j = i
+    repeat while j > 0 and not in_word(mid_chars(s, j - 1, j))
+        j -= 1
+    repeat while j > 0 and in_word(mid_chars(s, j - 1, j))
+        j -= 1
+    return j
+
+func word_right(s: text, i: int)
+    n = chars(s)
+    j = i
+    repeat while j < n and not in_word(mid_chars(s, j, j + 1))
+        j += 1
+    repeat while j < n and in_word(mid_chars(s, j, j + 1))
+        j += 1
+    return j
+
+// Tab в прошлом кадре: фокус к соседнему полю (по порядку, в каком их рисовали)
+func go_field(u: Ui)
+    go = u.tab_go
+    u.tab_go = 0
+    n = len(u.fields_was)
+    if n == 0
+        return
+    at = -1
+    count i from 0 to n - 1
+        if u.fields_was[i] == u.tab_from
+            at = i
+    if at < 0
+        return
+    nx = (at + go + n) % n
+    focus_on(u, u.fields_was[nx])
+    u.anchor = 0
 
 // где начинается и кончается строка, в которой буква номер i
 func line_start(s: text, i: int)
@@ -1139,6 +1358,7 @@ func line_end(s: text, i: int)
 // hint — бледная подсказка, пока поле пустое
 modpub func field(u: Ui, id: text, x: int, y: int, w: int, h: int, value: text, hint: text) gives now: text
     now = value
+    u.fields_now.add(id)
     over = free(u) and inside(u, x, y, w, h)
     if over
         u.want_cursor = "text"
