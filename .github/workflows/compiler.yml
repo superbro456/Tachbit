@@ -27,7 +27,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: macos-14
+          - os: macos-latest
             name: tb-mac
           - os: ubuntu-latest
             name: tb-linux-x64
