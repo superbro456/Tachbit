@@ -303,6 +303,107 @@ modpub func dark(u: Ui)
     u.sel = rgb(26, 74, 72)
     u.red = rgb(240, 96, 106)
     u.shadow = rgba(0, 0, 0, 110)
+// ---------- гладкие линии ----------
+// линия любой толщины со сглаженными краями (draw_line — тонкая и «лесенкой»).
+// Края считаются по точкам: насколько точка закрыта линией, настолько она и прозрачна
+modpub func smooth_line(x0: dec, y0: dec, x1: dec, y1: dec, width: dec, c: int)
+    dx = x1 - x0
+    dy = y1 - y0
+    if abs(dx) < 0.001 and abs(dy) < 0.001
+        return
+    a0 = 255 - bit_and(shift_right(c, 24), 255)
+    rgbc = bit_and(c, 16777215)
+    hw = max(0.5, width / 2.0)
+    if abs(dx) >= abs(dy)
+        // по столбцам: в каждом — сплошная середина и два полупрозрачных края
+        if x1 < x0
+            t = x0
+            x0 = x1
+            x1 = t
+            t = y0
+            y0 = y1
+            y1 = t
+        k = (y1 - y0) / (x1 - x0)
+        hh = hw * sqrt(1.0 + k * k)
+        xa = round(floor(x0))
+        xb = round(floor(x1))
+        count x from xa to xb
+            cx = x + 0.5
+            // у концов столбец закрыт не целиком
+            cov = 1.0
+            if cx < x0
+                cov = 1.0 - (x0 - cx)
+            if cx > x1
+                cov = 1.0 - (cx - x1)
+            if cov > 0.0
+                yc = y0 + (cx - x0) * k
+                line_span(x, yc - hh, yc + hh, cov, a0, rgbc, true)
+    else
+        if y1 < y0
+            t = x0
+            x0 = x1
+            x1 = t
+            t = y0
+            y0 = y1
+            y1 = t
+        k = (x1 - x0) / (y1 - y0)
+        hh = hw * sqrt(1.0 + k * k)
+        ya = round(floor(y0))
+        yb = round(floor(y1))
+        count y from ya to yb
+            cy = y + 0.5
+            cov = 1.0
+            if cy < y0
+                cov = 1.0 - (y0 - cy)
+            if cy > y1
+                cov = 1.0 - (cy - y1)
+            if cov > 0.0
+                xc = x0 + (cy - y0) * k
+                line_span(y, xc - hh, xc + hh, cov, a0, rgbc, false)
+
+// один столбец (или строка) линии от lo до hi: целые точки — одним прямоугольником, края — по закрытости
+func line_span(at: int, lo: dec, hi: dec, cov: dec, a0: int, c: int, column: bool)
+    p0 = round(floor(lo))
+    p1 = round(floor(hi))
+    if p0 == p1
+        line_px(at, p0, (hi - lo) * cov, a0, c, column)
+        return
+    line_px(at, p0, (p0 + 1.0 - lo) * cov, a0, c, column)
+    line_px(at, p1, (hi - p1) * cov, a0, c, column)
+    n = p1 - p0 - 1
+    if n > 0
+        cc = rgba(bit_and(shift_right(c, 16), 255), bit_and(shift_right(c, 8), 255), bit_and(c, 255), round(a0 * cov))
+        if column
+            draw_rect(at, p0 + 1, 1, n, cc)
+        else
+            draw_rect(p0 + 1, at, n, 1, cc)
+
+func line_px(at: int, p: int, f: dec, a0: int, c: int, column: bool)
+    a = round(a0 * min(1.0, f))
+    if a <= 0
+        return
+    cc = rgba(bit_and(shift_right(c, 16), 255), bit_and(shift_right(c, 8), 255), bit_and(c, 255), a)
+    if column
+        draw_rect(at, p, 1, 1, cc)
+    else
+        draw_rect(p, at, 1, 1, cc)
+
+// плавная кривая (как нити между блоками): от (x0, y0) к (x1, y1), изгиб задают две точки-ручки
+modpub func smooth_curve(x0: dec, y0: dec, ax: dec, ay: dec, bx: dec, by: dec, x1: dec, y1: dec, width: dec, c: int)
+    // кусков столько, чтобы каждый был около 6 точек
+    est = sqrt((ax - x0) * (ax - x0) + (ay - y0) * (ay - y0)) + sqrt((bx - ax) * (bx - ax) + (by - ay) * (by - ay)) + sqrt((x1 - bx) * (x1 - bx) + (y1 - by) * (y1 - by))
+    n = max(4, min(200, round(est / 6.0)))
+    px0 = x0
+    py0 = y0
+    count i from 1 to n
+        t = i * 1.0 / n
+        m = 1.0 - t
+        qx = m * m * m * x0 + 3.0 * m * m * t * ax + 3.0 * m * t * t * bx + t * t * t * x1
+        qy = m * m * m * y0 + 3.0 * m * m * t * ay + 3.0 * m * t * t * by + t * t * t * y1
+        smooth_line(px0, py0, qx, qy, width, c)
+        px0 = qx
+        py0 = qy
+
 // круглый шрифт для всего (Nunito): мягкий и современный
 modpub func round_font(u: Ui)
     if u.rounded >= 0
