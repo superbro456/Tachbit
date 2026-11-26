@@ -124,7 +124,7 @@ func main()
 | full-screen effects | `screen_shader`, `screen_set`: bloom, FXAA, depth fog, color, vignette, outline, blur | `examples/apps/pbr_room` (key X) |
 | particles | `shaders.particles(n, "fire")`: fire, smoke, sparks, fountain, snow; tens of thousands, computed on the GPU | `examples/apps/campfire` |
 | big worlds | `mesh_simplify`, `mesh_lod`, `mesh_far` (simpler or hidden far away), automatic culling, `mesh_free`; chunk streaming with `use stream` | `examples/apps/big_world` |
-| windows and input | `window_new`, `window_fullscreen`, `mouse_lock`, `mouse_dx`, `mouse_dy`, gamepad `pad_*`, 3D sound `play_sound_at` | `examples/basics/look_around.tb` |
+| windows and input | `window_new`, `window_fullscreen`, system menu `menu_add` `menu_pick` `menu_native`, `mouse_lock`, `mouse_dx`, `mouse_dy`, gamepad `pad_*`, 3D sound `play_sound_at` | `examples/basics/look_around.tb` |
 
 Shaders are written in Tachbit; the compiler turns them into SPIR-V for Vulkan, MSL for Metal and C for CPU drawing. Lights from a Blender scene are not imported; place lamps in code. The 1.3 shaders are tested on Linux (Vulkan); Metal on Mac is not checked yet.
 
