@@ -1,0 +1,169 @@
+// ВЫВОД сверху (временный): простой план острова, пока 3D в view3d.tb не готово.
+// Как и 3D, только читает данные.
+use ui
+use data
+use logic
+
+// где план на экране: клетка s точек, левый верхний угол ox, oy (в свободном месте окна)
+modpub func layout(g: Game, x: int, y: int, w: int, h: int) gives ox: int, oy: int, s: int
+    s = max(4, min(w / g.w, h / g.h))
+    ox = x + (w - s * g.w) / 2
+    oy = y + (h - s * g.h) / 2
+
+// клетка под мышью
+modpub func cell_under(g: Game, mx: int, my: int, x: int, y: int, w: int, h: int) gives c: int, r: int
+    ox, oy, s = layout(g, x, y, w, h)
+    c = -1
+    r = -1
+    if mx < ox or my < oy
+        return
+    cc = (mx - ox) / s
+    rr = (my - oy) / s
+    if cc < g.w and rr < g.h
+        c = cc
+        r = rr
+
+modpub func draw_world(u: Ui, g: Game, t: dec, x: int, y: int, w: int, h: int)
+    draw_rect(x, y, w, h, rgb(24, 92, 140))
+    ox, oy, s = layout(g, x, y, w, h)
+    // клетки
+    count r from 0 to g.h - 1
+        count c from 0 to g.w - 1
+            k = cell(g, c, r)
+            px = ox + c * s
+            py = oy + r * s
+            if k == 0
+                wave = round(18.0 * sin(t * 1.5 + c * 0.7 + r * 0.5))
+                draw_rect(px, py, s, s, rgb(30, 110 + wave / 2, 165 + wave))
+            else
+                draw_rect(px, py, s, s, ground_color(k, c, r))
+                if k == 4
+                    draw_circle(px + s / 2, py + s / 2, s * 3 / 8, rgb(110, 116, 108))
+                    draw_circle(px + s / 2 - s / 8, py + s / 2 - s / 8, s / 6, rgb(140, 146, 136))
+                else if k == 5
+                    draw_round(px + s / 8, py + s / 8, s * 3 / 4, s * 3 / 4, s / 8, "", rgb(200, 190, 170))
+                    draw_rect(px + s / 3, py - s / 6, s / 3, s / 2, rgb(170, 60, 60))
+                else if k == 6
+                    draw_rect(px + s / 6, py + s / 3, s * 2 / 3, s / 3, rgb(130, 90, 55))
+    // тропа: линия по центрам
+    if len(g.path_c) > 1
+        count i from 0 to len(g.path_c) - 2
+            ax = ox + g.path_c[i] * s + s / 2
+            ay = oy + g.path_r[i] * s + s / 2
+            bx = ox + g.path_c[i + 1] * s + s / 2
+            by = oy + g.path_r[i + 1] * s + s / 2
+            ui.smooth_line(ax + 0.0, ay + 0.0, bx + 0.0, by + 0.0, s * 0.12, rgba(120, 80, 40, 120))
+    // подсветка клетки под мышью и дальность
+    if g.hov_c >= 0 and g.pick >= 0
+        hx = ox + g.hov_c * s
+        hy = oy + g.hov_r * s
+        col = rgba(90, 230, 120, 110)
+        if not can_build(g, g.hov_c, g.hov_r)
+            col = rgba(240, 80, 80, 110)
+        draw_rect(hx, hy, s, s, col)
+        ring(hx + s / 2, hy + s / 2, round(tower_info(g.pick).range * s), rgba(255, 255, 255, 90))
+    if g.sel >= 0 and g.sel < len(g.towers)
+        tw = g.towers[g.sel]
+        ring(ox + tw.col * s + s / 2, oy + tw.row * s + s / 2, round(stats(tw).range * s), rgba(255, 240, 160, 160))
+    // башни
+    each tw in g.towers
+        cx = ox + tw.col * s + s / 2
+        cy = oy + tw.row * s + s / 2
+        draw_circle(cx, cy + s / 10, s * 2 / 5, rgba(0, 0, 0, 70))
+        draw_circle(cx, cy, s * 2 / 5, rgb(235, 232, 222))
+        draw_circle(cx, cy, s * 3 / 10, tower_color(tw.kind))
+        // ствол туда, куда смотрит
+        a = tw.aim * pi() / 180.0
+        ex = cx + round(sin(a) * s * 0.42)
+        ey = cy + round(cos(a) * s * 0.42)
+        ui.smooth_line(cx + 0.0, cy + 0.0, ex + 0.0, ey + 0.0, s * 0.12, rgb(40, 40, 50))
+        count i from 1 to tw.lvl
+            draw_circle(cx - s / 3 + i * s / 6, cy + s * 3 / 8, max(1, s / 14), rgb(255, 210, 70))
+        if tw.flash > 0.0
+            draw_circle(ex, ey, round(s * 0.15 * tw.flash) + 1, rgba(255, 240, 180, round(200 * tw.flash)))
+    // враги
+    each e in g.enemies
+        info = enemy_info(e.kind)
+        cx = ox + round((e.x + g.w / 2.0) * s)
+        cy = oy + round((e.z + g.h / 2.0) * s)
+        rr = round(s * 0.32 * info.size) + 1
+        if info.fly
+            draw_circle(cx + s / 6, cy + s / 4, rr, rgba(0, 0, 0, 60))
+            cy -= s / 4
+        col = enemy_color(e.kind)
+        if e.hit > 0.0
+            col = ui.mix(col, rgb(255, 255, 255), round(e.hit * 70))
+        if e.slow > 0.0
+            col = ui.mix(col, rgb(140, 210, 255), 50)
+        draw_circle(cx, cy, rr, col)
+        // полоска жизни
+        bw = rr * 2
+        draw_rect(cx - rr, cy - rr - 6, bw, 3, rgba(0, 0, 0, 140))
+        draw_rect(cx - rr, cy - rr - 6, round(bw * max(0.0, e.hp / e.max_hp)), 3, rgb(110, 230, 110))
+    // снаряды
+    each sh in g.shots
+        cx = ox + round((sh.x + g.w / 2.0) * s)
+        cy = oy + round((sh.z + g.h / 2.0) * s) - round(sh.y * s * 0.3)
+        r = max(2, s / 12)
+        if sh.kind == 1
+            r = max(3, s / 7)
+        draw_circle(cx, cy, r, tower_color(sh.kind))
+    // вспышки
+    each f in g.fx
+        k = f.age / max(0.01, f.life)
+        cx = ox + round((f.x + g.w / 2.0) * s)
+        cy = oy + round((f.z + g.h / 2.0) * s)
+        al = round(220 * (1.0 - k))
+        if f.kind == 0
+            draw_circle(cx, cy, round(s * (0.3 + 0.9 * k)), rgba(255, 170, 60, al))
+        else if f.kind == 1
+            draw_circle(cx, cy, round(s * 0.2), rgba(255, 255, 255, al))
+        else if f.kind == 2
+            bx = ox + round((f.x2 + g.w / 2.0) * s)
+            by = oy + round((f.z2 + g.h / 2.0) * s)
+            ui.smooth_line(cx + 0.0, cy + 0.0, bx + 0.0, by + 0.0, 3.0, rgba(190, 220, 255, al))
+        else if f.kind == 3
+            draw_circle(cx, cy - round(k * s), max(2, s / 8), rgba(255, 210, 60, al))
+        else if f.kind == 4
+            draw_circle(cx, cy, round(s * 0.35), rgba(170, 225, 255, al / 2))
+        else if f.kind == 5
+            draw_circle(cx, cy - round(k * s * 0.5), round(s * (0.2 + 0.4 * k)), rgba(230, 230, 230, al / 2))
+
+func ring(x: int, y: int, r: int, c: int)
+    n = 48
+    count i from 0 to n - 1
+        a0 = i * 2.0 * pi() / n
+        a1 = (i + 1) * 2.0 * pi() / n
+        ui.smooth_line(x + cos(a0) * r, y + sin(a0) * r, x + cos(a1) * r, y + sin(a1) * r, 1.5, c)
+
+func ground_color(k: int, c: int, r: int)
+    d = ((c * 7 + r * 13) % 5) * 3
+    if k == 1 or k == 6
+        return rgb(226 - d, 206 - d, 150 - d)
+    if k == 2 or k == 4
+        return rgb(108 - d, 170 - d, 92 - d)
+    if k == 3
+        return rgb(186 - d, 150 - d, 104 - d)
+    if k == 5
+        return rgb(108 - d, 170 - d, 92 - d)
+    return rgb(30, 110, 165)
+
+modpub func tower_color(k: int)
+    if k == 1
+        return rgb(60, 60, 70)
+    if k == 2
+        return rgb(120, 200, 255)
+    if k == 3
+        return rgb(190, 140, 255)
+    return rgb(160, 110, 60)
+
+modpub func enemy_color(k: int)
+    if k == 1
+        return rgb(200, 60, 60)
+    if k == 2
+        return rgb(60, 130, 80)
+    if k == 3
+        return rgb(240, 240, 245)
+    if k == 4
+        return rgb(40, 30, 30)
+    return rgb(240, 110, 70)

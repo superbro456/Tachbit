@@ -86,6 +86,7 @@ obj TbsView
     imgs: dict text int      // картинки: путь и размер → номер картинки
     scroll: dict text int    // прокрутка экрана (узкий режим, fill), в настоящих точках
     glass: bool              // экран рисуется стеклом: у вещей свои значения по умолчанию (glass_default)
+    live: dict text text     // свойства, которые поменяла программа: "id|ключ" → значение (view.put_prop)
 
 // цвета и размеры ui, которые вещь меняет на время своего рисования
 obj TbsKeep
@@ -148,6 +149,22 @@ modpub func number_of(v: TbsView, id: text)
     if v.nums.has(id)
         return v.nums[id]
     return 0
+
+// поменять свойство вещи id из программы: текст счёта, цвет, видимость ...
+// Сильнее того, что написано в .tbs; "" — снова как в файле
+modpub func put_prop(v: TbsView, id: text, key: text, val: text)
+    if val == ""
+        if v.live.has(id + "|" + key)
+            v.live.remove(id + "|" + key)
+        return
+    v.live[id + "|" + key] = val
+
+// показать или спрятать вещь id
+modpub func show_item(v: TbsView, id: text, on: bool)
+    if on
+        put_prop(v, id, "visible", "yes")
+    else
+        put_prop(v, id, "visible", "no")
 
 modpub func put_number(v: TbsView, id: text, n: int)
     v.nums[id] = n
@@ -1297,6 +1314,8 @@ func prop_raw(v: TbsView, it: TbsItem, key: text)
 // что написано у самой вещи: её свойства, потом вещь из from:, потом её style:
 // (from: save — взять всё у вещи save и поменять только то, что написано здесь)
 func own_prop(v: TbsView, it: TbsItem, key: text, depth: int)
+    if depth == 0 and it.id != "" and v.live.has(it.id + "|" + key)
+        return v.live[it.id + "|" + key]
     if it.props.has(key)
         return it.props[key]
     if depth < 8 and key != "from" and it.props.has("from")

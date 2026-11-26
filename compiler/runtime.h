@@ -13510,7 +13510,7 @@ static void tb_voice_3d(tb_voice *v, float *tl, float *tr, double *tdl, double *
     v->lastd = d;
 }
 // смешать n кадров всех голосов в out (стерео, по очереди лево-право)
-static void tb_mix(float *out, int n) {
+static void tb_snd_mix(float *out, int n) {
     memset(out, 0, sizeof(float) * 2 * (size_t)n);
     pthread_mutex_lock(&tb_slock);
     for (int k = 0; k < TB_NVOICE; k++) {
@@ -13581,7 +13581,7 @@ static void tb_snd_paced(FILE *f) {
     unsigned long long bytes = 0;
     long long next = tb_snd_now_us();
     for (;;) {
-        tb_mix(buf, TB_SBLOCK);
+        tb_snd_mix(buf, TB_SBLOCK);
         if (f) {
             for (int i = 0; i < TB_SBLOCK * 2; i++) pcm[i] = (short)lrintf(buf[i] * 32767);
             fwrite(pcm, sizeof pcm, 1, f);
@@ -13616,7 +13616,7 @@ typedef int32_t (*tb_aq_enq_t)(void *, tb_aqbuf *, uint32_t, const void *);
 static tb_aq_enq_t tb_aq_enq;
 static void tb_aq_cb(void *user, void *q, tb_aqbuf *b) {
     (void)user;
-    tb_mix((float *)b->data, TB_SBLOCK);
+    tb_snd_mix((float *)b->data, TB_SBLOCK);
     b->size = TB_SBLOCK * 8;
     tb_aq_enq(q, b, 0, 0);
 }
@@ -13671,12 +13671,12 @@ static void *tb_snd_win(void *arg) {
         hd[i].data = (char *)bufs[i];
         hd[i].len = sizeof bufs[i];
         wprep(h, &hd[i], sizeof hd[i]);
-        tb_mix(bufs[i], TB_SBLOCK);
+        tb_snd_mix(bufs[i], TB_SBLOCK);
         wwrite(h, &hd[i], sizeof hd[i]);
     }
     for (int i = 0;; i = (i + 1) % 6) {
         while (!(hd[i].flags & 1)) Sleep(1);   // 1 = эту порцию уже сыграли
-        tb_mix(bufs[i], TB_SBLOCK);
+        tb_snd_mix(bufs[i], TB_SBLOCK);
         wwrite(h, &hd[i], sizeof hd[i]);
     }
     return 0;
@@ -13708,7 +13708,7 @@ static void *tb_snd_alsa(void *arg) {
     }
     float buf[TB_SBLOCK * 2];
     for (;;) {
-        tb_mix(buf, TB_SBLOCK);
+        tb_snd_mix(buf, TB_SBLOCK);
         long r = writei(pcm, buf, TB_SBLOCK);
         if (r < 0 && recover(pcm, (int)r, 1) < 0) { tb_snd_paced(0); return 0; }
     }

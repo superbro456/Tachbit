@@ -1,0 +1,164 @@
+// Разметка и стили окна. Логика — в main.tb.
+// Сетка как в Excel: столбцы A B C D, строки 1 2 3 ...
+// Вещь: вид имя (клетки), а ниже с отступом — свойства «ключ: значение».
+// Сузь окно меньше 560 точек — вещи встанут в один столбец, как на телефоне.
+
+style price
+    color: accent
+    size: 22
+    align: right
+
+screen main 4x7
+    rows: 56 40 48 40 * * 52
+
+    title (A1:C1)
+        text: Новый проект
+    chip (D1)
+        text: черновик
+        scale: 1.3
+
+    card (A2:B6)
+    caps (A2:B2)
+        text: Название
+    field name (A3:B3)
+        hint: Как назвать
+        value: Манул
+    caps (A4:B4)
+        text: Описание
+    area about (A5:B6)
+        value: Редактор блоков
+
+    switch public (C2:D2)
+        text: Открытый
+        on: yes
+    check notify (C3:D3)
+        text: Писать мне на почту
+        width: 60%
+    slider level (C4:D4)
+        min: 1
+        max: 10
+        value: 5
+    pick lang (C5:D5)
+        items: English | Русский | Oʻzbek
+        value: 1
+    text total (C6:D6)
+        text: Итого: 0 сом
+        style: price
+
+    btn cancel (C7)
+        text: Отмена
+        color: #f0606a
+        backcolor: #2a1d24
+        corner.color: #f0606a
+        corner.radius: 18
+    btn save (D7)
+        text: Создать
+        look: main
+        width: 100%
+        height: 44
+        corner.radius: 18
+
+// второй экран: вещи по точкам и сами по сетке
+screen about 3x3
+    title ()
+        text: О программе
+    note ()
+        text: встанет в B1 сама
+    icon close (-16, 16)
+        text: ×
+    text ()
+        text: эта — в C1, дальше A2 ...
+    btn ok (-20, -20)
+        text: Понятно
+        look: main
+        scale: 1.5
+
+// третий экран: свойства как в CSS (можно писать и CSS-имена: background-color, border-radius, font-size ...)
+screen css 3x4
+    space: roomy
+    title (A1:C1)
+        text: Свойства как в CSS
+        letter-spacing: 1
+    card info (A2:B4)
+        backcolor: raised
+        corner.radius: 20
+        corner.width: 2
+        corner.color: accent
+        shadow: big
+        padding: 24
+    text about (A2:B4)
+        text: Это длинный текст: wrap переносит его по словам, как абзац в HTML. Окно сузили — строки перестроились сами.
+        wrap: yes
+        line.height: 1.5
+        padding: 4
+    text tag (C2)
+        text: подчёркнутый
+        decoration: underline
+        color: #ff8800
+        text-transform: uppercase
+    btn hover (C3)
+        text: Наведи мышь
+        backcolor: #2a2f3d
+        hover.backcolor: #ff8800
+        hover.color: black
+        border-radius: 22px
+        tip: Подсказка, как title в HTML
+        cursor: hand
+    btn off (C4)
+        text: Нельзя
+        disabled: yes
+        opacity: 60%
+
+// четвёртый экран: стекло — картинка на фоне, полупрозрачные карточки с размытием, градиент, свечение
+screen glass 3x4
+    backimage: sky.jpg
+    backfit: cover
+    backdim: 15%
+    rows: 70 * * 60
+    space: roomy
+    title (A1:C1)
+        text: Стекло и картинка на фоне
+        text.shadow: yes
+        color: white
+    card login (A2:B4)
+        backcolor: rgba(255, 255, 255, 0.12)
+        corner.color: rgba(255, 255, 255, 0.35)
+        corner.radius: 22
+        blur: 18
+        shadow: none
+        padding: 24
+    heading hi (A2:B2)
+        text: Вход
+        color: white
+    field mail (A3:B3)
+        hint: name@mail.com
+        backcolor: rgba(0, 0, 0, 0.25)
+        corner.color: rgba(255, 255, 255, 0.3)
+        color: white
+    btn go (A4:B4)
+        text: Войти
+        backcolor: gradient(to right, #3ad6c1, #6b5bff)
+        color: white
+        glow: #6b5bff
+    card promo (C2:C3)
+        backcolor: linear-gradient(#ff6ea0, #6b5bff)
+        corner.radius: 22
+        corner.width: 0
+        glow: #ff6ea0
+        transition: 200
+        hover.backcolor: linear-gradient(#ffa06e, #ff6ea0)
+    text promo_t (C2:C3)
+        text: Градиент, свечение и плавное наведение
+        wrap: yes
+        color: white
+        size: 18
+        font: bold
+        text.shadow: yes
+        padding: 8
+    btn back (C4)
+        text: Назад
+        look: second
+        color: white
+        backcolor: rgba(255, 255, 255, 0.15)
+        hover.backcolor: rgba(255, 255, 255, 0.3)
+        transition: 200
