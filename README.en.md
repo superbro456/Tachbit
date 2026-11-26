@@ -167,7 +167,7 @@ On the authors' Mac (Intel i9) Tachbit is as fast as plain C or faster on all 18
 | `compiler/` | the compiler, written in Tachbit (`lexer`, `parser`, `check`, `emit`, `runtime.h`) |
 | `compiler/seed/tb.c` | the compiler's own C output, used to build the first `tb` on a new machine |
 | `tests/` | `./tests/run_tests.sh`, `run_tests_llvm.sh`, `run_gpu.sh`, `run_lib.sh`, `run_bare.sh`, `run_sound.sh` |
-| `lib/` | shared libraries in Tachbit: `ui.tb` (buttons, lists, dialogs), `model.tb` (OBJ/glTF/GLB, bones, animation, materials), `shaders.tb` (ready shaders, effects, particles), `stream.tb` (big worlds), `physics.tb`, `anim.tb` |
+| `lib/` | shared libraries in Tachbit: `ui.tb` (buttons, lists, dialogs), `model.tb` (OBJ/glTF/GLB, bones, animation, materials), `shaders.tb` (ready shaders, effects, particles), `stream.tb` (big worlds), `svg.tb` (SVG pictures, sharp at any size), `physics.tb`, `anim.tb` |
 | `examples/` | tutorial (`learn/`), small examples (`basics/`), apps (`apps/`: file manager, games, 3D demos), modules (`shop/`), a kernel (`kernel/`) |
 | `tests/bench/` | benchmarks against C and Python |
 | `tools/` | install and build scripts, VS Code extension (`tools/vscode/`), Windows installer |

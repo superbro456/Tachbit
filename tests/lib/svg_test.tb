@@ -1,0 +1,14 @@
+// lib/svg.tb: чтение файла (все команды path, дуги, градиенты, transform) и картинка нужного размера
+use svg
+
+func main()
+    s = svg.from_text("<svg width='64' height='32' viewBox='0 0 24 12'><defs><linearGradient id='a'><stop offset='0' stop-color='#f00'/><stop offset='100%' stop-color='blue'/></linearGradient><linearGradient id='b' xlink:href='#a' x2='0' y2='1'/></defs><!-- c --><g transform='translate(1,1) scale(2)' fill='url(#b)'><rect width='4' height='4' rx='1'/><circle cx='8' cy='2' r='2'/></g><path d='M2 9a1 1 0 0 0 2 0l.5-1h1v1V8c1 1 2 2 3 1s1 1 2 0q1 1 2 0t2 0z' stroke='rgb(0,128,0)' style='stroke-width:0.5;fill:none'/><polygon points='20,1 23,6 17,6'/></svg>")
+    print("фигур " + len(s.shapes))
+    print("viewBox " + s.vw + " x " + s.vh + ", размер " + s.w + " x " + s.h)
+    print("градиент у первых: " + s.shapes[0].fill_g + " " + s.shapes[1].fill_g)
+    print("кусков в path: " + len(s.shapes[2].cmd))
+    a = svg.image(s, 64, 32)
+    b = svg.image(s, 64, 32)
+    c = svg.image(s, 128, 64)
+    print("та же картинка из памяти: " + (a == b))
+    print("размеры " + image_w(a) + "x" + image_h(a) + " и " + image_w(c) + "x" + image_h(c))

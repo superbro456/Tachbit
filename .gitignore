@@ -20,6 +20,7 @@ examples/**
 !examples/**/*.obj
 !examples/**/*.mtl
 !examples/**/*.wav
+!examples/**/*.svg
 !examples/**/*.py
 tests/bench/**
 !tests/bench/**/

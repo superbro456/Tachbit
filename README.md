@@ -228,7 +228,7 @@ func main()
 | `./tests/run_bare.sh` | ядра без ОС в QEMU | 72 из 72 |
 | `./tests/run_gpu.sh` | видеокарта рисует точка в точку как процессор | 44 из 46 на Linux (Vulkan, llvmpipe); 2 — давнее расхождение в 15 точках в `tests/gpu/shapes.tb`; шейдеры 1.3 на Mac (Metal) ещё не проверены |
 | `./tests/run_sound.sh` | звук в файл: длина, частота, лево/право в 3D, не трещит (LLVM и C) | 2 из 2 |
-| `./tests/run_lib.sh` | библиотеки `lib/physics.tb`, `lib/anim.tb`, `lib/model.tb` (модели, кости, материалы), `lib/stream.tb` (LLVM и C) | 12 из 12 |
+| `./tests/run_lib.sh` | библиотеки `lib/physics.tb`, `lib/anim.tb`, `lib/model.tb` (модели, кости, материалы), `lib/stream.tb`, `lib/svg.tb` (LLVM и C) | 14 из 14 |
 | `./tests/run_clib.sh` | `tb lib`: программа на C зовёт функции Tachbit | 1 из 1 |
 
 После намеренной правки эталоны обновляются флагом `--update`.

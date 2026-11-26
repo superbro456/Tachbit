@@ -1,0 +1,25 @@
+// SVG: картинка чёткая при любом размере. Колесо мыши — приблизить и отдалить.
+// Слева — та же картинка из PNG-размера 24 точки, растянутая (точки видны),
+// справа — SVG, нарисованная заново в нужном размере (края гладкие).
+use svg
+
+func main()
+    s = try svg.load("svg/icon.svg")
+    try window_open(900, 560, "SVG: приближение")
+    small = svg.image(s, 24, 24)
+    size = 240
+    last = 0
+    blown = image_scaled(small, size, size) or -1
+    repeat while window_alive()
+        wh = mouse_wheel()
+        if wh != 0
+            // шаг около 10%: картинки каждого размера помнятся, поэтому шагаем, а не плавно
+            size = max(24, min(520, size + wh * max(8, size / 10)))
+        if size != last
+            blown = image_scaled(small, size, size) or -1
+            last = size
+        clear_window(rgb(240, 242, 247))
+        draw_text(20, 12, "PNG 24 точки, растянута", 2, rgb(90, 95, 110))
+        draw_text(460, 12, "SVG, " + size + " точек", 2, rgb(90, 95, 110))
+        draw_image_alpha(blown, 20, 44)
+        svg.draw(s, 460, 44, size, size)

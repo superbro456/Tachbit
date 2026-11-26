@@ -1,0 +1,1336 @@
+// svg — векторные картинки SVG: чёткие при любом размере и любом приближении.
+// Библиотека на чистом Tachbit, без новых слов языка. Читает файл .svg, а рисует
+// картинку ровно того размера в точках, который нужен сейчас: увеличили —
+// нарисовала заново крупнее, края снова гладкие (не растянутые точки, как у PNG).
+//
+//   use svg
+//   s = try svg.load("значок.svg")
+//   repeat while window_alive()
+//       svg.draw(s, x, y, w, h)          // w, h — в точках экрана (с Retina умножь на window_scale())
+//
+// svg.image(s, w, h) — номер обычной картинки этого размера (для draw_image_alpha, mesh_image ...).
+// Готовые картинки помнятся по размеру: тот же размер второй раз не рисуется.
+//
+// Умеет: path (все команды: M L H V C S Q T A Z, большие и маленькие), rect (и скруглённый),
+// circle, ellipse, line, polyline, polygon, g, transform (translate, scale, rotate, matrix,
+// skewX, skewY), fill, stroke, stroke-width, opacity, fill-opacity, stroke-opacity,
+// fill-rule, style="...", цвета #rgb #rrggbb rgb() и имена, viewBox.
+// Градиент заменяется средним цветом его точек. Текст, маски, фильтры — нет.
+
+obj Shape
+    cmd: list int        // 0 — начать в точке, 1 — линия, 2 — кривая (3 точки), 3 — замкнуть
+    pts: list dec        // точки уже после transform, в единицах viewBox
+    fill_on: bool
+    fill: int            // rgb без прозрачности
+    fill_a: dec          // 0..1
+    stroke_on: bool
+    stroke: int
+    stroke_a: dec
+    sw: dec              // толщина линии в единицах viewBox
+    evenodd: bool
+    fill_g: int          // градиент заливки (номер в Svg.grads) или −1
+    stroke_g: int
+    m: list dec          // transform фигуры (для градиента в единицах viewBox)
+
+// градиент: linearGradient или radialGradient
+obj Grad
+    radial: bool
+    user: bool           // gradientUnits="userSpaceOnUse"; иначе доли рамки фигуры
+    x1: dec
+    y1: dec
+    x2: dec
+    y2: dec
+    cx: dec
+    cy: dec
+    r: dec
+    offs: list dec       // точки цвета: где (0..1), цвет, прозрачность
+    cols: list int
+    alps: list dec
+    href: text           // чужие точки цвета (xlink:href="#id")
+
+obj Svg
+    shapes: list Shape
+    vx: dec
+    vy: dec
+    vw: dec
+    vh: dec
+    w: dec               // размер, который написан в файле (width, height)
+    h: dec
+    cache: dict text int // "wxh" → номер картинки
+    grads: list Grad
+    gid: dict text int   // id градиента → номер в grads
+
+// одно состояние: что даёт родитель (g) детям
+obj St
+    fill_on: bool
+    fill: int
+    fill_a: dec
+    stroke_on: bool
+    stroke: int
+    stroke_a: dec
+    sw: dec
+    op: dec
+    evenodd: bool
+    hide: bool           // внутри defs, clipPath, mask ... — не рисуем
+    fill_g: int
+    stroke_g: int
+    m: list dec          // a b c d e f
+
+// ---------- снаружи ----------
+
+modpub func load(path: text) gives s: Svg
+    src = read_file(path) else err
+        fail "svg: не могу прочитать " + path
+    s = from_text(src)
+
+modpub func from_text(src: text) gives s: Svg
+    s = Svg(vw: 0.0, vh: 0.0, w: 0.0, h: 0.0)
+    parse(s, src)
+    if s.vw <= 0.0 or s.vh <= 0.0
+        s.vw = 100.0
+        s.vh = 100.0
+    if s.w <= 0.0
+        s.w = s.vw
+    if s.h <= 0.0
+        s.h = s.vh
+
+// картинка ровно w × h точек (номер для draw_image_alpha); одинаковый размер — из памяти
+modpub func image(s: Svg, w: int, h: int)
+    w = max(1, min(w, 4096))
+    h = max(1, min(h, 4096))
+    key = "" + w + "x" + h
+    if s.cache.has(key)
+        return s.cache[key]
+    im = render(s, w, h)
+    s.cache[key] = im
+    return im
+
+// нарисовать в прямоугольник x, y, w, h (картинка вписана по центру, пропорции те же)
+modpub func draw(s: Svg, x: int, y: int, w: int, h: int)
+    im = image(s, w, h)
+    if im >= 0
+        draw_image_alpha(im, x, y)
+
+// забыть готовые картинки (например, после плавного приближения остался только последний размер)
+modpub func forget(s: Svg)
+    s.cache.clear()
+
+// ---------- чтение файла ----------
+
+func new_st() gives t: St
+    t = St(fill_on: true, fill: 0, fill_a: 1.0, stroke_on: false, stroke: 0, stroke_a: 1.0, sw: 1.0, op: 1.0, fill_g: -1, stroke_g: -1)
+    t.m.add(1.0)
+    t.m.add(0.0)
+    t.m.add(0.0)
+    t.m.add(1.0)
+    t.m.add(0.0)
+    t.m.add(0.0)
+
+func copy_st(a: St) gives t: St
+    t = St(fill_on: a.fill_on, fill: a.fill, fill_a: a.fill_a, stroke_on: a.stroke_on, stroke: a.stroke, stroke_a: a.stroke_a, sw: a.sw, op: a.op, evenodd: a.evenodd, hide: a.hide, fill_g: a.fill_g, stroke_g: a.stroke_g)
+    each v in a.m
+        t.m.add(v)
+
+func parse(s: Svg, src: text)
+    stack = list St
+    stack.add(new_st())
+    cur = -1                   // градиент, в котором сейчас читаем stop
+    n = len(src)
+    i = 0
+    repeat while i < n
+        if src[i] != "<"
+            i += 1
+            skip
+        if i + 3 < n and cut(src, i, i + 3) == "<!--"
+            e = find_from(src, "-->", i)
+            i = e + 3
+            skip
+        if i + 1 < n and (src[i + 1] == "!" or src[i + 1] == "?")
+            e = find_from(src, ">", i)
+            i = e + 1
+            skip
+        // имя тега
+        j = i + 1
+        closing = false
+        if j < n and src[j] == "/"
+            closing = true
+            j += 1
+        k = j
+        repeat while k < n and not stop_char(src[k])
+            k += 1
+        name = lower(cut(src, j, k - 1))
+        if closing
+            if len(stack) > 1
+                gone = stack.pop()
+            if name == "lineargradient" or name == "radialgradient"
+                cur = -1
+            e = find_from(src, ">", k)
+            i = e + 1
+            skip
+        at = dict text text
+        k = read_attrs(src, k, at)
+        alone = k >= 1 and src[k - 1] == "/"
+        i = k + 1
+        if at.has("style")
+            read_style(at["style"], at)
+        // поняли, что за тег
+        p = stack[len(stack) - 1]
+        t = copy_st(p)
+        apply_attrs(s, t, at)
+        if name == "defs" or name == "clippath" or name == "mask" or name == "symbol" or name == "pattern" or name == "marker" or name == "filter" or name == "title" or name == "desc" or name == "style" or name == "text"
+            t.hide = true
+        if name == "svg" and len(stack) == 1
+            root(s, at)
+        if name == "lineargradient" or name == "radialgradient"
+            t.hide = true
+            cur = new_grad(s, name == "radialgradient", at)
+            if alone
+                cur = -1
+        if name == "stop" and cur >= 0
+            g = s.grads[cur]
+            o = 0.0
+            if at.has("offset")
+                o = frac_of(at["offset"])
+            if len(g.offs) > 0
+                o = max(o, g.offs[len(g.offs) - 1])
+            g.offs.add(max(0.0, min(1.0, o)))
+            c = 0
+            if at.has("stop-color")
+                c = color_of(at["stop-color"], 0)
+            g.cols.add(c)
+            al = 1.0
+            if at.has("stop-opacity")
+                al = num_of(at["stop-opacity"], 1.0)
+            g.alps.add(al)
+        if not t.hide
+            add_shape(s, name, at, t)
+        if not alone
+            stack.add(t)
+
+func new_grad(s: Svg, radial: bool, at: dict text text)
+    g = Grad(radial: radial, x1: 0.0, y1: 0.0, x2: 1.0, y2: 0.0, cx: 0.5, cy: 0.5, r: 0.5, href: "")
+    g.user = at.has("gradientunits") and trim(at["gradientunits"]) == "userSpaceOnUse"
+    if at.has("x1")
+        g.x1 = frac_of(at["x1"])
+    if at.has("y1")
+        g.y1 = frac_of(at["y1"])
+    if at.has("x2")
+        g.x2 = frac_of(at["x2"])
+    if at.has("y2")
+        g.y2 = frac_of(at["y2"])
+    if at.has("cx")
+        g.cx = frac_of(at["cx"])
+    if at.has("cy")
+        g.cy = frac_of(at["cy"])
+    if at.has("r")
+        g.r = frac_of(at["r"])
+    h = ""
+    if at.has("xlink:href")
+        h = at["xlink:href"]
+    if at.has("href")
+        h = at["href"]
+    if starts_with(h, "#")
+        g.href = cut(h, 1, len(h) - 1)
+    s.grads.add(g)
+    nn = len(s.grads) - 1
+    if at.has("id")
+        s.gid[at["id"]] = nn
+    return nn
+
+// "50%" → 0.5, "0.5" → 0.5
+func frac_of(t: text)
+    v = num_of(t, 0.0)
+    if ends_with(trim(t), "%")
+        return v / 100.0
+    return v
+
+// градиент с точками цвета (пустой берёт их по href)
+func stops_of(s: Svg, gi: int)
+    q = gi
+    count step from 1 to 8
+        g = s.grads[q]
+        if len(g.offs) > 0 or g.href == "" or not s.gid.has(g.href)
+            return q
+        q = s.gid[g.href]
+    return q
+
+// средний цвет градиента — для того, что градиентом не рисуем
+func grad_avg(s: Svg, gi: int)
+    g = s.grads[stops_of(s, gi)]
+    nn = len(g.cols)
+    if nn == 0
+        return rgb(128, 128, 128)
+    r = 0
+    gg = 0
+    b = 0
+    each c in g.cols
+        r += bit_and(shift_right(c, 16), 255)
+        gg += bit_and(shift_right(c, 8), 255)
+        b += bit_and(c, 255)
+    return rgb(r / nn, gg / nn, b / nn)
+
+func stop_char(ch: text)
+    return ch == " " or ch == ">" or ch == "/" or ch == "\n" or ch == "\t" or ch == "\r"
+
+func find_from(s: text, what: text, from: int)
+    n = len(s)
+    m = len(what)
+    i = from
+    repeat while i + m <= n
+        if cut(s, i, i + m - 1) == what
+            return i
+        i += 1
+    return n
+
+// атрибуты до ">" — возвращает место ">"
+func read_attrs(src: text, k: int, at: dict text text)
+    n = len(src)
+    repeat while k < n
+        ch = src[k]
+        if ch == ">"
+            return k
+        if ch == " " or ch == "/" or ch == "\n" or ch == "\t" or ch == "\r"
+            k += 1
+            skip
+        a = k
+        repeat while k < n and src[k] != "=" and src[k] != " " and src[k] != ">" and src[k] != "/"
+            k += 1
+        key = lower(cut(src, a, k - 1))
+        repeat while k < n and (src[k] == " " or src[k] == "=")
+            k += 1
+        if k < n and (src[k] == "\"" or src[k] == "'")
+            q = src[k]
+            b = k + 1
+            k = b
+            repeat while k < n and src[k] != q
+                k += 1
+            at[key] = ""
+            if k > b
+                at[key] = cut(src, b, k - 1)
+            k += 1
+    return k
+
+func read_style(st: text, at: dict text text)
+    each part in split(st, ";")
+        c = find(part, ":")
+        if c > 0
+            at[lower(trim(cut(part, 0, c - 1)))] = trim(cut(part, c + 1, len(part) - 1))
+
+func root(s: Svg, at: dict text text)
+    if at.has("viewbox")
+        v = nums(at["viewbox"])
+        if len(v) >= 4
+            s.vx = v[0]
+            s.vy = v[1]
+            s.vw = v[2]
+            s.vh = v[3]
+    if at.has("width") and not ends_with(at["width"], "%")
+        s.w = num_of(at["width"], 0.0)
+    if at.has("height") and not ends_with(at["height"], "%")
+        s.h = num_of(at["height"], 0.0)
+    if s.vw <= 0.0
+        s.vw = s.w
+        s.vh = s.h
+
+func apply_attrs(s: Svg, t: St, at: dict text text)
+    if at.has("fill")
+        f = trim(at["fill"])
+        if f == "none" or f == "transparent"
+            t.fill_on = false
+        else
+            t.fill_on = true
+            t.fill_g = grad_ref(s, f)
+            t.fill = paint(s, f, t.fill)
+    if at.has("stroke")
+        f = trim(at["stroke"])
+        if f == "none" or f == "transparent"
+            t.stroke_on = false
+        else
+            t.stroke_on = true
+            t.stroke_g = grad_ref(s, f)
+            t.stroke = paint(s, f, t.stroke)
+    if at.has("stroke-width")
+        t.sw = num_of(at["stroke-width"], 1.0)
+    if at.has("fill-opacity")
+        t.fill_a = num_of(at["fill-opacity"], 1.0)
+    if at.has("stroke-opacity")
+        t.stroke_a = num_of(at["stroke-opacity"], 1.0)
+    if at.has("opacity")
+        t.op = t.op * num_of(at["opacity"], 1.0)
+    if at.has("fill-rule")
+        t.evenodd = trim(at["fill-rule"]) == "evenodd"
+    if at.has("transform")
+        transform(t.m, at["transform"])
+
+// url(#id) → номер градиента, иначе −1
+func grad_ref(s: Svg, f: text)
+    if not starts_with(f, "url(")
+        return -1
+    a = find(f, "#")
+    b = find(f, ")")
+    if a > 0 and b > a
+        id = cut(f, a + 1, b - 1)
+        if s.gid.has(id)
+            return s.gid[id]
+    return -1
+
+func paint(s: Svg, f: text, old: int)
+    if starts_with(f, "url(")
+        gi = grad_ref(s, f)
+        if gi >= 0
+            return grad_avg(s, gi)
+        return rgb(128, 128, 128)
+    if f == "currentcolor" or f == "currentColor" or f == "inherit"
+        return old
+    return color_of(f, old)
+
+// цвет SVG → rgb (прозрачность отдельно, в opacity)
+func color_of(f: text, old: int)
+    f = lower(trim(f))
+    if starts_with(f, "#")
+        h = cut(f, 1, len(f) - 1)
+        if len(h) == 3
+            return rgb(hex(h[0]) * 17, hex(h[1]) * 17, hex(h[2]) * 17)
+        if len(h) >= 6
+            return rgb(hex(h[0]) * 16 + hex(h[1]), hex(h[2]) * 16 + hex(h[3]), hex(h[4]) * 16 + hex(h[5]))
+        return old
+    if starts_with(f, "rgb")
+        v = nums(cut(f, find(f, "(") + 1, len(f) - 1))
+        if len(v) >= 3
+            if find(f, "%") >= 0
+                return rgb(byte(v[0] * 2.55), byte(v[1] * 2.55), byte(v[2] * 2.55))
+            return rgb(byte(v[0]), byte(v[1]), byte(v[2]))
+        return old
+    names = ["black", "white", "red", "green", "blue", "yellow", "orange", "purple", "gray", "grey", "silver", "navy", "teal", "maroon", "lime", "aqua", "cyan", "fuchsia", "magenta", "olive", "pink", "brown", "gold", "indigo", "violet", "darkgray", "lightgray", "darkblue", "skyblue", "crimson", "tomato", "coral", "salmon", "khaki", "tan", "beige", "ivory", "chocolate", "steelblue", "royalblue", "seagreen", "forestgreen", "darkgreen", "dodgerblue", "slategray", "whitesmoke", "gainsboro", "turquoise", "orchid", "plum"]
+    vals = [0x000000, 0xFFFFFF, 0xFF0000, 0x008000, 0x0000FF, 0xFFFF00, 0xFFA500, 0x800080, 0x808080, 0x808080, 0xC0C0C0, 0x000080, 0x008080, 0x800000, 0x00FF00, 0x00FFFF, 0x00FFFF, 0xFF00FF, 0xFF00FF, 0x808000, 0xFFC0CB, 0xA52A2A, 0xFFD700, 0x4B0082, 0xEE82EE, 0xA9A9A9, 0xD3D3D3, 0x00008B, 0x87CEEB, 0xDC143C, 0xFF6347, 0xFF7F50, 0xFA8072, 0xF0E68C, 0xD2B48C, 0xF5F5DC, 0xFFFFF0, 0xD2691E, 0x4682B4, 0x4169E1, 0x2E8B57, 0x228B22, 0x006400, 0x1E90FF, 0x708090, 0xF5F5F5, 0xDCDCDC, 0x40E0D0, 0xDA70D6, 0xDDA0DD]
+    count q from 0 to len(names) - 1
+        if names[q] == f
+            return vals[q]
+    return old
+
+func byte(v: dec)
+    return max(0, min(255, round(v)))
+
+func hex(ch: text)
+    return max(0, find("0123456789abcdef", ch))
+
+// "10px" → 10.0
+func num_of(t: text, fallback: dec)
+    v = nums(t)
+    if len(v) == 0
+        return fallback
+    return v[0]
+
+// все числа подряд: "1,2 -3.5e2.5" → 1, 2, -350, 0.5
+func nums(t: text) gives v: list dec
+    n = len(t)
+    i = 0
+    repeat while i < n
+        e = num_end(t, i)
+        if e > i
+            v.add(to_dec(cut(t, i, e - 1)) or 0.0)
+            i = e
+        else
+            i += 1
+
+// где кончается число, которое начинается в i (i — если тут числа нет)
+func num_end(t: text, i: int)
+    n = len(t)
+    k = i
+    if k < n and (t[k] == "-" or t[k] == "+")
+        k += 1
+    digits = 0
+    dot = false
+    repeat while k < n
+        ch = t[k]
+        if ch == "."
+            if dot
+                stop
+            dot = true
+            k += 1
+        else if find("0123456789", ch) >= 0
+            digits += 1
+            k += 1
+        else
+            stop
+    if digits == 0
+        return i
+    if k < n and (t[k] == "e" or t[k] == "E")
+        m = k + 1
+        if m < n and (t[m] == "-" or t[m] == "+")
+            m += 1
+        if m < n and find("0123456789", t[m]) >= 0
+            k = m
+            repeat while k < n and find("0123456789", t[k]) >= 0
+                k += 1
+    return k
+
+// ---------- transform ----------
+
+func transform(m: list dec, tr: text)
+    rest = tr
+    repeat while true
+        a = find(rest, "(")
+        b = find(rest, ")")
+        if a < 0 or b < a
+            return
+        name = lower(trim(cut(rest, 0, a - 1)))
+        name = trim(replace(name, ",", ""))
+        v = list dec
+        if b > a + 1
+            v = nums(cut(rest, a + 1, b - 1))
+        r = list dec
+        if name == "matrix" and len(v) >= 6
+            r = v
+        else if name == "translate" and len(v) >= 1
+            ty = 0.0
+            if len(v) >= 2
+                ty = v[1]
+            r = mat(1.0, 0.0, 0.0, 1.0, v[0], ty)
+        else if name == "scale" and len(v) >= 1
+            sy = v[0]
+            if len(v) >= 2
+                sy = v[1]
+            r = mat(v[0], 0.0, 0.0, sy, 0.0, 0.0)
+        else if name == "rotate" and len(v) >= 1
+            g = v[0] * pi() / 180.0
+            co = cos(g)
+            si = sin(g)
+            cx = 0.0
+            cy = 0.0
+            if len(v) >= 3
+                cx = v[1]
+                cy = v[2]
+            r = mat(co, si, -si, co, cx - co * cx + si * cy, cy - si * cx - co * cy)
+        else if name == "skewx" and len(v) >= 1
+            r = mat(1.0, 0.0, tan(v[0] * pi() / 180.0), 1.0, 0.0, 0.0)
+        else if name == "skewy" and len(v) >= 1
+            r = mat(1.0, tan(v[0] * pi() / 180.0), 0.0, 1.0, 0.0, 0.0)
+        if len(r) == 6
+            mul(m, r)
+        if b + 1 >= len(rest)
+            return
+        rest = cut(rest, b + 1, len(rest) - 1)
+
+func mat(a: dec, b: dec, c: dec, d: dec, e: dec, f: dec) gives r: list dec
+    r.add(a)
+    r.add(b)
+    r.add(c)
+    r.add(d)
+    r.add(e)
+    r.add(f)
+
+// m = m · r
+func mul(m: list dec, r: list dec)
+    a = m[0] * r[0] + m[2] * r[1]
+    b = m[1] * r[0] + m[3] * r[1]
+    c = m[0] * r[2] + m[2] * r[3]
+    d = m[1] * r[2] + m[3] * r[3]
+    e = m[0] * r[4] + m[2] * r[5] + m[4]
+    f = m[1] * r[4] + m[3] * r[5] + m[5]
+    m[0] = a
+    m[1] = b
+    m[2] = c
+    m[3] = d
+    m[4] = e
+    m[5] = f
+
+// ---------- фигуры ----------
+
+func new_shape(t: St) gives sh: Shape
+    sh = Shape(fill_on: t.fill_on, fill: t.fill, fill_a: t.fill_a * t.op, stroke_on: t.stroke_on, stroke: t.stroke, stroke_a: t.stroke_a * t.op, sw: t.sw, evenodd: t.evenodd, fill_g: t.fill_g, stroke_g: t.stroke_g)
+    each v in t.m
+        sh.m.add(v)
+    det = abs(t.m[0] * t.m[3] - t.m[1] * t.m[2])
+    sh.sw = t.sw * sqrt(det)
+
+func put(sh: Shape, m: list dec, kind: int, x: dec, y: dec)
+    sh.cmd.add(kind)
+    pt(sh, m, x, y)
+
+func pt(sh: Shape, m: list dec, x: dec, y: dec)
+    sh.pts.add(m[0] * x + m[2] * y + m[4])
+    sh.pts.add(m[1] * x + m[3] * y + m[5])
+
+func curve(sh: Shape, m: list dec, x1: dec, y1: dec, x2: dec, y2: dec, x: dec, y: dec)
+    sh.cmd.add(2)
+    pt(sh, m, x1, y1)
+    pt(sh, m, x2, y2)
+    pt(sh, m, x, y)
+
+func close(sh: Shape)
+    sh.cmd.add(3)
+
+func an(at: dict text text, key: text)
+    if at.has(key)
+        return num_of(at[key], 0.0)
+    return 0.0
+
+func add_shape(s: Svg, name: text, at: dict text text, t: St)
+    if not t.fill_on and not t.stroke_on
+        return
+    sh = new_shape(t)
+    m = t.m
+    if name == "path"
+        if at.has("d")
+            read_d(sh, m, at["d"])
+    else if name == "rect"
+        w = an(at, "width")
+        h = an(at, "height")
+        if w <= 0.0 or h <= 0.0
+            return
+        rx = an(at, "rx")
+        ry = an(at, "ry")
+        if not at.has("rx")
+            rx = ry
+        if not at.has("ry")
+            ry = rx
+        rect(sh, m, an(at, "x"), an(at, "y"), w, h, min(rx, w / 2.0), min(ry, h / 2.0))
+    else if name == "circle"
+        r = an(at, "r")
+        if r <= 0.0
+            return
+        oval(sh, m, an(at, "cx"), an(at, "cy"), r, r)
+    else if name == "ellipse"
+        rx = an(at, "rx")
+        ry = an(at, "ry")
+        if rx <= 0.0 or ry <= 0.0
+            return
+        oval(sh, m, an(at, "cx"), an(at, "cy"), rx, ry)
+    else if name == "line"
+        put(sh, m, 0, an(at, "x1"), an(at, "y1"))
+        put(sh, m, 1, an(at, "x2"), an(at, "y2"))
+        sh.fill_on = false
+    else if name == "polyline" or name == "polygon"
+        v = list dec
+        if at.has("points")
+            v = nums(at["points"])
+        if len(v) < 4
+            return
+        put(sh, m, 0, v[0], v[1])
+        q = 2
+        repeat while q + 1 < len(v)
+            put(sh, m, 1, v[q], v[q + 1])
+            q += 2
+        if name == "polygon"
+            close(sh)
+    else
+        return
+    if len(sh.cmd) > 0
+        s.shapes.add(sh)
+
+// четверть окружности кривой: 4/3 · (√2 − 1)
+func kappa()
+    return 0.5522847498
+
+func oval(sh: Shape, m: list dec, cx: dec, cy: dec, rx: dec, ry: dec)
+    k = kappa()
+    put(sh, m, 0, cx + rx, cy)
+    curve(sh, m, cx + rx, cy + ry * k, cx + rx * k, cy + ry, cx, cy + ry)
+    curve(sh, m, cx - rx * k, cy + ry, cx - rx, cy + ry * k, cx - rx, cy)
+    curve(sh, m, cx - rx, cy - ry * k, cx - rx * k, cy - ry, cx, cy - ry)
+    curve(sh, m, cx + rx * k, cy - ry, cx + rx, cy - ry * k, cx + rx, cy)
+    close(sh)
+
+func rect(sh: Shape, m: list dec, x: dec, y: dec, w: dec, h: dec, rx: dec, ry: dec)
+    if rx <= 0.0 or ry <= 0.0
+        put(sh, m, 0, x, y)
+        put(sh, m, 1, x + w, y)
+        put(sh, m, 1, x + w, y + h)
+        put(sh, m, 1, x, y + h)
+        close(sh)
+        return
+    k = kappa()
+    put(sh, m, 0, x + rx, y)
+    put(sh, m, 1, x + w - rx, y)
+    curve(sh, m, x + w - rx + rx * k, y, x + w, y + ry - ry * k, x + w, y + ry)
+    put(sh, m, 1, x + w, y + h - ry)
+    curve(sh, m, x + w, y + h - ry + ry * k, x + w - rx + rx * k, y + h, x + w - rx, y + h)
+    put(sh, m, 1, x + rx, y + h)
+    curve(sh, m, x + rx - rx * k, y + h, x, y + h - ry + ry * k, x, y + h - ry)
+    put(sh, m, 1, x, y + ry)
+    curve(sh, m, x, y + ry - ry * k, x + rx - rx * k, y, x + rx, y)
+    close(sh)
+
+// команды path: числа читаем по одному, команда может повторяться без буквы
+func read_d(sh: Shape, m: list dec, d: text)
+    n = len(d)
+    i = 0
+    op = ""
+    x = 0.0
+    y = 0.0
+    sx = 0.0
+    sy = 0.0
+    // прошлая контрольная точка (для S и T)
+    lcx = 0.0
+    lcy = 0.0
+    last = ""
+    v = list dec
+    repeat while i < n
+        ch = d[i]
+        if find("MmLlHhVvCcSsQqTtAaZz", ch) >= 0
+            op = ch
+            i += 1
+            if op == "z" or op == "Z"
+                close(sh)
+                x = sx
+                y = sy
+                last = "z"
+            skip
+        if ch == " " or ch == "," or ch == "\n" or ch == "\t" or ch == "\r"
+            i += 1
+            skip
+        if op == "" or op == "z" or op == "Z"
+            i += 1
+            skip
+        // сколько чисел нужно этой команде
+        need = 2
+        u = upper(op)
+        if u == "H" or u == "V"
+            need = 1
+        else if u == "C"
+            need = 6
+        else if u == "S" or u == "Q"
+            need = 4
+        else if u == "A"
+            need = 7
+        v.clear()
+        bad = false
+        repeat while len(v) < need
+            repeat while i < n and (d[i] == " " or d[i] == "," or d[i] == "\n" or d[i] == "\t" or d[i] == "\r")
+                i += 1
+            fl = u == "A" and (len(v) == 3 or len(v) == 4)
+            if fl and i < n and (d[i] == "0" or d[i] == "1")
+                // флаги дуги — одна цифра, могут идти слитно: "a1 1 0 01 5 5"
+                if d[i] == "1"
+                    v.add(1.0)
+                else
+                    v.add(0.0)
+                i += 1
+                skip
+            e = num_end(d, i)
+            if e <= i
+                bad = true
+                stop
+            v.add(to_dec(cut(d, i, e - 1)) or 0.0)
+            i = e
+        if bad
+            i += 1
+            skip
+        rel = op == lower(op)
+        bx = 0.0
+        by = 0.0
+        if rel
+            bx = x
+            by = y
+        if u == "M"
+            x = bx + v[0]
+            y = by + v[1]
+            put(sh, m, 0, x, y)
+            sx = x
+            sy = y
+            // после M числа — это уже L
+            op = "L"
+            if rel
+                op = "l"
+            last = "m"
+        else if u == "L"
+            x = bx + v[0]
+            y = by + v[1]
+            line_to(sh, m, x, y)
+            last = "l"
+        else if u == "H"
+            x = bx + v[0]
+            line_to(sh, m, x, y)
+            last = "l"
+        else if u == "V"
+            y = by + v[0]
+            line_to(sh, m, x, y)
+            last = "l"
+        else if u == "C"
+            start(sh, m, x, y)
+            curve(sh, m, bx + v[0], by + v[1], bx + v[2], by + v[3], bx + v[4], by + v[5])
+            lcx = bx + v[2]
+            lcy = by + v[3]
+            x = bx + v[4]
+            y = by + v[5]
+            last = "c"
+        else if u == "S"
+            c1x = x
+            c1y = y
+            if last == "c"
+                c1x = 2.0 * x - lcx
+                c1y = 2.0 * y - lcy
+            start(sh, m, x, y)
+            curve(sh, m, c1x, c1y, bx + v[0], by + v[1], bx + v[2], by + v[3])
+            lcx = bx + v[0]
+            lcy = by + v[1]
+            x = bx + v[2]
+            y = by + v[3]
+            last = "c"
+        else if u == "Q"
+            quad(sh, m, x, y, bx + v[0], by + v[1], bx + v[2], by + v[3])
+            lcx = bx + v[0]
+            lcy = by + v[1]
+            x = bx + v[2]
+            y = by + v[3]
+            last = "q"
+        else if u == "T"
+            qx = x
+            qy = y
+            if last == "q"
+                qx = 2.0 * x - lcx
+                qy = 2.0 * y - lcy
+            quad(sh, m, x, y, qx, qy, bx + v[0], by + v[1])
+            lcx = qx
+            lcy = qy
+            x = bx + v[0]
+            y = by + v[1]
+            last = "q"
+        else if u == "A"
+            ex = bx + v[5]
+            ey = by + v[6]
+            start(sh, m, x, y)
+            arc(sh, m, x, y, v[0], v[1], v[2], v[3] > 0.5, v[4] > 0.5, ex, ey)
+            x = ex
+            y = ey
+            last = "a"
+
+// линия или кривая без M перед ней — начинаем с текущей точки
+func start(sh: Shape, m: list dec, x: dec, y: dec)
+    if len(sh.cmd) == 0 or sh.cmd[len(sh.cmd) - 1] == 3
+        put(sh, m, 0, x, y)
+
+func line_to(sh: Shape, m: list dec, x: dec, y: dec)
+    start(sh, m, x, y)
+    put(sh, m, 1, x, y)
+
+// квадратичная кривая — это кубическая с точками на 2/3 пути к контрольной
+func quad(sh: Shape, m: list dec, x0: dec, y0: dec, qx: dec, qy: dec, x: dec, y: dec)
+    start(sh, m, x0, y0)
+    curve(sh, m, x0 + (qx - x0) * 2.0 / 3.0, y0 + (qy - y0) * 2.0 / 3.0, x + (qx - x) * 2.0 / 3.0, y + (qy - y) * 2.0 / 3.0, x, y)
+
+// дуга эллипса (как в SVG: от точки к точке) — кусками по ≤ 90° кубическими кривыми
+func arc(sh: Shape, m: list dec, x1: dec, y1: dec, rx: dec, ry: dec, deg: dec, large: bool, sweep: bool, x2: dec, y2: dec)
+    if abs(x1 - x2) < 0.000001 and abs(y1 - y2) < 0.000001
+        return
+    rx = abs(rx)
+    ry = abs(ry)
+    if rx < 0.000001 or ry < 0.000001
+        put(sh, m, 1, x2, y2)
+        return
+    phi = deg * pi() / 180.0
+    co = cos(phi)
+    si = sin(phi)
+    dx = (x1 - x2) / 2.0
+    dy = (y1 - y2) / 2.0
+    xp = co * dx + si * dy
+    yp = -si * dx + co * dy
+    lam = xp * xp / (rx * rx) + yp * yp / (ry * ry)
+    if lam > 1.0
+        rx = rx * sqrt(lam)
+        ry = ry * sqrt(lam)
+    num = rx * rx * ry * ry - rx * rx * yp * yp - ry * ry * xp * xp
+    den = rx * rx * yp * yp + ry * ry * xp * xp
+    f = 0.0
+    if den > 0.0 and num > 0.0
+        f = sqrt(num / den)
+    if large == sweep
+        f = -f
+    cxp = f * rx * yp / ry
+    cyp = -f * ry * xp / rx
+    cx = co * cxp - si * cyp + (x1 + x2) / 2.0
+    cy = si * cxp + co * cyp + (y1 + y2) / 2.0
+    t1 = atan2((yp - cyp) / ry, (xp - cxp) / rx)
+    t2 = atan2((-yp - cyp) / ry, (-xp - cxp) / rx)
+    dt = t2 - t1
+    if sweep and dt < 0.0
+        dt += 2.0 * pi()
+    if not sweep and dt > 0.0
+        dt -= 2.0 * pi()
+    parts = max(1, round(ceil(abs(dt) / (pi() / 2.0) - 0.000001)))
+    step = dt / parts
+    al = 4.0 / 3.0 * tan(step / 4.0)
+    t = t1
+    count q from 1 to parts
+        ca = cos(t)
+        sa = sin(t)
+        cb = cos(t + step)
+        sb = sin(t + step)
+        // точки на эллипсе и касательные (до поворота)
+        p1x = rx * (ca - al * sa)
+        p1y = ry * (sa + al * ca)
+        p2x = rx * (cb + al * sb)
+        p2y = ry * (sb - al * cb)
+        ex = rx * cb
+        ey = ry * sb
+        curve(sh, m, cx + co * p1x - si * p1y, cy + si * p1x + co * p1y, cx + co * p2x - si * p2y, cy + si * p2x + co * p2y, cx + co * ex - si * ey, cy + si * ex + co * ey)
+        t += step
+    // последняя точка — ровно конец (без накопленной ошибки)
+    sh.pts[len(sh.pts) - 2] = m[0] * x2 + m[2] * y2 + m[4]
+    sh.pts[len(sh.pts) - 1] = m[1] * x2 + m[3] * y2 + m[5]
+
+// ---------- рисование в точки ----------
+
+// холст: цвет с прозрачностью, умноженный на неё (premultiplied), от 0 до 255
+obj Canvas
+    w: int
+    h: int
+    r: list dec
+    g: list dec
+    b: list dec
+    a: list dec
+    cov: list dec        // закрытость точек текущей строки
+
+func render(s: Svg, w: int, h: int)
+    cv = Canvas(w: w, h: h)
+    count q from 0 to w * h - 1
+        cv.r.add(0.0)
+        cv.g.add(0.0)
+        cv.b.add(0.0)
+        cv.a.add(0.0)
+    count q from 0 to w
+        cv.cov.add(0.0)
+    k = min(w / s.vw, h / s.vh)
+    ox = (w - s.vw * k) / 2.0 - s.vx * k
+    oy = (h - s.vh * k) / 2.0 - s.vy * k
+    each sh in s.shapes
+        // ломаные в точках экрана: xs, ys подряд, начало каждой ломаной и замкнута ли она
+        px = list dec
+        starts = list int
+        shut = list bool
+        flatten(sh, k, ox, oy, px, starts, shut)
+        if sh.fill_on and sh.fill_a > 0.0
+            ed = list dec
+            count q from 0 to len(starts) - 1
+                a0 = starts[q]
+                a1 = len(px)
+                if q + 1 < len(starts)
+                    a1 = starts[q + 1]
+                ring_edges(ed, px, a0, a1)
+            gp = grad_px(s, sh, sh.fill_g, k, ox, oy)
+            fill(cv, ed, sh.evenodd, sh.fill, sh.fill_a, gp)
+        if sh.stroke_on and sh.stroke_a > 0.0 and sh.sw * k > 0.01
+            ed = list dec
+            count q from 0 to len(starts) - 1
+                a0 = starts[q]
+                a1 = len(px)
+                if q + 1 < len(starts)
+                    a1 = starts[q + 1]
+                stroke_edges(ed, px, a0, a1, shut[q], sh.sw * k / 2.0)
+            gp = grad_px(s, sh, sh.stroke_g, k, ox, oy)
+            fill(cv, ed, false, sh.stroke, sh.stroke_a, gp)
+    return to_image(cv)
+
+// градиент в точках холста: Grad с x1..y2 (или cx, cy, r) уже в точках; нет — пустой
+func grad_px(s: Svg, sh: Shape, gi: int, k: dec, ox: dec, oy: dec) gives gp: Grad
+    gp = Grad(r: -1.0, href: "")
+    if gi < 0
+        return
+    g = s.grads[gi]
+    st = s.grads[stops_of(s, gi)]
+    if len(st.offs) == 0
+        return
+    gp.offs = st.offs
+    gp.cols = st.cols
+    gp.alps = st.alps
+    gp.radial = g.radial
+    m = sh.m
+    sc = sqrt(abs(m[0] * m[3] - m[1] * m[2]))
+    if not g.user
+        // доли рамки фигуры (рамка уже после transform)
+        bx0 = 1000000000.0
+        by0 = 1000000000.0
+        bx1 = -1000000000.0
+        by1 = -1000000000.0
+        q = 0
+        repeat while q + 1 < len(sh.pts)
+            bx0 = min(bx0, sh.pts[q])
+            bx1 = max(bx1, sh.pts[q])
+            by0 = min(by0, sh.pts[q + 1])
+            by1 = max(by1, sh.pts[q + 1])
+            q += 2
+        bw = bx1 - bx0
+        bh = by1 - by0
+        gp.x1 = (bx0 + g.x1 * bw) * k + ox
+        gp.y1 = (by0 + g.y1 * bh) * k + oy
+        gp.x2 = (bx0 + g.x2 * bw) * k + ox
+        gp.y2 = (by0 + g.y2 * bh) * k + oy
+        gp.cx = (bx0 + g.cx * bw) * k + ox
+        gp.cy = (by0 + g.cy * bh) * k + oy
+        gp.r = g.r * (bw + bh) / 2.0 * k
+    else
+        gp.x1 = (m[0] * g.x1 + m[2] * g.y1 + m[4]) * k + ox
+        gp.y1 = (m[1] * g.x1 + m[3] * g.y1 + m[5]) * k + oy
+        gp.x2 = (m[0] * g.x2 + m[2] * g.y2 + m[4]) * k + ox
+        gp.y2 = (m[1] * g.x2 + m[3] * g.y2 + m[5]) * k + oy
+        gp.cx = (m[0] * g.cx + m[2] * g.cy + m[4]) * k + ox
+        gp.cy = (m[1] * g.cx + m[3] * g.cy + m[5]) * k + oy
+        gp.r = g.r * sc * k
+
+// цвет градиента в точке x, y: rgb и прозрачность
+func grad_at(gp: Grad, x: dec, y: dec) gives c: int, al: dec
+    t = 0.0
+    if gp.radial
+        if gp.r > 0.0
+            t = dist(gp.cx, gp.cy, x, y) / gp.r
+    else
+        dx = gp.x2 - gp.x1
+        dy = gp.y2 - gp.y1
+        l2 = dx * dx + dy * dy
+        if l2 > 0.0
+            t = ((x - gp.x1) * dx + (y - gp.y1) * dy) / l2
+    t = max(0.0, min(1.0, t))
+    nn = len(gp.offs)
+    c = gp.cols[0]
+    al = gp.alps[0]
+    if t <= gp.offs[0] or nn == 1
+        return
+    count q from 1 to nn - 1
+        if t <= gp.offs[q]
+            span = gp.offs[q] - gp.offs[q - 1]
+            f = 1.0
+            if span > 0.0
+                f = (t - gp.offs[q - 1]) / span
+            c = mix_rgb(gp.cols[q - 1], gp.cols[q], f)
+            al = gp.alps[q - 1] + (gp.alps[q] - gp.alps[q - 1]) * f
+            return
+    c = gp.cols[nn - 1]
+    al = gp.alps[nn - 1]
+
+func mix_rgb(a: int, b: int, f: dec)
+    r = round(bit_and(shift_right(a, 16), 255) * (1.0 - f) + bit_and(shift_right(b, 16), 255) * f)
+    g = round(bit_and(shift_right(a, 8), 255) * (1.0 - f) + bit_and(shift_right(b, 8), 255) * f)
+    bb = round(bit_and(a, 255) * (1.0 - f) + bit_and(b, 255) * f)
+    return rgb(r, g, bb)
+
+func flatten(sh: Shape, k: dec, ox: dec, oy: dec, px: list dec, starts: list int, shut: list bool)
+    p = 0
+    cx = 0.0
+    cy = 0.0
+    each c in sh.cmd
+        if c == 0
+            cx = sh.pts[p] * k + ox
+            cy = sh.pts[p + 1] * k + oy
+            p += 2
+            starts.add(len(px))
+            shut.add(false)
+            px.add(cx)
+            px.add(cy)
+        else if c == 1
+            cx = sh.pts[p] * k + ox
+            cy = sh.pts[p + 1] * k + oy
+            p += 2
+            px.add(cx)
+            px.add(cy)
+        else if c == 2
+            x1 = sh.pts[p] * k + ox
+            y1 = sh.pts[p + 1] * k + oy
+            x2 = sh.pts[p + 2] * k + ox
+            y2 = sh.pts[p + 3] * k + oy
+            x3 = sh.pts[p + 4] * k + ox
+            y3 = sh.pts[p + 5] * k + oy
+            p += 6
+            // кусков столько, чтобы каждый был около 2 точек
+            l = dist(cx, cy, x1, y1) + dist(x1, y1, x2, y2) + dist(x2, y2, x3, y3)
+            nn = max(2, min(200, round(ceil(l / 2.0))))
+            count j from 1 to nn
+                t = j / (nn + 0.0)
+                u = 1.0 - t
+                px.add(u * u * u * cx + 3.0 * u * u * t * x1 + 3.0 * u * t * t * x2 + t * t * t * x3)
+                px.add(u * u * u * cy + 3.0 * u * u * t * y1 + 3.0 * u * t * t * y2 + t * t * t * y3)
+            cx = x3
+            cy = y3
+        else if c == 3
+            if len(shut) > 0
+                shut[len(shut) - 1] = true
+                // после Z следующая линия начинается в начале ломаной
+                a0 = starts[len(starts) - 1]
+                cx = px[a0]
+                cy = px[a0 + 1]
+                starts.add(len(px))
+                shut.add(false)
+                px.add(cx)
+                px.add(cy)
+
+func dist(x0: dec, y0: dec, x1: dec, y1: dec)
+    return sqrt((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0))
+
+// заливка: все стороны ломаной, последняя точка соединяется с первой
+func ring_edges(ed: list dec, px: list dec, a0: int, a1: int)
+    nn = (a1 - a0) / 2
+    if nn < 2
+        return
+    count q from 0 to nn - 1
+        i = a0 + q * 2
+        j = a0 + ((q + 1) % nn) * 2
+        edge(ed, px[i], px[i + 1], px[j], px[j + 1])
+
+func edge(ed: list dec, x0: dec, y0: dec, x1: dec, y1: dec)
+    if abs(y1 - y0) < 0.0000001
+        return
+    ed.add(x0)
+    ed.add(y0)
+    ed.add(x1)
+    ed.add(y1)
+
+// линия толщиной 2·hw: каждый отрезок — четырёхугольник, на изгибах — круглые вставки.
+// Все кусочки обходим в одну сторону, тогда правило «ненулевой обход» склеивает их без дыр
+func stroke_edges(ed: list dec, px: list dec, a0: int, a1: int, closed: bool, hw: dec)
+    nn = (a1 - a0) / 2
+    if nn < 2
+        return
+    last = nn - 1
+    if closed and dist(px[a0], px[a0 + 1], px[a0 + last * 2], px[a0 + last * 2 + 1]) < 0.001
+        last -= 1
+    segs = last
+    if closed
+        segs = last + 1
+    count q from 0 to segs - 1
+        i = a0 + q * 2
+        j = a0 + ((q + 1) % (last + 1)) * 2
+        x0 = px[i]
+        y0 = px[i + 1]
+        x1 = px[j]
+        y1 = px[j + 1]
+        l = dist(x0, y0, x1, y1)
+        if l < 0.0001
+            skip
+        nx = -(y1 - y0) / l * hw
+        ny = (x1 - x0) / l * hw
+        poly = list dec
+        poly.add(x0 + nx)
+        poly.add(y0 + ny)
+        poly.add(x1 + nx)
+        poly.add(y1 + ny)
+        poly.add(x1 - nx)
+        poly.add(y1 - ny)
+        poly.add(x0 - nx)
+        poly.add(y0 - ny)
+        add_poly(ed, poly)
+    // изгибы: круг в каждой внутренней точке (и во всех, если ломаная замкнута)
+    qa = 1
+    qb = last - 1
+    if closed
+        qa = 0
+        qb = last
+    if qb >= qa
+        count q from qa to qb
+            i = a0 + q * 2
+            joint(ed, px, a0, last, q, closed, hw)
+
+// круглая вставка там, где ломаная поворачивает (на прямых участках не нужна)
+func joint(ed: list dec, px: list dec, a0: int, last: int, q: int, closed: bool, hw: dec)
+    pq = q - 1
+    nq = q + 1
+    if pq < 0
+        pq = last
+    if nq > last
+        nq = 0
+    i = a0 + q * 2
+    x = px[i]
+    y = px[i + 1]
+    ux = x - px[a0 + pq * 2]
+    uy = y - px[a0 + pq * 2 + 1]
+    vx = px[a0 + nq * 2] - x
+    vy = px[a0 + nq * 2 + 1] - y
+    lu = sqrt(ux * ux + uy * uy)
+    lv = sqrt(vx * vx + vy * vy)
+    if lu < 0.0001 or lv < 0.0001
+        return
+    turn = abs(ux * vy - uy * vx) / (lu * lv)
+    if turn < 0.002 and ux * vx + uy * vy > 0.0
+        return
+    // круг: чем толще линия, тем больше углов
+    sides = max(8, min(48, round(hw * 2.0)))
+    poly = list dec
+    count j from 0 to sides - 1
+        g = j * 2.0 * pi() / sides
+        poly.add(x + cos(g) * hw)
+        poly.add(y + sin(g) * hw)
+    add_poly(ed, poly)
+
+// многоугольник в одну сторону обхода (против — переворачиваем)
+func add_poly(ed: list dec, poly: list dec)
+    nn = len(poly) / 2
+    area = 0.0
+    count q from 0 to nn - 1
+        j = (q + 1) % nn
+        area += poly[q * 2] * poly[j * 2 + 1] - poly[j * 2] * poly[q * 2 + 1]
+    count q from 0 to nn - 1
+        j = (q + 1) % nn
+        if area >= 0.0
+            edge(ed, poly[q * 2], poly[q * 2 + 1], poly[j * 2], poly[j * 2 + 1])
+        else
+            edge(ed, poly[j * 2], poly[j * 2 + 1], poly[q * 2], poly[q * 2 + 1])
+
+// закрасить внутренность сторон ed цветом c: по 5 полосок на строку точек,
+// по горизонтали — точно (края точки закрыты частично)
+func fill(cv: Canvas, ed: list dec, evenodd: bool, c: int, alpha: dec, gp: Grad)
+    ne = len(ed) / 4
+    if ne == 0
+        return
+    sub = 5
+    w = cv.w
+    // стороны по строкам, где они начинаются: head[row] → цепочка через nxt
+    head = list int
+    count q from 0 to cv.h - 1
+        head.add(-1)
+    nxt = list int
+    ymin = cv.h
+    ymax = -1
+    count q from 0 to ne - 1
+        nxt.add(-1)
+        y0 = min(ed[q * 4 + 1], ed[q * 4 + 3])
+        y1 = max(ed[q * 4 + 1], ed[q * 4 + 3])
+        if y1 < 0.0 or y0 >= cv.h
+            skip
+        r = max(0, round(floor(y0)))
+        nxt[q] = head[r]
+        head[r] = q
+        ymin = min(ymin, r)
+        ymax = max(ymax, min(cv.h - 1, round(floor(y1))))
+    if ymax < ymin
+        return
+    cr = shift_right(bit_and(c, 16777215), 16) + 0.0
+    cg = bit_and(shift_right(c, 8), 255) + 0.0
+    cb = bit_and(c, 255) + 0.0
+    graded = len(gp.offs) > 0
+    act = list int
+    xs = list dec
+    ds = list int
+    wgt = 1.0 / sub
+    count row from ymin to ymax
+        e = head[row]
+        repeat while e >= 0
+            act.add(e)
+            e = nxt[e]
+        // ушедшие стороны прочь
+        keep = 0
+        count q from 0 to len(act) - 1
+            e = act[q]
+            if max(ed[e * 4 + 1], ed[e * 4 + 3]) >= row
+                act[keep] = e
+                keep += 1
+        repeat while len(act) > keep
+            gone_e = act.pop()
+        lo = w
+        hi = -1
+        count j from 0 to sub - 1
+            sy = row + (j + 0.5) / sub
+            xs.clear()
+            ds.clear()
+            each ei in act
+                y0 = ed[ei * 4 + 1]
+                y1 = ed[ei * 4 + 3]
+                dir = 1
+                ya = y0
+                yb = y1
+                if y1 < y0
+                    dir = -1
+                    ya = y1
+                    yb = y0
+                if sy < ya or sy >= yb
+                    skip
+                x0 = ed[ei * 4]
+                x1 = ed[ei * 4 + 2]
+                xx = x0 + (sy - y0) * (x1 - x0) / (y1 - y0)
+                // вставка по порядку
+                xs.add(xx)
+                ds.add(dir)
+                p = len(xs) - 1
+                repeat while p > 0 and xs[p - 1] > xx
+                    xs[p] = xs[p - 1]
+                    ds[p] = ds[p - 1]
+                    p -= 1
+                xs[p] = xx
+                ds[p] = dir
+            wind = 0
+            count q from 0 to len(xs) - 2
+                wind += ds[q]
+                inside = wind != 0
+                if evenodd
+                    inside = wind % 2 != 0
+                if inside
+                    xa = max(0.0, xs[q])
+                    xb = min(w + 0.0, xs[q + 1])
+                    if xb > xa
+                        ia = round(floor(xa))
+                        ib = round(floor(xb))
+                        lo = min(lo, ia)
+                        hi = max(hi, min(ib, w - 1))
+                        if ia == ib
+                            cv.cov[ia] += (xb - xa) * wgt
+                        else
+                            cv.cov[ia] += (ia + 1.0 - xa) * wgt
+                            count x from ia + 1 to ib - 1
+                                cv.cov[x] += wgt
+                            if ib < w
+                                cv.cov[ib] += (xb - ib) * wgt
+        // строка готова: смешиваем с холстом
+        if hi >= lo
+            base = row * w
+            count x from lo to hi
+                cvr = cv.cov[x]
+                if cvr > 0.0
+                    al = min(1.0, cvr) * alpha
+                    if graded
+                        gc, ga = grad_at(gp, x + 0.5, row + 0.5)
+                        cr = bit_and(shift_right(gc, 16), 255) + 0.0
+                        cg = bit_and(shift_right(gc, 8), 255) + 0.0
+                        cb = bit_and(gc, 255) + 0.0
+                        al = al * ga
+                    i = base + x
+                    rest = 1.0 - al
+                    cv.r[i] = cr * al + cv.r[i] * rest
+                    cv.g[i] = cg * al + cv.g[i] * rest
+                    cv.b[i] = cb * al + cv.b[i] * rest
+                    cv.a[i] = al + cv.a[i] * rest
+                    cv.cov[x] = 0.0
+
+// холст → картинка: собираем BMP с прозрачностью в памяти и отдаём image_from_mem
+func to_image(cv: Canvas)
+    hs = 108
+    off = 14 + hs
+    total = off + cv.w * cv.h * 4
+    im = -1
+    danger
+        m = new_mem(total) else err
+            return -1
+        write8(m, 66)
+        write8(m + 1, 77)
+        write32(m + 2, total)
+        write32(m + 6, 0)
+        write32(m + 10, off)
+        write32(m + 14, hs)
+        write32(m + 18, cv.w)
+        write32(m + 22, bit_and(-cv.h, 0xFFFFFFFF))    // минус — строки сверху вниз
+        write16(m + 26, 1)
+        write16(m + 28, 32)
+        write32(m + 30, 3)                             // цвета по маскам
+        write32(m + 34, cv.w * cv.h * 4)
+        write32(m + 38, 2835)
+        write32(m + 42, 2835)
+        write32(m + 46, 0)
+        write32(m + 50, 0)
+        write32(m + 54, 0xFF0000)
+        write32(m + 58, 0xFF00)
+        write32(m + 62, 0xFF)
+        write32(m + 66, 0xFF000000)
+        count q from 70 to off - 1
+            write8(m + q, 0)
+        p = m + off
+        count i from 0 to cv.w * cv.h - 1
+            al = cv.a[i]
+            v = 0
+            if al > 0.002
+                ai = round(al * 255.0)
+                rr = round(cv.r[i] / al)
+                gg = round(cv.g[i] / al)
+                bb = round(cv.b[i] / al)
+                v = shift_left(min(255, ai), 24) + shift_left(min(255, rr), 16) + shift_left(min(255, gg), 8) + min(255, bb)
+            write32(p, v)
+            p += 4
+        im = image_from_mem(m, total) or -1
+        free_mem(m)
+    return im
