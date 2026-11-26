@@ -7,9 +7,14 @@ cd "$(dirname "$0")/.." || exit 1
 bin="$HOME/.tachbit/bin"
 mkdir -p "$bin" || exit 1
 # семя compiler/seed/tb.c собирает компилятор из compiler/*.tb
-./tools/build_tb.sh || exit 1
+# TB_PREBUILT=1 — build/tb уже скачан готовым (tools/get.sh), собирать не нужно
+if [ -n "$TB_PREBUILT" ] && [ -x ./build/tb ]; then
+    echo "компилятор готовый, из Releases"
+else
+    ./tools/build_tb.sh || exit 1
+fi
 cp ./build/tb "$bin/tb"
-echo "стоит компилятор на Tachbit (собран сам собой)"
+echo "стоит компилятор на Tachbit"
 # общие библиотеки (use ui): lib/*.tb → ~/.tachbit/lib
 mkdir -p "$HOME/.tachbit/lib/fonts" "$HOME/.tachbit/lib/back" && cp lib/*.tb "$HOME/.tachbit/lib/" && cp lib/fonts/* "$HOME/.tachbit/lib/fonts/" && cp lib/back/* "$HOME/.tachbit/lib/back/" && echo "библиотеки: $HOME/.tachbit/lib"
 

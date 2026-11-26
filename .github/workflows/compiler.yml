@@ -1,0 +1,88 @@
+# Готовый компилятор tb: собирается здесь после каждого изменения в main,
+# чтобы на Маке и Linux не ждать сборки. tools/get.sh скачивает его отсюда.
+# Выкладывается в Releases под тегом compiler-latest:
+#   tb-mac        — Mac (M1 и новее, и Intel: один файл на оба)
+#   tb-linux-x64  — Linux x86_64
+#   commit.txt    — из какого коммита собран (get.sh сверяет с main)
+name: Compiler
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'compiler/**'
+      - 'tools/build_tb.sh'
+      - '.github/workflows/compiler.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: compiler-release
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: macos-14
+            name: tb-mac
+          - os: ubuntu-latest
+            name: tb-linux-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Собрать компилятор (3 шага, как tools/build_tb.sh)
+        run: |
+          mkdir -p build
+          cc -O2 -w -o build/tb-seed compiler/seed/tb.c -lm -lpthread
+          ./build/tb-seed build compiler/main.tb > /dev/null
+          mv compiler/main build/tb2
+          ./build/tb2 build compiler/main.tb > /dev/null
+          mv compiler/main build/tb
+      - name: Mac — один файл на M1 и Intel
+        if: runner.os == 'macOS'
+        run: |
+          cc -O2 -w -arch x86_64 -o build/tb-x86 compiler/main.c -lm -lpthread
+          lipo -create build/tb build/tb-x86 -output build/tb-uni
+          mv build/tb-uni build/tb
+          lipo -info build/tb
+      - name: Проверка
+        run: |
+          ./build/tb version
+          printf 'func main()\n    print("привет")\n' > /tmp/hi.tb
+          TB_LIB=lib ./build/tb build /tmp/hi.tb
+          /tmp/hi | grep -q привет
+          cp build/tb ${{ matrix.name }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: ${{ matrix.name }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: Выложить в Releases (compiler-latest)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          cd out
+          echo "${{ github.sha }}" > commit.txt
+          chmod +x tb-mac tb-linux-x64
+          tag=compiler-latest
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" --target "${{ github.sha }}" --prerelease \
+              --title "Компилятор tb (свежий из main)" \
+              --notes "Готовый компилятор, обновляется сам после каждого изменения в main. Ставить: curl -fsSL https://raw.githubusercontent.com/superbro456/Tachbit/main/tools/get.sh | sh"
+          fi
+          # сначала файлы, commit.txt последним: get.sh верит только ему
+          gh release upload "$tag" tb-mac tb-linux-x64 --clobber
+          gh release upload "$tag" commit.txt --clobber
