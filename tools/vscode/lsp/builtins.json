@@ -890,5 +890,13 @@
  "menu_native": {
   "sig": "menu_native()",
   "doc": "меню системы (1.3) — menu_add(\"Файл/Сохранить\", \"cmd+s\") после window_open кладёт пункт в меню: на Mac — в верхнюю строку экрана, на Windows — в полосу меню окна; \"Файл/-\" — черта; cmd — Command на Mac, Ctrl на Windows. menu_pick() → какой пункт выбрали (\"Файл/Сохранить\" или \"\"). menu_native() → есть ли меню системы (Linux — нет, рисуй своё)"
+ },
+ "text_keys": {
+  "sig": "text_keys()",
+  "doc": "команды правки текста (1.3) — text_keys() отдаёт команды системы с прошлого раза через пробел: \"moveWordLeft: deleteBackward:\" (\"\" — ничего). На Mac клавишу толкует сама система: её сочетания (Option+←, Cmd+←, Ctrl+A/E/K), свои настройки человека, смена языка, буквы с акцентом; буквы при этом приходят в typed_text(). text_keys_native() — true, если так (Mac); на Linux и Windows false, и сочетания разбирает сама программа по key_down. lib/ui делает это сам"
+ },
+ "text_keys_native": {
+  "sig": "text_keys_native()",
+  "doc": "команды правки текста (1.3) — text_keys() отдаёт команды системы с прошлого раза через пробел: \"moveWordLeft: deleteBackward:\" (\"\" — ничего). На Mac клавишу толкует сама система: её сочетания (Option+←, Cmd+←, Ctrl+A/E/K), свои настройки человека, смена языка, буквы с акцентом; буквы при этом приходят в typed_text(). text_keys_native() — true, если так (Mac); на Linux и Windows false, и сочетания разбирает сама программа по key_down. lib/ui делает это сам"
  }
 }

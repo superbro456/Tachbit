@@ -222,6 +222,8 @@ static const char *const tb_lang_tab[] = {
     "menu_add(\"Файл/Сохранить\", \"cmd+s\")  —  пункт в меню системы (после window_open); \"Файл/-\" — черта, \"\" — без клавиши", "menu_add(\"File/Save\", \"cmd+s\")  —  an item in the system menu (after window_open); \"File/-\" — a separator line, \"\" — no key",
     "menu_pick()  →  какой пункт меню выбрали с прошлого раза: \"Файл/Сохранить\" (\"\" — никакой)", "menu_pick()  →  which menu item was picked since last time: \"File/Save\" (\"\" — none)",
     "menu_native()  →  есть меню системы? (Mac и Windows — да, Linux — нет: рисуй своё)", "menu_native()  →  is there a system menu? (Mac and Windows — yes, Linux — no: draw your own)",
+    "text_keys()  →  команды правки текста от системы с прошлого раза: \"moveWordLeft: deleteBackward:\" (\"\" — ничего)", "text_keys()  →  text editing commands from the system since last time: \"moveWordLeft: deleteBackward:\" (\"\" — none)",
+    "text_keys_native()  →  система сама толкует клавиши для текста? (Mac — да: смотри text_keys)", "text_keys_native()  →  does the system interpret keys for text itself? (Mac — yes: see text_keys)",
     "menu_add: пункт пишется как \"Меню/Пункт\", например \"Файл/Сохранить\"", "menu_add: an item is written as \"Menu/Item\", for example \"File/Save\"",
     "menu_add: сначала открой окно (window_open)", "menu_add: open a window first (window_open)",
     "menu_add: больше 256 пунктов меню не бывает", "menu_add: there can't be more than 256 menu items",
@@ -5219,6 +5221,16 @@ TB_API void tb_gfx_fullscreen(int on);   // свои у каждой систе�
 TB_API int tb_menu_hit = 0, tb_menu_n = 0;   // hit: номер выбранного пункта + 1 (0 — ничего)
 TB_API int tb_gfx_menu_add(int id, const char *top, const char *item, const char *key, int mods);
 TB_API int tb_gfx_menu_native(void);
+// команды правки текста от системы (1.3): Mac сам решает, что значит клавиша (Option+← — moveWordLeft:)
+TB_API char tb_tkeys[2048];
+TB_API int tb_ntkeys = 0, tb_tkeys_on = 0;   // on: система присылает команды (Mac)
+TB_API void tb_tkeys_add(const char *name) {
+    size_t n = strlen(name);
+    if (!n || !strcmp(name, "noop:") || tb_ntkeys + (int)n + 2 >= (int)sizeof tb_tkeys) return;
+    if (tb_ntkeys) tb_tkeys[tb_ntkeys++] = ' ';
+    memcpy(tb_tkeys + tb_ntkeys, name, n);
+    tb_ntkeys += (int)n;
+}
 TB_API void tb_gfx_lock(int on);
 // мышь в точке (x, y) окна: копим сдвиг. Захвачена — меряем от середины окна, мышь потом вернётся туда
 TB_API void tb_mouse_at(int x, int y) {
@@ -9416,6 +9428,60 @@ TB_API void tb_mac_size(void) {
     int w = (int)(r.size.width * tb_sc + 0.5), h = (int)(r.size.height * tb_sc + 0.5);
     if (w > 0 && h > 0 && (w != tb_gw || h != tb_gh)) { tb_new_w = w; tb_new_h = h; }
 }
+// ввод текста как у обычной программы Mac: клавишу толкует сама система
+// (её сочетания, свои настройки человека в KeyBindings, смена языка, буквы с акцентом ´+e).
+// Буквы приходят в insertText:, а правка — командами (moveWordLeft:, deleteBackward:) в text_keys()
+typedef struct { unsigned long loc, len; } tb_nsrange;
+TB_API int tb_mac_marked = 0, tb_mac_tblock = 0;   // block: держат Cmd или Ctrl — буквы не печатаем
+TB_API Class tb_mac_vcls = 0;
+static BOOL tb_mv_yes(id self, SEL s) { (void)self; (void)s; return YES; }
+static void tb_mv_put(id str) {
+    if (!str || tb_mac_tblock) return;
+    if (TB_MSG1(BOOL, str, "respondsToSelector:", SEL, sel_getUid("string"))) str = TB_MSG(id, str, "string");
+    const char *u = str ? TB_MSG(const char *, str, "UTF8String") : 0;
+    if (u) tb_type_utf8(u);
+}
+static void tb_mv_insert(id self, SEL s, id str) { (void)self; (void)s; tb_mac_marked = 0; tb_mv_put(str); }
+static void tb_mv_insert2(id self, SEL s, id str, tb_nsrange r) { (void)r; tb_mv_insert(self, s, str); }
+static void tb_mv_command(id self, SEL s, SEL cmd) { (void)self; (void)s; if (cmd) tb_tkeys_add(sel_getName(cmd)); }
+static void tb_mv_mark(id self, SEL s, id str, tb_nsrange a, tb_nsrange b) {
+    (void)self; (void)s; (void)a; (void)b;
+    if (str && TB_MSG1(BOOL, str, "respondsToSelector:", SEL, sel_getUid("string"))) str = TB_MSG(id, str, "string");
+    tb_mac_marked = str && TB_MSG(unsigned long, str, "length") > 0;
+}
+static void tb_mv_unmark(id self, SEL s) { (void)self; (void)s; tb_mac_marked = 0; }
+static BOOL tb_mv_has_mark(id self, SEL s) { (void)self; (void)s; return tb_mac_marked ? YES : NO; }
+static tb_nsrange tb_mv_mark_range(id self, SEL s) { (void)self; (void)s; tb_nsrange r = { tb_mac_marked ? 0 : 0x7fffffffffffffffUL, 0 }; return r; }
+static tb_nsrange tb_mv_sel_range(id self, SEL s) { (void)self; (void)s; tb_nsrange r = { 0, 0 }; return r; }
+static id tb_mv_attrs(id self, SEL s) { (void)self; (void)s; return TB_MSG(id, TB_CLS("NSArray"), "array"); }
+static id tb_mv_sub(id self, SEL s, tb_nsrange r, void *act) { (void)self; (void)s; (void)r; (void)act; return 0; }
+static unsigned long tb_mv_index(id self, SEL s, CGPoint p) { (void)self; (void)s; (void)p; return 0x7fffffffffffffffUL; }
+static CGRect tb_mv_rect(id self, SEL s, tb_nsrange r, void *act) { (void)self; (void)s; (void)r; (void)act; return CGRectMake(0, 0, 0, 0); }
+static void tb_mv_key(id self, SEL s, id ev) { (void)self; (void)s; (void)ev; }   // клавиши разбирает tb_gfx_events
+TB_API id tb_mac_new_view(void) {
+    if (!tb_mac_vcls) {
+        Class c = objc_allocateClassPair((Class)TB_CLS("NSView"), "TachbitTextView", 0);
+        class_addMethod(c, sel_getUid("acceptsFirstResponder"), (IMP)tb_mv_yes, "c@:");
+        class_addMethod(c, sel_getUid("keyDown:"), (IMP)tb_mv_key, "v@:@");
+        class_addMethod(c, sel_getUid("insertText:"), (IMP)tb_mv_insert, "v@:@");
+        class_addMethod(c, sel_getUid("insertText:replacementRange:"), (IMP)tb_mv_insert2, "v@:@{_NSRange=QQ}");
+        class_addMethod(c, sel_getUid("doCommandBySelector:"), (IMP)tb_mv_command, "v@::");
+        class_addMethod(c, sel_getUid("setMarkedText:selectedRange:replacementRange:"), (IMP)tb_mv_mark, "v@:@{_NSRange=QQ}{_NSRange=QQ}");
+        class_addMethod(c, sel_getUid("unmarkText"), (IMP)tb_mv_unmark, "v@:");
+        class_addMethod(c, sel_getUid("hasMarkedText"), (IMP)tb_mv_has_mark, "c@:");
+        class_addMethod(c, sel_getUid("markedRange"), (IMP)tb_mv_mark_range, "{_NSRange=QQ}@:");
+        class_addMethod(c, sel_getUid("selectedRange"), (IMP)tb_mv_sel_range, "{_NSRange=QQ}@:");
+        class_addMethod(c, sel_getUid("validAttributesForMarkedText"), (IMP)tb_mv_attrs, "@@:");
+        class_addMethod(c, sel_getUid("attributedSubstringForProposedRange:actualRange:"), (IMP)tb_mv_sub, "@@:{_NSRange=QQ}^{_NSRange=QQ}");
+        class_addMethod(c, sel_getUid("characterIndexForPoint:"), (IMP)tb_mv_index, "Q@:{CGPoint=dd}");
+        class_addMethod(c, sel_getUid("firstRectForCharacterRange:actualRange:"), (IMP)tb_mv_rect, "{CGRect={CGPoint=dd}{CGSize=dd}}@:{_NSRange=QQ}^{_NSRange=QQ}");
+        Protocol *pr = objc_getProtocol("NSTextInputClient");
+        if (pr) class_addProtocol(c, pr);
+        objc_registerClassPair(c);
+        tb_mac_vcls = c;
+    }
+    return TB_MSG(id, TB_MSG(id, (id)tb_mac_vcls, "alloc"), "init");
+}
 // ещё одно окно (window_new): кадр рисует процессор
 TB_API int tb_gfx_open2(const char *title) {
     tb_wnd = ((id(*)(id, SEL, CGRect, unsigned long, unsigned long, BOOL))objc_msgSend)(
@@ -9424,8 +9490,10 @@ TB_API int tb_gfx_open2(const char *title) {
     if (!tb_wnd) return 0;
     TB_MSG1(void, tb_wnd, "setReleasedWhenClosed:", BOOL, NO);
     if (tb_mac_dlg) TB_MSG1(void, tb_wnd, "setDelegate:", id, tb_mac_dlg);
-    id view = TB_MSG(id, TB_MSG(id, TB_CLS("NSView"), "alloc"), "init");
+    id view = tb_mac_new_view();
     TB_MSG1(void, tb_wnd, "setContentView:", id, view);
+    TB_MSG1(BOOL, tb_wnd, "makeFirstResponder:", id, view);
+    tb_tkeys_on = 1;
     if (!tb_cgspace) tb_cgspace = CGColorSpaceCreateDeviceRGB();
     TB_MSG1(void, view, "setWantsLayer:", BOOL, YES);
     tb_layer = TB_MSG(id, view, "layer");
@@ -9545,8 +9613,10 @@ TB_API int tb_gfx_open(const char *title) {
     objc_registerClassPair(dc);
     tb_mac_dlg = TB_MSG(id, TB_MSG(id, (id)dc, "alloc"), "init");
     TB_MSG1(void, tb_wnd, "setDelegate:", id, tb_mac_dlg);
-    id view = TB_MSG(id, TB_MSG(id, TB_CLS("NSView"), "alloc"), "init");
+    id view = tb_mac_new_view();
     TB_MSG1(void, tb_wnd, "setContentView:", id, view);
+    TB_MSG1(BOOL, tb_wnd, "makeFirstResponder:", id, view);
+    tb_tkeys_on = 1;
     CGColorSpaceRef space = CGDisplayCopyColorSpace(CGMainDisplayID());
     if (!space) space = CGColorSpaceCreateDeviceRGB();
     tb_cgspace = space;
@@ -9611,9 +9681,13 @@ TB_API void tb_gfx_events(void) {
         if (t == 10 || t == 11) {
             unsigned short k = TB_MSG(unsigned short, ev, "keyCode");
             if (k < 128 && tb_mac_keys[k]) { tb_keys[tb_mac_keys[k]] = t == 10; if (t == 10) tb_ktap[tb_mac_keys[k]] = 1; }
-            if (t == 10 && !(TB_MSG(unsigned long, ev, "modifierFlags") & ((1UL << 20) | (1UL << 18)))) {   // без Cmd и Ctrl
-                id chars = TB_MSG(id, ev, "characters");
-                if (chars) tb_type_utf8(TB_MSG(const char *, chars, "UTF8String"));
+            if (t == 10) {
+                // клавишу толкует система: буквы — в insertText:, правка — командами (text_keys)
+                tb_mac_tblock = (TB_MSG(unsigned long, ev, "modifierFlags") & ((1UL << 20) | (1UL << 18))) != 0;
+                id v = TB_MSG(id, tb_wnd, "contentView");
+                id arr = TB_MSG1(id, TB_CLS("NSArray"), "arrayWithObject:", id, ev);
+                if (v) TB_MSG1(void, v, "interpretKeyEvents:", id, arr);
+                tb_mac_tblock = 0;
             }
             continue;   // клавиши не отдаём окну: иначе Mac пищит
         }
@@ -13273,6 +13347,13 @@ TB_API void tb_set_cursor(const char *name, int line) {
     snprintf(buf, sizeof buf, "set_cursor: нет курсора «%s»; есть arrow, hand, text, move, resize_x, resize_y, wait, none", name);
     tb_crash(line, buf);
 }
+#ifdef TB_BARE
+// в ядре без ОС своей libc нет: две маленькие замены для menu_add
+static const char *tb_strchr0(const char *s, int c) { for (; *s; s++) if (*s == (char)c) return s; return 0; }
+static char *tb_strdup0(const char *s) { size_t n = strlen(s) + 1; char *d = malloc(n); if (d) memcpy(d, s, n); return d; }
+#define strchr tb_strchr0
+#define strdup tb_strdup0
+#endif
 // меню системы (1.3): menu_add("Файл/Сохранить", "cmd+s"), выбранный пункт — menu_pick()
 TB_API char *tb_menu_path[TB_MENU_MAX];
 TB_API void tb_menu_add(const char *path, const char *keys, int line) {
@@ -13319,6 +13400,15 @@ TB_API const char *tb_menu_pick(void) {
     return s;
 }
 TB_API int tb_menu_native(void) { return tb_gfx_menu_native(); }
+// text_keys(): команды системы с прошлого раза через пробел ("moveWordLeft: deleteBackward:")
+TB_API const char *tb_text_keys(void) {
+    char *s = tb_tmem(tb_ntkeys + 1);
+    memcpy(s, tb_tkeys, tb_ntkeys);
+    s[tb_ntkeys] = 0;
+    tb_ntkeys = 0;
+    return s;
+}
+TB_API int tb_text_keys_native(void) { return tb_tkeys_on; }
 #endif
 // ---------- для файла .ll (TB_LL): библиотека видна снаружи через tb_x_* ----------
 // Сама библиотека — static: так её лучше встраивать. Эти обёртки — её «дверь» для LLVM.
@@ -14141,6 +14231,8 @@ TB_BV(set_cursor, (const char *s, int line), tb_set_cursor(s, line))
 TB_BV(menu_add, (const char *p, const char *k, int line), tb_menu_add(p, k, line))
 TB_B(const char *, menu_pick, (int line), tb_menu_pick())
 TB_B(_Bool, menu_native, (int line), tb_menu_native())
+TB_B(const char *, text_keys, (int line), tb_text_keys())
+TB_B(_Bool, text_keys_native, (int line), tb_text_keys_native())
 TB_BV(window_sharp, (int line), tb_window_sharp())
 TB_B(double, window_scale, (int line), tb_window_scale())
 TB_B(double, frame_ms, (int line), tb_frame_ms())
