@@ -130,6 +130,8 @@ obj Ui
     faint: int           // совсем бледное: выключенная кнопка
     serif: int           // шрифт с засечками (PT Serif)
     display: int         // шрифт для заголовков (Montserrat Bold)
+    rounded: int         // круглый шрифт (Nunito)
+    rounded_bold: int
     fonts: dict text int // шрифты по имени (ui.font_named): имя → номер, −1 — не нашли
     glass: bool          // стеклянный вид (ui.glass): полупрозрачные панели поверх картинки
     libdir: text         // где лежит библиотека (шрифты, картинки фона)
@@ -148,7 +150,7 @@ obj Box
     rev: bool            // после ui.at_end: куски идут с конца (справа налево, снизу вверх)
 
 modpub func start() gives u: Ui
-    u = Ui(active: "", font: -1, bold: -1, mono: -1, serif: -1, display: -1, k: 1.0, pop_pick: -1, win_i: -1, cursor_now: "arrow", calm_fps: 10)
+    u = Ui(active: "", font: -1, bold: -1, mono: -1, serif: -1, display: -1, rounded: -1, rounded_bold: -1, k: 1.0, pop_pick: -1, win_i: -1, cursor_now: "arrow", calm_fps: 10)
     if window_scale() > 1.0
         u.k = window_scale()
     u.fs = px(u, 14)
@@ -167,6 +169,8 @@ modpub func start() gives u: Ui
             u.mono = font_or(d + "/fonts/JetBrainsMono-Regular.ttf")
             u.serif = font_or(d + "/fonts/PTSerif-Regular.ttf")
             u.display = font_or(d + "/fonts/Montserrat-Bold.ttf")
+            u.rounded = font_or(d + "/fonts/Nunito-Regular.ttf")
+            u.rounded_bold = font_or(d + "/fonts/Nunito-Bold.ttf")
             u.libdir = d
     // свой шрифт можно дать в TB_UI_FONT или потом ui.use_font(u, "шрифт.ttf")
     if env("TB_UI_FONT") != "" and file_exists(env("TB_UI_FONT"))
@@ -219,6 +223,19 @@ func font_one(u: Ui, name: text)
     if w == "serif"
         if u.serif >= 0
             return u.serif
+        return u.font
+    if w == "rounded" or w == "round"
+        if u.rounded >= 0
+            return u.rounded
+        return u.font
+    if w == "rounded bold" or w == "rounded-bold"
+        if u.rounded_bold >= 0
+            return u.rounded_bold
+        return u.bold
+    // шрифт Mac (SF): на Mac берётся из системы, на других — Inter
+    if w == "system" or w == "-apple-system" or w == "sf" or w == "sf pro"
+        if file_exists("/System/Library/Fonts/SFNS.ttf")
+            return font_or("/System/Library/Fonts/SFNS.ttf")
         return u.font
     if w == "display" or w == "heading"
         if u.display >= 0
@@ -286,6 +303,13 @@ modpub func dark(u: Ui)
     u.sel = rgb(26, 74, 72)
     u.red = rgb(240, 96, 106)
     u.shadow = rgba(0, 0, 0, 110)
+// круглый шрифт для всего (Nunito): мягкий и современный
+modpub func round_font(u: Ui)
+    if u.rounded >= 0
+        u.font = u.rounded
+    if u.rounded_bold >= 0
+        u.bold = u.rounded_bold
+
 // стеклянный вид: панели, кнопки и поля полупрозрачные, сквозь них видно фон-картинку.
 // Фон нарисуй сам (ui.glass_back) — или его рисует .tbs (там стекло по умолчанию)
 modpub func glass(u: Ui)

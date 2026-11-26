@@ -110,7 +110,7 @@ screen main 4x7          // экран main: 4 столбца, 7 строк
 | `margin` | `margin` | отступ снаружи: `8` или `8 16` (сверху-снизу, слева-справа) |
 | `padding` | `padding` | отступ внутри (текст от краёв; у `card` — вещи от краёв карточки) |
 | `size` | `font-size` | размер букв |
-| `font` | `font-weight`, `font-family` | `regular`, `bold`, `serif` (с засечками), `mono` (код), `display` (заголовки), шрифт системы по имени (`Georgia`, `Arial`), файл `fonts/My.ttf`, список `Georgia, serif` — берётся первый, что нашёлся |
+| `font` | `font-weight`, `font-family` | `regular`, `bold`, `rounded` (круглый, Nunito), `system` (шрифт Mac — SF), `serif` (с засечками), `mono` (код), `display` (заголовки), шрифт системы по имени (`Georgia`, `Arial`), файл `fonts/My.ttf`, список `Georgia, serif` — берётся первый, что нашёлся |
 | `align` | `text-align` | `left`, `center`, `right` |
 | `spacing` | `letter-spacing` | разрядка между буквами |
 | `line.height` | `line-height` | высота строки: `1.5` или `150%` |

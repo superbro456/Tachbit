@@ -1474,6 +1474,9 @@ func apply(u: Ui, v: TbsView, it: TbsItem, look: text)
     fnt = prop(v, it, "font")
     if fnt == "regular"
         u.bold = u.font
+    else if fnt == "rounded"
+        u.font = ui.font_named(u, "rounded")
+        u.bold = ui.font_named(u, "rounded bold")
     else if fnt != "" and fnt != "bold"
         // свой шрифт: serif, display, mono, файл .ttf или шрифт системы по имени
         fid = ui.font_named(u, fnt)
@@ -1729,7 +1732,7 @@ func draw_text_item(u: Ui, v: TbsView, it: TbsItem, x: int, y: int, w: int, h: i
         f = u.mono
     else if fn == "regular"
         f = u.font
-    else if fn != ""
+    else if fn != "" and fn != "rounded"
         f = ui.font_named(u, fn)
     if prop(v, it, "size") != ""
         size = ui.px(u, num(v, it, "size", 14))
