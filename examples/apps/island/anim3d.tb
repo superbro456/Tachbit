@@ -1,0 +1,50 @@
+// АНИМАЦИЯ моделей .vox для 3D-вида: двигает модель целиком (без костей).
+// Модель — из MagicaVoxel: md = try model.load("models/tower_1.vox"), model.fit(md, 1.6), model.build(md).
+// view3d.tb зовёт отсюда draw_* и передаёт числа из данных (age, flash, bump, aim).
+use model
+
+// плавно с перелётом (как пружинка): 0 → 1, чуть выше 1 и обратно
+func spring(k: dec)
+    k = max(0.0, min(1.0, k))
+    s = 1.7
+    q = k - 1.0
+    return 1.0 + (s + 1.0) * q * q * q + s * q * q
+
+// башня или пушка на клетке (x, z):
+//   age   — сколько секунд стоит: первые 0.6 с вырастает из земли с пружинкой
+//   flash — выстрел 1 → 0: короткая отдача назад
+//   bump  — новый уровень 1 → 0: подпрыгивает и поворачивается на четверть круга
+//   aim   — куда смотрит (градусы)
+modpub func draw_tower(md: Model, x: dec, z: dec, aim: dec, age: dec, flash: dec, bump: dec)
+    w, h, d = model.size(md)
+    y = -h * (1.0 - spring(age / 0.6))
+    hop = 0.0
+    spin = 0.0
+    if bump > 0.0
+        u = 1.0 - bump
+        hop = sin(u * pi()) * h * 0.25
+        spin = spring(u) * 90.0
+    pitch = -7.0 * flash * flash
+    model.draw(md, x, y + hop, z, aim + spin, pitch, 0.0)
+
+// строение ломается или продано: gone 0 → 1 — трясётся и уходит под землю
+modpub func draw_falling(md: Model, x: dec, z: dec, aim: dec, gone: dec)
+    w, h, d = model.size(md)
+    shake = sin(gone * 60.0) * 5.0 * (1.0 - gone)
+    model.draw(md, x, -h * gone * gone, z, aim, shake, shake * 0.6)
+
+// стена держит удар: hit 1 → 0 — дрожит
+modpub func draw_wall(md: Model, x: dec, z: dec, yaw: dec, hit: dec)
+    dx = sin(hit * 40.0) * 0.04 * hit
+    model.draw(md, x + dx, 0.0, z, yaw, 0.0, 0.0)
+
+// воин или враг идёт: покачивание на шагах; swing 1 → 0 — выпад вперёд при ударе
+modpub func draw_walker(md: Model, x: dec, z: dec, yaw: dec, t: dec, moving: bool, swing: dec)
+    bob = 0.0
+    roll = 0.0
+    if moving
+        bob = abs(sin(t * 9.0)) * 0.06
+        roll = sin(t * 9.0) * 4.0
+    lunge = sin(swing * pi()) * 0.15
+    a = yaw * pi() / 180.0
+    model.draw(md, x + sin(a) * lunge, bob, z + cos(a) * lunge, yaw, swing * 12.0, roll)

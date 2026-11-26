@@ -456,6 +456,8 @@ modpub func set_flag(g: Game, c: int, r: int)
 func builds_fire(g: Game, dt: dec)
     each b in g.builds
         b.flash = max(0.0, b.flash - dt * 3.0)
+        b.age += dt
+        b.bump = max(0.0, b.bump - dt * 1.5)
         if b.kind == 2
             skip
         b.cool -= dt
@@ -732,6 +734,7 @@ modpub func upgrade_sel(g: Game)
         g.money -= p
         b.spent += p
         b.lvl += 1
+        b.bump = 1.0
         if b.kind == 2
             nh = build_info(2, b.lvl).hp
             b.hp = b.hp + nh - b.max_hp

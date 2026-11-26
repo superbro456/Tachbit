@@ -1,4 +1,4 @@
-// model — готовые 3D-модели из файлов: OBJ (+ MTL) и glTF 2.0 (.gltf и .glb).
+// model — готовые 3D-модели из файлов: OBJ (+ MTL), glTF 2.0 (.gltf и .glb) и MagicaVoxel (.vox).
 // Библиотека на чистом Tachbit, без новых слов языка: читает файл и складывает
 // треугольники в обычные сетки через mesh_add / mesh_add_uv.
 //
@@ -95,7 +95,10 @@ modpub func load(path: text) gives md: Model
     if ends_with(low, ".gltf") or ends_with(low, ".glb")
         md = try load_gltf(path)
         return
-    fail "model: не знаю такой формат (нужен .obj, .gltf или .glb): " + path
+    if ends_with(low, ".vox")
+        md = try load_vox(path)
+        return
+    fail "model: не знаю такой формат (нужен .obj, .gltf, .glb или .vox): " + path
 
 // сколько треугольников всего
 modpub func triangles(md: Model)
@@ -1342,3 +1345,279 @@ func base64_mem(s: text) gives a: int, n: int
                 bits -= 8
                 write8(a + n, bit_and(shift_right(acc, bits), 255))
                 n += 1
+
+// ---------- MagicaVoxel .vox ----------
+// Каждый кубик — 1.0. Оси: в MagicaVoxel z вверх, здесь y вверх (x → x, z → y, y → z).
+// Каждый объект сцены — свой кусок (Part) с именем из MagicaVoxel (или "model0", "model1"...),
+// цвета — по треугольникам. Рисуются только грани, которые видно (между кубиками граней нет).
+
+obj VoxShape
+    sx: int
+    sy: int
+    sz: int
+    xyzc: list int        // по 4 числа на кубик: x, y, z, цвет (1–255)
+
+obj VoxNode
+    kind: int             // 0 сдвиг (nTRN), 1 группа (nGRP), 2 фигура (nSHP)
+    name: text
+    child: int
+    kids: list int
+    shapes: list int
+    tx: int
+    ty: int
+    tz: int
+    rot: int              // байт поворота MagicaVoxel (-1 — без поворота)
+
+modpub func load_vox(path: text) gives md: Model
+    a, n = try read_bin(path)
+    shapes = list VoxShape
+    pal = list int
+    nodes = dict int VoxNode
+    danger
+        if n < 20 or read32(a) != 0x20584F56
+            free_mem(a)
+            fail "model: это не .vox: " + path
+        at = 20
+        cur = VoxShape()
+        repeat while at + 12 <= n
+            id = read32(a + at)
+            cn = read32(a + at + 4)
+            cm = read32(a + at + 8)
+            b = a + at + 12
+            if at + 12 + cn > n
+                stop
+            if id == 0x455A4953
+                // SIZE
+                cur = VoxShape(sx: read32(b), sy: read32(b + 4), sz: read32(b + 8))
+            else if id == 0x495A5958
+                // XYZI
+                k = read32(b)
+                count i from 0 to k - 1
+                    cur.xyzc.add(read8(b + 4 + i * 4))
+                    cur.xyzc.add(read8(b + 5 + i * 4))
+                    cur.xyzc.add(read8(b + 6 + i * 4))
+                    cur.xyzc.add(read8(b + 7 + i * 4))
+                shapes.add(cur)
+            else if id == 0x41424752
+                // RGBA: палитра, цвет i лежит на месте i - 1
+                count i from 0 to 255
+                    pal.add(rgb(read8(b + i * 4), read8(b + i * 4 + 1), read8(b + i * 4 + 2)))
+            else if id == 0x4E52546E
+                // nTRN: узел, свойства, ребёнок, -1, слой, кадры (берём первый)
+                nd = VoxNode(kind: 0, rot: -1)
+                nid = read32(b)
+                q = b + 4
+                q = vox_dict(q, nd)
+                nd.child = read32(q)
+                frames = read32(q + 12)
+                q += 16
+                if frames > 0
+                    q = vox_dict(q, nd)
+                nodes[nid] = nd
+            else if id == 0x5052476E
+                // nGRP
+                nd = VoxNode(kind: 1, rot: -1)
+                nid = read32(b)
+                q = vox_dict(b + 4, nd)
+                kn = read32(q)
+                count i from 0 to kn - 1
+                    nd.kids.add(read32(q + 4 + i * 4))
+                nodes[nid] = nd
+            else if id == 0x5048536E
+                // nSHP
+                nd = VoxNode(kind: 2, rot: -1)
+                nid = read32(b)
+                q = vox_dict(b + 4, nd)
+                kn = read32(q)
+                q += 4
+                count i from 0 to kn - 1
+                    nd.shapes.add(read32(q))
+                    q = vox_dict(q + 4, nd)
+                nodes[nid] = nd
+            // MAIN — просто заходим внутрь, остальное пропускаем
+            if id == 0x4E49414D
+                at += 12 + cn
+            else
+                at += 12 + cn + cm
+        free_mem(a)
+    if len(pal) == 0
+        count i from 0 to 255
+            pal.add(rgb(200, 200, 200))
+    md = new_model()
+    md.folder = folder_of(path)
+    if nodes.has(0)
+        vox_walk(md, shapes, pal, nodes, 0, [1, 0, 0, 0, 1, 0, 0, 0, 1], 0, 0, 0, "")
+    else
+        count i from 0 to len(shapes) - 1
+            vox_part(md, shapes[i], pal, "model" + i, [1, 0, 0, 0, 1, 0, 0, 0, 1], 0, 0, 0)
+    finish(md)
+
+// словарь .vox (число пар, потом строки «длина + байты»); берёт _name, _t, _r. Отдаёт, где он кончился
+func vox_dict(q: int, nd: VoxNode)
+    danger
+        k = read32(q)
+        q += 4
+        count i from 1 to k
+            key = vox_text(q)
+            q += 4 + read32(q)
+            val = vox_text(q)
+            q += 4 + read32(q)
+            if key == "_name"
+                nd.name = val
+            else if key == "_t"
+                w = words(val)
+                if len(w) == 3
+                    nd.tx = to_int(w[0]) or 0
+                    nd.ty = to_int(w[1]) or 0
+                    nd.tz = to_int(w[2]) or 0
+            else if key == "_r"
+                nd.rot = to_int(val) or -1
+    return q
+
+func vox_text(q: int)
+    s = ""
+    danger
+        n = read32(q)
+        count i from 0 to n - 1
+            s += byte_char(read8(q + 4 + i))
+    return s
+
+// поворот MagicaVoxel: в каждой строке одна 1 или -1
+func vox_rot(r: int) gives m: list int
+    m = [0, 0, 0, 0, 0, 0, 0, 0, 0]
+    i0 = bit_and(r, 3)
+    i1 = bit_and(shift_right(r, 2), 3)
+    i2 = 3 - i0 - i1
+    m[i0] = 1
+    if bit_and(r, 16) != 0
+        m[i0] = -1
+    m[3 + i1] = 1
+    if bit_and(r, 32) != 0
+        m[3 + i1] = -1
+    m[6 + i2] = 1
+    if bit_and(r, 64) != 0
+        m[6 + i2] = -1
+
+func mat3(a: list int, b: list int) gives m: list int
+    count i from 0 to 2
+        count j from 0 to 2
+            m.add(a[i * 3] * b[j] + a[i * 3 + 1] * b[3 + j] + a[i * 3 + 2] * b[6 + j])
+
+func vox_walk(md: Model, shapes: list VoxShape, pal: list int, nodes: dict int VoxNode, id: int, m: list int, tx: int, ty: int, tz: int, name: text)
+    if not nodes.has(id)
+        return
+    nd = nodes[id]
+    if nd.kind == 0
+        // сдвиг ребёнка: сначала свой поворот и сдвиг, потом родительский
+        nm = m
+        if nd.rot >= 0
+            nm = mat3(m, vox_rot(nd.rot))
+        ntx = tx + m[0] * nd.tx + m[1] * nd.ty + m[2] * nd.tz
+        nty = ty + m[3] * nd.tx + m[4] * nd.ty + m[5] * nd.tz
+        ntz = tz + m[6] * nd.tx + m[7] * nd.ty + m[8] * nd.tz
+        nn = name
+        if nd.name != ""
+            nn = nd.name
+        vox_walk(md, shapes, pal, nodes, nd.child, nm, ntx, nty, ntz, nn)
+    else if nd.kind == 1
+        each k in nd.kids
+            vox_walk(md, shapes, pal, nodes, k, m, tx, ty, tz, name)
+    else
+        each s in nd.shapes
+            if s >= 0 and s < len(shapes)
+                pn = name
+                if pn == ""
+                    pn = "model" + s
+                vox_part(md, shapes[s], pal, pn, m, tx, ty, tz)
+
+// кубики фигуры → треугольники видимых граней
+func vox_part(md: Model, sh: VoxShape, pal: list int, name: text, m: list int, tx: int, ty: int, tz: int)
+    p = new_part(name, rgb(200, 200, 200))
+    filled = list int
+    repeat sh.sx * sh.sy * sh.sz times
+        filled.add(0)
+    k = len(sh.xyzc) / 4
+    count i from 0 to k - 1
+        x = sh.xyzc[i * 4]
+        y = sh.xyzc[i * 4 + 1]
+        z = sh.xyzc[i * 4 + 2]
+        if x < sh.sx and y < sh.sy and z < sh.sz
+            filled[(z * sh.sy + y) * sh.sx + x] = sh.xyzc[i * 4 + 3]
+    // середина фигуры (как в MagicaVoxel: половина размера, вниз)
+    hx = sh.sx / 2
+    hy = sh.sy / 2
+    hz = sh.sz / 2
+    dirs = [1, 0, 0, -1, 0, 0, 0, 1, 0, 0, -1, 0, 0, 0, 1, 0, 0, -1]
+    count i from 0 to k - 1
+        x = sh.xyzc[i * 4]
+        y = sh.xyzc[i * 4 + 1]
+        z = sh.xyzc[i * 4 + 2]
+        ci = sh.xyzc[i * 4 + 3]
+        col = pal[max(0, ci - 1)]
+        count d from 0 to 5
+            dx = dirs[d * 3]
+            dy = dirs[d * 3 + 1]
+            dz = dirs[d * 3 + 2]
+            nx = x + dx
+            ny = y + dy
+            nz = z + dz
+            if nx >= 0 and ny >= 0 and nz >= 0 and nx < sh.sx and ny < sh.sy and nz < sh.sz
+                if filled[(nz * sh.sy + ny) * sh.sx + nx] != 0
+                    skip
+            vox_face(md, p, m, tx, ty, tz, x - hx, y - hy, z - hz, dx, dy, dz, col)
+    md.parts.add(p)
+
+// одна грань кубика (x, y, z — угол, d — куда смотрит наружу) → 2 треугольника в осях Tachbit
+func vox_face(md: Model, p: Part, m: list int, tx: int, ty: int, tz: int, x: int, y: int, z: int, dx: int, dy: int, dz: int, col: int)
+    // 4 угла грани в осях MagicaVoxel
+    cs = list int
+    if dx != 0
+        fx = x
+        if dx > 0
+            fx = x + 1
+        cs = [fx, y, z, fx, y + 1, z, fx, y + 1, z + 1, fx, y, z + 1]
+    else if dy != 0
+        fy = y
+        if dy > 0
+            fy = y + 1
+        cs = [x, fy, z, x + 1, fy, z, x + 1, fy, z + 1, x, fy, z + 1]
+    else
+        fz = z
+        if dz > 0
+            fz = z + 1
+        cs = [x, y, fz, x + 1, y, fz, x + 1, y + 1, fz, x, y + 1, fz]
+    // поворот и сдвиг сцены, потом оси Tachbit: (x, y, z) → (x, z, y)
+    pt = list dec
+    count i from 0 to 3
+        a = cs[i * 3]
+        b = cs[i * 3 + 1]
+        c = cs[i * 3 + 2]
+        wx = m[0] * a + m[1] * b + m[2] * c + tx
+        wy = m[3] * a + m[4] * b + m[5] * c + ty
+        wz = m[6] * a + m[7] * b + m[8] * c + tz
+        pt.add(wx + 0.0)
+        pt.add(wz + 0.0)
+        pt.add(wy + 0.0)
+    nx = m[0] * dx + m[1] * dy + m[2] * dz
+    ny = m[3] * dx + m[4] * dy + m[5] * dz
+    nz = m[6] * dx + m[7] * dy + m[8] * dz
+    // наружу в осях Tachbit: (nx, nz, ny); лицевая — та, у которой (b − a) × (c − a) смотрит наружу
+    ux = pt[3] - pt[0]
+    uy = pt[4] - pt[1]
+    uz = pt[5] - pt[2]
+    vx = pt[6] - pt[0]
+    vy = pt[7] - pt[1]
+    vz = pt[8] - pt[2]
+    cx = uy * vz - uz * vy
+    cy = uz * vx - ux * vz
+    cz = ux * vy - uy * vx
+    order = [0, 1, 2, 0, 2, 3]
+    if cx * nx + cy * nz + cz * ny < 0.0
+        order = [0, 2, 1, 0, 3, 2]
+    each j in order
+        p.pos.add(pt[j * 3])
+        p.pos.add(pt[j * 3 + 1])
+        p.pos.add(pt[j * 3 + 2])
+        grow_box(md, pt[j * 3], pt[j * 3 + 1], pt[j * 3 + 2])
+    p.tri_color.add(col)
+    p.tri_color.add(col)

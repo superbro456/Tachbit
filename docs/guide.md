@@ -392,6 +392,8 @@ repeat while window_alive()
 `metallicRoughnessTexture`, карта нормалей `normalTexture`, свечение `emissiveFactor` / `emissiveTexture` / сила
 свечения Blender, прозрачность `alphaMode BLEND`), цвета углов `COLOR_0`, кости (`skins`, `JOINTS_0`,
 `WEIGHTS_0`) и анимации (`animations`: сдвиг, поворот, масштаб узлов; плавно, ступенькой, сплайном).
+Ещё `.vox` из MagicaVoxel: кубик = 1.0, видны только наружные грани, каждый объект сцены — свой кусок
+с именем из MagicaVoxel, сдвиги и повороты объектов (`nTRN`) учитываются, цвета — из палитры файла.
 
 ```
 use model
@@ -414,7 +416,7 @@ func main()
 
 | Слово | Что делает |
 |---|---|
-| `model.load(путь)` | читает `.obj`, `.gltf` или `.glb`; может упасть (`else err`, `try`) |
+| `model.load(путь)` | читает `.obj`, `.gltf`, `.glb` или `.vox`; может упасть (`else err`, `try`) |
 | `model.triangles(md)` | сколько треугольников |
 | `model.size(md)` | `gives w, h, d` — ширина, высота, глубина |
 | `model.fit(md, n)` / `model.scale(md, k)` | подогнать длинную сторону под `n` / умножить на `k` |

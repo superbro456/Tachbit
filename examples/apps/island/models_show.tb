@@ -1,0 +1,55 @@
+// Посмотреть модели острова с анимацией: tb run examples/apps/island/models_show.tb
+// Слева направо: появление, выстрелы, новый уровень, поломка. Мышь — крутить вид, колёсико — ближе.
+use model
+use anim3d
+
+func main()
+    window_sharp()
+    try window_open(1000, 640, "Модели острова")
+    dir = folder()
+    tower = try model.load(dir + "models/tower_1.vox")
+    model.fit(tower, 1.6)
+    model.build(tower)
+    ground = mesh_new()
+    mesh_add(ground, -6.0, 0.0, -3.0, 6.0, 0.0, -3.0, 6.0, 0.0, 3.0, rgb(108, 170, 92))
+    mesh_add(ground, -6.0, 0.0, -3.0, 6.0, 0.0, 3.0, -6.0, 0.0, 3.0, rgb(108, 170, 92))
+    sunlight(0.5, 1.0, -0.4, 0.4)
+    t = 0.0
+    turn = 0.0
+    far = 7.5
+    names = ["растёт", "стреляет", "уровень +1", "ломается"]
+    xs = [215, 375, 540, 740]
+    repeat while window_alive()
+        if key_down("escape")
+            stop
+        dt = frame_ms() / 1000.0
+        t += dt
+        if mouse_down()
+            turn = (mouse_x() - 500) / 5.0
+        far = min(max(far - mouse_wheel() * 0.5, 3.0), 20.0)
+        a = turn * pi() / 180.0
+        camera(sin(a) * far, far * 0.6, -cos(a) * far, 0.0, 0.6, 0.0)
+        clear_window(rgb(30, 90, 140))
+        draw_mesh(ground, 0.0, 0.0, 0.0, 0.0)
+        loop = frac(t / 3.0) * 3.0
+        // 1 появление: каждые 3 секунды строится заново
+        anim3d.draw_tower(tower, -3.6, 0.0, 0.0, loop, 0.0, 0.0)
+        // 2 выстрелы: 2 в секунду, крутится к цели
+        fl = 1.0 - frac(t * 2.0)
+        anim3d.draw_tower(tower, -1.2, 0.0, t * 40.0, 10.0, fl * fl, 0.0)
+        // 3 новый уровень раз в 3 секунды
+        anim3d.draw_tower(tower, 1.2, 0.0, 0.0, 10.0, 0.0, max(0.0, 1.0 - loop / 0.67))
+        // 4 поломка: 2 секунды уходит под землю, 1 секунду пусто
+        anim3d.draw_falling(tower, 3.6, 0.0, 0.0, min(1.0, loop / 2.0))
+        count i from 0 to 3
+            draw_text(xs[i], 395, names[i], 2, rgb(255, 255, 255))
+
+// папка этого файла (чтобы models/ нашлась, откуда ни запускай)
+func folder()
+    if file_exists("models/tower_1.vox")
+        return ""
+    return "examples/apps/island/"
+
+// дробная часть: 2.7 → 0.7
+func frac(x: dec)
+    return x - floor(x)
