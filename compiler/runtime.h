@@ -9631,6 +9631,11 @@ TB_API void tb_gfx_events(void) {
             tb_keys[TB_K_CMD] = (m & (1UL << 20)) != 0;   // Command
             if (tb_keys[TB_K_CMD] && !was_cmd) tb_ktap[TB_K_CMD] = 1;
             if (tb_keys[TB_K_CTRL] && !was_ctrl) tb_ktap[TB_K_CTRL] = 1;
+            // пока держат Command, Mac не сообщает, что другую клавишу отпустили:
+            // Command отпустили — значит, и те клавиши уже не нажаты
+            if (was_cmd && !tb_keys[TB_K_CMD])
+                for (int i = 0; i < (int)(sizeof tb_keys / sizeof tb_keys[0]); i++)
+                    if (i != TB_K_SHIFT && i != TB_K_CTRL && i != TB_K_ALT && i != TB_K_CMD) tb_keys[i] = 0;
             if (tb_keys[TB_K_ALT] && !was_alt) tb_ktap[TB_K_ALT] = 1;
         }
         TB_MSG1(void, tb_nsapp, "sendEvent:", id, ev);
