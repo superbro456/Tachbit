@@ -45,7 +45,11 @@ jobs:
       - name: Mac — один файл на M1 и Intel
         if: runner.os == 'macOS'
         run: |
-          cc -O2 -w -arch x86_64 -o build/tb-x86 compiler/main.c -lm -lpthread
+          # tb на Маке собирает через clang (.c + .ll); CC с -arch даёт и .ll под Intel,
+          # TB_CLANG=1 — без отдельного пути через llc
+          CC="clang -arch x86_64" TB_CLANG=1 ./build/tb build compiler/main.tb > /dev/null
+          mv compiler/main build/tb-x86
+          lipo -info build/tb-x86
           lipo -create build/tb build/tb-x86 -output build/tb-uni
           mv build/tb-uni build/tb
           lipo -info build/tb
