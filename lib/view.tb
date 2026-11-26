@@ -67,6 +67,7 @@ obj TbsScreen
 
 obj TbsStyle
     name: text
+    base: text               // style big from btn — сначала свои свойства, чего нет — берётся из btn
     props: dict text text
 
 obj TbsView
@@ -174,7 +175,10 @@ func parse(v: TbsView, src: text)
             cur = -1
             words = split_words(body)
             if words[0] == "style" and len(words) >= 2
-                v.styles.add(TbsStyle(name: words[1]))
+                base = ""
+                if len(words) >= 4 and words[2] == "from"
+                    base = words[3]
+                v.styles.add(TbsStyle(name: words[1], base: base))
                 st = len(v.styles) - 1
             else if words[0] == "screen" and len(words) >= 3
                 s = TbsScreen(name: words[1], gap: -1, pad: -1)
@@ -358,7 +362,7 @@ func known_prop(k0: text)
     k = k0
     if starts_with(k, "hover.")
         k = cut(k, 6, len(k) - 1)
-    each w in ["text", "color", "backcolor", "corner.radius", "corner.color", "corner.width", "size", "font", "align", "look", "hint", "value", "on", "min", "max", "items", "style", "accent", "width", "height", "scale", "padding", "margin", "opacity", "shadow", "visible", "cursor", "tip", "disabled", "spacing", "transform", "decoration", "wrap", "line.height", "min.width", "max.width", "min.height", "max.height", "layer", "src", "fit", "narrow", "order", "span", "backimage", "backfit", "backdim", "blur", "glow", "text.shadow", "transition"]
+    each w in ["text", "color", "backcolor", "corner.radius", "corner.color", "corner.width", "size", "font", "align", "look", "hint", "value", "on", "min", "max", "items", "style", "accent", "width", "height", "scale", "padding", "margin", "opacity", "shadow", "visible", "cursor", "tip", "disabled", "spacing", "transform", "decoration", "wrap", "line.height", "min.width", "max.width", "min.height", "max.height", "layer", "src", "fit", "narrow", "order", "span", "backimage", "backfit", "backdim", "blur", "glow", "text.shadow", "transition", "from"]
         if w == k
             return true
     return false
@@ -423,6 +427,8 @@ func canon(key: text, val: text) gives k: text, v: text
         k = "transition"
     else if k == "z-index"
         k = "layer"
+    else if k == "extends" or k == "inherit" or k == "copy"
+        k = "from"
     else if k == "title" or k == "tooltip"
         k = "tip"
     else if k == "placeholder"
@@ -729,7 +735,8 @@ func draw_any(u: Ui, v: TbsView, it: TbsItem, x0: int, y0: int, w0: int, h0: int
         gc = color(u, gl, u.accent)
         if gl == "yes"
             gc = u.accent
-        draw_shadow(x, y, w, h, r, ui.px(u, 18), ui.alpha_of(gc, 120))
+        gx, gy, gw, gh = body_rect(u, it, x, y, w, h)
+        draw_shadow(gx, gy, gw, gh, r, ui.px(u, 18), ui.alpha_of(gc, 120))
     if sh != "" and sh != "none" and sh != "no"
         depth = 1
         if sh == "medium"
@@ -744,8 +751,11 @@ func draw_any(u: Ui, v: TbsView, it: TbsItem, x0: int, y0: int, w0: int, h0: int
         ui.shadow_under(u, x, y, w, h, r, depth)
     // blur: то, что под вещью, размывается (матовое стекло, как backdrop-filter в CSS)
     bl = num(v, it, "blur", 0)
+    if it.kind == "card" and (is_gradient(prop(v, it, "backcolor")) or alpha_of_c(color(u, prop(v, it, "backcolor"), u.panel)) >= 255)
+        bl = 0               // сплошная заливка всё равно закроет размытое
     if bl > 0
-        blur_rect(x, y, w, h, ui.px(u, bl))
+        bx2, by2, bw2, bh2 = body_rect(u, it, x, y, w, h)
+        blur_rect(bx2, by2, bw2, bh2, ui.px(u, bl))
     if it.kind == "card"
         r = ui.px(u, num(v, it, "corner.radius", 14))
         op = pct(prop(v, it, "opacity"), 100)
@@ -970,6 +980,20 @@ func screen_back(u: Ui, v: TbsView, s: TbsScreen, x: int, y: int, w: int, h: int
     if dim != ""
         a = pct(dim, 0)
         draw_rect(x, y, w, h, rgba(0, 0, 0, a * 255 / 100))
+
+// где сама вещь внутри своего места: кнопки и поля ниже клетки, они по центру по высоте
+func body_rect(u: Ui, it: TbsItem, x: int, y: int, w: int, h: int) gives bx: int, by: int, bw: int, bh: int
+    bx = x
+    by = y
+    bw = w
+    bh = h
+    k = it.kind
+    if k == "btn" or k == "field" or k == "pick" or k == "icon" or k == "tabs"
+        bh = min(h, ui.px(u, 36))
+        by = y + (h - bh) / 2
+        if k == "icon"
+            bw = bh
+            bx = x + (w - bw) / 2
 
 // рамка толщиной bw (0 — без рамки) и заливка
 func frame(u: Ui, x: int, y: int, w: int, h: int, r: int, bw: int, fill: int, border: int)
@@ -1251,20 +1275,56 @@ func prop(v: TbsView, it: TbsItem, key: text)
     return prop_raw(v, it, key)
 
 func prop_raw(v: TbsView, it: TbsItem, key: text)
-    if it.props.has(key)
-        return it.props[key]
-    if it.props.has("style")
-        name = it.props["style"]
-        each st in v.styles
-            if st.name == name and st.props.has(key)
-                return st.props[key]
+    r = own_prop(v, it, key, 0)
+    if r != ""
+        return r
     // style с именем вида (style card, style btn ...) — общие свойства всех вещей этого вида
-    each st in v.styles
-        if st.name == it.kind and st.props.has(key)
-            return st.props[key]
+    r = style_prop(v, it.kind, key, 0)
+    if r != ""
+        return r
     if v.glass
         return glass_default(it, key)
     return ""
+
+// что написано у самой вещи: её свойства, потом вещь из from:, потом её style:
+// (from: save — взять всё у вещи save и поменять только то, что написано здесь)
+func own_prop(v: TbsView, it: TbsItem, key: text, depth: int)
+    if it.props.has(key)
+        return it.props[key]
+    if depth < 8 and key != "from" and it.props.has("from")
+        src = item_by_id(v, it.props["from"])
+        if src >= 0
+            si = src / 100000
+            ii = src % 100000
+            r = own_prop(v, v.screens[si].items[ii], key, depth + 1)
+            if r != ""
+                return r
+    if key != "style"
+        name = own_prop(v, it, "style", depth)
+        if name != ""
+            return style_prop(v, name, key, 0)
+    return ""
+
+// свойство стиля; style big from btn — чего нет в big, ищется в btn
+func style_prop(v: TbsView, name: text, key: text, depth: int)
+    if depth > 8
+        return ""
+    each st in v.styles
+        if st.name == name
+            if st.props.has(key)
+                return st.props[key]
+            if st.base != "" and st.base != name
+                return style_prop(v, st.base, key, depth + 1)
+            return ""
+    return ""
+
+// вещь по имени на любом экране: номер экрана * 100000 + номер вещи, или −1
+func item_by_id(v: TbsView, id: text)
+    count si from 0 to len(v.screens) - 1
+        count ii from 0 to len(v.screens[si].items) - 1
+            if v.screens[si].items[ii].id == id
+                return si * 100000 + ii
+    return -1
 
 // стекло по умолчанию — то же, что на экране glass в примере: что не написали сами, берётся отсюда
 func glass_default(it: TbsItem, key: text)
