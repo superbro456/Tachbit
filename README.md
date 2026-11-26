@@ -215,7 +215,7 @@ func main()
 | эффекты на весь кадр | `screen_shader`, `screen_set`: свечение (bloom), сглаживание (FXAA), туман по глубине, цвет, виньетка, контур, размытие | `examples/apps/pbr_room` (клавиша X) |
 | частицы | `shaders.particles(n, "fire")`: огонь, дым, искры, фонтан, снег; десятки тысяч, считает видеокарта | `examples/apps/campfire` |
 | большие миры | `mesh_simplify`, `mesh_lod`, `mesh_far` (дальнее проще или не рисуется), отсечение невидимого само, `mesh_free`; подгрузка кусков `use stream` | `examples/apps/big_world` |
-| окна и управление | `window_new`, `window_fullscreen`, `mouse_lock`, `mouse_dx`, `mouse_dy`, геймпад `pad_*`, звук в 3D `play_sound_at` | `examples/basics/look_around.tb` |
+| окна и управление | `window_new`, `window_fullscreen`, меню системы `menu_add` `menu_pick` `menu_native`, `mouse_lock`, `mouse_dx`, `mouse_dy`, геймпад `pad_*`, звук в 3D `play_sound_at` | `examples/basics/look_around.tb` |
 
 Шейдеры пишутся на Tachbit, а компилятор сам делает из них код для видеокарты: SPIR-V для Vulkan, MSL для Metal и C для рисования на процессоре. Свет из сцены Blender не переносится, лампы ставятся в коде.
 

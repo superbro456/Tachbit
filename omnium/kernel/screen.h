@@ -195,6 +195,8 @@ TB_API void tb_gfx_show(void) {}
 TB_API void tb_gfx_close2(void) {}
 TB_API void tb_gfx_poll(void) {}
 TB_API void tb_gfx_fullscreen(int on) { (void)on; }   // экран без ОС и так целиком
+TB_API int tb_gfx_menu_native(void) { return 0; }
+TB_API int tb_gfx_menu_add(int n, const char *top, const char *item, const char *key, int mods) { (void)n; (void)top; (void)item; (void)key; (void)mods; return 0; }
 TB_API void tb_gfx_lock(int on) { (void)on; }
 TB_API int tb_gfx_open(const char *title) {
     (void)title;

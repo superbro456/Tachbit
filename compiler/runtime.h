@@ -219,6 +219,14 @@ typedef struct { char *data; long long len; long long cap; long long size; } tb_
 #else
 // ---- TB_LANG_TAB (сделано tools/embed_lang.py, не правь руками) ----
 static const char *const tb_lang_tab[] = {
+    "menu_add(\"Файл/Сохранить\", \"cmd+s\")  —  пункт в меню системы (после window_open); \"Файл/-\" — черта, \"\" — без клавиши", "menu_add(\"File/Save\", \"cmd+s\")  —  an item in the system menu (after window_open); \"File/-\" — a separator line, \"\" — no key",
+    "menu_pick()  →  какой пункт меню выбрали с прошлого раза: \"Файл/Сохранить\" (\"\" — никакой)", "menu_pick()  →  which menu item was picked since last time: \"File/Save\" (\"\" — none)",
+    "menu_native()  →  есть меню системы? (Mac и Windows — да, Linux — нет: рисуй своё)", "menu_native()  →  is there a system menu? (Mac and Windows — yes, Linux — no: draw your own)",
+    "menu_add: пункт пишется как \"Меню/Пункт\", например \"Файл/Сохранить\"", "menu_add: an item is written as \"Menu/Item\", for example \"File/Save\"",
+    "menu_add: сначала открой окно (window_open)", "menu_add: open a window first (window_open)",
+    "menu_add: больше 256 пунктов меню не бывает", "menu_add: there can't be more than 256 menu items",
+    "menu_add: клавиша «", "menu_add: key «",
+    "» — нужна одна буква, цифра или знак, например \"cmd+s\"", "» — it needs one letter, digit or sign, for example \"cmd+s\"",
     "кусок живёт только внутри своего цикла: его можно читать и менять по номеру, ходить по нему each и передавать в функцию, но нельзя сохранять, растить .add и уменьшать .pop", "a piece lives only inside its loop: you can read and change it by number, go over it with each and pass it to a function, but you cannot keep it, grow it with .add or shrink it with .pop",
     "в background функция получает только int, dec, bool, text и channel (а список — через move: f(move xs)): списки и obj могли бы меняться сразу из двух мест", "in background a function gets only int, dec, bool, text and channel (and a list via move: f(move xs)): lists and obj could be changed from two places at once",
     "внутри on all cores эта функция меняет полученный список или obj, а он снаружи цикла: собери свой список или obj внутри цикла и передай его", "inside on all cores this function changes a list or obj it got, and that one is outside the loop: make your own list or obj inside the loop and pass it",
@@ -5206,6 +5214,11 @@ TB_API void tb_wmark_closed(int i);
 TB_API double tb_mdx = 0, tb_mdy = 0;
 TB_API int tb_mlock = 0, tb_mseen = 0, tb_mwarp = 0, tb_cursor_prog = 0;
 TB_API void tb_gfx_fullscreen(int on);   // свои у каждой системы
+// меню в строке системы (1.3): Mac — верхняя строка экрана, Windows — полоса меню окна, Linux — нет
+#define TB_MENU_MAX 256
+TB_API int tb_menu_hit = 0, tb_menu_n = 0;   // hit: номер выбранного пункта + 1 (0 — ничего)
+TB_API int tb_gfx_menu_add(int id, const char *top, const char *item, const char *key, int mods);
+TB_API int tb_gfx_menu_native(void);
 TB_API void tb_gfx_lock(int on);
 // мышь в точке (x, y) окна: копим сдвиг. Захвачена — меряем от середины окна, мышь потом вернётся туда
 TB_API void tb_mouse_at(int x, int y) {
@@ -9436,6 +9449,74 @@ TB_API void tb_gfx_close2(void) {
     for (int i = 0; i < 3; i++) { free(tb_pres[i]); tb_pres[i] = 0; }
     tb_wnd = 0; tb_layer = 0;
 }
+// меню Mac в верхней строке экрана: первое меню — имя программы (Скрыть, Выйти), дальше свои
+TB_API id tb_mac_menu = 0, tb_mac_mtarget = 0;
+TB_API id tb_mac_tops[32];
+TB_API char *tb_mac_topname[32];
+TB_API int tb_mac_ntop = 0;
+TB_API void tb_mac_menu_pick(id self, SEL s, id sender) { (void)self; (void)s; tb_menu_hit = (int)TB_MSG(long, sender, "tag") + 1; }
+TB_API void tb_mac_menu_quit(id self, SEL s, id sender) { (void)self; (void)s; (void)sender; tb_wmark_closed(0); }
+TB_API id tb_mac_item(const char *title, const char *sel, const char *key) {
+    id it = TB_MSG(id, TB_CLS("NSMenuItem"), "alloc");
+    return ((id(*)(id, SEL, id, SEL, id))objc_msgSend)(it, sel_getUid("initWithTitle:action:keyEquivalent:"),
+        tb_ns_str(title), sel ? sel_getUid(sel) : (SEL)0, tb_ns_str(key));
+}
+TB_API id tb_mac_newmenu(const char *title) {
+    return TB_MSG1(id, TB_MSG(id, TB_CLS("NSMenu"), "alloc"), "initWithTitle:", id, tb_ns_str(title));
+}
+TB_API void tb_mac_menu_init(void) {
+    Class c = objc_allocateClassPair((Class)TB_CLS("NSObject"), "TachbitMenuTarget", 0);
+    class_addMethod(c, sel_getUid("tbPick:"), (IMP)tb_mac_menu_pick, "v@:@");
+    class_addMethod(c, sel_getUid("tbQuit:"), (IMP)tb_mac_menu_quit, "v@:@");
+    objc_registerClassPair(c);
+    tb_mac_mtarget = TB_MSG(id, TB_MSG(id, (id)c, "alloc"), "init");
+    tb_mac_menu = tb_mac_newmenu("");
+    id appi = tb_mac_item("", 0, "");
+    id appm = tb_mac_newmenu("");
+    int en = tb_lang_en();
+    TB_MSG1(void, appm, "addItem:", id, tb_mac_item(en ? "Hide" : "Скрыть", "hide:", "h"));
+    id quit = tb_mac_item(en ? "Quit" : "Выйти", "tbQuit:", "q");
+    TB_MSG1(void, quit, "setTarget:", id, tb_mac_mtarget);
+    TB_MSG1(void, appm, "addItem:", id, TB_MSG(id, TB_CLS("NSMenuItem"), "separatorItem"));
+    TB_MSG1(void, appm, "addItem:", id, quit);
+    TB_MSG1(void, appi, "setSubmenu:", id, appm);
+    TB_MSG1(void, tb_mac_menu, "addItem:", id, appi);
+    TB_MSG1(void, tb_nsapp, "setMainMenu:", id, tb_mac_menu);
+}
+TB_API int tb_gfx_menu_native(void) { return 1; }
+TB_API int tb_gfx_menu_add(int n, const char *top, const char *item, const char *key, int mods) {
+    if (!tb_nsapp) return 0;
+    if (!tb_mac_menu) tb_mac_menu_init();
+    int t = 0;
+    while (t < tb_mac_ntop && strcmp(tb_mac_topname[t], top) != 0) t++;
+    if (t == tb_mac_ntop) {
+        if (t == 32) return 0;
+        id sub = tb_mac_newmenu(top);
+        id ti = tb_mac_item(top, 0, "");
+        TB_MSG1(void, ti, "setSubmenu:", id, sub);
+        TB_MSG1(void, tb_mac_menu, "addItem:", id, ti);
+        tb_mac_tops[t] = sub;
+        tb_mac_topname[t] = strdup(top);
+        tb_mac_ntop++;
+    }
+    if (strcmp(item, "-") == 0) {
+        TB_MSG1(void, tb_mac_tops[t], "addItem:", id, TB_MSG(id, TB_CLS("NSMenuItem"), "separatorItem"));
+        return 1;
+    }
+    id it = tb_mac_item(item, "tbPick:", key);
+    TB_MSG1(void, it, "setTarget:", id, tb_mac_mtarget);
+    TB_MSG1(void, it, "setTag:", long, (long)n);
+    if (key[0]) {
+        unsigned long m = 0;
+        if (mods & 1) m |= 1UL << 20;   // Command
+        if (mods & 2) m |= 1UL << 17;   // Shift
+        if (mods & 4) m |= 1UL << 19;   // Option
+        if (mods & 8) m |= 1UL << 18;   // Control
+        TB_MSG1(void, it, "setKeyEquivalentModifierMask:", unsigned long, m);
+    }
+    TB_MSG1(void, tb_mac_tops[t], "addItem:", id, it);
+    return 1;
+}
 // полный экран Mac: своё пространство на весь экран (как зелёная кнопка окна)
 TB_API void tb_gfx_fullscreen(int on) {
     TB_MSG1(void, tb_wnd, "setCollectionBehavior:", unsigned long, 1UL << 7);
@@ -9524,6 +9605,9 @@ TB_API void tb_gfx_events(void) {
             tb_mdx += TB_MSG(double, ev, "deltaX") * tb_sc;
             tb_mdy += TB_MSG(double, ev, "deltaY") * tb_sc;
         }
+        // Cmd+клавиша из меню: пункт выбирается, программе клавиша не идёт
+        if (t == 10 && tb_mac_menu && (TB_MSG(unsigned long, ev, "modifierFlags") & ((1UL << 20) | (1UL << 18)))
+            && TB_MSG1(BOOL, tb_mac_menu, "performKeyEquivalent:", id, ev)) continue;
         if (t == 10 || t == 11) {
             unsigned short k = TB_MSG(unsigned short, ev, "keyCode");
             if (k < 128 && tb_mac_keys[k]) { tb_keys[tb_mac_keys[k]] = t == 10; if (t == 10) tb_ktap[tb_mac_keys[k]] = 1; }
@@ -9600,8 +9684,16 @@ static LRESULT tb_win_proc_in(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_SETCURSOR:   // над окном — курсор, который выбрала программа (set_cursor)
         if (LOWORD(lp) == HTCLIENT) { tb_gfx_cursor(tb_win_cur); return TRUE; }
         break;
+    case WM_COMMAND:   // пункт меню
+        if (HIWORD(wp) == 0 && LOWORD(wp) >= 1000) { tb_menu_hit = LOWORD(wp) - 1000 + 1; return 0; }
+        break;
     case WM_KEYDOWN: case WM_SYSKEYDOWN: case WM_KEYUP: case WM_SYSKEYUP: {
         int k = tb_win_key(wp);
+        if (msg == WM_KEYDOWN && k && GetKeyState(VK_CONTROL) < 0)
+            for (int i = 0; i < tb_menu_n && i < TB_MENU_MAX; i++) {
+                int m = tb_wmmods[i];
+                if (tb_wmkey[i] == k && ((m & 2) != 0) == (GetKeyState(VK_SHIFT) < 0) && ((m & 4) != 0) == (GetKeyState(VK_MENU) < 0)) { tb_menu_hit = i + 1; return 0; }
+            }
         if (k) { tb_keys[k] = msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN; if (tb_keys[k]) tb_ktap[k] = 1; }
         if (wp != VK_F4) return 0;   // Alt+F4 пусть закрывает окно
         break;
@@ -9709,6 +9801,46 @@ TB_API int tb_gfx_open2(const char *title) {
 TB_API void tb_gfx_show(void) { HDC dc = GetDC(tb_hwnd); if (dc) { tb_win_blit(dc); ReleaseDC(tb_hwnd, dc); } }
 TB_API void tb_gfx_close2(void) { DestroyWindow(tb_hwnd); tb_hwnd = 0; }
 TB_API void tb_gfx_poll(void) {}
+// меню Windows: полоса меню у окна; Ctrl+клавиша выбирает пункт (как Cmd на Mac)
+TB_API HMENU tb_wmenu = 0;
+TB_API HMENU tb_wtops[32];
+TB_API char *tb_wtopname[32];
+TB_API int tb_wntop = 0, tb_wmkey[TB_MENU_MAX], tb_wmmods[TB_MENU_MAX];
+TB_API int tb_gfx_menu_native(void) { return 1; }
+TB_API int tb_gfx_menu_add(int n, const char *top, const char *item, const char *key, int mods) {
+    if (!tb_hwnd) return 0;
+    if (!tb_wmenu) tb_wmenu = CreateMenu();
+    int t = 0;
+    while (t < tb_wntop && strcmp(tb_wtopname[t], top) != 0) t++;
+    if (t == tb_wntop) {
+        if (t == 32) return 0;
+        tb_wtops[t] = CreatePopupMenu();
+        wchar_t *w = tb_wide(top);
+        AppendMenuW(tb_wmenu, MF_POPUP, (UINT_PTR)tb_wtops[t], w);
+        free(w);
+        tb_wtopname[t] = strdup(top);
+        tb_wntop++;
+    }
+    if (strcmp(item, "-") == 0) AppendMenuW(tb_wtops[t], MF_SEPARATOR, 0, 0);
+    else {
+        char label[400];
+        snprintf(label, sizeof label, "%s%s%s%s%s%s", item, key[0] ? "\t" : "", key[0] && (mods & 9) ? "Ctrl+" : "",
+            key[0] && (mods & 2) ? "Shift+" : "", key[0] && (mods & 4) ? "Alt+" : "", key);
+        if (key[0]) for (char *c = label + strlen(item) + 1; *c; c++) if (*c >= 'a' && *c <= 'z' && (c[1] == 0)) *c -= 32;
+        wchar_t *w = tb_wide(label);
+        AppendMenuW(tb_wtops[t], MF_STRING, 1000 + n, w);
+        free(w);
+        if (n < TB_MENU_MAX) {
+            int k = (unsigned char)key[0];
+            if (k >= 'a' && k <= 'z') k -= 32;
+            tb_wmkey[n] = key[1] ? 0 : k;   // только одна буква или знак
+            tb_wmmods[n] = mods;
+        }
+    }
+    SetMenu(tb_hwnd, tb_wmenu);
+    DrawMenuBar(tb_hwnd);
+    return 1;
+}
 // полный экран: окно без рамки размером с монитор; назад — прежние рамка и место
 TB_API void tb_gfx_fullscreen(int on) {
     static WINDOWPLACEMENT wp;
@@ -9876,6 +10008,9 @@ TB_API void tb_gfx_close2(void) {
     XFlush(tb_dpy);
 }
 TB_API void tb_gfx_poll(void) {}
+// у X11 нет общей строки меню: программа рисует своё (menu_native() — false)
+TB_API int tb_gfx_menu_native(void) { return 0; }
+TB_API int tb_gfx_menu_add(int n, const char *top, const char *item, const char *key, int mods) { (void)n; (void)top; (void)item; (void)key; (void)mods; return 0; }
 // полный экран: просим менеджер окон (_NET_WM_STATE_FULLSCREEN); без менеджера (голый X) — растягиваем сами
 TB_API void tb_gfx_fullscreen(int on) {
     static int saved_w = 0, saved_h = 0;
@@ -13133,6 +13268,52 @@ TB_API void tb_set_cursor(const char *name, int line) {
     snprintf(buf, sizeof buf, "set_cursor: нет курсора «%s»; есть arrow, hand, text, move, resize_x, resize_y, wait, none", name);
     tb_crash(line, buf);
 }
+// меню системы (1.3): menu_add("Файл/Сохранить", "cmd+s"), выбранный пункт — menu_pick()
+TB_API char *tb_menu_path[TB_MENU_MAX];
+TB_API void tb_menu_add(const char *path, const char *keys, int line) {
+    if (!tb_px) tb_crash(line, "menu_add: сначала открой окно (window_open)");
+    const char *sl = strchr(path, '/');
+    if (!sl || sl == path || !sl[1]) tb_crash(line, "menu_add: пункт пишется как \"Меню/Пункт\", например \"Файл/Сохранить\"");
+    if (tb_menu_n >= TB_MENU_MAX) tb_crash(line, "menu_add: больше 256 пунктов меню не бывает");
+    size_t tl = (size_t)(sl - path);
+    char top[200], key[32] = "";
+    if (tl >= sizeof top) tl = sizeof top - 1;
+    memcpy(top, path, tl); top[tl] = 0;
+    // клавиши: "cmd+shift+s" — cmd (Command на Mac, Ctrl на Windows), shift, alt, ctrl и одна клавиша в конце
+    int mods = 0;
+    const char *p = keys;
+    while (*p) {
+        const char *e = strchr(p, '+');
+        if (e == p) e = 0;   // сама клавиша «+»
+        size_t n = e ? (size_t)(e - p) : strlen(p);
+        if (n == 3 && strncmp(p, "cmd", 3) == 0) mods |= 1;
+        else if (n == 5 && strncmp(p, "shift", 5) == 0) mods |= 2;
+        else if (n == 3 && strncmp(p, "alt", 3) == 0) mods |= 4;
+        else if (n == 4 && strncmp(p, "ctrl", 4) == 0) mods |= 8;
+        else { if (n >= sizeof key) n = sizeof key - 1; memcpy(key, p, n); key[n] = 0; }
+        if (!e) break;
+        p = e + 1;
+    }
+    if (key[0] && key[1]) {
+        char buf[200];
+        snprintf(buf, sizeof buf, "menu_add: клавиша «%s» — нужна одна буква, цифра или знак, например \"cmd+s\"", key);
+        tb_crash(line, buf);
+    }
+    if (key[0] && !mods) mods = 1;
+    int n = tb_menu_n++;
+    tb_menu_path[n] = strdup(path);
+    tb_gfx_menu_add(n, top, sl + 1, key, mods);
+}
+TB_API const char *tb_menu_pick(void) {
+    if (!tb_menu_hit) return "";
+    int i = tb_menu_hit - 1;
+    tb_menu_hit = 0;
+    size_t n = strlen(tb_menu_path[i]);
+    char *s = tb_tmem(n + 1);
+    memcpy(s, tb_menu_path[i], n + 1);
+    return s;
+}
+TB_API int tb_menu_native(void) { return tb_gfx_menu_native(); }
 #endif
 // ---------- для файла .ll (TB_LL): библиотека видна снаружи через tb_x_* ----------
 // Сама библиотека — static: так её лучше встраивать. Эти обёртки — её «дверь» для LLVM.
@@ -13952,6 +14133,9 @@ TB_B(const char *, typed_text, (int line), tb_typed_text())
 TB_B(const char *, clipboard_get, (int line), tb_clipboard_get())
 TB_BV(clipboard_set, (const char *s, int line), tb_clipboard_set(s))
 TB_BV(set_cursor, (const char *s, int line), tb_set_cursor(s, line))
+TB_BV(menu_add, (const char *p, const char *k, int line), tb_menu_add(p, k, line))
+TB_B(const char *, menu_pick, (int line), tb_menu_pick())
+TB_B(_Bool, menu_native, (int line), tb_menu_native())
 TB_BV(window_sharp, (int line), tb_window_sharp())
 TB_B(double, window_scale, (int line), tb_window_scale())
 TB_B(double, frame_ms, (int line), tb_frame_ms())
