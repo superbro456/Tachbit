@@ -309,10 +309,19 @@ func item(v: TbsView, s: TbsScreen, body: text, ind: int, n: int)
         oops(v, n, "перед скобкой нужен вид вещи: btn, text, field ...")
         return -1
     kind = head[0]
+    // свой вид из стиля, как obj в .tb: style pill from btn — и дальше пишешь «pill save (A1)»
+    parent = ""
     if not known(kind)
-        oops(v, n, "такой вещи нет: " + kind + " (есть title, heading, subtitle, text, note, caps, code, chip, btn, link, icon, field, area, switch, check, slider, pick, tabs, card, line, image)")
+        base = kind_of_style(v, kind, 0)
+        if base != ""
+            parent = kind
+            kind = base
+    if not known(kind)
+        oops(v, n, "такой вещи нет: " + kind + " (есть title, heading, subtitle, text, note, caps, code, chip, btn, link, icon, field, area, switch, check, slider, pick, tabs, card, line, image — или свой: style имя from btn)")
         return -1
     it = TbsItem(kind: kind, ind: ind, line: n + 1, mode: "cell")
+    if parent != ""
+        it.props["style"] = parent
     if len(head) >= 2
         it.id = head[1]
     if where == ""
@@ -1303,6 +1312,19 @@ func own_prop(v: TbsView, it: TbsItem, key: text, depth: int)
         name = own_prop(v, it, "style", depth)
         if name != ""
             return style_prop(v, name, key, 0)
+    return ""
+
+// стиль как свой вид вещи: style pill from btn → btn (цепочка стилей до настоящего вида)
+func kind_of_style(v: TbsView, name: text, depth: int)
+    if depth > 8
+        return ""
+    each st in v.styles
+        if st.name == name
+            if st.base == ""
+                return ""
+            if known(st.base)
+                return st.base
+            return kind_of_style(v, st.base, depth + 1)
     return ""
 
 // свойство стиля; style big from btn — чего нет в big, ищется в btn
