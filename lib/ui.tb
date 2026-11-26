@@ -128,6 +128,9 @@ obj Ui
     raised: int          // приподнятое: обычная кнопка, выбранная вкладка, всплывающий список
     fieldbg: int         // фон поля ввода
     faint: int           // совсем бледное: выключенная кнопка
+    serif: int           // шрифт с засечками (PT Serif)
+    display: int         // шрифт для заголовков (Montserrat Bold)
+    fonts: dict text int // шрифты по имени (ui.font_named): имя → номер, −1 — не нашли
     glass: bool          // стеклянный вид (ui.glass): полупрозрачные панели поверх картинки
     libdir: text         // где лежит библиотека (шрифты, картинки фона)
     boxes: list Box      // раскладка: вложенные ряды и столбцы, последний — текущий
@@ -145,7 +148,7 @@ obj Box
     rev: bool            // после ui.at_end: куски идут с конца (справа налево, снизу вверх)
 
 modpub func start() gives u: Ui
-    u = Ui(active: "", font: -1, bold: -1, mono: -1, k: 1.0, pop_pick: -1, win_i: -1, cursor_now: "arrow", calm_fps: 10)
+    u = Ui(active: "", font: -1, bold: -1, mono: -1, serif: -1, display: -1, k: 1.0, pop_pick: -1, win_i: -1, cursor_now: "arrow", calm_fps: 10)
     if window_scale() > 1.0
         u.k = window_scale()
     u.fs = px(u, 14)
@@ -162,6 +165,8 @@ modpub func start() gives u: Ui
             u.font = font_or(d + "/fonts/Inter-Regular.ttf")
             u.bold = font_or(d + "/fonts/Inter-SemiBold.ttf")
             u.mono = font_or(d + "/fonts/JetBrainsMono-Regular.ttf")
+            u.serif = font_or(d + "/fonts/PTSerif-Regular.ttf")
+            u.display = font_or(d + "/fonts/Montserrat-Bold.ttf")
             u.libdir = d
     // свой шрифт можно дать в TB_UI_FONT или потом ui.use_font(u, "шрифт.ttf")
     if env("TB_UI_FONT") != "" and file_exists(env("TB_UI_FONT"))
@@ -187,6 +192,78 @@ modpub func start() gives u: Ui
         u.mono = u.font
     u.busy_ms = time_ms()
     dark(u)
+
+// шрифт по имени: "serif", "display", "mono", "bold", "regular", файл "fonts/My.ttf"
+// или шрифт, что стоит в системе: "Georgia", "Arial", "Times New Roman" (можно списком: "Georgia, serif")
+modpub func font_named(u: Ui, name: text)
+    n = trim(name)
+    if u.fonts.has(n)
+        return u.fonts[n]
+    f = -1
+    each part in split(n, ",")
+        if f < 0
+            f = font_one(u, trim(replace(replace(part, "\"", ""), "'", "")))
+    if f < 0
+        f = u.font
+    u.fonts[n] = f
+    return f
+
+func font_one(u: Ui, name: text)
+    w = lower(name)
+    if w == "" or w == "regular" or w == "sans" or w == "sans-serif" or w == "system-ui"
+        return u.font
+    if w == "bold"
+        return u.bold
+    if w == "mono" or w == "monospace"
+        return u.mono
+    if w == "serif"
+        if u.serif >= 0
+            return u.serif
+        return u.font
+    if w == "display" or w == "heading"
+        if u.display >= 0
+            return u.display
+        return u.bold
+    if ends_with(w, ".ttf") or ends_with(w, ".ttc") or ends_with(w, ".otf")
+        if file_exists(name)
+            return font_or(name)
+        return -1
+    // поиск в папках шрифтов системы: имя файла без пробелов, «Times New Roman» → TimesNewRoman / Times New Roman.ttf
+    key = replace(replace(replace(w, " ", ""), "-", ""), "_", "")
+    home = env("HOME")
+    if home == ""
+        home = env("USERPROFILE")
+    dirs = ["/System/Library/Fonts", "/System/Library/Fonts/Supplemental", "/Library/Fonts", home + "/Library/Fonts", "C:/Windows/Fonts", home + "/.fonts", home + "/.local/share/fonts", "/usr/share/fonts"]
+    // в Linux шрифты лежат по подпапкам: /usr/share/fonts/truetype/dejavu
+    more = list text
+    each d in dirs
+        if is_folder(d)
+            more.add(d)
+            subs = list_dir(d) else err
+                subs = list text
+            each s1 in subs
+                if ends_with(s1, "/")
+                    more.add(d + "/" + cut(s1, 0, len(s1) - 2))
+                    subs2 = list_dir(d + "/" + cut(s1, 0, len(s1) - 2)) else err
+                        subs2 = list text
+                    each s2 in subs2
+                        if ends_with(s2, "/")
+                            more.add(d + "/" + cut(s1, 0, len(s1) - 2) + "/" + cut(s2, 0, len(s2) - 2))
+    best = ""
+    each d in more
+        files = list_dir(d) else err
+            files = list text
+        each fl in files
+            lf = lower(fl)
+            if ends_with(lf, ".ttf") or ends_with(lf, ".ttc")
+                base = replace(replace(replace(cut(lf, 0, len(lf) - 5), " ", ""), "-", ""), "_", "")
+                if base == key or base == key + "regular" or base == key + "mt"
+                    return font_or(d + "/" + fl)
+                if best == "" and starts_with(base, key)
+                    best = d + "/" + fl
+    if best != ""
+        return font_or(best)
+    return -1
 
 // шрифт из файла или −1, если не вышло
 func font_or(path: text)

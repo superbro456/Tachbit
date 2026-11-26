@@ -89,6 +89,7 @@ obj TbsView
 
 // цвета и размеры ui, которые вещь меняет на время своего рисования
 obj TbsKeep
+    font: int
     panel: int
     hover: int
     sel: int
@@ -402,10 +403,8 @@ func canon(key: text, val: text) gives k: text, v: text
             v = "regular"
     else if k == "font-family"
         k = "font"
-        if find(lower(v), "mono") >= 0 or find(lower(v), "courier") >= 0
+        if lower(trim(v)) == "monospace"
             v = "mono"
-        else
-            v = "regular"
     else if k == "text-align"
         k = "align"
     else if k == "letter-spacing"
@@ -1419,9 +1418,10 @@ func yes(s: text)
 
 // на время рисования вещи её свойства становятся цветами и размерами ui, потом всё возвращается
 func keep(u: Ui) gives k: TbsKeep
-    k = TbsKeep(panel: u.panel, hover: u.hover, sel: u.sel, glass: u.glass, ink: u.ink, dim: u.dim, accent: u.accent, on_accent: u.on_accent, raised: u.raised, fieldbg: u.fieldbg, line: u.line, red: u.red, radius: u.radius, fs: u.fs, bold: u.bold, k: u.k, line_h: u.line_h)
+    k = TbsKeep(font: u.font, panel: u.panel, hover: u.hover, sel: u.sel, glass: u.glass, ink: u.ink, dim: u.dim, accent: u.accent, on_accent: u.on_accent, raised: u.raised, fieldbg: u.fieldbg, line: u.line, red: u.red, radius: u.radius, fs: u.fs, bold: u.bold, k: u.k, line_h: u.line_h)
 
 func restore(u: Ui, k: TbsKeep)
+    u.font = k.font
     u.panel = k.panel
     u.hover = k.hover
     u.sel = k.sel
@@ -1471,8 +1471,15 @@ func apply(u: Ui, v: TbsView, it: TbsItem, look: text)
         u.radius = ui.px(u, num(v, it, "corner.radius", 10))
     if prop(v, it, "size") != ""
         u.fs = ui.px(u, num(v, it, "size", 14))
-    if prop(v, it, "font") == "regular"
+    fnt = prop(v, it, "font")
+    if fnt == "regular"
         u.bold = u.font
+    else if fnt != "" and fnt != "bold"
+        // свой шрифт: serif, display, mono, файл .ttf или шрифт системы по имени
+        fid = ui.font_named(u, fnt)
+        if fid >= 0
+            u.font = fid
+            u.bold = fid
     op = pct(prop(v, it, "opacity"), 100)
     if op < 100
         // настоящая прозрачность: сквозь вещь видно фон и картинку под ней
@@ -1722,6 +1729,8 @@ func draw_text_item(u: Ui, v: TbsView, it: TbsItem, x: int, y: int, w: int, h: i
         f = u.mono
     else if fn == "regular"
         f = u.font
+    else if fn != ""
+        f = ui.font_named(u, fn)
     if prop(v, it, "size") != ""
         size = ui.px(u, num(v, it, "size", 14))
     tr = prop(v, it, "transform")
