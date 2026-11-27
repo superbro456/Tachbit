@@ -1,6 +1,9 @@
-# Делает platform_1,3,4,5.vox из platform_2.vox: python3 make_levels.py platform_2.vox . (нужен iso.py для картинок — не обязателен)
+# Делает platform_1,3,4,5.vox (и картинки p1..p5.png) из platform_2.vox:
+#   python3 make_levels.py platform_2.vox папка_для_файлов
+# iso.py рядом — читает .vox и рисует картинку (нужен Pillow)
 import struct,sys
-sys.path.insert(0,'/tmp/claude-0/vr')
+import os
+sys.path.insert(0,os.path.dirname(os.path.abspath(__file__)))
 from iso import load,render
 src,out=sys.argv[1],sys.argv[2]
 v,pal,size=load(src)
