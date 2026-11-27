@@ -18,7 +18,7 @@ func main()
     barrels = list int
     each n in [1, 2, 3, 4, 5]
         md = try model.load(folder() + "models/cannon_" + n + ".vox")
-        model.fit(md, 1.6)
+        model.fit(md, 1.6 * anim3d.level_size(n))
         model.separate(md)
         model.build(md)
         mds.add(md)

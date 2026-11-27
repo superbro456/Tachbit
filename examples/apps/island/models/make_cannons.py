@@ -1,4 +1,4 @@
-# Собирает пушку 1–5: python3 make_cannons.py platform_N.vox pushka.vox cannon_N.vox N  (части: platform стоит, lafet крутится, stvol наклоняется)
+# Собирает пушку 1–5: python3 make_cannons.py platform_N.vox pushka_parts.vox cannon_N.vox N  (части: platform стоит, lafet крутится, stvol наклоняется)
 import struct,sys,os
 sys.path.insert(0,os.path.dirname(os.path.abspath(__file__)))
 from iso import load,render
@@ -11,24 +11,55 @@ def to_plat_pal(c):
     rgb=gpal[c-1]
     if rgb in pal: return pal.index(rgb)+1
     return min(range(255),key=lambda i:sum((a-b)**2 for a,b in zip(pal[i],rgb)))+1
-GOLD=110
-main={1:253,2:198,3:GOLD,4:215,5:17}[level]
-ring={1:251,2:GOLD,3:GOLD,4:GOLD,5:GOLD}[level]
+GOLD=110;BLUE=198;AME=209;AME_L=213;RED=17;DGR=253;GREY=251
 top=max(z for x,y,z,c in pv if abs(x-19)<=2 and abs(y-20)<=2)
 dz=top+1-10
-lafet=[(x+11,y,z+dz,to_plat_pal(c)) for x,y,z,c in gv if x<=11]
-lafet=[(x,y,z,main if c==GOLD else c) for x,y,z,c in lafet]
+def h(x,y,z):return (x*73856093^y*19349663^z*83492791)&0xffff
+def paint_lafet(x,y,z,c):
+    zb=z-10  # 0..5 inside the bracket
+    if level==1: return {GOLD:DGR}.get(c,c)
+    if level==2:
+        if c==GOLD and zb in (2,3): return BLUE
+        return {GREY:BLUE}.get(c,c)
+    if level==3:
+        if c==GOLD:
+            r=h(x,y,z)%5
+            if zb in (2,3): return BLUE if r>1 else AME
+            return AME if r==0 else (AME_L if r==1 else GOLD)
+        return {GREY:AME}.get(c,c)
+    if c==GOLD:
+        if zb in (0,5): return GOLD
+        if level==5 and zb in (2,3) and h(x,y,z)%3==0: return AME
+        return RED
+    return {GREY:GOLD}.get(c,c)
+def paint_stvol(x,y,z,c):
+    if c==GOLD: return {1:GREY}.get(level,GOLD)
+    if c==GREY: return {1:GREY,2:BLUE,3:AME,4:RED,5:RED}[level]
+    return c
+lafet=[(x+11,y,z+dz,to_plat_pal(paint_lafet(x,y,z,c))) for x,y,z,c in gv if x<=11]
 raw=[(38-x,34-y,z,c) for x,y,z,c in gv if x>=17]
-extra={1:-1,2:0,3:0,4:1,5:2}[level]
-# lengthen/shorten barrel at the plain part y 20..22 (front of middle ring)
+extra={1:-1,2:0,3:0,4:1,5:1}[level]
 st=[]
 for x,y,z,c in raw:
     if y>=21: st.append((x,y+extra,z,c))
     elif y<21+min(extra,0) : st.append((x,y,z,c))
     if extra>0 and y==20:
         for k in range(1,extra+1): st.append((x,y+k,z,c))
-stvol=[(x,y+4,z+dz,to_plat_pal(c)) for x,y,z,c in st]
-stvol=[(x,y,z,ring if c==GOLD else c) for x,y,z,c in stvol]
+stvol=[(x,y+4,z+dz,to_plat_pal(paint_stvol(x,y,z,c))) for x,y,z,c in st]
+def scale(vs,k,ox,oy,oz):
+    src={(x,y,z):c for x,y,z,c in vs}
+    xs=[v[0] for v in vs];ys=[v[1] for v in vs];zs=[v[2] for v in vs]
+    out=[]
+    import math
+    for X in range(math.floor(ox+(min(xs)-ox)*k)-1,math.ceil(ox+(max(xs)+1-ox)*k)+1):
+        for Y in range(math.floor(oy+(min(ys)-oy)*k)-1,math.ceil(oy+(max(ys)+1-oy)*k)+1):
+            for Z in range(oz,math.ceil(oz+(max(zs)+1-oz)*k)+1):
+                q=(math.floor(ox+(X+0.5-ox)/k),math.floor(oy+(Y+0.5-oy)/k),math.floor(oz+(Z+0.5-oz)/k))
+                if q in src and 0<=X<40 and 0<=Y<40 and 0<=Z<40: out.append((X,Y,Z,src[q]))
+    return out
+if False:
+    k=1.5;ox,oy,oz=19.5,20.5,top+1
+    lafet=scale(lafet,k,ox,oy,oz);stvol=scale(stvol,k,ox,oy,oz)
 def i32(n):return struct.pack('<i',n)
 def txt(s):b=s.encode();return i32(len(b))+b
 def dic(d):return i32(len(d))+b''.join(txt(k)+txt(v) for k,v in d.items())

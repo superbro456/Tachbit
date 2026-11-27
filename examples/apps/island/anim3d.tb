@@ -64,3 +64,12 @@ modpub func draw_cannon(md: Model, base: int, barrel: int, x: dec, z: dec, yaw: 
 // наклон ствола к цели на расстоянии dist (клеток): ближе — ниже, дальше — выше
 modpub func aim_tilt(dist: dec)
     return 10.0 - min(dist, 4.0) * 7.0
+
+// размер модели по уровню (1–5): 4-й крупнее, 5-й ещё крупнее. Блоки в .vox ровные, растёт вся модель целиком:
+//   model.fit(md, 1.6 * anim3d.level_size(lvl))
+modpub func level_size(lvl: int)
+    if lvl >= 5
+        return 1.5
+    if lvl == 4
+        return 1.25
+    return 1.0
