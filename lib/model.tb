@@ -22,6 +22,11 @@
 obj Part
     name: text
     color: int
+    // model.separate: углы куска считаются от его оси (px, py, pz), чтобы кусок крутился сам по себе
+    apart: bool
+    px: dec
+    py: dec
+    pz: dec
     image_file: text
     image: int
     pos: list dec          // по 9 чисел на треугольник
@@ -195,9 +200,161 @@ modpub func build(md: Model)
 
 // нарисовать модель в точке мира, повёрнутой как draw_mesh_rot
 modpub func draw(md: Model, x: dec, y: dec, z: dec, yaw: dec, pitch: dec, roll: dec)
+    r = list dec
     each p in md.parts
-        if p.mesh >= 0
+        if p.mesh < 0
+            skip
+        if p.apart
+            if len(r) == 0
+                r = rot_matrix(yaw, pitch, roll)
+            draw_mesh_rot(p.mesh, x + r[0] * p.px + r[1] * p.py + r[2] * p.pz, y + r[3] * p.px + r[4] * p.py + r[5] * p.pz, z + r[6] * p.px + r[7] * p.py + r[8] * p.pz, yaw, pitch, roll)
+        else
             draw_mesh_rot(p.mesh, x, y, z, yaw, pitch, roll)
+
+// ---------- части, которые двигаются сами (башенка, ствол, меч) ----------
+//   model.separate(md)                       — после fit / scale, до build: у каждого куска своя ось (его середина)
+//   i = model.part(md, "stvol")           — номер куска по имени (из MagicaVoxel / glTF / usemtl), -1 — нет
+//   model.draw_part(md, i, x, y, z, yaw, pitch, roll, turn, tilt, back)
+//       — кусок i, когда вся модель стоит в (x, y, z) с поворотом yaw / pitch / roll;
+//         сам кусок ещё повёрнут вокруг своей оси на turn (вбок) и tilt (вверх-вниз)
+//         и сдвинут назад вдоль себя на back (отдача пушки)
+//   model.draw_part_on(md, i, parent, ...) — то же, но поворот turn — вокруг оси куска parent (ствол на подставке)
+//   model.draw_except(md, skip_parts, ...) — всё остальное (то, что не крутится отдельно)
+
+modpub func separate(md: Model)
+    each p in md.parts
+        if p.apart or len(p.pos) == 0
+            skip
+        lx = 1000000000000.0
+        ly = 1000000000000.0
+        lz = 1000000000000.0
+        hx = -1000000000000.0
+        hy = -1000000000000.0
+        hz = -1000000000000.0
+        i = 0
+        repeat while i < len(p.pos)
+            lx = min(lx, p.pos[i])
+            hx = max(hx, p.pos[i])
+            ly = min(ly, p.pos[i + 1])
+            hy = max(hy, p.pos[i + 1])
+            lz = min(lz, p.pos[i + 2])
+            hz = max(hz, p.pos[i + 2])
+            i += 3
+        p.px = (lx + hx) / 2
+        p.py = (ly + hy) / 2
+        p.pz = (lz + hz) / 2
+        i = 0
+        repeat while i < len(p.pos)
+            p.pos[i] = p.pos[i] - p.px
+            p.pos[i + 1] = p.pos[i + 1] - p.py
+            p.pos[i + 2] = p.pos[i + 2] - p.pz
+            i += 3
+        p.apart = true
+
+// своя ось куска (в осях модели); двигать её можно после separate, до build
+modpub func set_pivot(md: Model, i: int, x: dec, y: dec, z: dec)
+    if i < 0 or i >= len(md.parts)
+        return
+    p = md.parts[i]
+    if not p.apart
+        return
+    dx = p.px - x
+    dy = p.py - y
+    dz = p.pz - z
+    count k from 0 to len(p.pos) / 3 - 1
+        p.pos[k * 3] = p.pos[k * 3] + dx
+        p.pos[k * 3 + 1] = p.pos[k * 3 + 1] + dy
+        p.pos[k * 3 + 2] = p.pos[k * 3 + 2] + dz
+    p.px = x
+    p.py = y
+    p.pz = z
+
+modpub func part(md: Model, name: text)
+    count i from 0 to len(md.parts) - 1
+        if md.parts[i].name == name
+            return i
+    return -1
+
+modpub func part_names(md: Model) gives names: list text
+    each p in md.parts
+        names.add(p.name)
+
+modpub func draw_part(md: Model, i: int, x: dec, y: dec, z: dec, yaw: dec, pitch: dec, roll: dec, turn: dec, tilt: dec, back: dec)
+    if i < 0 or i >= len(md.parts)
+        return
+    p = md.parts[i]
+    if p.mesh < 0
+        return
+    r = rot_matrix(yaw, pitch, roll)
+    q = rot_matrix(turn, tilt, 0.0)
+    m = mul3(r, q)
+    // сдвиг назад вдоль куска: его -z после поворота
+    ox = p.px - q[2] * back
+    oy = p.py - q[5] * back
+    oz = p.pz - q[8] * back
+    wx = x + r[0] * ox + r[1] * oy + r[2] * oz
+    wy = y + r[3] * ox + r[4] * oy + r[5] * oz
+    wz = z + r[6] * ox + r[7] * oy + r[8] * oz
+    a, b, c = euler_of(m)
+    draw_mesh_rot(p.mesh, wx, wy, wz, a, b, c)
+
+// кусок i сидит на куске parent (ствол на подставке): поворот turn — вокруг оси parent,
+// наклон tilt — вокруг своей оси, back — назад вдоль себя
+modpub func draw_part_on(md: Model, i: int, parent: int, x: dec, y: dec, z: dec, yaw: dec, pitch: dec, roll: dec, turn: dec, tilt: dec, back: dec)
+    if i < 0 or i >= len(md.parts) or parent < 0 or parent >= len(md.parts)
+        draw_part(md, i, x, y, z, yaw, pitch, roll, turn, tilt, back)
+        return
+    p = md.parts[i]
+    pa = md.parts[parent]
+    if p.mesh < 0
+        return
+    r = rot_matrix(yaw, pitch, roll)
+    t = rot_matrix(turn, 0.0, 0.0)
+    q = rot_matrix(turn, tilt, 0.0)
+    dx = p.px - pa.px
+    dy = p.py - pa.py
+    dz = p.pz - pa.pz
+    ox = pa.px + t[0] * dx + t[1] * dy + t[2] * dz - q[2] * back
+    oy = pa.py + t[3] * dx + t[4] * dy + t[5] * dz - q[5] * back
+    oz = pa.pz + t[6] * dx + t[7] * dy + t[8] * dz - q[8] * back
+    wx = x + r[0] * ox + r[1] * oy + r[2] * oz
+    wy = y + r[3] * ox + r[4] * oy + r[5] * oz
+    wz = z + r[6] * ox + r[7] * oy + r[8] * oz
+    a, b, c = euler_of(mul3(r, q))
+    draw_mesh_rot(p.mesh, wx, wy, wz, a, b, c)
+
+// нарисовать всё, кроме кусков с номерами из skip (их рисуют draw_part)
+modpub func draw_except(md: Model, skip_parts: list int, x: dec, y: dec, z: dec, yaw: dec, pitch: dec, roll: dec)
+    count i from 0 to len(md.parts) - 1
+        hidden = false
+        each k in skip_parts
+            if k == i
+                hidden = true
+        if hidden
+            skip
+        draw_part(md, i, x, y, z, yaw, pitch, roll, 0.0, 0.0, 0.0)
+
+// поворот как у draw_mesh_rot: R = Y(yaw) · P(pitch) · Q(roll), по строкам
+func rot_matrix(yaw: dec, pitch: dec, roll: dec) gives r: list dec
+    a = yaw * pi() / 180
+    b = pitch * pi() / 180
+    c = roll * pi() / 180
+    y = [cos(a), 0.0, sin(a), 0.0, 1.0, 0.0, -sin(a), 0.0, cos(a)]
+    p = [1.0, 0.0, 0.0, 0.0, cos(b), -sin(b), 0.0, sin(b), cos(b)]
+    q = [cos(c), -sin(c), 0.0, sin(c), cos(c), 0.0, 0.0, 0.0, 1.0]
+    r = mul3(mul3(y, p), q)
+
+func mul3(a: list dec, b: list dec) gives m: list dec
+    count i from 0 to 2
+        count j from 0 to 2
+            m.add(a[i * 3] * b[j] + a[i * 3 + 1] * b[3 + j] + a[i * 3 + 2] * b[6 + j])
+
+// углы yaw, pitch, roll из таблицы R = Y · P · Q
+func euler_of(m: list dec) gives yaw: dec, pitch: dec, roll: dec
+    k = 180 / pi()
+    pitch = asin(max(-1.0, min(1.0, -m[5]))) * k
+    yaw = atan2(m[2], m[8]) * k
+    roll = atan2(m[3], m[4]) * k
 
 // перекрасить все куски без картинки
 modpub func paint(md: Model, c: int)

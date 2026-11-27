@@ -48,3 +48,19 @@ modpub func draw_walker(md: Model, x: dec, z: dec, yaw: dec, t: dec, moving: boo
     lunge = sin(swing * pi()) * 0.15
     a = yaw * pi() / 180.0
     model.draw(md, x + sin(a) * lunge, bob, z + cos(a) * lunge, yaw, swing * 12.0, roll)
+
+// замок (или пушка) из частей: base — номер подставки, barrel — номер ствола (model.part, -1 — нет).
+// Сначала model.separate(md) после fit. Остальные куски стоят на месте.
+//   turn  — куда смотрит пушка (градусы, 0 — вперёд по +z)
+//   tilt  — наклон ствола: плюс — вниз, минус — вверх
+//   flash — выстрел 1 → 0: ствол откатывается назад и возвращается
+modpub func draw_cannon(md: Model, base: int, barrel: int, x: dec, z: dec, yaw: dec, turn: dec, tilt: dec, flash: dec)
+    model.draw_except(md, [base, barrel], x, 0.0, z, yaw, 0.0, 0.0)
+    if base >= 0
+        model.draw_part(md, base, x, 0.0, z, yaw, 0.0, 0.0, turn, 0.0, 0.0)
+    if barrel >= 0
+        model.draw_part_on(md, barrel, base, x, 0.0, z, yaw, 0.0, 0.0, turn, tilt, 0.12 * flash * flash)
+
+// наклон ствола к цели на расстоянии dist (клеток): ближе — ниже, дальше — выше
+modpub func aim_tilt(dist: dec)
+    return 10.0 - min(dist, 4.0) * 7.0
