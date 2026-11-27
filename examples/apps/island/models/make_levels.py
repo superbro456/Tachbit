@@ -1,8 +1,5 @@
-# Делает platform_1,3,4,5.vox (и картинки p1..p5.png) из platform_2.vox:
-#   python3 make_levels.py platform_2.vox папка_для_файлов
-# iso.py рядом — читает .vox и рисует картинку (нужен Pillow)
-import struct,sys
-import os
+# Делает platform_1..5.vox (с кирпичами) из её platform_2_src.vox: python3 make_levels.py platform_2_src.vox папка
+import struct,sys,os
 sys.path.insert(0,os.path.dirname(os.path.abspath(__file__)))
 from iso import load,render
 src,out=sys.argv[1],sys.argv[2]
@@ -53,5 +50,7 @@ l3=stack(1);l3[-1]=rim(l3[-1])
 l4=ring(stack(1));l4[-1]=rim(l4[-1])
 l5=ring(stack(2));l5[-1]=rim(l5[-1])
 posts=[(15,18),(23,18),(15,22),(23,22)]
-for n,ls,cm,po in[(1,l1,c1,None),(3,l3,c2,None),(4,l4,c4,None),(5,l5,c5,posts)]:
-    p=f'{out}/platform_{n}.vox';write(p,build(ls,cm,po));render(p,f'{out}/p{n}.png')
+for n,ls,cm,po in[(1,l1,c1,None),(2,[dict(L[z]) for z in range(5)],c2,None),(3,l3,c2,None),(4,l4,c4,None),(5,l5,c5,posts)]:
+    from texture import texture,write as twrite
+    vs,np_=texture(build(ls,cm,po),pal)
+    p=f'{out}/platform_{n}.vox';twrite(p,vs,np_,size);render(p,f'{out}/p{n}.png')

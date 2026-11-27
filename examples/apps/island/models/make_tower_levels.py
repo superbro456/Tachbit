@@ -1,4 +1,4 @@
-# Делает tower_gen_1..5.vox из tower_2.vox: python3 make_tower_levels.py tower_2.vox папка (iso.py рядом рисует картинки)
+# Делает tower_gen_1..5.vox (с кирпичами) из tower_2.vox: python3 make_tower_levels.py tower_2.vox папка
 import struct,sys,os
 sys.path.insert(0,os.path.dirname(os.path.abspath(__file__)))
 from iso import load,render
@@ -64,13 +64,17 @@ def write(path,vs,sz=None):
     open(path,'wb').write(b'VOX '+struct.pack('<i',150)+b'MAIN'+struct.pack('<ii',0,len(body))+body)
 AME,AME_L,DRED=209,213,idx((140,20,45))
 def hh(x,y,z):return (x*73856093^y*19349663^z*83492791)&0xffff
-c1={'stone':STONE,'dark':DARK,'acc':DARK,'win':DARK,'band':DARK,'crown':STONE,'tip':WHITE}
-c2={'stone':GOLD,'dark':BLUE,'acc':BLUE,'win':BLUE,'band':BLUE,'crown':GOLD,'tip':WHITE,'pole':GOLD,'cloth':BLUE}
-c3={'stone':GOLD,'dark':'mix','acc':AME,'win':AME,'band':BLUE,'crown':GOLD,'tip':AME_L,'pole':GOLD,'cloth':AME}
-c4={'stone':RED,'dark':DRED,'acc':GOLD,'win':GOLD,'band':GOLD,'crown':GOLD,'tip':WHITE,'pole':GOLD,'cloth':RED}
-c5={'stone':RED,'dark':'mix5','acc':GOLD,'win':AME,'band':GOLD,'crown':GOLD,'tip':AME_L,'pole':GOLD,'cloth':AME}
+c1={'stone':STONE,'dark':STONE,'acc':DARK,'win':DARK,'band':DARK,'crown':STONE,'tip':WHITE}
+c2={'stone':GOLD,'dark':GOLD,'acc':BLUE,'win':BLUE,'band':BLUE,'crown':GOLD,'tip':WHITE,'pole':GOLD,'cloth':BLUE}
+c3={'stone':'mixb','dark':'mixb','acc':AME,'win':AME,'band':BLUE,'crown':GOLD,'tip':AME_L,'pole':GOLD,'cloth':AME}
+c4={'stone':RED,'dark':RED,'acc':GOLD,'win':GOLD,'band':GOLD,'crown':GOLD,'tip':WHITE,'pole':GOLD,'cloth':RED}
+c5={'stone':'mixb5','dark':'mixb5','acc':GOLD,'win':AME,'band':GOLD,'crown':GOLD,'tip':AME_L,'pole':GOLD,'cloth':AME}
 def color(cm,x,y,z,r):
     c=cm[r]
+    if c in('mixb','mixb5'):
+        row=z//3;off=3 if row%2 else 0;b=hh(row,(x+y+off)//5,0)%5
+        if c=='mixb': return AME if b<2 else GOLD
+        return AME if b==0 else RED
     if c=='mix': return [BLUE,AME,AME_L][hh(x,y,z)%3]
     if c=='mix5': return [DRED,AME,GOLD][hh(x,y,z)%3]
     return c
@@ -94,4 +98,6 @@ for n,ls,cm,k in sets:
     sz=None
     if k!=1:
         vs=scale(vs,k);sz=(40,40,max(v[2] for v in vs)+1)
-    p=f'{out}/tower_gen_{n}.vox';write(p,vs,sz);render(p,f'{out}/tg{n}.png')
+    from texture import texture,write as twrite
+    vs,np_=texture(vs,pal)
+    p=f'{out}/tower_gen_{n}.vox';twrite(p,vs,np_,sz or size);render(p,f'{out}/tg{n}.png')

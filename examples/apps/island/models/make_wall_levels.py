@@ -1,4 +1,4 @@
-# Делает stena_2, stena_3 из stena_1 (её стена): python3 make_wall_levels.py stena_1.vox папка
+# Делает stena_2, stena_3 (с кирпичами) из stena_1_mramor.vox: python3 make_wall_levels.py stena_1_mramor.vox папка
 import struct,sys,os
 sys.path.insert(0,os.path.dirname(os.path.abspath(__file__)))
 from iso import load,render
@@ -32,10 +32,12 @@ def pillars(h,col,tip):
                     add.append((x,y,z,tip if z==top+h else col))
     return add
 def paint(m):return [(x,y,z,m.get(c,c)) for x,y,z,c in v]
-l2=paint({MAIN:GOLD,DARK:BLUE,VEIN:BLUE_L,CAP:BLUE})+merlons(1,GOLD)
-base3=[t for t in paint({MAIN:RED,DARK:DRED,VEIN:GOLD,CAP:GOLD})]
+l2=paint({MAIN:GOLD,DARK:GOLD,VEIN:GOLD,CAP:BLUE})+merlons(1,GOLD)
+base3=[t for t in paint({MAIN:RED,DARK:RED,VEIN:RED,CAP:GOLD})]
 p3=pillars(4,GOLD,AME_L)
 occ={(x,y,z) for x,y,z,c in p3}
 l3=[t for t in base3 if t[:3] not in occ]+p3+[t for t in merlons(2,AME,GOLD) if y0+3<=t[1]<=y1-3]
 for n,vs in ((2,l2),(3,l3)):
-    p=f'{out}/stena_{n}.vox';write(p,vs);render(p,f'{out}/w{n}.png')
+    from texture import texture,write as twrite
+    vs,np_=texture(vs,pal)
+    p=f'{out}/stena_{n}.vox';twrite(p,vs,np_,size);render(p,f'{out}/w{n}.png')
