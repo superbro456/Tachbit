@@ -10760,9 +10760,10 @@ static void tb_hud_draw(void) {
         tb_hud_frame_avg, tb_hud_work_avg, tb_mdrawn, tb_gpu_on ? "  GPU" : "  CPU");
     long long w = 0;
     for (const char *p = line; *p; p++) if ((*p & 0xC0) != 0x80) w++;
-    long long y = tb_gh - 26 > 0 ? tb_gh - 26 : 0;   // внизу слева: верх окна обычно занят своим
-    tb_draw_rect(4, y, w * 8 + 12, 20, 0x101418);
-    tb_draw_text(10, y + 6, line, 1, tb_hud_work_avg > 16 ? 0xFF6B6B : tb_hud_work_avg > 8 ? 0xF6C343 : 0x7CE0B0);
+    // справа вверху, ниже первой строки программы (там обычно подсказка слева, справа пусто)
+    long long x = tb_gw - (w * 8 + 12) - 4 > 0 ? tb_gw - (w * 8 + 12) - 4 : 0, y = 36;
+    tb_draw_rect(x, y, w * 8 + 12, 20, 0x101418);
+    tb_draw_text(x + 6, y + 6, line, 1, tb_hud_work_avg > 16 ? 0xFF6B6B : tb_hud_work_avg > 8 ? 0xF6C343 : 0x7CE0B0);
 }
 TB_API int tb_window_alive(void) {
     if (tb_wn > 1) tb_windows_show();
@@ -12791,6 +12792,10 @@ TB_API long long tb_mesh_drawn(void) { return tb_mdrawn_last; }
 // mesh_simplify(m, доля): новая сетка, где углов примерно «доля» от прежних (0.5 — вдвое меньше):
 // близкие углы сливаются в один (по клеткам), треугольники, ставшие точкой или чертой, уходят.
 // Цвет, картинка, шейдер и его настройки, кости — как у m. Для mesh_lod
+static int tb_u64_cmp(const void *a, const void *b) {
+    uint64_t x = *(const uint64_t *)a, y = *(const uint64_t *)b;
+    return x < y ? -1 : x > y;
+}
 TB_API long long tb_mesh_simplify(long long id, double keep) {
     if (id < 0 || id >= tb_nmesh) return -1;
     tb_scene_flush();
@@ -12825,13 +12830,51 @@ TB_API long long tb_mesh_simplify(long long id, double keep) {
     long long *cl = (long long *)malloc(sizeof(long long) * (size_t)m->nv), ncl = 0;
     double *sum = (double *)calloc((size_t)m->nv * 4, sizeof(double));
     long long *first = (long long *)malloc(sizeof(long long) * (size_t)m->nv);
+    // угол на краю куска земли остаётся где был: соседний кусок мира (полный или упрощённый) сходится с ним без щели.
+    // Край — открытые рёбра (ребро только у одного треугольника) вдоль x или z на рамке таких рёбер. Рамка всей сетки
+    // не годится: деревья и камни могут торчать за край куска
+    unsigned char *open = (unsigned char *)calloc((size_t)m->nv, 1);
+    {
+        uint64_t *ed = (uint64_t *)malloc(sizeof(uint64_t) * 3 * (size_t)m->n);
+        long long ne = 0;
+        for (long long t = 0; t < m->n; t++) for (int e = 0; e < 3; e++) {
+            uint64_t a = m->t[3 * t + e], b = m->t[3 * t + (e + 1) % 3];
+            if (a == b) continue;
+            ed[ne++] = a < b ? (a << 32 | b) : (b << 32 | a);
+        }
+        qsort(ed, (size_t)ne, sizeof(uint64_t), tb_u64_cmp);
+        for (long long i = 0; i < ne;) {
+            long long j = i;
+            while (j < ne && ed[j] == ed[i]) j++;
+            if (j - i == 1) {
+                // открытое ребро вдоль x или z (край куска земли — прямая линия); кольцо у основания конуса — нет
+                uint64_t a = ed[i] >> 32, b = ed[i] & 0xffffffffu;
+                const double *pa = m->v + 3 * a, *pb = m->v + 3 * b;
+                double eb = big * 1e-6 + 1e-12;
+                if (fabs(pa[0] - pb[0]) < eb || fabs(pa[2] - pb[2]) < eb) { open[a] = 1; open[b] = 1; }
+            }
+            i = j;
+        }
+        free(ed);
+        // из них — только лежащие на рамке таких углов: внутренние открытые рёбра (ступеньки) упрощаются как все
+        double l2[3] = { 1e300, 1e300, 1e300 }, h2[3] = { -1e300, -1e300, -1e300 };
+        for (long long k = 0; k < m->nv; k++) if (open[k]) for (int i = 0; i < 3; i += 2) {
+            double v = m->v[3 * k + i];
+            if (v < l2[i]) l2[i] = v;
+            if (v > h2[i]) h2[i] = v;
+        }
+        double eb = big * 1e-6 + 1e-12;
+        for (long long k = 0; k < m->nv; k++) if (open[k]) {
+            int on = 0;
+            for (int i = 0; i < 3; i += 2) if (m->v[3 * k + i] - l2[i] < eb || h2[i] - m->v[3 * k + i] < eb) on = 1;
+            open[k] = (unsigned char)on;
+        }
+    }
     for (long long k = 0; k < m->nv; k++) {
         long long key[3];
         for (int i = 0; i < 3; i++) key[i] = (long long)floor((m->v[3 * k + i] - lo[i]) / cell);
-        // угол на краю по x или z остаётся где был: соседний кусок мира (полный или упрощённый) сходится без щели
         double eb = big * 1e-6 + 1e-12;
-        int edge = 0;
-        for (int i = 0; i < 3; i += 2) if (ext[i] > big * 1e-3 && (m->v[3 * k + i] - lo[i] < eb || hi[i] - m->v[3 * k + i] < eb)) edge = 1;
+        int edge = open[k];
         if (edge && keep < 1) {
             for (int i = 0; i < 3; i++) key[i] = (long long)floor((m->v[3 * k + i] - lo[i]) / eb);
             key[0] += (long long)1 << 52;
@@ -12878,7 +12921,7 @@ TB_API long long tb_mesh_simplify(long long id, double keep) {
             }
         }
     }
-    free(hkey); free(hval); free(cl); free(sum); free(first);
+    free(hkey); free(hval); free(cl); free(sum); free(first); free(open);
     return nid;
 }
 TB_API void tb_light_shadow(long long n, int on) {
