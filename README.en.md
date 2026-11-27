@@ -152,6 +152,11 @@ Since 1.2 the language core is frozen: the compiler, the syntax and the built-in
 
 New features are first tried as a Tachbit library. If a new word is truly needed, it is a separate decision and ships as the next version.
 
+## 1.4 (in progress)
+
+- **Network games:** fast messages `udp_open`, `udp_send`, `udp_receive`, `udp_from`, `udp_from_port`, `net_ready`, and `lib/online.tb`: one player hosts, others connect; each puts its own state, the library sends it 20 times a second and moves other players smoothly; `say` events arrive exactly once. Example: `examples/apps/online_star`.
+- **Speed tools:** `TB_HUD=1` shows FPS, frame time and the program's own CPU time in the window; a Vulkan shader cache on disk (`~/.tachbit/cache/vulkan.bin`) removes the first-run stutter; a minimized window drops to 10 frames a second.
+
 ## Speed
 
 On the authors' Mac (Intel i9) Tachbit is as fast as plain C or faster on all 18 tasks in `tests/bench/` (fib is a tie). Where Tachbit wins thanks to a special word (`on all cores`, `temp`, `by vec`, ...), `tests/bench/vs/*_smart.c` gives C the same trick, and the README table shows both. Run `./tests/bench/run.sh` to measure on your machine.

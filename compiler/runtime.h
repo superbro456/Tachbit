@@ -219,6 +219,13 @@ typedef struct { char *data; long long len; long long cap; long long size; } tb_
 #else
 // ---- TB_LANG_TAB (сделано tools/embed_lang.py, не правь руками) ----
 static const char *const tb_lang_tab[] = {
+    "net_ready(связь)  →  yes, если есть что прочитать (не ждёт)", "net_ready(connection)  →  yes if there is something to read (does not wait)",
+    "udp_open(5000)  →  гнездо для быстрых сообщений (0 — любой порт)", "udp_open(5000)  →  a socket for fast messages (0 — any port)",
+    "udp_send(гнездо, \"127.0.0.1\", 5000, текст)", "udp_send(socket, \"127.0.0.1\", 5000, text)",
+    "udp_receive(гнездо)  →  сообщение или \"\" (не ждёт)", "udp_receive(socket)  →  a message or \"\" (does not wait)",
+    "udp_from()  →  адрес того, кто прислал последнее сообщение", "udp_from()  →  the address of whoever sent the last message",
+    "udp_from_port()  →  порт того, кто прислал последнее сообщение", "udp_from_port()  →  the port of whoever sent the last message",
+    "сообщение UDP больше 60 000 байт: раздели его или возьми net_send", "a UDP message is over 60 000 bytes: split it or use net_send",
     "menu_add(\"Файл/Сохранить\", \"cmd+s\")  —  пункт в меню системы (после window_open); \"Файл/-\" — черта, \"\" — без клавиши", "menu_add(\"File/Save\", \"cmd+s\")  —  an item in the system menu (after window_open); \"File/-\" — a separator line, \"\" — no key",
     "menu_pick()  →  какой пункт меню выбрали с прошлого раза: \"Файл/Сохранить\" (\"\" — никакой)", "menu_pick()  →  which menu item was picked since last time: \"File/Save\" (\"\" — none)",
     "menu_native()  →  есть меню системы? (Mac и Windows — да, Linux — нет: рисуй своё)", "menu_native()  →  is there a system menu? (Mac and Windows — yes, Linux — no: draw your own)",
@@ -935,6 +942,9 @@ static const char *const tb_lang_tab[] = {
     "» в начале файла", "» at the start of the file",
     "не нашёл адрес: ", "address not found: ",
     "связь оборвалась", "the connection broke",
+    "это не гнездо udp_open", "this is not a udp_open socket",
+    "приём сломался", "receiving broke",
+    "не отправил", "did not send",
     "файл PNG обрезан", "the PNG file is cut off",
     "файл BMP обрезан", "the BMP file is cut off",
     ", 3D тоже на ней", ", 3D on it too",
@@ -2717,6 +2727,8 @@ TB_API void tb_net_start(void) { if (!tb_net_ready) { WSADATA w; WSAStartup(MAKE
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <netdb.h>
+#include <arpa/inet.h>
+#include <fcntl.h>
 #include <signal.h>
 TB_API int tb_net_ready = 0;
 // запись в закрытую связь не должна молча убивать программу (SIGPIPE): пусть будет ошибкой
@@ -2813,6 +2825,148 @@ TB_API const char *tb_net_receive(long long c) {
     return buf;
 }
 TB_API void tb_net_close(long long c) { if (c >= 0) tb_sock_close((int)c); }
+// ---------- быстрые сообщения (UDP) для сетевых игр ----------
+// udp_open(порт) → гнездо (0 — любой свободный порт; узнать: net_port), не ждёт;
+// udp_send(гнездо, адрес, порт, текст) — одно сообщение (до 60 000 байт), может потеряться;
+// udp_receive(гнездо) → следующее пришедшее сообщение или "" (сейчас ничего нет, не ждёт);
+// udp_from() / udp_from_port() — кто прислал последнее сообщение; net_ready(связь) — есть ли что читать.
+TB_API long long tb_udp_open(long long port) {
+    tb_net_start();
+    if (port < 0 || port > 65535) { tb_err = "порт должен быть от 0 до 65535"; return -1; }
+    long long s = (long long)socket(AF_INET6, SOCK_DGRAM, 0);
+    int v6 = 1;
+    if (s < 0) { s = (long long)socket(AF_INET, SOCK_DGRAM, 0); v6 = 0; }
+    if (s < 0) { tb_err = tb_net_why("не могу открыть сеть"); return -1; }
+    int zero = 0, r;
+    if (v6) {
+        setsockopt((int)s, IPPROTO_IPV6, IPV6_V6ONLY, (const char *)&zero, sizeof zero);
+        struct sockaddr_in6 a; memset(&a, 0, sizeof a);
+        a.sin6_family = AF_INET6; a.sin6_port = htons((unsigned short)port); a.sin6_addr = in6addr_any;
+        r = bind((int)s, (struct sockaddr *)&a, sizeof a);
+    } else {
+        struct sockaddr_in a; memset(&a, 0, sizeof a);
+        a.sin_family = AF_INET; a.sin_port = htons((unsigned short)port); a.sin_addr.s_addr = htonl(INADDR_ANY);
+        r = bind((int)s, (struct sockaddr *)&a, sizeof a);
+    }
+    if (r != 0) {
+        char num[32]; sprintf(num, "%lld", port);
+        tb_err = tb_net_why(tb_cat("порт занят или закрыт: ", num));
+        tb_sock_close((int)s); return -1;
+    }
+#ifdef _WIN32
+    u_long nb = 1; ioctlsocket((SOCKET)s, FIONBIO, &nb);
+    // без этого Windows после «порт закрыт» у другой стороны ломает приём
+    DWORD no = 0, got = 0;
+    WSAIoctl((SOCKET)s, _WSAIOW(IOC_VENDOR, 12), &no, sizeof no, 0, 0, &got, 0, 0);
+#else
+    fcntl((int)s, F_SETFL, fcntl((int)s, F_GETFL, 0) | O_NONBLOCK);
+#endif
+    int big = 1 << 20;
+    setsockopt((int)s, SOL_SOCKET, SO_RCVBUF, (const char *)&big, sizeof big);
+    return s;
+}
+// маленькая память адресов: getaddrinfo на каждое сообщение — слишком медленно для 60 раз в секунду
+typedef struct { char host[128]; long long port; int fam; struct sockaddr_storage a; socklen_t n; } tb_udp_addr;
+TB_API tb_udp_addr tb_udp_addrs[16];
+TB_API int tb_udp_naddr = 0, tb_udp_next = 0;
+static int tb_udp_find(const char *host, long long port, int fam, struct sockaddr_storage *out, socklen_t *on) {
+    for (int i = 0; i < tb_udp_naddr; i++)
+        if (tb_udp_addrs[i].port == port && tb_udp_addrs[i].fam == fam && strcmp(tb_udp_addrs[i].host, host) == 0) {
+            *out = tb_udp_addrs[i].a; *on = tb_udp_addrs[i].n; return 1;
+        }
+    char ps[16]; sprintf(ps, "%lld", port);
+    struct addrinfo hint, *res = 0, *p;
+    memset(&hint, 0, sizeof hint);
+    hint.ai_family = AF_UNSPEC; hint.ai_socktype = SOCK_DGRAM;
+    if (getaddrinfo(host, ps, &hint, &res) != 0 || !res) return 0;
+    int ok = 0;
+    for (int pass = 0; pass < 2 && !ok; pass++)
+        for (p = res; p && !ok; p = p->ai_next) {
+            if (fam == AF_INET && p->ai_family != AF_INET) continue;
+            if (pass == 0 && fam == AF_INET6 && p->ai_family != AF_INET6) continue;   // сначала IPv6, потом IPv4
+            memset(out, 0, sizeof *out);
+            if (fam == AF_INET6 && p->ai_family == AF_INET) {
+                // IPv4 через гнездо IPv6: адрес ::ffff:a.b.c.d
+                struct sockaddr_in *v4 = (struct sockaddr_in *)p->ai_addr;
+                struct sockaddr_in6 *v6 = (struct sockaddr_in6 *)out;
+                v6->sin6_family = AF_INET6; v6->sin6_port = v4->sin_port;
+                unsigned char *b = (unsigned char *)&v6->sin6_addr;
+                b[10] = 0xff; b[11] = 0xff; memcpy(b + 12, &v4->sin_addr, 4);
+                *on = sizeof(struct sockaddr_in6);
+            } else {
+                memcpy(out, p->ai_addr, p->ai_addrlen); *on = (socklen_t)p->ai_addrlen;
+            }
+            ok = 1;
+        }
+    freeaddrinfo(res);
+    if (!ok || strlen(host) >= 128) return ok;
+    tb_udp_addr *c = &tb_udp_addrs[tb_udp_naddr < 16 ? tb_udp_naddr++ : (tb_udp_next++ & 15)];
+    strcpy(c->host, host); c->port = port; c->fam = fam; c->a = *out; c->n = *on;
+    return 1;
+}
+TB_API void tb_udp_send(long long s, const char *host, long long port, const char *t) {
+    if (port <= 0 || port > 65535) { tb_err = "порт должен быть от 1 до 65535"; return; }
+    size_t n = strlen(t);
+    if (n > 60000) { tb_err = "сообщение UDP больше 60 000 байт: раздели его или возьми net_send"; return; }
+    struct sockaddr_storage me; socklen_t mn = sizeof me;
+    if (getsockname((int)s, (struct sockaddr *)&me, &mn) != 0) { tb_err = tb_net_why("это не гнездо udp_open"); return; }
+    struct sockaddr_storage a; socklen_t an = 0;
+    if (!tb_udp_find(host, port, me.ss_family, &a, &an)) { tb_err = tb_cat("не нашёл адрес: ", host); return; }
+    long long k = (long long)sendto((int)s, t, (int)n, 0, (struct sockaddr *)&a, (int)an);
+    if (k < 0) {
+#ifdef _WIN32
+        if (WSAGetLastError() == WSAEWOULDBLOCK) return;   // очередь полна: сообщение потерялось, как и бывает в UDP
+#else
+        if (errno == EAGAIN || errno == EWOULDBLOCK || errno == ENOBUFS) return;
+#endif
+        tb_err = tb_net_why("не отправил");
+    }
+}
+TB_API char tb_udp_from_host[64] = "";
+TB_API long long tb_udp_from_p = 0;
+TB_API const char *tb_udp_receive(long long s) {
+    char *buf = tb_tmem(65537);
+    for (;;) {
+        struct sockaddr_storage a; socklen_t an = sizeof a;
+        long long k = (long long)recvfrom((int)s, buf, 65536, 0, (struct sockaddr *)&a, &an);
+        if (k < 0) {
+#ifdef _WIN32
+            int e = WSAGetLastError();
+            if (e == WSAECONNRESET || e == WSAEMSGSIZE) continue;
+            if (e == WSAEWOULDBLOCK) return "";
+#else
+            if (errno == EINTR || errno == ECONNREFUSED) continue;
+            if (errno == EAGAIN || errno == EWOULDBLOCK) return "";
+#endif
+            tb_err = tb_net_why("приём сломался");
+            return "";
+        }
+        if (k == 0) continue;   // пустое сообщение — как будто его не было
+        buf[k] = 0;
+        if (a.ss_family == AF_INET6) {
+            struct sockaddr_in6 *v6 = (struct sockaddr_in6 *)&a;
+            unsigned char *b = (unsigned char *)&v6->sin6_addr;
+            static const unsigned char pre[12] = {0,0,0,0,0,0,0,0,0,0,0xff,0xff};
+            if (memcmp(b, pre, 12) == 0) sprintf(tb_udp_from_host, "%d.%d.%d.%d", b[12], b[13], b[14], b[15]);
+            else inet_ntop(AF_INET6, &v6->sin6_addr, tb_udp_from_host, sizeof tb_udp_from_host);
+            tb_udp_from_p = ntohs(v6->sin6_port);
+        } else {
+            struct sockaddr_in *v4 = (struct sockaddr_in *)&a;
+            unsigned char *b = (unsigned char *)&v4->sin_addr;
+            sprintf(tb_udp_from_host, "%d.%d.%d.%d", b[0], b[1], b[2], b[3]);
+            tb_udp_from_p = ntohs(v4->sin_port);
+        }
+        return buf;
+    }
+}
+TB_API const char *tb_udp_from(void) { char *o = tb_tmem(64); strcpy(o, tb_udp_from_host); return o; }
+TB_API long long tb_udp_from_port(void) { return tb_udp_from_p; }
+// есть ли что прочитать (или кто-то ждёт net_accept) — не ждёт
+TB_API int tb_net_has(long long c) {
+    fd_set r; FD_ZERO(&r); FD_SET((int)c, &r);
+    struct timeval tv = {0, 0};
+    return select((int)c + 1, &r, 0, 0, &tv) > 0;
+}
 // ---------- время и случайные числа ----------
 TB_API long long tb_time_us(void) {
     struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -3834,6 +3988,7 @@ TB_API _Bool tb_chan_ready(tb_chan *ch) {
 TB_API long long tb_nscene = 0;
 TB_API void tb_scene_flush(void);
 #define TB_SCENE() do { if (tb_nscene) tb_scene_flush(); } while (0)
+TB_API int tb_hidden = 0;   // окно свёрнуто или спрятано: кадры реже (меньше тепла и батареи)
 // карты теней на видеокарте: своя у каждого набора (TB_GSLOTS × N × N)
 TB_API uint32_t *tb_gsm = 0;
 TB_API const unsigned char tb_font[161][16] = {
@@ -5470,6 +5625,7 @@ typedef struct { uint32_t width, height, depth; } VkExtent3D;
 typedef struct { int32_t x, y; } VkOffset2D;
 typedef struct { int32_t x, y, z; } VkOffset3D;
 typedef struct { VkOffset2D offset; VkExtent2D extent; } VkRect2D;
+typedef struct { uint32_t sType; const void *pNext; VkFlags flags; size_t initialDataSize; const void *pInitialData; } VkPipelineCacheCreateInfo;
 typedef struct { uint32_t sType; const void *pNext; const char *pApplicationName; uint32_t applicationVersion;
     const char *pEngineName; uint32_t engineVersion; uint32_t apiVersion; } VkApplicationInfo;
 typedef struct { uint32_t sType; const void *pNext; VkFlags flags; const VkApplicationInfo *pApplicationInfo;
@@ -5628,6 +5784,8 @@ typedef struct { VkRect2D rect; uint32_t baseArrayLayer, layerCount; } VkClearRe
     X(UpdateDescriptorSets, void, (VkDevice, uint32_t, const VkWriteDescriptorSet *, uint32_t, const void *)) \
     X(CreatePipelineLayout, VkResult, (VkDevice, const VkPipelineLayoutCreateInfo *, const void *, VkPipelineLayout *)) \
     X(CreateGraphicsPipelines, VkResult, (VkDevice, uint64_t, uint32_t, const VkGraphicsPipelineCreateInfo *, const void *, VkPipeline *)) \
+    X(CreatePipelineCache, VkResult, (VkDevice, const VkPipelineCacheCreateInfo *, const void *, uint64_t *)) \
+    X(GetPipelineCacheData, VkResult, (VkDevice, uint64_t, size_t *, void *)) \
     X(CreateCommandPool, VkResult, (VkDevice, const VkCommandPoolCreateInfo *, const void *, VkCommandPool *)) \
     X(AllocateCommandBuffers, VkResult, (VkDevice, const VkCommandBufferAllocateInfo *, VkCommandBuffer *)) \
     X(CreateFence, VkResult, (VkDevice, const VkFenceCreateInfo *, const void *, VkFence *)) \
@@ -7743,7 +7901,65 @@ TB_API struct {
     VkBuffer ibuf[TB_GSLOTS], fbuf, rbuf; void *imap[TB_GSLOTS], *rmap;
     VkCommandPool pool; VkCommandBuffer cb[TB_GSLOTS]; VkFence fence[TB_GSLOTS];
     VkSemaphore sem_get[TB_GSLOTS], sem_done[TB_GSLOTS];
+    uint64_t pcache; int pcache_new;   // кэш собранных шейдеров (1.4): ~/.tachbit/cache/vulkan.bin
 } tb_vk;
+// кэш шейдеров: видеокарта переводит шейдеры в свой код при первом запуске; сохраняем готовое в файл,
+// и следующий запуск не тратит на это время (нет рывка в начале и при первом новом шейдере).
+// Чужой или старый файл (другая видеокарта, новый драйвер) драйвер сам не возьмёт — тогда соберёт заново.
+static void tb_vk_cache_path(char *path, size_t n) {
+    const char *h = getenv("HOME");
+    if (!h || !*h) h = getenv("USERPROFILE");
+    if (!h || !*h || getenv("TB_GPU_NOCACHE")) { path[0] = 0; return; }
+    snprintf(path, n, "%s/.tachbit/cache/vulkan.bin", h);
+}
+static void tb_vk_cache_open(void) {
+    char path[1024]; tb_vk_cache_path(path, sizeof path);
+    void *data = 0; size_t len = 0;
+    FILE *fl = path[0] ? fopen(path, "rb") : 0;
+    if (fl) {
+        fseek(fl, 0, SEEK_END); long sz = ftell(fl); fseek(fl, 0, SEEK_SET);
+        if (sz > 32 && sz < (64 << 20)) { data = malloc((size_t)sz); if (data && fread(data, 1, (size_t)sz, fl) == (size_t)sz) len = (size_t)sz; }
+        fclose(fl);
+    }
+    VkPipelineCacheCreateInfo ci = { 17, 0, 0, len, len ? data : 0 };
+    if (tbvk_CreatePipelineCache(tb_vk.dev, &ci, 0, &tb_vk.pcache)) {
+        ci.initialDataSize = 0; ci.pInitialData = 0;   // файл испорчен — начать пустым
+        if (tbvk_CreatePipelineCache(tb_vk.dev, &ci, 0, &tb_vk.pcache)) tb_vk.pcache = 0;
+    }
+    free(data);
+}
+static void tb_vk_cache_save(void);
+// все конвейеры собираются через кэш; новый — потом сохранить кэш в файл
+static VkResult tb_vk_pipes(uint32_t n, const VkGraphicsPipelineCreateInfo *ci, const void *al, VkPipeline *out) {
+    tb_vk.pcache_new = 1;
+    return tbvk_CreateGraphicsPipelines(tb_vk.dev, tb_vk.pcache, n, ci, al, out);
+}
+static void tb_vk_cache_save(void) {
+    tb_vk.pcache_new = 0;
+    if (!tb_vk.pcache) return;
+    char path[1024]; tb_vk_cache_path(path, sizeof path);
+    if (!path[0]) return;
+    size_t len = 0;
+    if (tbvk_GetPipelineCacheData(tb_vk.dev, tb_vk.pcache, &len, 0) || len == 0 || len > (64 << 20)) return;
+    void *data = malloc(len);
+    if (!data) return;
+    if (!tbvk_GetPipelineCacheData(tb_vk.dev, tb_vk.pcache, &len, data)) {
+        char dir[1040], tmp[1040];
+        snprintf(dir, sizeof dir, "%s", path);
+        char *sl = strrchr(dir, '/'); if (sl) *sl = 0;
+        char up[1040]; snprintf(up, sizeof up, "%s", dir);
+        char *sl2 = strrchr(up, '/'); if (sl2) { *sl2 = 0; (void)mkdir(up, 0755); }
+        (void)mkdir(dir, 0755);
+        snprintf(tmp, sizeof tmp, "%s.%d", path, (int)(((unsigned)time(0) ^ (unsigned)(uintptr_t)data) & 0x7fffffff));
+        FILE *fl = fopen(tmp, "wb");
+        if (fl) {
+            int ok = fwrite(data, 1, len, fl) == len;
+            fclose(fl);
+            if (ok) { remove(path); rename(tmp, path); } else remove(tmp);
+        }
+    }
+    free(data);
+}
 TB_API int tb_vk_memtype(uint32_t bits, VkFlags want) {
     for (uint32_t i = 0; i < tb_vk.mp.memoryTypeCount; i++)
         if ((bits & (1u << i)) && (tb_vk.mp.memoryTypes[i].propertyFlags & want) == want) return (int)i;
@@ -7862,7 +8078,7 @@ static VkPipeline tb_vk_shpipe(int cs, int ps, int nowrite) {
     VkPipelineDepthStencilStateCreateInfo z3 = { 25, 0, 0, 1, nowrite ? 0 : 1, 1, 0, 0, { 0 }, { 0 }, 0, 1 };
     VkGraphicsPipelineCreateInfo gci = { 28, 0, 0, 2, st, &vis, &ias, 0, &vps, &rs, &ms, &z3, &cbs, &dys, tb_vksh.pl, tb_vk.rp, 0, 0, -1 };
     VkPipeline p = 0;
-    if (tbvk_CreateGraphicsPipelines(tb_vk.dev, 0, 1, &gci, 0, &p)) {
+    if (tb_vk_pipes(1, &gci, 0, &p)) {
         fprintf(stderr, tb_tr("видеокарта не собрала шейдеры %s + %s\n"), tb_shaders[cs].name, tb_shaders[ps].name);
         return 0;
     }
@@ -7953,7 +8169,7 @@ static VkPipeline tb_vk_scrpipe(int ps) {
     VkPipelineDepthStencilStateCreateInfo z0 = { 25, 0, 0, 0, 0, 7, 0, 0, { 0 }, { 0 }, 0, 1 };   // глубину не трогает
     VkGraphicsPipelineCreateInfo gci = { 28, 0, 0, 2, st, &vis, &ias, 0, &vps, &rs, &ms, &z0, &cbs, &dys, tb_vkscr.pl, tb_vk.rp, 0, 0, -1 };
     VkPipeline p = 0;
-    if (tbvk_CreateGraphicsPipelines(tb_vk.dev, 0, 1, &gci, 0, &p)) { fprintf(stderr, tb_tr("видеокарта не собрала шейдер экрана %s\n"), tb_shaders[ps].name); return 0; }
+    if (tb_vk_pipes(1, &gci, 0, &p)) { fprintf(stderr, tb_tr("видеокарта не собрала шейдер экрана %s\n"), tb_shaders[ps].name); return 0; }
     tb_vkscr.bad[ps] = 0;
     tb_vkscr.pipe[ps] = p;
     return p;
@@ -8163,6 +8379,7 @@ TB_API int tb_vk_init(const char *surf_ext, int (*make_surface)(void)) {
     VkDeviceCreateInfo dci = { 3, 0, 0, 1, &qci, 0, 0, 1, dext, want };
     if (tbvk_CreateDevice(tb_vk.pd, &dci, 0, &tb_vk.dev)) return 0;
     tbvk_GetDeviceQueue(tb_vk.dev, tb_vk.qf, 0, &tb_vk.q);
+    tb_vk_cache_open();
     tbvk_GetPhysicalDeviceMemoryProperties(tb_vk.pd, &tb_vk.mp);
     VkFormatProperties fp; tbvk_GetPhysicalDeviceFormatProperties(tb_vk.pd, 44, &fp);
     if ((fp.optimalTilingFeatures & (0x80 | 0x400)) != (0x80 | 0x400)) return 0;   // COLOR_ATTACHMENT, BLIT_SRC
@@ -8249,15 +8466,15 @@ TB_API int tb_vk_init(const char *surf_ext, int (*make_surface)(void)) {
     VkPipelineDepthStencilStateCreateInfo z2 = { 25, 0, 0, 0, 0, 7, 0, 0, { 0 }, { 0 }, 0, 1 };
     VkPipelineDepthStencilStateCreateInfo z3 = { 25, 0, 0, 1, 1, 1, 0, 0, { 0 }, { 0 }, 0, 1 };
     VkGraphicsPipelineCreateInfo gci = { 28, 0, 0, 2, st, &vis, &ias, 0, &vps, &rs, &ms, &z2, &cbs, &dys, tb_vk.pl, tb_vk.rp, 0, 0, -1 };
-    if (tbvk_CreateGraphicsPipelines(tb_vk.dev, 0, 1, &gci, 0, &tb_vk.pipe)) return 0;
+    if (tb_vk_pipes(1, &gci, 0, &tb_vk.pipe)) return 0;
     gci.pDepthStencilState = &z3;
-    if (tbvk_CreateGraphicsPipelines(tb_vk.dev, 0, 1, &gci, 0, &tb_vk.pipe3)) return 0;
+    if (tb_vk_pipes(1, &gci, 0, &tb_vk.pipe3)) return 0;
     // треугольники сеток с картинкой: тот же tb.vert, свой tbt.frag (64-битные целые); нет — сетки без картинок
     VkShaderModuleCreateInfo smt = { 16, 0, 0, sizeof tb_spv_fragt, tb_spv_fragt };
     VkShaderModule mft;
     if (feat[40] && !getenv("TB_GPU_NOTEX") && tbvk_CreateShaderModule(tb_vk.dev, &smt, 0, &mft) == 0) {
         st[1].module = mft;
-        tb_gpu_tex = tbvk_CreateGraphicsPipelines(tb_vk.dev, 0, 1, &gci, 0, &tb_vk.pipet) == 0;
+        tb_gpu_tex = tb_vk_pipes(1, &gci, 0, &tb_vk.pipet) == 0;
         st[1].module = mf;
     }
     // «новые» треугольники 3D: тот же tb.vert, свой tbl.frag; прозрачные — с глубиной, но без записи глубины
@@ -8266,9 +8483,9 @@ TB_API int tb_vk_init(const char *surf_ext, int (*make_surface)(void)) {
     if (feat[40] && !getenv("TB_GPU_NOLIT") && tbvk_CreateShaderModule(tb_vk.dev, &sml, 0, &mfl) == 0) {
         VkPipelineDepthStencilStateCreateInfo za = { 25, 0, 0, 1, 0, 1, 0, 0, { 0 }, { 0 }, 0, 1 };
         st[1].module = mfl;
-        tb_gpu_lit = tbvk_CreateGraphicsPipelines(tb_vk.dev, 0, 1, &gci, 0, &tb_vk.pipel) == 0;
+        tb_gpu_lit = tb_vk_pipes(1, &gci, 0, &tb_vk.pipel) == 0;
         gci.pDepthStencilState = &za;
-        if (tb_gpu_lit) tb_gpu_lit = tbvk_CreateGraphicsPipelines(tb_vk.dev, 0, 1, &gci, 0, &tb_vk.pipela) == 0;
+        if (tb_gpu_lit) tb_gpu_lit = tb_vk_pipes(1, &gci, 0, &tb_vk.pipela) == 0;
         gci.pDepthStencilState = &z3;
         st[1].module = mf;
     }
@@ -8279,7 +8496,7 @@ TB_API int tb_vk_init(const char *surf_ext, int (*make_surface)(void)) {
     if (feat[40] && !getenv("TB_GPU_NOMESH") && tbvk_CreateShaderModule(tb_vk.dev, &smv3, 0, &mv3) == 0) {
         st[0].module = mv3;
         gci.pVertexInputState = &vis0;
-        tb_gpu_mesh = tbvk_CreateGraphicsPipelines(tb_vk.dev, 0, 1, &gci, 0, &tb_vk.pipem) == 0;
+        tb_gpu_mesh = tb_vk_pipes(1, &gci, 0, &tb_vk.pipem) == 0;
     }
     for (int s = 0; s < TB_GSLOTS; s++)
         if (!tb_vk_buffer(sizeof(tb_ginst) * TB_GI_CAP, 0x80, &tb_vk.ibuf[s], &tb_vk.imap[s])) return 0;   // VERTEX_BUFFER
@@ -8306,6 +8523,7 @@ TB_INL VkImageMemoryBarrier tb_vk_bar(VkImage img, VkFlags sa, VkFlags da, uint3
 // нарисовать накопленные фигуры; present — ещё и показать кадр в окне
 TB_API void tb_gpu_flush(int present) {
     if (!tb_gin && !present && !tb_gpu_first) return;
+    if (present && tb_vk.pcache_new) tb_vk_cache_save();   // появились новые конвейеры — в файл (редко: в начале и при новом шейдере)
     if (tb_img_dirty) tb_vk_images();
     if (tb_mesh_gdirty && tb_gpu_mesh) tb_vk_meshes();
     int s = tb_gslot;
@@ -9653,6 +9871,8 @@ TB_API void tb_gfx_events(void) {
     if (tb_gpu_on) tb_gpu_flush(1);
     else tb_gfx_show();
     int was = tb_wcur;
+    // окно свёрнуто или целиком закрыто другими (occlusionState без бита «видно»)
+    if (tb_wnd) tb_hidden = (((unsigned long (*)(id, SEL))objc_msgSend)(tb_wnd, sel_getUid("occlusionState")) & 2) == 0;
     id mode = TB_MSG1(id, TB_CLS("NSString"), "stringWithUTF8String:", const char *, "kCFRunLoopDefaultMode");
     if (tb_mac_cur) tb_mac_cursor_apply();
     while (1) {
@@ -9995,6 +10215,7 @@ TB_API void tb_gfx_events(void) {
     if (tb_mlock && GetForegroundWindow() == tb_hwnd) tb_win_clip();   // окно вернули из другой программы: запереть снова
     MSG m;
     while (PeekMessageW(&m, 0, 0, 0, PM_REMOVE)) { TranslateMessage(&m); DispatchMessageW(&m); }
+    tb_hidden = tb_hwnd && IsIconic(tb_hwnd);
 }
 #else
 #include <X11/Xlib.h>
@@ -10250,6 +10471,8 @@ TB_API void tb_gfx_events(void) {
             if (e.type == ButtonPress && e.xbutton.button == 5) tb_wheel_add(-1);
             tb_mx = e.xbutton.x; tb_my = e.xbutton.y;
         } else if (e.type == MotionNotify) tb_mouse_at(e.xmotion.x, e.xmotion.y);
+        else if (e.type == UnmapNotify) tb_hidden = 1;
+        else if (e.type == MapNotify) tb_hidden = 0;
         else if (e.type == ConfigureNotify && (e.xconfigure.width != tb_gw || e.xconfigure.height != tb_gh)) {
             tb_new_w = e.xconfigure.width; tb_new_h = e.xconfigure.height;
         }
@@ -10517,9 +10740,35 @@ TB_API void tb_set_fps(long long n) {
 TB_API double tb_frame_ms(void) { return tb_frame_ms_v; }
 TB_API long long tb_fps(void) { return tb_fps_v ? tb_fps_v : tb_frame_ms_v > 0 ? (long long)(1000 / tb_frame_ms_v) : 0; }
 // показать кадр, принять клавиши и мышь, держать частоту кадров; false — окно закрыли
+// TB_HUD=1: полоска замеров в углу окна — кадров в секунду, сколько мс кадр считала программа (процессор),
+// сколько всего длился кадр, сколько сеток нарисовано. Ничего в программе менять не нужно
+TB_API long long tb_hud_on = -1, tb_hud_work_us = 0, tb_hud_back_us = 0;
+TB_API double tb_hud_work_avg = 0, tb_hud_frame_avg = 0;
+TB_API long long tb_mdrawn;
+TB_API void tb_draw_rect(long long x, long long y, long long w, long long h, long long c);
+TB_API void tb_draw_text(long long x, long long y, const char *s, long long size, long long c);
+static void tb_hud_draw(void) {
+    TB_SCENE();   // сетки, которые ждали, — посчитать сейчас (их время и число тоже в замер)
+    long long now = tb_time_us();
+    if (tb_hud_back_us) {
+        double w = (now - tb_hud_back_us) / 1000.0;
+        tb_hud_work_avg = tb_hud_work_avg ? tb_hud_work_avg * 0.9 + w * 0.1 : w;
+        tb_hud_frame_avg = tb_hud_frame_avg ? tb_hud_frame_avg * 0.9 + tb_frame_ms_v * 0.1 : tb_frame_ms_v;
+    }
+    char line[160];
+    snprintf(line, sizeof line, "%lld fps  кадр %.1f мс  счёт %.1f мс  сеток %lld%s", tb_fps_v ? tb_fps_v : (long long)(1000 / (tb_frame_ms_v > 0 ? tb_frame_ms_v : 16)),
+        tb_hud_frame_avg, tb_hud_work_avg, tb_mdrawn, tb_gpu_on ? "  GPU" : "  CPU");
+    long long w = 0;
+    for (const char *p = line; *p; p++) if ((*p & 0xC0) != 0x80) w++;
+    long long y = tb_gh - 26 > 0 ? tb_gh - 26 : 0;   // внизу слева: верх окна обычно занят своим
+    tb_draw_rect(4, y, w * 8 + 12, 20, 0x101418);
+    tb_draw_text(10, y + 6, line, 1, tb_hud_work_avg > 16 ? 0xFF6B6B : tb_hud_work_avg > 8 ? 0xF6C343 : 0x7CE0B0);
+}
 TB_API int tb_window_alive(void) {
     if (tb_wn > 1) tb_windows_show();
     if (!tb_px || tb_gclosed) return 0;
+    if (tb_hud_on < 0) { const char *h = getenv("TB_HUD"); tb_hud_on = h && h[0] == '1'; }
+    if (tb_hud_on) tb_hud_draw();
     TB_SCENE();        // сцена 3D, которая ждала (тени, прозрачные) — в этот кадр
     tb_gfx_events();   // здесь показывается прошлый кадр
     if (tb_wn > 1) tb_windows_after();
@@ -10535,6 +10784,9 @@ TB_API int tb_window_alive(void) {
     // как у экрана: видеокарта сама ждёт обновления экрана (60 Гц — 60 кадров, 120 Гц — 120);
     // кадр пришёл быстрее 4 мс — экран частоту не держит, держим сами 60 кадров в секунду
     else if (!tb_gpu_on || now - tb_last_us < 4000) period = 16667;
+    // окно свёрнуто (и частоту не задали своим set_fps) — 10 кадров в секунду: игра идёт, сеть отвечает, а
+    // процессор и видеокарта не греются зря
+    if (tb_hidden && !free_fps && tb_fps_want < 0) period = 100000;
     if (period && now - tb_last_us < period) { usleep((useconds_t)(period - (now - tb_last_us))); now = tb_time_us(); }
     tb_frame_ms_v = (now - tb_last_us) / 1000.0;
     tb_last_us = now;
@@ -10542,6 +10794,7 @@ TB_API int tb_window_alive(void) {
     tb_fps_n++;
     if (now - tb_fps_t0 >= 1000000) { tb_fps_v = tb_fps_n * 1000000 / (now - tb_fps_t0); tb_fps_n = 0; tb_fps_t0 = now; }
     tb_last_frame = now / 1000;
+    tb_hud_back_us = tb_time_us();
     return !tb_gclosed;
 }
 TB_INL void tb_put(long long x, long long y, long long c) {
@@ -12275,10 +12528,11 @@ static int tb_lit_clip(tb_lv *p, int n, tb_lv *tmp) {
     }
     return n;
 }
-// один треугольник t одного вызова: свет углов, обрезка, веером на «новые» треугольники
-static void tb_lit_tri(const tb_srec *r, long long t, int cull) {
+// один треугольник t одного вызова: свет углов и обрезка (только считает, ничего не рисует — можно на любом ядре).
+// Ответ — сколько углов у многоугольника в p (0 — рисовать нечего)
+static int tb_lit_tri_calc(const tb_srec *r, long long t, int cull, tb_lv *p) {
     const tb_mesh *m = &tb_meshes[r->id];
-    tb_lv p[12], tmp[12];
+    tb_lv tmp[12];
     for (int i = 0; i < 3; i++) {
         const double *w = r->wp + 3 * m->t[3 * t + i];
         double d[3] = { w[0] - tb_cam[0], w[1] - tb_cam[1], w[2] - tb_cam[2] };
@@ -12287,13 +12541,13 @@ static void tb_lit_tri(const tb_srec *r, long long t, int cull) {
         p[i].c[2] = d[0] * tb_camf[0] + d[1] * tb_camf[1] + d[2] * tb_camf[2];
     }
     double zn = 205.0 / 4096;
-    if (p[0].c[2] < zn && p[1].c[2] < zn && p[2].c[2] < zn) return;
+    if (p[0].c[2] < zn && p[1].c[2] < zn && p[2].c[2] < zn) return 0;
     // лицом к камере? (на экране против часовой: смешанное произведение < 0)
     double e1[3], e2[3];
     for (int q = 0; q < 3; q++) { e1[q] = p[1].c[q] - p[0].c[q]; e2[q] = p[2].c[q] - p[0].c[q]; }
     double tri = p[0].c[0] * (e1[1] * e2[2] - e1[2] * e2[1]) + p[0].c[1] * (e1[2] * e2[0] - e1[0] * e2[2]) + p[0].c[2] * (e1[0] * e2[1] - e1[1] * e2[0]);
     int front = tri < 0;
-    if (cull < 0 && !front) return;
+    if (cull < 0 && !front) return 0;
     int tex = tb_tex_on(m, t), shadow = tb_sm_live;
     for (int i = 0; i < 3; i++) {
         const double *w = r->wp + 3 * m->t[3 * t + i];
@@ -12302,20 +12556,92 @@ static void tb_lit_tri(const tb_srec *r, long long t, int cull) {
         long long o[8];
         tb_lit_corner(w, n, r->shine, r->glow, o);
         for (int k = 0; k < 8; k++) p[i].a[k] = (double)o[k];
-        if (shadow) { long long s[3]; tb_sm_corner(w, n, s); p[i].a[8] = (double)s[0]; p[i].a[9] = (double)s[1]; p[i].a[10] = (double)s[2]; }
+        if (shadow) { long long s3[3]; tb_sm_corner(w, n, s3); p[i].a[8] = (double)s3[0]; p[i].a[9] = (double)s3[1]; p[i].a[10] = (double)s3[2]; }
         else p[i].a[8] = p[i].a[9] = p[i].a[10] = 0;
         p[i].a[11] = tex ? m->uv[6 * t + 2 * i] : 0; p[i].a[12] = tex ? m->uv[6 * t + 2 * i + 1] : 0;
     }
     int n = tb_lit_clip(p, 3, tmp);
-    if (n < 3) return;
-    tb_lctx cx = { m, t, m->c[t] & 0xFFFFFF, r->alpha, tex, (shadow ? 1 : 0) | (tb_fog_on ? 2 : 0) };
+    return n < 3 ? 0 : n;
+}
+// многоугольник веером на «новые» треугольники (рисует: только по порядку, на одном ядре)
+static void tb_lit_tri_put(const tb_srec *r, long long t, const tb_lv *p, int n) {
+    const tb_mesh *m = &tb_meshes[r->id];
+    tb_lctx cx = { m, t, m->c[t] & 0xFFFFFF, r->alpha, tb_tex_on(m, t), (tb_sm_live ? 1 : 0) | (tb_fog_on ? 2 : 0) };
     for (int i = 1; i + 1 < n; i++) tb_lit_emit(&p[0], &p[i], &p[i + 1], &cx);
+}
+static void tb_lit_tri(const tb_srec *r, long long t, int cull) {
+    tb_lv p[12];
+    int n = tb_lit_tri_calc(r, t, cull, p);
+    if (n) tb_lit_tri_put(r, t, p, n);
+}
+// ---- 1.4: свет и обрезка треугольников сцены на всех ядрах ----
+// Треугольники собираются в список работ по порядку; ядра считают кусками (tb_lit_tri_calc — только читает),
+// потом одно ядро рисует их в том же порядке. Кадр получается точка в точку тот же, что на одном ядре.
+typedef struct { const tb_srec *r; long long t; int cull; } tb_ljob;
+typedef struct { tb_lv p[12]; int n; } tb_lres;
+static tb_ljob *tb_lj = 0;
+static long long tb_lj_n = 0, tb_lj_cap = 0;
+static tb_lres *tb_lr = 0;
+static long long tb_lr_cap = 0, tb_lr_from = 0, tb_lr_to = 0;
+static volatile long long tb_lr_next = 0;
+enum { TB_LBLOCK = 512, TB_LSTEP = 32 };
+static void tb_lj_add(const tb_srec *r, long long t, int cull) {
+    if (tb_lj_n == tb_lj_cap) { tb_lj_cap = tb_lj_cap ? tb_lj_cap * 2 : 4096; tb_lj = (tb_ljob *)realloc(tb_lj, sizeof(tb_ljob) * (size_t)tb_lj_cap); }
+    tb_lj[tb_lj_n].r = r; tb_lj[tb_lj_n].t = t; tb_lj[tb_lj_n].cull = cull; tb_lj_n++;
+}
+static void *tb_lr_work(void *arg) {
+    (void)arg;
+    for (;;) {
+        long long a = __atomic_fetch_add(&tb_lr_next, TB_LSTEP, __ATOMIC_ACQ_REL) + tb_lr_from;
+        if (a >= tb_lr_to) break;
+        long long b = a + TB_LSTEP < tb_lr_to ? a + TB_LSTEP : tb_lr_to;
+        for (long long i = a; i < b; i++) tb_lr[i - tb_lr_from].n = tb_lit_tri_calc(tb_lj[i].r, tb_lj[i].t, tb_lj[i].cull, tb_lr[i - tb_lr_from].p);
+    }
+    return 0;
+}
+// Пока по желанию: TB_LIT_CORES=1 — свет и обрезку считают все ядра. На сервере с программной видеокартой (lavapipe)
+// выигрыша нет: она сама занимает все ядра, а рисование по порядку стоит половину; нужен замер на настоящей видеокарте
+static int tb_lit_cores(void) {
+    static int n = 0;
+    if (!n) { const char *e = getenv("TB_LIT_CORES"); n = e && e[0] == '1' ? tb_cores() : 1; }
+    return n;
+}
+// все собранные работы: посчитать (на всех ядрах) и нарисовать по порядку
+static void tb_lj_run(void) {
+    if (!tb_lj_n) return;
+    int cores = tb_lit_cores();
+    if (cores <= 1 || tb_lj_n < 128) {
+        for (long long i = 0; i < tb_lj_n; i++) tb_lit_tri(tb_lj[i].r, tb_lj[i].t, tb_lj[i].cull);
+        tb_lj_n = 0;
+        return;
+    }
+    if (!tb_lr) { tb_lr_cap = TB_LBLOCK; tb_lr = (tb_lres *)malloc(sizeof(tb_lres) * (size_t)tb_lr_cap); }
+    for (long long from = 0; from < tb_lj_n; from += TB_LBLOCK) {
+        tb_lr_from = from;
+        tb_lr_to = from + TB_LBLOCK < tb_lj_n ? from + TB_LBLOCK : tb_lj_n;
+        __atomic_store_n(&tb_lr_next, 0, __ATOMIC_RELEASE);
+        tb_par_run(tb_lr_work, 0, (tb_lr_to - from + TB_LSTEP - 1) / TB_LSTEP);
+        for (long long i = from; i < tb_lr_to; i++)
+            if (tb_lr[i - from].n) tb_lit_tri_put(tb_lj[i].r, tb_lj[i].t, tb_lr[i - from].p, tb_lr[i - from].n);
+    }
+    tb_lj_n = 0;
+}
+// углы в мире для всех вызовов сцены — тоже на всех ядрах (нормали сеток считаются заранее, на одном)
+static volatile long long tb_lp_next = 0;
+static void *tb_lp_work(void *arg) {
+    (void)arg;
+    for (;;) {
+        long long i = __atomic_fetch_add(&tb_lp_next, 1, __ATOMIC_ACQ_REL);
+        if (i >= tb_nscene) break;
+        if (!tb_scene[i].sh) tb_lit_prepare(&tb_scene[i]);
+    }
+    return 0;
 }
 // весь вызов (непрозрачный): куски сетки, которые не видны, пропускаем (без костей — по шарам кусков)
 static void tb_lit_draw(tb_srec *r) {
     tb_mesh *m = &tb_meshes[r->id];
     int cull = r->alpha == 255 ? tb_mesh_cull(m) : 0;
-    if (r->bm) { for (long long t = 0; t < m->n; t++) tb_lit_tri(r, t, cull); return; }
+    if (r->bm) { for (long long t = 0; t < m->n; t++) tb_lj_add(r, t, cull); return; }
     double M[3][3], T[3], d[3] = { r->P[0] - tb_cam[0], r->P[1] - tb_cam[1], r->P[2] - tb_cam[2] };
     for (int k = 0; k < 3; k++) {
         const double *row = k == 0 ? tb_cam + 3 : k == 1 ? tb_cam + 6 : tb_camf;
@@ -12327,7 +12653,7 @@ static void tb_lit_draw(tb_srec *r) {
     tb_mdrawn++;
     for (long long c = 0; c < m->nch; c++) {
         if (m->nch > 1 && tb_m3_test(m->chs + 4 * c, M, T, f, 1) == 0) continue;
-        for (long long t = m->chr[2 * c]; t < m->chr[2 * c] + m->chr[2 * c + 1]; t++) tb_lit_tri(r, t, cull);
+        for (long long t = m->chr[2 * c]; t < m->chr[2 * c] + m->chr[2 * c + 1]; t++) tb_lj_add(r, t, cull);
     }
 }
 
@@ -12685,7 +13011,13 @@ static int tb_tkey_cmp(const void *a, const void *b) {
 TB_API void tb_scene_flush(void) {
     if (!tb_nscene || tb_scene_busy) return;
     tb_scene_busy = 1;
-    for (long long i = 0; i < tb_nscene; i++) tb_lit_prepare(&tb_scene[i]);
+    // нормали сеток — на одном ядре (сетка пишет их в себя), потом углы всех вызовов — на всех
+    for (long long i = 0; i < tb_nscene; i++) tb_mesh_cnormals(&tb_meshes[tb_scene[i].id]);
+    if (tb_lit_cores() > 1 && tb_nscene > 1) {
+        __atomic_store_n(&tb_lp_next, 0, __ATOMIC_RELEASE);
+        tb_par_run(tb_lp_work, 0, tb_nscene);
+        for (long long i = 0; i < tb_nscene; i++) if (tb_scene[i].sh) tb_lit_prepare(&tb_scene[i]);
+    } else for (long long i = 0; i < tb_nscene; i++) tb_lit_prepare(&tb_scene[i]);
     tb_sm_live = 0;
     if (tb_sh_size > 0 && tb_lamb >= 0) { tb_sm_build(); tb_sm_live = 1; }
     long long nt = 0, nsh = 0;
@@ -12696,6 +13028,7 @@ TB_API void tb_scene_flush(void) {
         if (tb_scene[i].alpha == 255) tb_lit_draw(&tb_scene[i]);
         else nt += tb_meshes[tb_scene[i].id].n;
     }
+    tb_lj_run();
     for (long long i = 0; i < tb_nscene; i++) if (tb_scene[i].sh) tb_sh_draw(tb_scene[i].id, tb_scene[i].P[0], tb_scene[i].P[1], tb_scene[i].P[2], tb_scene[i].R, tb_scene[i].bm);
     tb_shm_sun = 0;
     for (int i = 0; i < 8; i++) tb_lsm_of[i] = -1;
@@ -12716,7 +13049,8 @@ TB_API void tb_scene_flush(void) {
             }
         }
         qsort(ks, (size_t)nt, sizeof(tb_tkey), tb_tkey_cmp);
-        for (long long i = 0; i < nt; i++) tb_lit_tri(&tb_scene[ks[i].r], ks[i].t, 0);
+        for (long long i = 0; i < nt; i++) tb_lj_add(&tb_scene[ks[i].r], ks[i].t, 0);
+        tb_lj_run();
         free(ks);
     }
     for (long long i = 0; i < tb_nscene; i++) tb_srec_free(&tb_scene[i]);
@@ -12732,9 +13066,11 @@ static void tb_lit_submit(long long id, double x, double y, double z, double R[3
     r.id = id; memcpy(r.R, R, sizeof r.R); r.P[0] = x; r.P[1] = y; r.P[2] = z;
     r.shine = m->shine; r.glow = m->glow; r.alpha = m->alpha;
     if (m->nb > 0) { r.bm = (double *)malloc(sizeof(double) * 12 * (size_t)m->nb); tb_bones_pose(m, r.bm); }
-    if (!(tb_sh_size > 0 && tb_lamb >= 0) && r.alpha == 255) {
+    // на одном ядре — сразу; на нескольких — в сцену: в конце её углы и свет посчитают все ядра
+    if (!(tb_sh_size > 0 && tb_lamb >= 0) && r.alpha == 255 && tb_lit_cores() <= 1) {
         tb_lit_prepare(&r);
         tb_lit_draw(&r);
+        tb_lj_run();
         tb_srec_free(&r);
         return;
     }
@@ -14101,6 +14437,12 @@ TB_B(long long, net_connect, (const char *h, long long a, int line), tb_net_conn
 TB_BV(net_send, (long long a, const char *t, int line), tb_net_send(a, t))
 TB_B(const char *, net_receive, (long long a, int line), tb_net_receive(a))
 TB_BV(net_close, (long long a, int line), tb_net_close(a))
+TB_B(_Bool, net_ready, (long long a, int line), tb_net_has(a))
+TB_B(long long, udp_open, (long long a, int line), tb_udp_open(a))
+TB_BV(udp_send, (long long s, const char *h, long long p, const char *t, int line), tb_udp_send(s, h, p, t))
+TB_B(const char *, udp_receive, (long long a, int line), tb_udp_receive(a))
+TB_B(const char *, udp_from, (int line), tb_udp_from())
+TB_B(long long, udp_from_port, (int line), tb_udp_from_port())
 #endif
 #ifndef TB_BARE
 TB_B(const char *, date_now, (int line), tb_date_now())

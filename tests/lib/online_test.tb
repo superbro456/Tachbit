@@ -1,0 +1,65 @@
+// сетевая игра (1.4): хозяин и два гостя в одной программе
+use online
+
+func step(h: Net, g1: Net, g2: Net, n: int)
+    repeat n times
+        online.update(h)
+        online.update(g1)
+        online.update(g2)
+        wait_ms(10)
+
+func main()
+    h = try online.host(0, "Аня")
+    port = online.port_of(h)
+    g1 = try online.connect("127.0.0.1", port, "Боря")
+    g2 = try online.connect("localhost", port, "Вика|=;%")
+    print("до ответа готов:", online.ready(g1))
+    online.put(h, "x", 10.0)
+    online.put(g1, "x", 100.0)
+    online.put_text(g1, "skin", "red;blue=1")
+    online.put(g2, "x", -5.5)
+    step(h, g1, g2, 30)
+    print("готовы:", online.ready(g1), online.ready(g2), "номера:", online.me(h), online.me(g1), online.me(g2))
+    print("в игре:", online.count_all(h), online.count_all(g1), online.count_all(g2))
+    print("имена у хозяина:", online.name_of(h, 1), online.name_of(h, 2))
+    print("имена у гостя 1:", online.name_of(g1, 0), online.name_of(g1, 2))
+    print("числа:", online.num(h, 1, "x"), online.num(g1, 0, "x"), online.num(g1, 2, "x"), online.num(g2, 1, "x"))
+    print("текст:", online.word(g2, 1, "skin"), online.word(h, 1, "skin"))
+    // плавно: новое число приходит не скачком
+    online.put(g1, "x", 200.0)
+    step(h, g1, g2, 8)
+    step(h, g1, g2, 30)
+    print("доехало:", online.num(h, 1, "x"), online.num(g2, 1, "x"))
+    // события доходят один раз
+    online.say(g1, "бум 1|2")
+    online.say(h, "старт")
+    n_h = 0
+    n_g2 = 0
+    n_g1 = 0
+    last = ""
+    repeat 30 times
+        online.update(h)
+        online.update(g1)
+        online.update(g2)
+        each e in online.heard(h)
+            n_h += 1
+            last = e.from + ":" + e.what
+        each e2 in online.heard(g2)
+            n_g2 += 1
+        each e3 in online.heard(g1)
+            n_g1 += 1
+        wait_ms(10)
+    print("события: хозяин", n_h, last, "гость 2:", n_g2, "гость 1:", n_g1)
+    print("задержка разумная:", online.ping(g1) >= 0 and online.ping(g1) < 200)
+    // гость выходит — остальные узнают
+    online.leave(g2)
+    left = ""
+    repeat 20 times
+        online.update(h)
+        online.update(g1)
+        each e4 in online.heard(g1)
+            left = e4.from + " " + e4.what
+        wait_ms(10)
+    print("после выхода:", online.count_all(h), online.count_all(g1), left)
+    online.leave(g1)
+    online.leave(h)

@@ -28,7 +28,7 @@ for f in tests/bare/*.tb; do
 done
 # обычные тесты тоже должны работать как ядра (кроме тех, где нужны файлы — их без ОС нет)
 for f in tests/ok/*.tb; do
-    case "$(basename "$f")" in library.tb|folders.tb|random_time.tb|json_date.tb|c_call.tb|zone_syscall.tb|net.tb) continue ;; esac
+    case "$(basename "$f")" in library.tb|folders.tb|random_time.tb|json_date.tb|c_call.tb|zone_syscall.tb|net.tb|udp.tb) continue ;; esac
     cp "$f" "$work/"
     got=$(run_kernel "$work/$(basename "$f")")
     if [ "$got" = "$(cat "${f%.tb}.out")" ]; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "не прошёл (как ядро): $f"; fi

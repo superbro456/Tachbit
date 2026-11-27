@@ -1,0 +1,130 @@
+// Звезда на двоих (и больше) — сетевая игра на Tachbit 1.4.
+// Первый открывает игру:      tb run examples/apps/online_star/main.tb
+// Второй подключается к нему: tb run examples/apps/online_star/main.tb 192.168.1.5
+// (адрес первого компьютера в той же Wi-Fi; на одном компьютере — 127.0.0.1)
+// Стрелки — лететь, кто первым коснётся звезды, тому очко. Esc — выйти.
+use online
+
+shared W = int 800
+shared H = int 500
+shared PORT = int 5000
+
+func color_of(id: int)
+    colors = [rgb(255, 95, 162), rgb(47, 209, 191), rgb(246, 195, 67), rgb(124, 92, 240), rgb(255, 140, 60)]
+    return colors[id % len(colors)]
+
+func near(x1: dec, y1: dec, x2: dec, y2: dec, d: dec)
+    return (x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2) < d * d
+
+func add_point(scores: dict int int, id: int)
+    if not scores.has(id)
+        scores[id] = 0
+    scores[id] += 1
+
+func draw_star(x: int, y: int)
+    draw_circle(x, y, 14, rgb(246, 195, 67))
+    draw_circle(x, y, 7, rgb(255, 240, 180))
+
+func main()
+    a = args()
+    is_host = len(a) == 0
+    // без адреса — открыть игру, с адресом — подключиться к ней
+    net = try online.start(a, PORT, "Игрок")
+    try window_open(W, H, "Звезда — сетевая игра")
+
+    x = random(80, W - 80) * 1.0
+    y = random(80, H - 80) * 1.0
+    // звезду и очки ведёт хозяин: так у всех одна правда
+    sx = random(40, W - 40)
+    sy = random(60, H - 40)
+    scores = dict int int
+    wait_star = false
+    rings = list int        // вспышки: x, y, кадр
+    frame = 0
+
+    repeat while window_alive()
+        if key_down("escape")
+            stop
+        frame += 1
+        if key_down("left")
+            x -= 5
+        if key_down("right")
+            x += 5
+        if key_down("up")
+            y -= 5
+        if key_down("down")
+            y += 5
+        x = max(20.0, min(x, W - 20.0))
+        y = max(50.0, min(y, H - 20.0))
+
+        online.put(net, "x", x)
+        online.put(net, "y", y)
+        if is_host
+            online.put(net, "sx", sx)
+            online.put(net, "sy", sy)
+            parts = list text
+            each id in scores
+                parts.add(id + ":" + scores[id])
+            online.put_text(net, "score", join(parts, ","))
+        online.update(net)
+
+        // звезда: у хозяина своя, у гостя — какую прислал хозяин
+        if not is_host
+            sx = round(online.num(net, 0, "sx"))
+            sy = round(online.num(net, 0, "sy"))
+        if near(x, y, sx * 1.0, sy * 1.0, 30.0) and not wait_star
+            if is_host
+                add_point(scores, 0)
+                rings.add(sx)
+                rings.add(sy)
+                rings.add(frame)
+                sx = random(40, W - 40)
+                sy = random(60, H - 40)
+                online.say(net, "star " + sx + " " + sy)
+            else
+                online.say(net, "got")
+                wait_star = true
+
+        each e in online.heard(net)
+            w = split(e.what, " ")
+            if is_host and w[0] == "got" and near(online.num(net, e.from, "x"), online.num(net, e.from, "y"), sx * 1.0, sy * 1.0, 60.0)
+                add_point(scores, e.from)
+                rings.add(sx)
+                rings.add(sy)
+                rings.add(frame)
+                sx = random(40, W - 40)
+                sy = random(60, H - 40)
+                online.say(net, "star " + sx + " " + sy)
+            else if w[0] == "star" and len(w) == 3
+                rings.add(sx)
+                rings.add(sy)
+                rings.add(frame)
+                wait_star = false
+
+        // рисуем
+        clear_window(rgb(13, 13, 16))
+        draw_rect(0, 0, W, 34, rgb(28, 28, 32))
+        title = "Хозяин: порт " + PORT
+        if not is_host
+            title = "Подключение к " + a[0] + "…"
+            if online.ready(net)
+                title = "В игре, задержка " + online.ping(net) + " мс"
+            if online.lost(net)
+                title = "Связь с хозяином пропала"
+        draw_text(10, 9, title + "   игроков: " + online.count_all(net), 1, rgb(244, 243, 239))
+        board = online.word(net, 0, "score")
+        draw_text(W - 260, 9, "очки " + board, 1, rgb(79, 179, 172))
+        count k from 0 to len(rings) / 3 - 1
+            age = frame - rings[k * 3 + 2]
+            if age < 30
+                draw_circle(rings[k * 3], rings[k * 3 + 1], 14 + age * 2, rgb(80 + age * 4, 60, 40))
+        draw_star(sx, sy)
+        each p in online.others(net)
+            px = round(online.num(net, p.id, "x"))
+            py = round(online.num(net, p.id, "y"))
+            draw_circle(px, py, 16, color_of(p.id))
+            draw_text(px - 20, py - 34, p.name, 1, rgb(200, 200, 210))
+        me = online.me(net)
+        draw_circle(round(x), round(y), 16, color_of(max(me, 0)))
+        draw_circle(round(x), round(y), 6, rgb(255, 255, 255))
+    online.leave(net)

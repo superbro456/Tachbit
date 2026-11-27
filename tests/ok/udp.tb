@@ -1,0 +1,36 @@
+// быстрые сообщения UDP (1.4): два гнезда на одном компьютере
+func wait_msg(s: int) gives t: text
+    repeat 200 times
+        t = try udp_receive(s)
+        if t != ""
+            return
+        wait_ms(5)
+
+func main()
+    a = try udp_open(0)
+    b = try udp_open(0)
+    pa = net_port(a)
+    pb = net_port(b)
+    print("порты разные:", pa != pb and pa > 0 and pb > 0)
+    e0 = try udp_receive(a)
+    print("пусто сразу:", e0 == "")
+    try udp_send(a, "127.0.0.1", pb, "привет|1")
+    t = try wait_msg(b)
+    print("b получил:", t, "от своего:", udp_from_port() == pa, udp_from())
+    try udp_send(b, udp_from(), udp_from_port(), "ответ")
+    t2 = try wait_msg(a)
+    print("a получил:", t2)
+    try udp_send(a, "localhost", pb, "по имени")
+    t3 = try wait_msg(b)
+    print("по имени:", t3)
+    print("ничего не ждёт:", net_ready(a))
+    try udp_send(b, "127.0.0.1", pa, "x")
+    wait_ms(20)
+    print("теперь ждёт:", net_ready(a))
+    big = "0123456789"
+    repeat 13 times
+        big = big + big
+    udp_send(a, "127.0.0.1", pb, big) else err
+        print("большое:", err)
+    net_close(a)
+    net_close(b)

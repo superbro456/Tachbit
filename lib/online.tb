@@ -1,0 +1,444 @@
+// online — сетевая игра на несколько человек (1.4). Один открывает игру (host), остальные
+// подключаются (connect). Каждый кладёт своё состояние (put), библиотека 20 раз в секунду
+// рассылает его всем и плавно ведёт чужие числа между приходами (num), чтобы чужой игрок
+// не дёргался. События (say) доходят точно: их повторяют, пока другая сторона не скажет «получил».
+// Внутри — быстрые сообщения udp_*: потерялось одно — следующее всё равно придёт.
+//
+//   use online
+//   net = try online.host(5000, "Аня")                  // открыть игру, хозяин — игрок 0
+//   net = try online.connect("192.168.1.5", 5000, "Боря")  // или подключиться к ней
+//   repeat while window_alive()
+//       online.put(net, "x", x)                         // своё число
+//       online.update(net)                              // каждый кадр: отправить и принять
+//       each p in online.others(net)
+//           draw_circle(round(online.num(net, p.id, "x")), 100, 10, rgb(255, 80, 80))
+//       each e in online.heard(net)
+//           print(e.from, e.what)                       // события за этот кадр
+//
+// Свой адрес в домашней сети: на Mac — Системные настройки → Wi-Fi → Подробнее (IP),
+// на Windows — ipconfig. Через интернет нужен проброс порта на роутере или свой сервер.
+
+obj Player
+    id: int
+    name: text
+    host: text
+    port: int
+    keys: list text
+    vals: list text
+    from_v: list dec
+    to_v: list dec
+    t0: list int
+    dur: int
+    last_state: int
+    seen: int
+
+obj Pending
+    n: int
+    msg: text
+    host: text
+    port: int
+    sent: int
+    tries: int
+
+obj Said
+    from: int
+    what: text
+
+obj Net
+    sock: int
+    is_host: bool
+    ready: bool
+    lost: bool
+    my_id: int
+    name: text
+    host: text
+    port: int
+    keys: list text
+    vals: list text
+    players: list Player
+    next_id: int
+    every: int
+    last_send: int
+    last_join: int
+    last_ping: int
+    last_heard: int
+    ping_ms: int
+    out_n: int
+    pending: list Pending
+    got: dict text bool
+    heard: list Said
+    sent_bytes: int
+    got_bytes: int
+
+// ---------- начать ----------
+
+// открыть игру на порту port; хозяин сразу в игре, его номер 0
+modpub func host(port: int, name: text) gives net: Net
+    s = try udp_open(port)
+    net = Net(sock: s, is_host: true, ready: true, my_id: 0, name: name, next_id: 1, every: 50)
+    net.port = net_port(s)
+    net.last_heard = time_ms()
+
+// для main: нет адреса в списке — открыть игру, есть — подключиться к первому адресу
+//   net = try online.start(args(), 5000, "Аня")
+modpub func start(a: list text, port: int, name: text) gives net: Net
+    if len(a) == 0
+        net = try host(port, name)
+    else
+        net = try connect(a[0], port, name)
+
+// подключиться к игре по адресу и порту; ready(net) станет yes, когда хозяин ответит
+modpub func connect(address: text, port: int, name: text) gives net: Net
+    s = try udp_open(0)
+    net = Net(sock: s, is_host: false, my_id: -1, name: name, host: address, port: port, every: 50)
+    net.last_heard = time_ms()
+    net.last_join = -10000
+
+// сколько раз в секунду рассылать состояние (по умолчанию 20)
+modpub func rate(net: Net, times_per_second: int)
+    net.every = 1000 / max(1, min(times_per_second, 120))
+
+// ---------- своё состояние ----------
+
+// своё число (координата, жизни, угол...) — его увидят все
+modpub func put(net: Net, key: text, value: dec)
+    put_text(net, key, "" + value)
+
+// своё значение текстом (имя скина, состояние «бежит»)
+modpub func put_text(net: Net, key: text, value: text)
+    count i from 0 to len(net.keys) - 1
+        if net.keys[i] == key
+            net.vals[i] = value
+            return
+    net.keys.add(key)
+    net.vals.add(value)
+
+// ---------- каждый кадр ----------
+
+modpub func update(net: Net)
+    net.heard.clear()
+    now = time_ms()
+    receive_all(net, now)
+    if not net.is_host and not net.ready and now - net.last_join > 250
+        send_raw(net, net.host, net.port, "J|" + esc(net.name))
+        net.last_join = now
+    if not net.is_host and net.ready and now - net.last_ping > 1000
+        send_raw(net, net.host, net.port, "Q|" + now)
+        net.last_ping = now
+    if now - net.last_send >= net.every
+        net.last_send = now
+        send_state(net)
+    resend(net, now)
+    if net.is_host
+        drop_quiet(net, now)
+    else if now - net.last_heard > 5000
+        net.lost = true
+
+// ---------- что видно ----------
+
+// уже в игре (у клиента — хозяин ответил)
+modpub func ready(net: Net)
+    return net.ready
+
+// связь с хозяином пропала (5 секунд тишины)
+modpub func lost(net: Net)
+    return net.lost
+
+// свой номер: хозяин 0, остальные 1, 2, 3...
+modpub func me(net: Net)
+    return net.my_id
+
+// все остальные игроки (без себя)
+modpub func others(net: Net)
+    return net.players
+
+// сколько всего в игре вместе с собой
+modpub func count_all(net: Net)
+    return len(net.players) + 1
+
+// имя игрока по номеру ("" — нет такого)
+modpub func name_of(net: Net, id: int)
+    if id == net.my_id
+        return net.name
+    at = find_player(net, id)
+    if at < 0
+        return ""
+    return net.players[at].name
+
+// число игрока, плавно между приходами; 0, если пока не знаем
+modpub func num(net: Net, id: int, key: text)
+    if id == net.my_id
+        count i from 0 to len(net.keys) - 1
+            if net.keys[i] == key
+                return to_dec(net.vals[i]) or 0.0
+        return 0.0
+    at = find_player(net, id)
+    if at < 0
+        return 0.0
+    p = net.players[at]
+    now = time_ms()
+    count i from 0 to len(p.keys) - 1
+        if p.keys[i] == key
+            return shown(p, i, now)
+    return 0.0
+
+// значение игрока текстом, как пришло (без сглаживания)
+modpub func word(net: Net, id: int, key: text)
+    if id == net.my_id
+        count i from 0 to len(net.keys) - 1
+            if net.keys[i] == key
+                return net.vals[i]
+        return ""
+    at = find_player(net, id)
+    if at < 0
+        return ""
+    p = net.players[at]
+    count i from 0 to len(p.keys) - 1
+        if p.keys[i] == key
+            return p.vals[i]
+    return ""
+
+// задержка до хозяина в мс (у хозяина 0)
+modpub func ping(net: Net)
+    return net.ping_ms
+
+// порт, на котором открыта игра (если открывали с портом 0)
+modpub func port_of(net: Net)
+    return net.port
+
+// сколько байт ушло и пришло с начала игры
+modpub func traffic(net: Net) gives sent: int, got: int
+    sent = net.sent_bytes
+    got = net.got_bytes
+
+// ---------- события ----------
+
+// событие всем (выстрел, «подобрал монету», сообщение чата) — дойдёт точно, один раз
+modpub func say(net: Net, what: text)
+    if net.is_host
+        each p in net.players
+            send_sure(net, p.host, p.port, "E|" + net.my_id + "|", esc(what))
+    else if net.ready
+        send_sure(net, net.host, net.port, "E|" + net.my_id + "|", esc(what))
+
+// события, пришедшие в этом кадре: from — номер игрока, what — что сказал
+modpub func heard(net: Net)
+    return net.heard
+
+// выйти из игры (другие узнают сразу, а не через 3 секунды тишины)
+modpub func leave(net: Net)
+    if net.is_host
+        each p in net.players
+            send_raw(net, p.host, p.port, "G|0")
+    else if net.ready
+        send_raw(net, net.host, net.port, "L|" + net.my_id)
+    net_close(net.sock)
+    net.ready = false
+
+// ---------- внутри ----------
+
+func send_raw(net: Net, address: text, port: int, msg: text)
+    udp_send(net.sock, address, port, msg) else err
+        return
+    net.sent_bytes += byte_len(msg)
+
+// «E|кто|n|текст»: повторять, пока не придёт «A|n»
+func send_sure(net: Net, address: text, port: int, head: text, body: text)
+    net.out_n += 1
+    parts = split(head, "|")
+    msg = parts[0] + "|" + parts[1] + "|" + net.out_n + "|" + body
+    net.pending.add(Pending(n: net.out_n, msg: msg, host: address, port: port, sent: time_ms()))
+    send_raw(net, address, port, msg)
+
+func resend(net: Net, now: int)
+    left = list Pending
+    each q in net.pending
+        if q.tries >= 40
+            skip
+        if now - q.sent > 120
+            send_raw(net, q.host, q.port, q.msg)
+            q.sent = now
+            q.tries += 1
+        left.add(q)
+    net.pending = left
+
+func state_text(keys: list text, vals: list text)
+    parts = list text
+    count i from 0 to len(keys) - 1
+        parts.add(esc(keys[i]) + "=" + esc(vals[i]))
+    return join(parts, ";")
+
+func send_state(net: Net)
+    if net.is_host
+        mine = "S|0|" + esc(net.name) + "|" + state_text(net.keys, net.vals)
+        each p in net.players
+            send_raw(net, p.host, p.port, mine)
+            each o in net.players
+                if o.id != p.id and len(o.keys) > 0
+                    send_raw(net, p.host, p.port, "S|" + o.id + "|" + esc(o.name) + "|" + state_text(o.keys, o.vals))
+    else if net.ready
+        send_raw(net, net.host, net.port, "S|" + net.my_id + "|" + esc(net.name) + "|" + state_text(net.keys, net.vals))
+
+func receive_all(net: Net, now: int)
+    repeat 2000 times
+        msg = udp_receive(net.sock) or ""
+        if msg == ""
+            stop
+        net.got_bytes += byte_len(msg)
+        handle(net, msg, udp_from(), udp_from_port(), now)
+
+func handle(net: Net, msg: text, address: text, port: int, now: int)
+    parts = split(msg, "|")
+    kind = parts[0]
+    if net.is_host
+        at = find_addr(net, address, port)
+        if at >= 0
+            net.players[at].seen = now
+        if kind == "J" and len(parts) >= 2
+            if at < 0
+                net.players.add(Player(id: net.next_id, name: unesc(parts[1]), host: address, port: port, seen: now, dur: 50))
+                at = len(net.players) - 1
+                net.next_id += 1
+            send_raw(net, address, port, "W|" + net.players[at].id)
+            return
+        if at < 0
+            return
+        p = net.players[at]
+        if kind == "S" and len(parts) >= 4
+            take_state(p, parts[3], now)
+        else if kind == "E" and len(parts) >= 4
+            send_raw(net, address, port, "A|" + parts[2])
+            if fresh(net, address, port, parts[2])
+                net.heard.add(Said(from: p.id, what: unesc(parts[3])))
+                each o in net.players
+                    if o.id != p.id
+                        send_sure(net, o.host, o.port, "E|" + p.id + "|", parts[3])
+        else if kind == "A" and len(parts) >= 2
+            acked(net, address, port, parts[1])
+        else if kind == "Q" and len(parts) >= 2
+            send_raw(net, address, port, "R|" + parts[1])
+        else if kind == "L"
+            gone(net, p.id)
+        return
+    // клиент слушает только хозяина
+    net.last_heard = now
+    if kind == "W" and len(parts) >= 2
+        net.my_id = to_int(parts[1]) or -1
+        net.ready = net.my_id >= 0
+    else if kind == "S" and len(parts) >= 4
+        id = to_int(parts[1]) or -1
+        if id < 0 or id == net.my_id
+            return
+        at = find_player(net, id)
+        if at < 0
+            net.players.add(Player(id: id, name: unesc(parts[2]), dur: 50))
+            at = len(net.players) - 1
+        net.players[at].seen = now
+        take_state(net.players[at], parts[3], now)
+    else if kind == "E" and len(parts) >= 4
+        send_raw(net, address, port, "A|" + parts[2])
+        if fresh(net, address, port, parts[2])
+            net.heard.add(Said(from: to_int(parts[1]) or -1, what: unesc(parts[3])))
+    else if kind == "A" and len(parts) >= 2
+        acked(net, address, port, parts[1])
+    else if kind == "R" and len(parts) >= 2
+        net.ping_ms = now - (to_int(parts[1]) or now)
+    else if kind == "G" and len(parts) >= 2
+        id = to_int(parts[1]) or -1
+        if id == 0
+            net.lost = true
+        else
+            gone(net, id)
+
+// событие с этим номером от этого адреса ещё не приходило
+func fresh(net: Net, address: text, port: int, n: text)
+    k = address + ":" + port + ":" + n
+    if net.got.has(k)
+        return false
+    net.got[k] = true
+    return true
+
+func acked(net: Net, address: text, port: int, n: text)
+    want = to_int(n) or -1
+    left = list Pending
+    each q in net.pending
+        if not (q.n == want and q.port == port and q.host == address)
+            left.add(q)
+    net.pending = left
+
+// новые значения игрока: числа плавно едут от того, что видно сейчас, к новому
+func take_state(p: Player, data: text, now: int)
+    if p.last_state > 0
+        p.dur = max(20, min(250, now - p.last_state))
+    p.last_state = now
+    if data == ""
+        return
+    each pair in split(data, ";")
+        eq = find(pair, "=")
+        if eq < 0
+            skip
+        key = unesc(cut(pair, 0, eq - 1))
+        val = ""
+        if eq < len(pair) - 1
+            val = unesc(cut(pair, eq + 1, len(pair) - 1))
+        v = to_dec(val) or 0.0
+        at = -1
+        count i from 0 to len(p.keys) - 1
+            if p.keys[i] == key
+                at = i
+        if at < 0
+            p.keys.add(key)
+            p.vals.add(val)
+            p.from_v.add(v)
+            p.to_v.add(v)
+            p.t0.add(now)
+        else
+            p.from_v[at] = shown(p, at, now)
+            p.to_v[at] = v
+            p.t0[at] = now
+            p.vals[at] = val
+
+func shown(p: Player, i: int, now: int)
+    k = (now - p.t0[i]) * 1.0 / p.dur
+    if k >= 1
+        return p.to_v[i]
+    if k <= 0
+        return p.from_v[i]
+    return p.from_v[i] + (p.to_v[i] - p.from_v[i]) * k
+
+// хозяин: кто молчит 3 секунды — вышел
+func drop_quiet(net: Net, now: int)
+    count i from 0 to len(net.players) - 1
+        if i < len(net.players) and now - net.players[i].seen > 3000
+            gone(net, net.players[i].id)
+
+func gone(net: Net, id: int)
+    left = list Player
+    each p in net.players
+        if p.id != id
+            left.add(p)
+    if len(left) == len(net.players)
+        return
+    net.players = left
+    if net.is_host
+        each p in net.players
+            send_raw(net, p.host, p.port, "G|" + id)
+    net.heard.add(Said(from: id, what: "вышел"))
+
+func find_player(net: Net, id: int)
+    count i from 0 to len(net.players) - 1
+        if net.players[i].id == id
+            return i
+    return -1
+
+func find_addr(net: Net, address: text, port: int)
+    count i from 0 to len(net.players) - 1
+        if net.players[i].port == port and net.players[i].host == address
+            return i
+    return -1
+
+func esc(s: text)
+    return replace(replace(replace(replace(replace(s, "%", "%25"), "|", "%7C"), ";", "%3B"), "=", "%3D"), "\n", "%0A")
+
+func unesc(s: text)
+    return replace(replace(replace(replace(replace(s, "%0A", "\n"), "%3D", "="), "%3B", ";"), "%7C", "|"), "%25", "%")
