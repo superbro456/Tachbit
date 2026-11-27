@@ -39,6 +39,7 @@ func main()
     sy = random(60, H - 40)
     scores = dict int int
     wait_star = false
+    wait_until = 0          // гость ждёт ответа хозяина не дольше полсекунды, потом может просить снова
     rings = list int        // вспышки: x, y, кадр
     frame = 0
 
@@ -70,8 +71,11 @@ func main()
 
         // звезда: у хозяина своя, у гостя — какую прислал хозяин
         if not is_host
-            sx = round(online.num(net, 0, "sx"))
-            sy = round(online.num(net, 0, "sy"))
+            // звезда прыгает сразу (word — без плавного хода), иначе она «едет» через всё поле
+            sx = to_int(online.word(net, 0, "sx")) or sx
+            sy = to_int(online.word(net, 0, "sy")) or sy
+        if wait_star and frame > wait_until
+            wait_star = false
         if near(x, y, sx * 1.0, sy * 1.0, 30.0) and not wait_star
             if is_host
                 add_point(scores, 0)
@@ -82,12 +86,15 @@ func main()
                 sy = random(60, H - 40)
                 online.say(net, "star " + sx + " " + sy)
             else
-                online.say(net, "got")
+                // своё место прямо в событии: хозяин проверяет его, а не то, что видит у себя с опозданием
+                online.say(net, "got " + round(x) + " " + round(y) + " " + sx + " " + sy)
                 wait_star = true
+                wait_until = frame + 30
 
         each e in online.heard(net)
             w = split(e.what, " ")
-            if is_host and w[0] == "got" and near(online.num(net, e.from, "x"), online.num(net, e.from, "y"), sx * 1.0, sy * 1.0, 60.0)
+            // засчитать, если гость коснулся именно этой звезды (а не прошлой) и стоял рядом с ней
+            if is_host and w[0] == "got" and len(w) == 5 and w[3] == "" + sx and w[4] == "" + sy and near(to_dec(w[1]) or 0.0, to_dec(w[2]) or 0.0, sx * 1.0, sy * 1.0, 40.0)
                 add_point(scores, e.from)
                 rings.add(sx)
                 rings.add(sy)
