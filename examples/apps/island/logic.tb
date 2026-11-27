@@ -532,6 +532,9 @@ func builds_fire(g: Game, dt: dec)
             skip
         e = g.enemies[fi]
         b.aim = atan2(e.x - bx, e.z - bz) * 180.0 / pi()
+        // ствол плавно поднимается или опускается к цели
+        d = sqrt(dist2(bx, bz, e.x, e.z))
+        b.aim_d += (d - b.aim_d) * min(1.0, dt * 6.0)
         if b.cool > 0.0
             skip
         b.cool = 1.0 / info.rate
@@ -545,7 +548,17 @@ func builds_fire(g: Game, dt: dec)
             if e.held >= 0 or e.stuck
                 sp = 0.0
             fx, fz, fy = point_on_route(g, e.route, e.dist + sp * 0.6)
-            g.shots.add(Shot(kind: 1, x: bx, y: 0.8, z: bz, x0: bx, y0: 0.8, z0: bz, tx: fx, ty: 0.0, tz: fz, target: -1, dmg: info.dmg, splash: info.splash, speed: 3.0, alive: true))
+            // вылетает из дула: чуть впереди пушки, по направлению ствола
+            a = b.aim * pi() / 180.0
+            mx = bx + sin(a) * 0.3
+            mz = bz + cos(a) * 0.3
+            arc = arc_height(sqrt(dist2(mx, mz, fx, fz)))
+            g.shots.add(Shot(kind: 1, x: mx, y: 0.55, z: mz, x0: mx, y0: 0.55, z0: mz, tx: fx, ty: 0.0, tz: fz, target: -1, dmg: info.dmg, splash: info.splash, arc: arc, speed: 3.0, alive: true))
+
+// высота дуги ядра на расстояние d клеток: к ближним почти прямо, к дальним — высоко.
+// Наклон ствола (anim3d.aim_tilt) считается по той же дуге, поэтому ядро вылетает точно из дула
+modpub func arc_height(d: dec)
+    return d * (0.03 + 0.06 * d)
 
 // крепость с 3-го уровня стреляет сама
 func fort_fire(g: Game, dt: dec)
@@ -603,7 +616,7 @@ func fly(g: Game, dt: dec)
         s.z = s.z0 + (s.tz - s.z0) * s.t
         s.y = s.y0 + (s.ty - s.y0) * s.t
         if s.kind == 1
-            s.y += sin(s.t * pi()) * 1.6
+            s.y += sin(s.t * pi()) * s.arc
         if s.t >= 1.0
             land(g, s)
 
@@ -745,7 +758,7 @@ modpub func build(g: Game, k: int, c: int, r: int)
         g.events.add("no")
         return false
     g.money -= info.price
-    b = Building(kind: k, lvl: 1, col: c, row: r, spent: info.price, hp: info.hp, max_hp: info.hp, hill: cell(g, c, r) == 8)
+    b = Building(kind: k, lvl: 1, col: c, row: r, spent: info.price, hp: info.hp, max_hp: info.hp, aim_d: 2.0, hill: cell(g, c, r) == 8)
     g.builds.add(b)
     g.events.add("build")
     g.fx.add(Fx(kind: 5, x: cell_x(g, c), y: 0.2, z: cell_z(g, r), life: 0.6))

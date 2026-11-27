@@ -69,9 +69,11 @@ modpub func draw_cannon_at(md: Model, base: int, barrel: int, x: dec, y: dec, z:
     if barrel >= 0
         model.draw_part_on(md, barrel, base, x, y, z, yaw, 0.0, 0.0, turn, tilt, 0.12 * flash * flash)
 
-// наклон ствола к цели на расстоянии dist (клеток): ближе — ниже, дальше — выше
+// наклон ствола к цели на расстоянии dist (клеток): к ближним ствол опущен, к дальним поднят.
+// Это угол вылета ядра по дуге logic.arc_height (высота d·(0.03 + 0.06·d)): tg угла = 0.12 + 0.24·d. Минус — вверх
 modpub func aim_tilt(dist: dec)
-    return 10.0 - min(dist, 4.0) * 7.0
+    d = max(0.0, min(dist, 5.0))
+    return 0.0 - atan(0.12 + 0.24 * d) * 180.0 / pi()
 
 // размер модели по уровню (1–5): 4-й крупнее, 5-й ещё крупнее. Блоки в .vox ровные, растёт вся модель целиком:
 //   model.fit(md, 1.6 * anim3d.level_size(lvl))

@@ -21,7 +21,7 @@ obj Look
     c_base: list int         // номер куска «lafet» в пушке
     c_barrel: list int       // номер куска «stvol»
     wall: list Model         // 3 уровня
-    castle: Model
+    castle: list Model   // крепость 1–10
     ruin: Model
     troop: list Model        // мечник, лучник, конница
     enemy: list Model        // краб, гоблин, тролль, колдун
@@ -78,8 +78,10 @@ modpub func load_look() gives lk: Look
         md = try vox("stena_" + n, 1.0 / 24.0, 1.0)
         model.build(md)
         lk.wall.add(md)
-    lk.castle = try vox("zamok_1", 1.0 / 36.0, 1.0)
-    model.build(lk.castle)
+    count n from 1 to 10
+        cs = try vox("zamok_" + n, 1.0 / 32.0, 1.0)
+        model.build(cs)
+        lk.castle.add(cs)
     lk.ruin = try vox("tower_gen_1", 1.0 / 16.0, 0.8)
     model.paint(lk.ruin, rgb(105, 98, 88))
     model.build(lk.ruin)
@@ -274,20 +276,15 @@ func dock_turn(g: Game, c: int, r: int)
         return 180.0
     return 0.0
 
-// крепость: замок, с уровнем чуть больше; с 3-го уровня — пушка на нём
+// крепость: у каждого уровня (1–10) своя модель замка
 func draw_fort(g: Game, lk: Look, t: dec)
     if len(g.path_c) == 0
         return
     n = len(g.path_c) - 1
     x = cell_x(g, g.path_c[n])
     z = cell_z(g, g.path_r[n])
-    k = 1.0 + (g.fort - 1) * 0.04
-    model.draw(lk.castle, x, 0.0, z, 0.0, 0.0, 0.0)
-    if g.fort >= 3
-        lv = min(5, (g.fort - 1) / 2 + 1)
-        cn = lk.cannon[lv - 1]
-        w, h, d = model.size(lk.castle)
-        anim3d.draw_cannon_at(cn, lk.c_base[lv - 1], lk.c_barrel[lv - 1], x, h * 0.55, z, 0.0, g.fort_aim, anim3d.aim_tilt(3.0), 0.0)
+    lv = max(1, min(10, g.fort))
+    model.draw(lk.castle[lv - 1], x, 0.0, z, 0.0, 0.0, 0.0)
 
 // флаг войскам на тропе
 func draw_flag(g: Game, lk: Look, t: dec)
@@ -306,8 +303,7 @@ func draw_build(g: Game, lk: Look, b: Building, t: dec)
         anim3d.draw_tower(lk.tower[min(4, lv - 1)], x, z, 0.0, b.age, b.flash, b.bump)
     else if b.kind == 1
         i = min(4, lv - 1)
-        dist = 3.0
-        anim3d.draw_cannon(lk.cannon[i], lk.c_base[i], lk.c_barrel[i], x, z, 0.0, b.aim, anim3d.aim_tilt(dist), b.flash)
+        anim3d.draw_cannon(lk.cannon[i], lk.c_base[i], lk.c_barrel[i], x, z, 0.0, b.aim, anim3d.aim_tilt(b.aim_d), b.flash)
     else
         md = lk.wall[min(2, lv - 1)]
         anim3d.draw_wall(md, x, z, wall_turn(g, b.col, b.row), b.flash)
