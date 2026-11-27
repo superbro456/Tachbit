@@ -1,0 +1,37 @@
+// Пушки 1–5: лафет крутится влево-вправо, ствол наклоняется вверх-вниз и откатывается при выстреле.
+// Запуск: tb run examples/apps/island/cannons_show.tb
+use model
+use anim3d
+// дробная часть: 2.7 → 0.7
+func frac(x: dec)
+    return x - floor(x)
+
+// папка этого файла (чтобы models/ нашлась, откуда ни запускай)
+func folder()
+    if file_exists("models/cannon_1.vox")
+        return ""
+    return "examples/apps/island/"
+func main()
+    try window_open(1000, 420, "пушки")
+    mds = list Model
+    bases = list int
+    barrels = list int
+    each n in [1, 2, 3, 4, 5]
+        md = try model.load(folder() + "models/cannon_" + n + ".vox")
+        model.fit(md, 1.6)
+        model.separate(md)
+        model.build(md)
+        mds.add(md)
+        bases.add(model.part(md, "lafet"))
+        barrels.add(model.part(md, "stvol"))
+    sunlight(0.5, 1.0, -0.4, 0.4)
+    t = 0.0
+    repeat while window_alive()
+        t += frame_ms() / 1000.0
+        camera(0.0, 2.3, 4.4, 0.0, 0.3, 0.0)
+        clear_window(rgb(30, 90, 140))
+        fl = max(0.0, 1.0 - frac(t * 0.8) * 3.0)
+        i = 0
+        repeat while i < 5
+            anim3d.draw_cannon(mds[i], bases[i], barrels[i], 4.0 - i * 2.0, 0.0, 0.0, sin(t * 0.9) * 80.0, -20.0 + 20.0 * (0.5 + 0.5 * sin(t * 1.7)), fl)
+            i += 1
