@@ -86,14 +86,19 @@ func draw_ground(g: Game, t: dec, ox: int, oy: int, s: int)
                     draw_round(px + s / 5, py + s / 5, s * 3 / 5, s * 3 / 5, s / 10, "", rgb(128, 122, 112))
                     draw_rect(px + s / 3, py + s / 3, s / 3, s / 3, rgb(90, 86, 80))
                     draw_rect(px + s / 5, py + s / 5, s / 5, s / 8, rgb(150, 144, 132))
-    // тропа: линия по центрам
-    if len(g.path_c) > 1
-        count i from 0 to len(g.path_c) - 2
-            ax = ox + g.path_c[i] * s + s / 2
-            ay = oy + g.path_r[i] * s + s / 2
-            bx = ox + g.path_c[i + 1] * s + s / 2
-            by = oy + g.path_r[i + 1] * s + s / 2
-            ui.smooth_line(ax + 0.0, ay + 0.0, bx + 0.0, by + 0.0, s * 0.12, rgba(120, 80, 40, 120))
+    // тропы: линии по центрам (та, где флаг, — ярче)
+    count k from 0 to len(g.routes) - 1
+        rc = g.routes[k].c
+        rr = g.routes[k].r
+        a = 90
+        if k == g.flag_route
+            a = 150
+        count i from 0 to len(rc) - 2
+            ax = ox + rc[i] * s + s / 2
+            ay = oy + rr[i] * s + s / 2
+            bx = ox + rc[i + 1] * s + s / 2
+            by = oy + rr[i + 1] * s + s / 2
+            ui.smooth_line(ax + 0.0, ay + 0.0, bx + 0.0, by + 0.0, s * 0.12, rgba(120, 80, 40, a))
 
 // крепость: чем выше уровень, тем больше башенок
 func draw_fort(g: Game, t: dec, ox: int, oy: int, s: int)

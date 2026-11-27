@@ -18,8 +18,9 @@ func main()
     try window_open(1180, 720, "Остров-защита")
     u = ui.start()
     v = view.file(here() + "ui.tbs")
+    lk = try view3d.load_look()
     g = new_game(to_int(env("ISLAND_LEVEL")) or 0)
-    view3d.setup(g)
+    view3d.setup(g, lk)
     page = "menu"
     if env("ISLAND_PAGE") != ""
         page = env("ISLAND_PAGE")
@@ -83,7 +84,7 @@ func main()
                 page = "end"
         // ---- вывод ----
         if view3d.ready()
-            view3d.draw_world(g, t)
+            view3d.draw_world(g, lk, t)
         else
             view2d.draw_world(u, g, t, ax, ay, aw, ah)
         fill_hud(v, g)
@@ -94,7 +95,7 @@ func main()
             count n from 0 to 2
                 if view.pressed(v, "lv" + n)
                     g = new_game(n)
-                    view3d.setup(g)
+                    view3d.setup(g, lk)
                     page = "hud"
             if view.pressed(v, "help")
                 page = "help"
@@ -134,18 +135,18 @@ func main()
                 page = "hud"
             if view.pressed(v, "restart")
                 g = new_game(g.level)
-                view3d.setup(g)
+                view3d.setup(g, lk)
                 page = "hud"
             if view.pressed(v, "tomenu")
                 page = "menu"
         else if page == "end"
             if view.pressed(v, "again")
                 g = new_game(g.level)
-                view3d.setup(g)
+                view3d.setup(g, lk)
                 page = "hud"
             if view.pressed(v, "next") and g.level + 1 < level_count()
                 g = new_game(g.level + 1)
-                view3d.setup(g)
+                view3d.setup(g, lk)
                 page = "hud"
             if view.pressed(v, "tomenu2")
                 page = "menu"

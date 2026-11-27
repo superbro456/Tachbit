@@ -61,6 +61,14 @@ modpub func draw_cannon(md: Model, base: int, barrel: int, x: dec, z: dec, yaw: 
     if barrel >= 0
         model.draw_part_on(md, barrel, base, x, 0.0, z, yaw, 0.0, 0.0, turn, tilt, 0.12 * flash * flash)
 
+// то же, что draw_cannon, но на высоте y (пушка на стене или в замке)
+modpub func draw_cannon_at(md: Model, base: int, barrel: int, x: dec, y: dec, z: dec, yaw: dec, turn: dec, tilt: dec, flash: dec)
+    model.draw_except(md, [base, barrel], x, y, z, yaw, 0.0, 0.0)
+    if base >= 0
+        model.draw_part(md, base, x, y, z, yaw, 0.0, 0.0, turn, 0.0, 0.0)
+    if barrel >= 0
+        model.draw_part_on(md, barrel, base, x, y, z, yaw, 0.0, 0.0, turn, tilt, 0.12 * flash * flash)
+
 // наклон ствола к цели на расстоянии dist (клеток): ближе — ниже, дальше — выше
 modpub func aim_tilt(dist: dec)
     return 10.0 - min(dist, 4.0) * 7.0

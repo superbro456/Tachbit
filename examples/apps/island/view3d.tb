@@ -1,114 +1,413 @@
-// ВЫВОД 3D — это твой файл: здесь рисуется остров. Данные только читаем, ничего не меняем
+// ВЫВОД 3D: здесь рисуется остров. Данные только читаем, ничего не меняем
 // (кроме камеры g.cam: по ней логика узнаёт, на какую клетку смотрит мышь).
 //
-// Пока ready() отвечает false, игра рисует простой вид сверху (view2d.tb).
-// Сделаешь 3D — поставь в ready() true, и игра пойдёт в 3D.
+// Модели — .vox из папки models/ (её башни, пушки, стены, замок; персонажи из make_chars.py).
+// Один блок модели = vs клетки: так все модели одного масштаба, а 4-й и 5-й уровень
+// крупнее целиком (anim3d.level_size), без растянутых ступенек.
 //
 // Что есть в данных (подробно — в data.tb):
-//   g.w, g.h                — размер острова в клетках
-//   cell(g, c, r)           — что в клетке: 0 вода, 1 песок, 2 трава, 3 тропа, 4 камень, 5 крепость,
-//                             6 причал, 7 дерево, 8 холм, 9 заброшенная башня
-//   cell_x(g, c), cell_z(g, r) — центр клетки в 3D (y = 0 — земля, клетка = 1.0)
-//   g.builds                — строения: kind (0 башня 1–5, 1 пушка 1–5, 2 стена 1–3), lvl, col, row,
-//                             aim (куда повёрнута, градусы), flash (вспышка выстрела 1 → 0),
-//                             hp / max_hp (у стены), hill (стоит на холме)
-//                             на клетке 9 может стоять башня (починили) — тогда build_at(g, c, r) >= 0
-//   g.fort                  — уровень крепости 1–10, g.fort_aim — куда она стреляет (с 3-го уровня)
-//   g.troops                — войска: kind (0 мечник, 1 лучник, 2 конница), x, y, z, yaw,
-//                             hp / max_hp, hit (мигание), swing (взмах 1 → 0), alive
-//                             уровень вида: g.troop_lvl[kind] (мечник до 5, лучник до 6, конница до 3)
-//   g.enemies               — враги: kind (0 краб, 1 гоблин, 2 тролль, 3 колдун), x, y, z, yaw,
-//                             hp / max_hp, hit, swing (замах), stuck (стоит у стены), alive
-//   g.shots                 — снаряды: kind (0 стрела, 1 ядро, 2 магия), x, y, z, откуда x0 y0 z0, куда tx ty tz
-//   g.fx                    — вспышки: kind (0 взрыв, 1 удар, 2 магия, 3 монетка, 4 новый уровень,
-//                             5 пыль стройки, 6 взмах мечей), x, y, z, age / life (0 → 1 — сколько прожила)
-//   g.flag                  — флаг войскам: point_on_path(g, g.flag) даёт x, z, yaw
-//   g.hov_c, g.hov_r        — клетка под мышью (−1 — нет)
-//   g.tool                  — "" выбор, "b0" "b1" "b2" — строим башню / пушку / стену, "flag" — ставим флаг
-//   g.sel                   — что выбрано: "b" + номер строения, "t" + вид войск, "fort", "ruin" + клетка
-//   t                       — секунды с начала игры (для воды, мигания и всего, что двигается само)
-//
-// Слова для 3D: mesh_new(), mesh_add(m, ...), draw_mesh(m, x, y, z, поворот),
-// draw_mesh_rot(...), camera(...), sunlight(...), fog(...), shadows(...), point_light(...),
-// и готовые модели: use model → model.load("башня1.vox" / ".glb"). Примеры: examples/apps/playground, football.
+//   g.w, g.h, cell(g, c, r), cell_x(g, c), cell_z(g, r) — остров и клетки
+//   g.routes — все тропы (от каждого причала к крепости), g.flag_route — где флаг
+//   g.builds, g.fort, g.fort_aim, g.troops, g.enemies, g.shots, g.fx, g.flag, g.hov_c / g.hov_r, g.tool
 use data
 use logic
+use model
+use anim3d
+
+// всё, что загружено один раз: модели и готовые сетки
+obj Look
+    tower: list Model        // 5 уровней
+    cannon: list Model
+    c_base: list int         // номер куска «lafet» в пушке
+    c_barrel: list int       // номер куска «stvol»
+    wall: list Model         // 3 уровня
+    castle: Model
+    ruin: Model
+    troop: list Model        // мечник, лучник, конница
+    enemy: list Model        // краб, гоблин, тролль, колдун
+    ground: int              // сетки
+    sea: int
+    tree: int
+    stone: int
+    dock: int
+    arrow: int
+    ball: int
+    magic: int
+    spark: int
+    coin: int
+    flag: int
+    pole: int
+    hover_ok: int
+    hover_no: int
+    ring: int
+    bar_bg: int
+    bar_hp: list int         // 11 полосок жизни: 0, 10 … 100 %
+    ok: bool
 
 // 3D готово?
 modpub func ready()
-    return false
+    return true
 
-// один раз после window_open: сделать сетки, загрузить модели, поставить свет
-modpub func setup(g: Game)
+// папка игры (чтобы models/ нашлась, откуда ни запускай)
+func folder()
+    if file_exists("models/tower_1.vox")
+        return ""
+    return "examples/apps/island/"
+
+// загрузить .vox и сделать одного масштаба: vs — сколько клеток в одном блоке
+func vox(name: text, vs: dec, k: dec) gives md: Model
+    md = try model.load(folder() + "models/" + name + ".vox")
+    w, h, d = model.size(md)
+    big = max(w, max(h, d))
+    model.fit(md, big * vs * k)
+
+// один раз после window_open: модели, сетки, свет
+modpub func load_look() gives lk: Look
+    lk = Look()
+    count n from 1 to 5
+        md = try vox("tower_gen_" + n, 1.0 / 16.0, level_size(n))
+        model.build(md)
+        lk.tower.add(md)
+        cn = try vox("cannon_" + n, 1.0 / 18.0, level_size(n))
+        model.separate(cn)
+        model.build(cn)
+        lk.cannon.add(cn)
+        lk.c_base.add(model.part(cn, "lafet"))
+        lk.c_barrel.add(model.part(cn, "stvol"))
+    count n from 1 to 3
+        md = try vox("stena_" + n, 1.0 / 24.0, 1.0)
+        model.build(md)
+        lk.wall.add(md)
+    lk.castle = try vox("zamok_1", 1.0 / 36.0, 1.0)
+    model.build(lk.castle)
+    lk.ruin = try vox("tower_gen_1", 1.0 / 16.0, 0.8)
+    model.paint(lk.ruin, rgb(105, 98, 88))
+    model.build(lk.ruin)
+    each nm in ["voin_mechnik", "voin_luchnik", "voin_konnica"]
+        md = try vox(nm, 1.0 / 22.0, 1.0)
+        model.build(md)
+        lk.troop.add(md)
+    each nm in ["vrag_krab", "vrag_goblin", "vrag_troll", "vrag_koldun"]
+        md = try vox(nm, 1.0 / 22.0, 1.0)
+        model.build(md)
+        lk.enemy.add(md)
+    lk.tree = mesh_new()
+    box(lk.tree, -0.06, 0.0, -0.06, 0.06, 0.3, 0.06, rgb(110, 75, 45))
+    box(lk.tree, -0.28, 0.25, -0.28, 0.28, 0.55, 0.28, rgb(55, 130, 60))
+    box(lk.tree, -0.2, 0.55, -0.2, 0.2, 0.78, 0.2, rgb(70, 150, 70))
+    box(lk.tree, -0.1, 0.78, -0.1, 0.1, 0.92, 0.1, rgb(90, 170, 80))
+    lk.stone = mesh_new()
+    box(lk.stone, -0.3, 0.0, -0.25, 0.2, 0.28, 0.25, rgb(130, 128, 125))
+    box(lk.stone, 0.05, 0.0, -0.1, 0.32, 0.18, 0.2, rgb(110, 108, 105))
+    box(lk.stone, -0.18, 0.28, -0.12, 0.08, 0.38, 0.1, rgb(150, 148, 145))
+    lk.dock = mesh_new()
+    count i from 0 to 3
+        box(lk.dock, -0.45, 0.02, -0.45 + i * 0.24, 0.45, 0.08, -0.25 + i * 0.24, rgb(150 - i * 8, 105, 60))
+    box(lk.dock, -0.45, -0.3, -0.45, -0.37, 0.12, -0.37, rgb(90, 60, 35))
+    box(lk.dock, 0.37, -0.3, -0.45, 0.45, 0.12, -0.37, rgb(90, 60, 35))
+    lk.arrow = mesh_new()
+    box(lk.arrow, -0.015, -0.015, -0.18, 0.015, 0.015, 0.14, rgb(150, 110, 60))
+    box(lk.arrow, -0.03, -0.03, 0.14, 0.03, 0.03, 0.2, rgb(200, 205, 215))
+    lk.ball = mesh_new()
+    box(lk.ball, -0.08, -0.08, -0.08, 0.08, 0.08, 0.08, rgb(35, 35, 40))
+    lk.magic = mesh_new()
+    box(lk.magic, -0.09, -0.09, -0.09, 0.09, 0.09, 0.09, rgb(160, 90, 255))
+    mesh_glow(lk.magic, 1.0)
+    lk.spark = mesh_new()
+    box(lk.spark, -0.07, -0.07, -0.07, 0.07, 0.07, 0.07, rgb(255, 170, 40))
+    mesh_glow(lk.spark, 1.0)
+    lk.coin = mesh_new()
+    box(lk.coin, -0.07, -0.07, -0.02, 0.07, 0.07, 0.02, rgb(255, 205, 40))
+    mesh_glow(lk.coin, 0.6)
+    lk.pole = mesh_new()
+    box(lk.pole, -0.02, 0.0, -0.02, 0.02, 0.8, 0.02, rgb(120, 85, 50))
+    lk.flag = mesh_new()
+    box(lk.flag, 0.02, 0.55, -0.01, 0.32, 0.78, 0.01, rgb(60, 110, 230))
+    lk.hover_ok = flat(0.48, rgba(80, 230, 120, 120))
+    lk.hover_no = flat(0.48, rgba(240, 70, 60, 120))
+    lk.bar_bg = mesh_new()
+    box(lk.bar_bg, -0.2, 0.0, -0.015, 0.2, 0.05, 0.015, rgb(40, 20, 20))
+    mesh_glow(lk.bar_bg, 1.0)
+    count i from 0 to 10
+        m = mesh_new()
+        if i > 0
+            box(m, -0.2, 0.0, -0.02, -0.2 + 0.4 * i / 10.0, 0.05, 0.02, rgb(min(255, 400 - i * 30), min(230, 60 + i * 20), 60))
+            mesh_glow(m, 1.0)
+        lk.bar_hp.add(m)
+    lk.ring = mesh_new()
+    count i from 0 to 47
+        a = i * 2.0 * pi() / 48.0
+        b = (i + 0.6) * 2.0 * pi() / 48.0
+        quad(lk.ring, sin(a), cos(a), sin(b), cos(b), 0.04, rgb(255, 255, 255))
+    mesh_glow(lk.ring, 1.0)
+    mesh_alpha(lk.ring, 0.55)
+    lk.ok = true
+
+// коробка в сетку
+func box(m: int, x1: dec, y1: dec, z1: dec, x2: dec, y2: dec, z2: dec, c: int)
+    // верх и низ
+    mesh_add(m, x1, y2, z1, x1, y2, z2, x2, y2, z2, c)
+    mesh_add(m, x1, y2, z1, x2, y2, z2, x2, y2, z1, c)
+    mesh_add(m, x1, y1, z1, x2, y1, z2, x1, y1, z2, c)
+    mesh_add(m, x1, y1, z1, x2, y1, z1, x2, y1, z2, c)
+    // бока
+    mesh_add(m, x1, y1, z1, x1, y2, z1, x2, y2, z1, c)
+    mesh_add(m, x1, y1, z1, x2, y2, z1, x2, y1, z1, c)
+    mesh_add(m, x1, y1, z2, x2, y2, z2, x1, y2, z2, c)
+    mesh_add(m, x1, y1, z2, x2, y1, z2, x2, y2, z2, c)
+    mesh_add(m, x1, y1, z1, x1, y2, z2, x1, y2, z1, c)
+    mesh_add(m, x1, y1, z1, x1, y1, z2, x1, y2, z2, c)
+    mesh_add(m, x2, y1, z1, x2, y2, z1, x2, y2, z2, c)
+    mesh_add(m, x2, y1, z1, x2, y2, z2, x2, y1, z2, c)
+
+// плоский квадрат на земле (подсветка клетки)
+func flat(r: dec, c: int)
+    m = mesh_new()
+    mesh_add(m, -r, 0.0, -r, -r, 0.0, r, r, 0.0, r, c)
+    mesh_add(m, -r, 0.0, -r, r, 0.0, r, r, 0.0, -r, c)
+    mesh_add(m, -r, 0.0, -r, r, 0.0, r, -r, 0.0, r, c)
+    mesh_add(m, -r, 0.0, -r, r, 0.0, -r, r, 0.0, r, c)
+    mesh_glow(m, 1.0)
+    mesh_alpha(m, 0.5)
+    return m
+
+// кусочек кольца: от точки (ax, az) до (bx, bz) на круге радиуса 1, толщина w
+func quad(m: int, ax: dec, az: dec, bx: dec, bz: dec, w: dec, c: int)
+    k = 1.0 - w
+    mesh_add(m, ax, 0.0, az, bx, 0.0, bz, bx * k, 0.0, bz * k, c)
+    mesh_add(m, ax, 0.0, az, bx * k, 0.0, bz * k, ax * k, 0.0, az * k, c)
+    mesh_add(m, ax, 0.0, az, bx * k, 0.0, bz * k, bx, 0.0, bz, c)
+    mesh_add(m, ax, 0.0, az, ax * k, 0.0, az * k, bx * k, 0.0, bz * k, c)
+
+// земля острова: одна сетка на весь остров (строится заново на новом острове)
+modpub func setup(g: Game, lk: Look)
     place_camera(g)
+    lk.ground = mesh_new()
+    count r from 0 to g.h - 1
+        count c from 0 to g.w - 1
+            k = cell(g, c, r)
+            if k != 0
+                x = cell_x(g, c)
+                z = cell_z(g, r)
+                y = 0.0
+                col = rgb(95, 165, 80)
+                if k == 1 or k == 6
+                    col = rgb(222, 200, 150)
+                    y = -0.04
+                if k == 3 or k == 5
+                    col = rgb(165, 125, 80)
+                    y = -0.02
+                if k == 8
+                    col = rgb(110, 175, 90)
+                    y = 0.12
+                // чуть разные оттенки клеток, чтобы не было плоско
+                if (c + r) % 2 == 0
+                    col = col + rgb(6, 6, 4)
+                box(lk.ground, x - 0.5, -0.6, z - 0.5, x + 0.5, y, z + 0.5, col)
+    lk.sea = mesh_new()
+    s = max(g.w, g.h) * 1.6
+    mesh_add(lk.sea, -s, -0.12, -s, -s, -0.12, s, s, -0.12, s, rgb(40, 120, 190))
+    mesh_add(lk.sea, -s, -0.12, -s, s, -0.12, s, s, -0.12, -s, rgb(40, 120, 190))
+    mesh_shadow(lk.sea, false)
 
-// камера: сверху наискосок на весь остров. Можно двигать — мышь всё равно попадёт в нужную клетку
+// камера: сверху наискосок на весь остров, остров левее (справа панель)
 modpub func place_camera(g: Game)
-    g.cam.x = 0.0
-    g.cam.y = g.h * 1.05
-    g.cam.z = g.h * 0.95
-    g.cam.lx = 0.0
+    g.cam.x = 0.0 - g.w * 0.1
+    g.cam.y = g.h * 0.85
+    g.cam.z = g.h * 0.72
+    g.cam.lx = 0.0 - g.w * 0.1
     g.cam.ly = 0.0
-    g.cam.lz = 0.4
+    g.cam.lz = 0.3
 
 // каждый кадр: весь мир
-modpub func draw_world(g: Game, t: dec)
+modpub func draw_world(g: Game, lk: Look, t: dec)
+    if not lk.ok
+        return
     c = g.cam
+    clear_window(rgb(120, 185, 230))
     camera(c.x, c.y, c.z, c.lx, c.ly, c.lz)
-    draw_island(g, t)
-    draw_terrain(g, t)
-    draw_fort(g, t)
-    draw_flag(g, t)
+    sunlight(0.45, 1.0, 0.35, 0.45)
+    draw_mesh(lk.sea, 0.0, sin(t * 0.8) * 0.02, 0.0, 0.0)
+    draw_mesh(lk.ground, 0.0, 0.0, 0.0, 0.0)
+    draw_terrain(g, lk, t)
+    draw_fort(g, lk, t)
+    draw_flag(g, lk, t)
     each b in g.builds
-        draw_build(g, b, t)
+        draw_build(g, lk, b, t)
     each tr in g.troops
         if tr.alive
-            draw_troop(g, tr, t)
+            draw_troop(g, lk, tr, t)
     each e in g.enemies
         if e.alive
-            draw_enemy(g, e, t)
+            draw_enemy(g, lk, e, t)
     each s in g.shots
-        draw_shot(g, s, t)
+        if s.alive
+            draw_shot(g, lk, s, t)
     each f in g.fx
-        draw_fx(g, f, t)
-    draw_hover(g, t)
+        draw_fx(g, lk, f, t)
+    draw_hover(g, lk, t)
 
-// море, песок, трава, тропа, причал
-func draw_island(g: Game, t: dec)
-    return
+// деревья, камни, холмы, причалы, заброшенные башни
+func draw_terrain(g: Game, lk: Look, t: dec)
+    count r from 0 to g.h - 1
+        count c from 0 to g.w - 1
+            k = cell(g, c, r)
+            x = cell_x(g, c)
+            z = cell_z(g, r)
+            turn = ((c * 7 + r * 13) % 4) * 90.0
+            if k == 7
+                draw_mesh(lk.tree, x, 0.0, z, turn + sin(t + c) * 2.0)
+            else if k == 4
+                draw_mesh(lk.stone, x, 0.0, z, turn)
+            else if k == 6
+                draw_mesh(lk.dock, x, -0.04, z, dock_turn(g, c, r))
+            else if k == 9 and build_at(g, c, r) < 0
+                model.draw(lk.ruin, x, -0.25, z, turn, 6.0, -4.0)
 
-// рельеф: деревья (7), камни (4), холмы (8), заброшенные башни (9, если на клетке нет строения)
-func draw_terrain(g: Game, t: dec)
-    return
+// причал смотрит доской к воде
+func dock_turn(g: Game, c: int, r: int)
+    if cell(g, c - 1, r) == 0
+        return 90.0
+    if cell(g, c + 1, r) == 0
+        return 270.0
+    if cell(g, c, r - 1) == 0
+        return 180.0
+    return 0.0
 
-// крепость: уровень g.fort 1–10 (чем выше, тем больше башенок и стен)
-func draw_fort(g: Game, t: dec)
-    return
+// крепость: замок, с уровнем чуть больше; с 3-го уровня — пушка на нём
+func draw_fort(g: Game, lk: Look, t: dec)
+    if len(g.path_c) == 0
+        return
+    n = len(g.path_c) - 1
+    x = cell_x(g, g.path_c[n])
+    z = cell_z(g, g.path_r[n])
+    k = 1.0 + (g.fort - 1) * 0.04
+    model.draw(lk.castle, x, 0.0, z, 0.0, 0.0, 0.0)
+    if g.fort >= 3
+        lv = min(5, (g.fort - 1) / 2 + 1)
+        cn = lk.cannon[lv - 1]
+        w, h, d = model.size(lk.castle)
+        anim3d.draw_cannon_at(cn, lk.c_base[lv - 1], lk.c_barrel[lv - 1], x, h * 0.55, z, 0.0, g.fort_aim, anim3d.aim_tilt(3.0), 0.0)
 
 // флаг войскам на тропе
-func draw_flag(g: Game, t: dec)
-    return
+func draw_flag(g: Game, lk: Look, t: dec)
+    if len(g.path_c) < 2
+        return
+    x, z, yaw = point_on_path(g, g.flag)
+    draw_mesh(lk.pole, x, 0.0, z, 0.0)
+    draw_mesh_rot(lk.flag, x, 0.0, z, sin(t * 3.0) * 12.0, 0.0, 0.0)
 
-// строение: башня или пушка (уровень lvl, поворот aim), стена поперёк тропы (lvl 1–3, трещины по hp)
-func draw_build(g: Game, b: Building, t: dec)
-    return
+// строение: башня, пушка, стена
+func draw_build(g: Game, lk: Look, b: Building, t: dec)
+    x = cell_x(g, b.col)
+    z = cell_z(g, b.row)
+    lv = max(1, b.lvl)
+    if b.kind == 0
+        anim3d.draw_tower(lk.tower[min(4, lv - 1)], x, z, 0.0, b.age, b.flash, b.bump)
+    else if b.kind == 1
+        i = min(4, lv - 1)
+        dist = 3.0
+        anim3d.draw_cannon(lk.cannon[i], lk.c_base[i], lk.c_barrel[i], x, z, 0.0, b.aim, anim3d.aim_tilt(dist), b.flash)
+    else
+        md = lk.wall[min(2, lv - 1)]
+        anim3d.draw_wall(md, x, z, wall_turn(g, b.col, b.row), b.flash)
+        if b.max_hp > 0.0 and b.hp < b.max_hp
+            bar(lk, x, 0.95, z, b.hp / b.max_hp)
 
-// воин: мечник, лучник, конница; уровень — g.troop_lvl[tr.kind]
-func draw_troop(g: Game, tr: Troop, t: dec)
-    return
+// стена поперёк тропы: если тропа идёт вдоль x — стена вдоль z
+func wall_turn(g: Game, c: int, r: int)
+    a = cell(g, c - 1, r)
+    b = cell(g, c + 1, r)
+    if a == 3 or a == 5 or a == 6 or b == 3 or b == 5 or b == 6
+        return 0.0
+    return 90.0
 
-// враг: краб, гоблин, тролль, колдун; место x y z, поворот yaw, полоска жизни hp / max_hp
-func draw_enemy(g: Game, e: Enemy, t: dec)
-    return
+// полоска жизни над головой (повёрнута к камере)
+func bar(lk: Look, x: dec, y: dec, z: dec, f: dec)
+    i = max(0, min(10, round(f * 10.0)))
+    draw_mesh(lk.bar_bg, x, y, z, 0.0)
+    draw_mesh(lk.bar_hp[i], x, y, z - 0.01, 0.0)
+
+// воин: мечник, лучник, конница
+func draw_troop(g: Game, lk: Look, tr: Troop, t: dec)
+    md = lk.troop[tr.kind]
+    moving = tr.foe < 0
+    anim3d.draw_walker(md, tr.x, tr.z, tr.yaw, t + tr.id * 0.37, moving, tr.swing)
+    w, h, d = model.size(md)
+    if tr.hp < tr.max_hp
+        bar(lk, tr.x, h + 0.08, tr.z, tr.hp / tr.max_hp)
+
+// враг: краб, гоблин, тролль, колдун
+func draw_enemy(g: Game, lk: Look, e: Enemy, t: dec)
+    md = lk.enemy[e.kind]
+    moving = e.held < 0 and not e.stuck
+    anim3d.draw_walker(md, e.x, e.z, e.yaw, t + e.id * 0.29, moving, e.swing)
+    w, h, d = model.size(md)
+    bar(lk, e.x, h + 0.08, e.z, e.hp / e.max_hp)
 
 // стрела, ядро, магия
-func draw_shot(g: Game, s: Shot, t: dec)
-    return
+func draw_shot(g: Game, lk: Look, s: Shot, t: dec)
+    if s.kind == 0
+        yaw = atan2(s.tx - s.x0, s.tz - s.z0) * 180.0 / pi()
+        draw_mesh(lk.arrow, s.x, s.y, s.z, yaw)
+    else if s.kind == 1
+        draw_mesh(lk.ball, s.x, s.y, s.z, t * 300.0)
+    else
+        draw_mesh_rot(lk.magic, s.x, s.y, s.z, t * 400.0, t * 300.0, 0.0)
 
-// взрывы, удары, монетки, взмах мечей
-func draw_fx(g: Game, f: Fx, t: dec)
-    return
+// взрывы, удары, монетки, новый уровень, пыль, взмах мечей
+func draw_fx(g: Game, lk: Look, f: Fx, t: dec)
+    k = f.age / max(0.01, f.life)
+    if f.kind == 0 or f.kind == 5
+        // разлёт искр
+        count i from 0 to 7
+            a = i * pi() / 4.0
+            rr = k * 0.6
+            m = lk.spark
+            if f.kind == 5
+                m = lk.ball
+            draw_mesh(m, f.x + sin(a) * rr, f.y + k * 0.4 - k * k * 0.5, f.z + cos(a) * rr, i * 40.0)
+    else if f.kind == 3
+        draw_mesh(lk.coin, f.x, f.y + k * 0.8, f.z, t * 360.0)
+    else if f.kind == 4
+        count i from 0 to 11
+            a = i * pi() / 6.0 + k * 3.0
+            draw_mesh(lk.coin, f.x + sin(a) * 0.5, f.y + k * 1.2, f.z + cos(a) * 0.5, a * 57.0)
+    else if f.kind == 2
+        draw_mesh_rot(lk.magic, f.x, f.y + k * 0.3, f.z, k * 500.0, 0.0, 0.0)
+    else
+        draw_mesh(lk.spark, f.x, f.y, f.z, k * 400.0)
 
 // подсветка клетки под мышью: зелёная — можно строить, красная — нельзя; круг дальности
-func draw_hover(g: Game, t: dec)
-    return
+func draw_hover(g: Game, lk: Look, t: dec)
+    if g.hov_c < 0
+        return
+    x = cell_x(g, g.hov_c)
+    z = cell_z(g, g.hov_r)
+    if g.tool == ""
+        draw_mesh(lk.hover_ok, x, 0.03, z, 0.0)
+        return
+    ok = true
+    if starts_with(g.tool, "b")
+        k = to_int(cut(g.tool, 1, 1)) or 0
+        ok = can_build(g, k, g.hov_c, g.hov_r)
+        if ok and k < 2
+            rng = build_info(k, 1).range
+            if cell(g, g.hov_c, g.hov_r) == 8
+                rng = rng * 1.25
+            ring_at(lk, x, z, rng)
+    else if g.tool == "flag"
+        ok = false
+        count q from 0 to len(g.routes) - 1
+            if route_index(g, q, g.hov_c, g.hov_r) >= 1
+                ok = true
+    if ok
+        draw_mesh(lk.hover_ok, x, 0.03, z, 0.0)
+    else
+        draw_mesh(lk.hover_no, x, 0.03, z, 0.0)
+
+// круг дальности радиусом rng: кольцо из коротких отрезков
+func ring_at(lk: Look, x: dec, z: dec, rng: dec)
+    count i from 0 to 35
+        a = i * 2.0 * pi() / 36.0
+        draw_mesh(lk.spark, x + sin(a) * rng, 0.06, z + cos(a) * rng, 0.0)

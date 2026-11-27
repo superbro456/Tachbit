@@ -16,7 +16,8 @@ modpub func new_game(level: int) gives g: Game
     each line in m
         count c from 0 to g.w - 1
             g.cells.add(cell_of(line[c]))
-    find_path(g)
+    find_routes(g)
+    use_route(g, 0)
     g.flag = len(g.path_c) * 0.55
     g.waves = level_waves(level)
     g.best = load_best(level)
@@ -54,19 +55,25 @@ modpub func cell_x(g: Game, c: int)
 modpub func cell_z(g: Game, r: int)
     return r - g.h / 2.0 + 0.5
 
-// тропа: самый короткий путь по клеткам «#» от причала до крепости (поиск в ширину)
-func find_path(g: Game)
+// тропы: от каждого причала самый короткий путь по клеткам «#» до крепости
+func find_routes(g: Game)
+    count i from 0 to g.w * g.h - 1
+        if g.cells[i] == 6
+            rt = find_route(g, i)
+            if len(rt.c) > 1
+                g.routes.add(rt)
+
+// поиск в ширину от причала start до крепости
+func find_route(g: Game, start: int) gives rt: Route
+    rt = Route()
     n = g.w * g.h
     came = list int
-    start = -1
     goal = -1
     count i from 0 to n - 1
         came.add(-2)
-        if g.cells[i] == 6
-            start = i
         if g.cells[i] == 5
             goal = i
-    if start < 0 or goal < 0
+    if goal < 0
         return
     queue = list int
     queue.add(start)
@@ -105,13 +112,47 @@ func find_path(g: Game)
         at = came[at]
     q = len(back) - 1
     repeat while q >= 0
-        g.path_c.add(back[q] % g.w)
-        g.path_r.add(back[q] / g.w)
+        rt.c.add(back[q] % g.w)
+        rt.r.add(back[q] / g.w)
         q -= 1
 
-// место на тропе по пройденному пути: x, z и куда смотреть, если идти вперёд
+// флаг войскам теперь на тропе k: копия её клеток в path_c / path_r
+func use_route(g: Game, k: int)
+    if k < 0 or k >= len(g.routes)
+        return
+    g.flag_route = k
+    repeat while len(g.path_c) > 0
+        gone_c = g.path_c.pop()
+    repeat while len(g.path_r) > 0
+        gone_r = g.path_r.pop()
+    each c in g.routes[k].c
+        g.path_c.add(c)
+    each r in g.routes[k].r
+        g.path_r.add(r)
+
+// длина тропы k в клетках − 1 (последняя клетка — крепость)
+modpub func route_last(g: Game, k: int)
+    return len(g.routes[k].c) - 1.0
+
+// место на тропе k по пройденному пути
+modpub func point_on_route(g: Game, k: int, d: dec) gives x: dec, z: dec, yaw: dec
+    x, z, yaw = point_on_cells(g, g.routes[k].c, g.routes[k].r, d)
+
+// номер клетки на тропе k, где стоит (c, r), или −1
+modpub func route_index(g: Game, k: int, c: int, r: int)
+    rc = g.routes[k].c
+    rr = g.routes[k].r
+    count i from 0 to len(rc) - 1
+        if rc[i] == c and rr[i] == r
+            return i
+    return -1
+
+// место на тропе флага по пройденному пути: x, z и куда смотреть, если идти вперёд
 modpub func point_on_path(g: Game, d: dec) gives x: dec, z: dec, yaw: dec
-    n = len(g.path_c)
+    x, z, yaw = point_on_cells(g, g.path_c, g.path_r, d)
+
+func point_on_cells(g: Game, pc: list int, pr: list int, d: dec) gives x: dec, z: dec, yaw: dec
+    n = len(pc)
     x = 0.0
     z = 0.0
     yaw = 0.0
@@ -121,16 +162,16 @@ modpub func point_on_path(g: Game, d: dec) gives x: dec, z: dec, yaw: dec
     i = min(n - 1, round(floor(d)))
     j = min(n - 1, i + 1)
     f = d - i
-    ax = cell_x(g, g.path_c[i])
-    az = cell_z(g, g.path_r[i])
-    bx = cell_x(g, g.path_c[j])
-    bz = cell_z(g, g.path_r[j])
+    ax = cell_x(g, pc[i])
+    az = cell_z(g, pr[i])
+    bx = cell_x(g, pc[j])
+    bz = cell_z(g, pr[j])
     x = ax + (bx - ax) * f
     z = az + (bz - az) * f
     if j != i
         yaw = atan2(bx - ax, bz - az) * 180.0 / pi()
     else if i > 0
-        yaw = atan2(ax - cell_x(g, g.path_c[i - 1]), az - cell_z(g, g.path_r[i - 1])) * 180.0 / pi()
+        yaw = atan2(ax - cell_x(g, pc[i - 1]), az - cell_z(g, pr[i - 1])) * 180.0 / pi()
 
 // номер клетки тропы, где стоит (c, r), или −1
 modpub func path_index(g: Game, c: int, r: int)
@@ -194,23 +235,26 @@ func add_enemy(g: Game, k: int)
     hp = info.hp * hp_factor(g.level, g.wave)
     e = Enemy(id: g.next_id, kind: k, hp: hp, max_hp: hp, held: -1, alive: true)
     g.next_id += 1
-    e.x, e.z, e.yaw = point_on_path(g, 0.0)
+    if len(g.routes) > 0
+        e.route = g.spawn_n % len(g.routes)
+        g.spawn_n += 1
+        e.x, e.z, e.yaw = point_on_route(g, e.route, 0.0)
     g.enemies.add(e)
 
 // ---------- враги ----------
 
 func enemies_walk(g: Game, dt: dec)
-    last = len(g.path_c) - 1.0
     each e in g.enemies
         if not e.alive
             skip
+        last = route_last(g, e.route)
         info = enemy_info(e.kind)
         e.hit = max(0.0, e.hit - dt * 4.0)
         e.swing = max(0.0, e.swing - dt * 3.0)
         // держит воин — стоит
         if e.held >= 0 and find_troop(g, e.held) < 0
             e.held = -1
-        e.stuck = wall_ahead(g, e.dist) >= 0
+        e.stuck = wall_ahead(g, e) >= 0
         if e.held >= 0 or e.stuck
             skip
         // колдун останавливается, когда видит цель
@@ -230,14 +274,15 @@ func enemies_walk(g: Game, dt: dec)
                 g.events.add("lost")
                 save_best(g)
         else
-            e.x, e.z, e.yaw = point_on_path(g, e.dist)
+            e.x, e.z, e.yaw = point_on_route(g, e.route, e.dist)
 
 // стена прямо впереди (номер в builds) или −1
-func wall_ahead(g: Game, d: dec)
+func wall_ahead(g: Game, e: Enemy)
+    d = e.dist
     count i from 0 to len(g.builds) - 1
         b = g.builds[i]
         if b.kind == 2
-            wi = path_index(g, b.col, b.row)
+            wi = route_index(g, e.route, b.col, b.row)
             if wi >= 0 and d < wi and d > wi - 0.75
                 return i
     return -1
@@ -265,7 +310,7 @@ func enemies_fight(g: Game, dt: dec)
                 e.swing = 1.0
                 hurt_troop(g, g.troops[ti], info.dmg)
             skip
-        wi = wall_ahead(g, e.dist)
+        wi = wall_ahead(g, e)
         if wi >= 0
             e.cool = 1.0 / info.rate
             e.swing = 1.0
@@ -407,7 +452,7 @@ func troops_fight(g: Game, dt: dec)
                 each e in g.enemies
                     if held >= info.holds
                         stop
-                    if e.alive and e.held < 0 and e.kind != 3 and e.dist <= t.dist and e.dist > t.dist - 0.7
+                    if e.alive and e.held < 0 and e.kind != 3 and dist2(e.x, e.z, t.x, t.z) <= 0.36
                         e.held = t.id
                         held += 1
                         if t.foe < 0
@@ -444,9 +489,24 @@ func troops_fight(g: Game, dt: dec)
 
 // поставить флаг на клетку тропы: войска пойдут туда
 modpub func set_flag(g: Game, c: int, r: int)
+    k = g.flag_route
     i = path_index(g, c, r)
     if i < 1
+        // ищем на других тропах
+        count j from 0 to len(g.routes) - 1
+            ij = route_index(g, j, c, r)
+            if ij >= 1 and i < 1
+                k = j
+                i = ij
+    if i < 1
         return false
+    if k != g.flag_route
+        // войска переходят на другую тропу: считаем их место от крепости
+        old_last = len(g.path_c) - 1.0
+        use_route(g, k)
+        new_last = len(g.path_c) - 1.0
+        each t in g.troops
+            t.dist = max(0.5, new_last - (old_last - t.dist))
     g.flag = i + 0.0
     g.events.add("flag")
     return true
@@ -484,7 +544,7 @@ func builds_fire(g: Game, dt: dec)
             sp = enemy_info(e.kind).speed
             if e.held >= 0 or e.stuck
                 sp = 0.0
-            fx, fz, fy = point_on_path(g, e.dist + sp * 0.6)
+            fx, fz, fy = point_on_route(g, e.route, e.dist + sp * 0.6)
             g.shots.add(Shot(kind: 1, x: bx, y: 0.8, z: bz, x0: bx, y0: 0.8, z0: bz, tx: fx, ty: 0.0, tz: fz, target: -1, dmg: info.dmg, splash: info.splash, speed: 3.0, alive: true))
 
 // крепость с 3-го уровня стреляет сама
@@ -510,12 +570,12 @@ func fort_fire(g: Game, dt: dec)
 // враг в дальности, который прошёл больше всех (ближе всех к крепости)
 func first_in_range(g: Game, x: dec, z: dec, rng: dec)
     best = -1
-    bestd = -1.0
+    bestd = -1000000.0
     count i from 0 to len(g.enemies) - 1
         e = g.enemies[i]
-        if e.alive and dist2(x, z, e.x, e.z) <= rng * rng and e.dist > bestd
+        if e.alive and dist2(x, z, e.x, e.z) <= rng * rng and e.dist - route_last(g, e.route) > bestd
             best = i
-            bestd = e.dist
+            bestd = e.dist - route_last(g, e.route)
     return best
 
 // ---------- снаряды ----------
@@ -662,8 +722,11 @@ modpub func can_build(g: Game, k: int, c: int, r: int)
     cl = cell(g, c, r)
     if k == 2
         // стена — только на тропу, не у самого причала и не у крепости
-        i = path_index(g, c, r)
-        return i >= 2 and i <= len(g.path_c) - 3
+        count j from 0 to len(g.routes) - 1
+            i = route_index(g, j, c, r)
+            if i >= 2 and i <= len(g.routes[j].c) - 3
+                return true
+        return false
     return cl == 1 or cl == 2 or cl == 8
 
 modpub func build_at(g: Game, c: int, r: int)
