@@ -156,6 +156,7 @@ New features are first tried as a Tachbit library. If a new word is truly needed
 
 - **Network games:** fast messages `udp_open`, `udp_send`, `udp_receive`, `udp_from`, `udp_from_port`, `net_ready`, and `lib/online.tb`: one player hosts, others connect; each puts its own state, the library sends it 20 times a second and moves other players smoothly; `say` events arrive exactly once. Example: `examples/apps/online_star`.
 - **Speed tools:** `TB_HUD=1` shows FPS, frame time and the program's own CPU time in the window; a Vulkan shader cache on disk (`~/.tachbit/cache/vulkan.bin`) removes the first-run stutter; a minimized window drops to 10 frames a second.
+- **Camera:** `lib/cam.tb` — ready-made orbit (right mouse button turns, wheel zooms), first-person and follow cameras; new words `mouse_right()`, `mouse_middle()`. The island game now has 10 islands, a workshop with unlimited gold, and day / evening / night looks (key N).
 
 ## Speed
 

@@ -4161,7 +4161,7 @@ TB_API int tb_mtap = 0;
 // колёсико: шагов с прошлого mouse_wheel() (+ вперёд, от себя; − назад); у тачпада шаги дробные — копим
 TB_API int tb_wheel = 0;
 // боковые кнопки мыши: [0] назад, [1] вперёд; tap — нажали и отпустили между кадрами
-TB_API int tb_mside[2], tb_mside_tap[2];
+TB_API int tb_mside[4], tb_mside_tap[4];   // 0 назад, 1 вперёд, 2 правая, 3 средняя
 TB_API void tb_side(int b, int down) { tb_mside[b] = down; if (down) tb_mside_tap[b] = 1; }
 TB_API double tb_wheel_f = 0;
 TB_API void tb_wheel_add(double d) {
@@ -9887,7 +9887,8 @@ TB_API void tb_gfx_events(void) {
         unsigned long t = TB_MSG(unsigned long, ev, "type");
         if (t == 1) tb_mdown = tb_mtap = 1;
         else if (t == 2) tb_mdown = 0;
-        if ((t == 1 || t == 2 || t == 5 || t == 6) && !tb_mlock) {
+        if (t == 3 || t == 4) tb_side(2, t == 3);   // правая кнопка (на тачпаде — щелчок двумя пальцами)
+        if ((t == 1 || t == 2 || t == 3 || t == 4 || t == 5 || t == 6) && !tb_mlock) {
             CGPoint p = TB_MSG(CGPoint, ev, "locationInWindow");
             tb_mx = (int)(p.x * tb_sc); tb_my = (int)(tb_gh - p.y * tb_sc);
         }
@@ -9912,9 +9913,10 @@ TB_API void tb_gfx_events(void) {
             continue;   // клавиши не отдаём окну: иначе Mac пищит
         }
         if (t == 22) tb_wheel_add(TB_MSG(double, ev, "deltaY"));   // колёсико и два пальца на тачпаде
-        if (t == 25 || t == 26) {   // другие кнопки мыши: 3 — назад, 4 — вперёд
+        if (t == 25 || t == 26) {   // другие кнопки мыши: 2 — средняя, 3 — назад, 4 — вперёд
             long n = TB_MSG(long, ev, "buttonNumber");
             if (n == 3 || n == 4) tb_side((int)n - 3, t == 25);
+            if (n == 2) tb_side(3, t == 25);
         }
         if (t == 12) {  // Shift
             unsigned long m = TB_MSG(unsigned long, ev, "modifierFlags");
@@ -10019,6 +10021,8 @@ static LRESULT tb_win_proc_in(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     }
     case WM_LBUTTONDOWN: tb_mdown = tb_mtap = 1; tb_mx = (short)LOWORD(lp); tb_my = (short)HIWORD(lp); SetCapture(h); return 0;
     case WM_LBUTTONUP: tb_mdown = 0; tb_mx = (short)LOWORD(lp); tb_my = (short)HIWORD(lp); ReleaseCapture(); return 0;
+    case WM_RBUTTONDOWN: case WM_RBUTTONUP: tb_side(2, msg == WM_RBUTTONDOWN); tb_mx = (short)LOWORD(lp); tb_my = (short)HIWORD(lp); return 0;
+    case WM_MBUTTONDOWN: case WM_MBUTTONUP: tb_side(3, msg == WM_MBUTTONDOWN); tb_mx = (short)LOWORD(lp); tb_my = (short)HIWORD(lp); return 0;
     case WM_KILLFOCUS: memset(tb_keys, 0, sizeof tb_keys); return 0;
     case WM_SIZE: if (wp != SIZE_MINIMIZED && LOWORD(lp) && HIWORD(lp)) { tb_new_w = LOWORD(lp); tb_new_h = HIWORD(lp); } return 0;
     case WM_PAINT: { PAINTSTRUCT ps; HDC dc = BeginPaint(h, &ps); if (tb_px && !tb_gpu_on) tb_win_blit(dc); EndPaint(h, &ps); return 0; }
@@ -10467,6 +10471,8 @@ TB_API void tb_gfx_events(void) {
         } else if (e.type == ButtonPress || e.type == ButtonRelease) {
             if (e.xbutton.button == 1) { tb_mdown = e.type == ButtonPress; if (tb_mdown) tb_mtap = 1; }
             if (e.xbutton.button == 8 || e.xbutton.button == 9) tb_side(e.xbutton.button - 8, e.type == ButtonPress);
+            if (e.xbutton.button == 3) tb_side(2, e.type == ButtonPress);
+            if (e.xbutton.button == 2) tb_side(3, e.type == ButtonPress);
             if (e.type == ButtonPress && e.xbutton.button == 4) tb_wheel_add(1);
             if (e.type == ButtonPress && e.xbutton.button == 5) tb_wheel_add(-1);
             tb_mx = e.xbutton.x; tb_my = e.xbutton.y;
@@ -10549,7 +10555,7 @@ TB_API double tb_window_scale(void) { return tb_sc; }
 typedef struct {
     int used;
     uint32_t *px; int gw, gh, gclosed, mx, my, mdown, mtap, wheel; double wheel_f;
-    int mside[2], mside_tap[2], ntyped; char typed[512];
+    int mside[4], mside_tap[4], ntyped; char typed[512];
     unsigned char keys[256], ktap[256];
     int new_w, new_h, resizable, gpu_on, zclr, gzclr; uint32_t *zb; long long zb_n;
     TB_WPLAT
@@ -13545,6 +13551,8 @@ TB_API int tb_mouse_down(void) { int d = tb_mdown || tb_mtap; tb_mtap = 0; retur
 TB_API long long tb_mouse_wheel(void) { int w = tb_wheel; tb_wheel = 0; return w; }
 TB_API int tb_mouse_back(void) { int d = tb_mside[0] || tb_mside_tap[0]; tb_mside_tap[0] = 0; return d; }
 TB_API int tb_mouse_forward(void) { int d = tb_mside[1] || tb_mside_tap[1]; tb_mside_tap[1] = 0; return d; }
+TB_API int tb_mouse_right(void) { int d = tb_mside[2] || tb_mside_tap[2]; tb_mside_tap[2] = 0; return d; }
+TB_API int tb_mouse_middle(void) { int d = tb_mside[3] || tb_mside_tap[3]; tb_mside_tap[3] = 0; return d; }
 // ---------- геймпад: pad_count(), pad_down(n, "a"), pad_axis(n, "lx") ----------
 // Кнопки: a b x y l1 r1 l2 r2 l3 r3 start select home up down left right.
 // Оси (от -1 до 1, курки от 0 до 1): lx ly rx ry l2 r2. Вниз и вправо — плюс. n — номер геймпада с 0.
@@ -14606,6 +14614,8 @@ TB_B(_Bool, mouse_down, (int line), tb_mouse_down())
 TB_B(long long, mouse_wheel, (int line), tb_mouse_wheel())
 TB_B(_Bool, mouse_back, (int line), tb_mouse_back())
 TB_B(_Bool, mouse_forward, (int line), tb_mouse_forward())
+TB_B(_Bool, mouse_right, (int line), tb_mouse_right())
+TB_B(_Bool, mouse_middle, (int line), tb_mouse_middle())
 TB_B(long long, pad_count, (int line), tb_pad_count())
 TB_B(_Bool, pad_down, (long long n, const char *s, int line), tb_pad_down(n, s))
 TB_B(double, pad_axis, (long long n, const char *s, int line), tb_pad_axis(n, s))

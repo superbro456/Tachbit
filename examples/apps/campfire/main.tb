@@ -105,11 +105,11 @@ func main()
                 total += base[i] * scale
             state += mark + names[i] + "  "
         info = "1-5 вкл/выкл   + / - частиц   Q/E облететь   X свечение   пробел костёр по кругу"
-        draw_text(13, 13, info, rgb(0, 0, 0), 2)
-        draw_text(12, 12, info, rgb(255, 255, 255), 2)
+        draw_text(13, 13, info, 1, rgb(0, 0, 0))
+        draw_text(12, 12, info, 1, rgb(255, 255, 255))
         line = state + "  частиц: " + total + "   " + fps() + " к/с"
-        draw_text(13, 579, line, rgb(0, 0, 0), 2)
-        draw_text(12, 578, line, rgb(255, 255, 255), 2)
+        draw_text(13, 579, line, 1, rgb(0, 0, 0))
+        draw_text(12, 578, line, 1, rgb(255, 255, 255))
 
 func make(kinds: list text, base: list int, scale: int) gives ms: list int
     count i from 0 to len(kinds) - 1

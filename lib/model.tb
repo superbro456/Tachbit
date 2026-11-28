@@ -403,6 +403,14 @@ modpub func shader(md: Model, name: text)
         each lm in p.lods
             put_look(p, lm, name)
 
+// настройка шейдера (shader_set) всем кускам и их упрощённым копиям: model.setting(md, "fog_far", 90)
+modpub func setting(md: Model, name: text, value: dec)
+    each p in md.parts
+        if p.mesh >= 0
+            shader_set(p.mesh, name, value)
+        each lm in p.lods
+            shader_set(lm, name, value)
+
 // шейдер куску: для pbr — ещё картинки и настройки материала из файла
 func put_look(p: Part, m: int, name: text)
     if name == ""

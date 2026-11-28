@@ -1,0 +1,76 @@
+// готовая камера (1.4): use cam — и мышь с клавишами уже работают.
+//   tb run examples/basics/cam_demo.tb
+// 1 — вокруг точки: правая кнопка (на тачпаде Mac — щелчок двумя пальцами) крутит, колёсико приближает,
+//     средняя кнопка или Shift + правая двигают, WASD / стрелки двигают, Q / E крутят
+// 2 — от первого лица: щелчок прячет мышь, мышь — взгляд, WASD — ходить, Shift — бегом, Esc — отпустить мышь
+// 3 — за героем: стрелки ведут красный куб, правая кнопка крутит камеру вокруг него
+use cam
+
+func main()
+    try window_open(960, 600, "Камера")
+    box = mesh_new()
+    add_box(box, rgb(230, 190, 90))
+    hero = mesh_new()
+    add_box(hero, rgb(220, 60, 60))
+    ground = mesh_new()
+    count i from -10 to 9
+        count j from -10 to 9
+            col = rgb(80, 140, 70)
+            if (i + j) % 2 == 0
+                col = rgb(90, 150, 80)
+            mesh_add(ground, i * 4, 0, j * 4, i * 4, 0, j * 4 + 4, i * 4 + 4, 0, j * 4 + 4, col)
+            mesh_add(ground, i * 4, 0, j * 4, i * 4 + 4, 0, j * 4 + 4, i * 4 + 4, 0, j * 4, col)
+    mode = 1
+    c = cam.orbit(0, 0, 0, 22)
+    cam.limits(c, -40, -40, 40, 40)
+    hx = 0.0
+    hz = 0.0
+    repeat while window_alive()
+        dt = frame_ms() / 1000.0
+        if key_down("1") and mode != 1
+            mode = 1
+            mouse_lock(false)
+            c = cam.orbit(hx, 0, hz, 22)
+            cam.limits(c, -40, -40, 40, 40)
+        if key_down("2") and mode != 2
+            mode = 2
+            c = cam.first(hx, 1.7, hz - 10)
+        if key_down("3") and mode != 3
+            mode = 3
+            mouse_lock(false)
+            c = cam.follow(7, 3)
+        if mode == 3
+            // герой идёт туда, куда смотрит камера
+            sp = 8 * dt
+            if key_down("up")
+                hx += c.fx * sp
+                hz += c.fz * sp
+            if key_down("down")
+                hx -= c.fx * sp
+                hz -= c.fz * sp
+            if key_down("right")
+                hx += c.rx * sp
+                hz += c.rz * sp
+            if key_down("left")
+                hx -= c.rx * sp
+                hz -= c.rz * sp
+            cam.aim(c, hx, 1, hz)
+        cam.update(c)
+        sunlight(0.4, 1, -0.5, 0.4)
+        clear_window(rgb(150, 190, 230))
+        draw_mesh(ground, 0, 0, 0, 0)
+        count i from 0 to 24
+            draw_mesh(box, (i % 5) * 8 - 16, 1, (i / 5) * 8 - 16, i * 15)
+        draw_mesh(hero, hx, 1, hz, 0)
+        names = ["", "правая кнопка крутит, колёсико, WASD", "щелчок - мышь, WASD, Esc", "стрелки - идти, правая кнопка крутит"]
+        draw_text(12, 12, "1 2 3 - камера.  " + names[mode], 2, rgb(20, 30, 40))
+
+func add_box(m: int, col: int)
+    // куб 2 × 2 × 2 с центром в (0, 0, 0)
+    p = [[-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1], [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]]
+    f = [[0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7], [0, 1, 5], [0, 5, 4], [3, 7, 6], [3, 6, 2], [0, 4, 7], [0, 7, 3], [1, 2, 6], [1, 6, 5]]
+    each t in f
+        a = p[t[0]]
+        b = p[t[1]]
+        d = p[t[2]]
+        mesh_add(m, a[0], a[1], a[2], b[0], b[1], b[2], d[0], d[1], d[2], col)

@@ -1,0 +1,305 @@
+// cam — готовая камера для 3D (1.4): мышь, колёсико и клавиши уже разобраны, программе — одна строка в кадре.
+//
+//   use cam
+//   c = cam.orbit(0, 0, 0, 12)        // вокруг точки: правая кнопка крутит, колёсико приближает,
+//                                     // средняя кнопка (или Shift + правая) двигает, WASD / стрелки двигают, Q / E крутят
+//   c = cam.first(0, 1.7, -8)         // от первого лица: щелчок прячет мышь, мышь — взгляд, WASD — ходить, Esc — отпустить
+//   c = cam.follow(6, 2.5)            // за героем: cam.aim(c, x, y, z) каждый кадр, правая кнопка крутит вокруг героя
+//   repeat while window_alive()
+//       cam.update(c)                 // прочитать мышь и клавиши и поставить camera(...)
+//       ...
+//
+// Настройки — поля камеры: c.sens (градусов на точку мыши), c.speed (шагов в секунду), c.keys (клавиши вкл / выкл),
+// c.wasd (false — только стрелки: буквы нужны игре),
+// c.button ("right", "left", "middle", "none" — какой кнопкой крутить), c.smooth (0 — сразу, 12 — мягко).
+// После update: c.x c.y c.z — глаз, c.lx c.ly c.lz — куда смотрит, c.fx c.fz — «вперёд» по земле, c.rx c.rz — «вправо»
+// (ими удобно двигать героя туда, куда смотрит камера), c.turning — мышь сейчас крутит камеру (щелчок не для игры),
+// c.moved — камера сдвинулась в этом кадре.
+
+obj Eye
+    kind: text
+    // куда стремится камера
+    tx: dec
+    ty: dec
+    tz: dec
+    yaw: dec
+    pitch: dec
+    dist: dec
+    // что сейчас (плавно догоняет)
+    cx: dec
+    cy: dec
+    cz: dec
+    cyaw: dec
+    cpitch: dec
+    cdist: dec
+    // настройки
+    sens: dec
+    speed: dec
+    keys: bool
+    wasd: bool
+    button: text
+    smooth: dec
+    near_d: dec
+    far_d: dec
+    pitch_lo: dec
+    pitch_hi: dec
+    bound: bool
+    bx0: dec
+    bz0: dec
+    bx1: dec
+    bz1: dec
+    grab: bool
+    locked: bool
+    started: bool
+    // итог кадра
+    x: dec
+    y: dec
+    z: dec
+    lx: dec
+    ly: dec
+    lz: dec
+    fx: dec
+    fz: dec
+    rx: dec
+    rz: dec
+    turning: bool
+    moved: bool
+
+// вокруг точки (x, y, z) на расстоянии dist, сверху наискосок
+modpub func orbit(x: dec, y: dec, z: dec, dist: dec) gives c: Eye
+    c = base("orbit")
+    c.tx = x
+    c.ty = y
+    c.tz = z
+    c.dist = dist
+    c.near_d = dist * 0.15
+    c.far_d = dist * 4.0
+    c.pitch = -40.0
+    c.pitch_lo = -89.0
+    c.pitch_hi = -5.0
+
+// от первого лица: глаз в (x, y, z)
+modpub func first(x: dec, y: dec, z: dec) gives c: Eye
+    c = base("first")
+    c.tx = x
+    c.ty = y
+    c.tz = z
+    c.dist = 0.0
+    c.pitch = 0.0
+    c.pitch_lo = -85.0
+    c.pitch_hi = 85.0
+    c.speed = 5.0
+    c.smooth = 0.0
+    c.grab = true
+
+// за героем: на расстоянии dist, глаз выше героя на height (героя ставит cam.aim)
+modpub func follow(dist: dec, height: dec) gives c: Eye
+    c = base("follow")
+    c.dist = dist
+    c.near_d = dist * 0.3
+    c.far_d = dist * 3.0
+    c.pitch = 0.0 - atan2(height, dist) * 180.0 / pi()
+    c.pitch_lo = -80.0
+    c.pitch_hi = 10.0
+    c.keys = false
+
+func base(kind: text) gives c: Eye
+    c = Eye(kind: kind, sens: 0.25, speed: 10.0, keys: true, wasd: true, button: "right", smooth: 12.0)
+
+// куда смотреть (orbit, follow) или где стоять (first)
+modpub func aim(c: Eye, x: dec, y: dec, z: dec)
+    c.tx = x
+    c.ty = y
+    c.tz = z
+
+// повернуть: yaw — по кругу (0 — смотрим вдоль +z, 90 — вдоль +x), pitch — вверх (+) / вниз (−), в градусах
+modpub func turn(c: Eye, yaw: dec, pitch: dec)
+    c.yaw = yaw
+    c.pitch = max(c.pitch_lo, min(c.pitch_hi, pitch))
+
+// насколько близко и далеко можно приблизить колёсиком
+modpub func zoom_limits(c: Eye, near: dec, far: dec)
+    c.near_d = near
+    c.far_d = max(near, far)
+    c.dist = max(c.near_d, min(c.far_d, c.dist))
+
+// насколько можно наклонить вниз и поднять (градусы, вниз — минус)
+modpub func tilt_limits(c: Eye, lo: dec, hi: dec)
+    c.pitch_lo = lo
+    c.pitch_hi = max(lo, hi)
+    c.pitch = max(c.pitch_lo, min(c.pitch_hi, c.pitch))
+
+// точка, вокруг которой крутимся (или где стоим), не уходит из прямоугольника x0..x1, z0..z1
+modpub func limits(c: Eye, x0: dec, z0: dec, x1: dec, z1: dec)
+    c.bound = true
+    c.bx0 = min(x0, x1)
+    c.bz0 = min(z0, z1)
+    c.bx1 = max(x0, x1)
+    c.bz1 = max(z0, z1)
+
+// каждый кадр: мышь и клавиши → камера, и camera(...) поставлена
+modpub func update(c: Eye)
+    dt = frame_ms() / 1000.0
+    if dt > 0.1
+        dt = 0.1
+    // сдвиг мыши читаем всегда: иначе накопится и камера прыгнет, когда нажмут кнопку
+    mdx = mouse_dx() * 1.0
+    mdy = mouse_dy() * 1.0
+    right = mouse_right()
+    middle = mouse_middle()
+    shift = key_down("shift")
+    c.turning = false
+    if c.kind == "first"
+        if c.grab
+            if c.locked and key_down("escape")
+                mouse_lock(false)
+                c.locked = false
+            else if not c.locked and mouse_down()
+                mouse_lock(true)
+                c.locked = true
+        if c.locked or eye_held(c.button, right, middle)
+            c.yaw += mdx * c.sens
+            c.pitch -= mdy * c.sens
+            c.turning = true
+    else
+        pan = middle or (right and shift)
+        if pan
+            // тянем землю за мышью: чем дальше камера, тем больше шаг
+            k = c.dist * 0.0025
+            sx, sz = eye_dir(c.yaw)
+            c.tx -= (sz * mdx - sx * mdy) * k
+            c.tz -= (0.0 - sx * mdx - sz * mdy) * k
+            c.turning = true
+        else if eye_held(c.button, right, middle)
+            c.yaw += mdx * c.sens
+            c.pitch -= mdy * c.sens
+            c.turning = true
+        wh = mouse_wheel()
+        if wh != 0
+            c.dist = c.dist * pow(0.88, wh * 1.0)
+    // клавиши
+    if c.keys
+        f = 0.0
+        s = 0.0
+        if key_down("up") or (c.wasd and key_down("w"))
+            f += 1
+        if key_down("down") or (c.wasd and key_down("s"))
+            f -= 1
+        if key_down("right") or (c.wasd and key_down("d"))
+            s += 1
+        if key_down("left") or (c.wasd and key_down("a"))
+            s -= 1
+        sp = c.speed * dt
+        if shift and c.kind == "first"
+            sp = sp * 2
+        if c.kind == "orbit"
+            sp = sp * max(1.0, c.dist / 10.0)
+            if c.wasd and key_down("q")
+                c.yaw -= 90 * dt
+            if c.wasd and key_down("e")
+                c.yaw += 90 * dt
+        sx, sz = eye_dir(c.yaw)
+        c.tx += (sx * f + sz * s) * sp
+        c.tz += (sz * f - sx * s) * sp
+    c.pitch = max(c.pitch_lo, min(c.pitch_hi, c.pitch))
+    if c.kind != "first"
+        c.dist = max(c.near_d, min(c.far_d, c.dist))
+    if c.bound
+        c.tx = max(c.bx0, min(c.bx1, c.tx))
+        c.tz = max(c.bz0, min(c.bz1, c.tz))
+    // плавно догоняем
+    a = 1.0
+    if c.smooth > 0 and c.started
+        a = 1 - exp(0.0 - c.smooth * dt)
+    c.started = true
+    c.cx += (c.tx - c.cx) * a
+    c.cy += (c.ty - c.cy) * a
+    c.cz += (c.tz - c.cz) * a
+    c.cyaw += (c.yaw - c.cyaw) * a
+    c.cpitch += (c.pitch - c.cpitch) * a
+    c.cdist += (c.dist - c.cdist) * a
+    // куда смотрим
+    yr = c.cyaw * pi() / 180.0
+    pr = c.cpitch * pi() / 180.0
+    dx = sin(yr) * cos(pr)
+    dy = sin(pr)
+    dz = cos(yr) * cos(pr)
+    old = c.x + c.y * 3.1 + c.z * 7.3 + c.lx * 11.7 + c.ly * 13.1 + c.lz * 17.9
+    if c.kind == "first"
+        c.x = c.cx
+        c.y = c.cy
+        c.z = c.cz
+        c.lx = c.cx + dx
+        c.ly = c.cy + dy
+        c.lz = c.cz + dz
+    else
+        c.x = c.cx - dx * c.cdist
+        c.y = c.cy - dy * c.cdist
+        c.z = c.cz - dz * c.cdist
+        c.lx = c.cx
+        c.ly = c.cy
+        c.lz = c.cz
+    gx, gz = eye_dir(c.cyaw)
+    c.fx = gx
+    c.fz = gz
+    c.rx = gz
+    c.rz = 0.0 - gx
+    c.moved = abs(c.x + c.y * 3.1 + c.z * 7.3 + c.lx * 11.7 + c.ly * 13.1 + c.lz * 17.9 - old) > 0.00001
+    camera(c.x, c.y, c.z, c.lx, c.ly, c.lz)
+
+// кнопка, которой крутят, сейчас нажата?
+func eye_held(button: text, right: bool, middle: bool)
+    if button == "right"
+        return right
+    if button == "middle"
+        return middle
+    if button == "left"
+        return mouse_down()
+    if button == "always"
+        return true
+    return false
+
+// «вперёд» по земле для поворота yaw
+func eye_dir(yaw: dec) gives x: dec, z: dec
+    r = yaw * pi() / 180.0
+    x = sin(r)
+    z = cos(r)
+
+// точка земли (высота ground_y) под мышью: hit = false, если мышь смотрит в небо
+modpub func pick(c: Eye, mx: int, my: int, ground_y: dec) gives hit: bool, wx: dec, wz: dec
+    hit = false
+    wx = 0.0
+    wz = 0.0
+    sw = window_w()
+    sh = window_h()
+    fx = c.lx - c.x
+    fy = c.ly - c.y
+    fz = c.lz - c.z
+    l = sqrt(fx * fx + fy * fy + fz * fz)
+    if l < 0.000001 or sh <= 0
+        return
+    fx = fx / l
+    fy = fy / l
+    fz = fz / l
+    rx = fz
+    rz = 0.0 - fx
+    rl = sqrt(rx * rx + rz * rz)
+    if rl < 0.000001
+        return
+    rx = rx / rl
+    rz = rz / rl
+    ux = fy * rz
+    uy = fz * rx - fx * rz
+    uz = 0.0 - fy * rx
+    f = sh / 2.0 / tan(30.0 * pi() / 180.0)
+    a = (mx - sw / 2.0) / f
+    b = (sh / 2.0 - my) / f
+    dx = fx + rx * a + ux * b
+    dy = fy + uy * b
+    dz = fz + rz * a + uz * b
+    if dy > -0.000001
+        return
+    t = (ground_y - c.y) / dy
+    wx = c.x + dx * t
+    wz = c.z + dz * t
+    hit = true

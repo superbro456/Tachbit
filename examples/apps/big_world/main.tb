@@ -20,7 +20,7 @@ func main()
         make_folder(folder) else err
             print("не сделать папку " + folder + ": " + err)
             return
-        draw_text(20, 20, "делаю куски мира...", rgb(255, 255, 255), 2)
+        draw_text(20, 20, "делаю куски мира...", 1, rgb(255, 255, 255))
         count i from 0 to n - 1
             count j from 0 to n - 1
                 write_file(folder + "/c_" + i + "_" + j + ".obj", chunk(i, j, size)) else err
@@ -78,15 +78,21 @@ func main()
 
         loaded, loads, frees = stream.stats(w)
         line = "кусков в памяти: " + loaded + " из " + n * n + "   загружено: " + loads + "   отдано: " + frees + "   нарисовано сеток: " + mesh_drawn() + "   " + fps() + " к/с"
-        draw_text(13, 579, line, rgb(0, 0, 0), 2)
-        draw_text(12, 578, line, rgb(255, 255, 255), 2)
+        draw_text(13, 579, line, 1, rgb(0, 0, 0))
+        draw_text(12, 578, line, 1, rgb(255, 255, 255))
         info = "W/S вперёд/назад  A/D поворот  R/F выше/ниже  L упрощённые копии: " + yes_no(lod_on)
-        draw_text(13, 13, info, rgb(0, 0, 0), 2)
-        draw_text(12, 12, info, rgb(255, 255, 255), 2)
+        draw_text(13, 13, info, 1, rgb(0, 0, 0))
+        draw_text(12, 12, info, 1, rgb(255, 255, 255))
 
 func make_world(folder: text, n: int, size: int, lod_on: bool) gives w: World
     w = stream.new(110.0, 4.0)
     stream.look(w, "standard")
+    // туман цвета неба: дальние куски тают в нём, и не видно, как они появляются
+    stream.setting(w, "fog_near", 55.0)
+    stream.setting(w, "fog_far", 105.0)
+    stream.setting(w, "fog_r", 170 / 255.0)
+    stream.setting(w, "fog_g", 195 / 255.0)
+    stream.setting(w, "fog_b", 225 / 255.0)
     if lod_on
         stream.detail(w, 0.2, 45)
     count i from 0 to n - 1

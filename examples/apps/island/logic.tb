@@ -7,6 +7,9 @@ modpub func new_game(level: int) gives g: Game
     g = Game(level: level, name: level_name(level), wave: -1, fort: 1, money: 250 + 60 * level, state: "build", speed: 1, tool: "", sel: "", hov_c: -1, hov_r: -1)
     g.lives = fort_lives(1)
     g.max_lives = g.lives
+    if level == workshop()
+        // мастерская: денег без счёта — строй и улучшай всё до последних уровней
+        g.money = 1000000
     g.cam = Cam()
     count k from 1 to troop_count()
         g.troop_lvl.add(1)

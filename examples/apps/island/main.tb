@@ -6,6 +6,8 @@
 //   main.tb    — этот файл: соединяет всё в цикл «ввод → правила → вывод»
 //
 // Запуск: tb run examples/apps/island/main.tb
+// Камера: правая кнопка мыши (на тачпаде Mac — щелчок двумя пальцами) крутит, колёсико — ближе / дальше,
+// стрелки — двигать, средняя кнопка или Shift + правая — тянуть остров
 use ui
 use view
 use data
@@ -21,7 +23,10 @@ func main()
     lk = try view3d.load_look()
     g = new_game(to_int(env("ISLAND_LEVEL")) or 0)
     view3d.setup(g, lk)
+    eye = view3d.make_eye(g)
+    g.eye_ok = true
     page = "menu"
+    lk.mood = to_int(env("ISLAND_MOOD")) or 0
     if env("ISLAND_PAGE") != ""
         page = env("ISLAND_PAGE")
     t = 0.0
@@ -50,6 +55,12 @@ func main()
             ay = 0
             aw = sw
             ah = sh
+        // ---- камера: правая кнопка крутит, колёсико ближе / дальше, стрелки двигают; в меню сама кружит ----
+        if view3d.ready()
+            if not g.eye_ok
+                eye = view3d.make_eye(g)
+                g.eye_ok = true
+            view3d.move_eye(g, eye, page == "menu" and not demo)
         // ---- ввод: клетка под мышью ----
         mx = mouse_x()
         my = mouse_y()
@@ -67,6 +78,8 @@ func main()
         was_down = down
         if page == "hud"
             keys_in(g, keys)
+            if pressed_key(keys, "n")
+                view3d.next_mood(lk)
             if pressed_key(keys, "escape")
                 g.paused = true
                 page = "pause"
@@ -92,7 +105,7 @@ func main()
         view.screen(u, v, page)
         // ---- кнопки интерфейса ----
         if page == "menu"
-            count n from 0 to 2
+            count n from 0 to level_count()
                 if view.pressed(v, "lv" + n)
                     g = new_game(n)
                     view3d.setup(g, lk)
@@ -179,7 +192,7 @@ func choose(g: Game, tool: text)
         g.tool = tool
         g.sel = ""
 
-// клавиши: 1–3 строить, Q W E нанять, G флаг, пробел волна, F скорость, U улучшить, X продать, Esc пауза
+// клавиши: 1–3 строить, Q W E нанять, G флаг, пробел волна, F скорость, U улучшить, X продать, N вид (простой, тени, вечер, ночь), Esc пауза
 func keys_in(g: Game, keys: dict text bool)
     count k from 0 to build_count() - 1
         if pressed_key(keys, "" + (k + 1))

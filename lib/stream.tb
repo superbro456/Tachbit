@@ -6,6 +6,7 @@
 //   w = stream.new(120.0, 4.0)                  // грузить ближе 120, тратить на это до 4 мс за кадр
 //   stream.add(w, "куски/3_5.obj", 48, 0, 80, 0) // файл модели (.obj, .gltf, .glb) и где он стоит в мире
 //   stream.look(w, "standard")                  // свой шейдер всем кускам (необязательно)
+//   stream.setting(w, "fog_far", 100)            // его настройка всем кускам
 //   stream.detail(w, 0.25, 50)                  // дальше 50 — упрощённая копия (mesh_simplify), углов вчетверо меньше
 //   repeat while window_alive()
 //       stream.update(w, камера_x, камера_z)
@@ -28,6 +29,8 @@ obj World
     keep: dec
     budget: dec
     shader: text
+    set_names: list text
+    set_values: list dec
     lod_keep: dec
     lod_dist: dec
     loaded: int
@@ -46,6 +49,20 @@ modpub func add(w: World, path: text, x: dec, y: dec, z: dec, turn: dec)
 // свой шейдер всем кускам (как model.shader); "" — обычные сетки
 modpub func look(w: World, shader_name: text)
     w.shader = shader_name
+
+// настройка шейдера всем кускам (как model.setting): stream.setting(w, "fog_far", 100) — и тем, что уже в памяти
+modpub func setting(w: World, name: text, value: dec)
+    found = false
+    count i from 0 to len(w.set_names) - 1
+        if w.set_names[i] == name
+            w.set_values[i] = value
+            found = true
+    if not found
+        w.set_names.add(name)
+        w.set_values.add(value)
+    each p in w.pieces
+        if p.loaded
+            model.setting(p.md, name, value)
 
 // упрощённые копии для дальних кусков (model.lod): доля углов keep, с расстояния distance
 modpub func detail(w: World, keep: dec, distance: dec)
@@ -85,6 +102,8 @@ modpub func update(w: World, cx: dec, cz: dec)
         model.build(md)
         if w.shader != ""
             model.shader(md, w.shader)
+            count i from 0 to len(w.set_names) - 1
+                model.setting(md, w.set_names[i], w.set_values[i])
         if w.lod_keep > 0.0 and w.lod_dist > 0.0
             model.lod(md, w.lod_keep, w.lod_dist)
         model.far(md, w.keep)
